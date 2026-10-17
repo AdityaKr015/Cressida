@@ -12,6 +12,7 @@
 #include "render/scene/input_area.h"
 #include "render/scene/rect_node.h"
 #include "render/scene/text_node.h"
+#include "ui/controls/scrollbar.h"
 #include "ui/palette.h"
 
 #include <algorithm>
@@ -51,6 +52,87 @@ namespace app {
         demoInteractionStep();
       if (m_demo && m_demoOverlay == "gif-cycle")
         demoGifStep();
+      if (m_demo && m_demoOverlay == "unread-cycle") {
+        const auto step = m_demoInteractionStep++;
+        const auto first = m_unreadTimeline.first(m_messages);
+        const bool banner = std::ranges::any_of(m_hits, [](const auto& hit) { return hit.action == Action::MarkRead; });
+        const float chrome = m_window.titlebarHeight() - 36;
+        auto clickAction = [&](Action action) {
+          const auto at = std::ranges::find(m_hits, action, &Hit::action);
+          if (at == m_hits.end())
+            throw std::runtime_error("Unread banner action is missing");
+          const float x = at->x + at->width / 2, y = at->y + at->height / 2 + chrome;
+          m_window.motion(x, y);
+          m_window.click(x, y, 272);
+          m_window.released();
+        };
+        auto newMessage = [&](const std::string& id) {
+          const auto previous = m_messages.back().id;
+          m_messages.push_back({id, m_channelId, "Maya", "Another new message.", "2026-10-17T11:19:00Z"});
+          m_unreadTimeline.snapshot({{m_channelId, {previous, id}}});
+          m_scrolling.stop(m_messageScroll);
+          m_messageScroll = m_messageMaxScroll / 2;
+        };
+        if (step == 0) {
+          if (!first
+              || !banner
+              || m_messageTops.at(m_messages[*first].id) < m_messageViewportTop
+              || m_messageTops.at(m_messages[*first].id) > m_messageViewportTop + 80)
+            throw std::runtime_error("Opening unread history must show its boundary and top banner");
+          const auto* bar = static_cast<Scrollbar*>(m_widgets.at("chat-scrollbar"));
+          const auto* thumb = bar->children()[1].get();
+          if (!bar->visible())
+            throw std::runtime_error("Overflowing chat must have a native scrollbar");
+          const float x = bar->x() + bar->width() / 2;
+          const float y = bar->y() + thumb->y() + thumb->height() / 2 + chrome;
+          m_window.motion(x, y);
+          m_window.click(x, y, 272);
+          m_window.motion(x, y + 100);
+        } else if (step == 1) {
+          if (!banner || m_messageScroll >= m_messageMaxScroll - 300)
+            throw std::runtime_error("Dragging the scrollbar must move the chat");
+          // Continue the same pointer capture after the scene has been rebuilt.
+          m_window.motion(m_pointerX, m_window.height() * 3);
+          m_window.released();
+        } else if (step == 2) {
+          if (first || banner || m_messageScroll > 1)
+            throw std::runtime_error("Reaching the newest message must clear both unread indicators");
+          m_window.motion(450, 300 + chrome);
+          m_window.scroll(-120);
+        } else if (step == 3) {
+          if (first || banner)
+            throw std::runtime_error("Scrolling back up must not resurrect read indicators");
+          newMessage("1030");
+        } else if (step == 4) {
+          if (!first || *first != m_messages.size() - 1 || !banner)
+            throw std::runtime_error("A later unread batch must start at its own boundary");
+          clickAction(Action::MarkRead);
+        } else if (step == 5) {
+          if (first || banner)
+            throw std::runtime_error("Mark as Read must clear the divider and banner while scrolled up");
+          m_unreadTimeline.snapshot({{m_channelId, {"1029", "1030"}}});
+          if (m_unreadTimeline.unread())
+            throw std::runtime_error("A delayed Gateway snapshot must not undo a local read");
+          newMessage("1031");
+        } else if (step == 6) {
+          if (!first || !banner)
+            throw std::runtime_error("New arrivals after an acknowledgement must remain visible");
+          clickAction(Action::JumpUnread);
+        } else if (step == 7) {
+          if (first || banner)
+            throw std::runtime_error("Jumping to the newest unread message must catch up");
+          m_unreadTimeline.snapshot({{m_channelId, {"1001", "1031"}}}, m_channelId);
+          m_localRead.erase(m_channelId);
+          m_messageScroll = m_messageMaxScroll / 2;
+        } else if (step == 8) {
+          if (!first || !banner)
+            throw std::runtime_error("An explicit manual rewind must restore unread indicators");
+          m_unreadTimeline.snapshot({});
+        } else if (first || banner)
+          throw std::runtime_error("Another device reading the channel must clear both indicators");
+        std::clog << "Offline unread replay step " << step + 1 << " passed\n";
+        m_window.invalidate();
+      }
       if (m_demo && m_demoOverlay == "scroll-cycle") {
         const auto step = m_demoInteractionStep++ % 16;
         if (step == 0 || step == 4 || step == 8 || step == 12) {
@@ -287,7 +369,12 @@ namespace app {
             || std::string_view(view) == "gif-cycle"
             || std::string_view(view) == "scroll-cycle");
     m_window.run(
-        m_client.eventFd(), [this] { tick(); }, smokeTest ? (interactionCycle ? 64 : 1) : 0, m_assets.eventFd()
+        m_client.eventFd(), [this] { tick(); },
+        smokeTest ? (m_demo && view && std::string_view(view) == "unread-cycle" ? 10
+                         : interactionCycle                                     ? 64
+                                                                                : 1)
+                  : 0,
+        m_assets.eventFd()
     );
     m_client.disconnect();
     return 0;
@@ -422,6 +509,30 @@ namespace app {
             m_gifFavoritesTab = view == "gif-favorites";
             m_focusedInput = "gif-search";
           }
+        } else if (
+            view == "unread-divider"
+            || view == "unread-divider-light"
+            || view == "unread-jump"
+            || view == "unread-cycle"
+        ) {
+          if (view == "unread-divider-light")
+            m_preferences.theme = "light";
+          m_messages.clear();
+          const bool longHistory = view == "unread-jump" || view == "unread-cycle";
+          for (int i = 0; i < (longHistory ? 30 : 6); ++i)
+            m_messages.push_back(
+                {std::to_string(1000 + i), m_channelId, i % 2 ? "Maya" : "Alex",
+                 i < 2 ? "A message from before your last visit."
+                       : "Something new in the conversation.\nA little room to catch up with everyone.",
+                 "2026-10-17T09:41:00Z"}
+            );
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({{m_channelId, {"1001", m_messages.back().id}}});
+          m_unreadTimeline.open(m_channelId);
+          if (view == "unread-jump")
+            m_unreadTimeline.positioned();
+          if (view == "unread-cycle")
+            m_demoOverlay = view;
         } else if (
             view == "images-loading"
             || view == "images-loading-light"
@@ -1048,7 +1159,8 @@ namespace app {
       const float replyHeight = m_replies.contains(m_channelId) ? 34 : 0;
       const float composerHeight = m_draftHeight + 24 + attachmentHeight + replyHeight;
       const float composerY = h - 30 - composerHeight;
-      const float top = 122, bottom = composerY - 16, textWidth = std::max(32.0F, bodyWidth - 104);
+      float top = m_unreadTimeline.unread() ? 166 : 122;
+      const float bottom = composerY - 16, textWidth = std::max(32.0F, bodyWidth - 104);
       const MessageMeasure measure = [&](std::string_view text, const MessageStyle& style) {
         return m_window.target()
             .renderer()
@@ -1064,7 +1176,9 @@ namespace app {
       content->setClipChildren(true);
       std::vector<float> heights;
       std::vector<const MessageLayout*> layouts;
-      float totalHeight = 24;
+      auto unreadIndex = m_unreadTimeline.first(m_messages);
+      constexpr float unreadHeight = 36;
+      float totalHeight = 24 + (unreadIndex ? unreadHeight : 0);
       for (const auto& message : m_messages) {
         auto& cached = m_messageLayouts[message.id];
         const auto& renderer = m_window.target().renderer();
@@ -1106,9 +1220,60 @@ namespace app {
       }
       m_messageMaxScroll = std::max(0.0F, totalHeight - (bottom - top));
       m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
+      if (m_unreadTimeline.positionPending() && !m_unreadTimeline.waiting() && !m_loadingMessages) {
+        if (unreadIndex) {
+          float preceding = 12;
+          for (std::size_t i = 0; i < *unreadIndex; ++i)
+            preceding += heights[i];
+          m_scrolling.stop(m_messageScroll);
+          m_messageScroll = std::clamp(m_messageMaxScroll - preceding, 0.0F, m_messageMaxScroll);
+        }
+        m_unreadTimeline.positioned();
+      }
+      // Clear the banner and divider in this frame, after opening unread history
+      // at its boundary. Do not acknowledge while a wheel gesture is leaving bottom.
+      if ((!m_demo || m_demoOverlay == "unread-cycle")
+          && !m_unreadTimeline.waiting()
+          && !m_unreadTimeline.positionPending()
+          && !m_loadingMessages
+          && readingChannel(m_channelId)
+          && m_scrolling.target(m_messageScroll) <= 1
+          && markChannelRead()) {
+        if (unreadIndex && !m_unreadTimeline.unread()) {
+          totalHeight -= unreadHeight;
+          unreadIndex.reset();
+        }
+        if (!m_unreadTimeline.unread())
+          top = 122;
+        m_messageMaxScroll = std::max(0.0F, totalHeight - (bottom - top));
+        m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
+      }
+      m_messageViewportTop = top;
+      content->setPosition(left + 24, top);
+      content->setSize(bodyWidth - 48, std::max(0.0F, bottom - top));
       float y = std::min(0.0F, bottom - top - totalHeight) + m_messageScroll + 12;
       for (std::size_t i = 0; i < m_messages.size(); ++i) {
         const auto& message = m_messages[i];
+        if (unreadIndex && i == *unreadIndex) {
+          if (y + unreadHeight >= 0 && y < bottom - top) {
+            const float width = bodyWidth - 48;
+            const float caption =
+                m_window.target().renderer().measureText("New messages", 12, FontWeight::SemiBold).width;
+            const float chipWidth = caption + 44, chipX = (width - chipWidth) / 2;
+            const float sideWidth = std::max(0.0F, chipX - 12);
+            for (int segment = 0; segment < 8; ++segment) {
+              const float length = sideWidth / 8;
+              const auto color = lerpColor(background, accent, 0.12F + segment * 0.065F);
+              rectangle(*content, segment * length, y + 17, length + 0.5F, 1, color);
+              rectangle(*content, width - (segment + 1) * length, y + 17, length + 0.5F, 1, color);
+            }
+            rectangle(*content, chipX, y + 5, chipWidth, 25, lerpColor(background, accent, 0.28F), 12.5F);
+            rectangle(*content, chipX + 1, y + 6, chipWidth - 2, 23, lerpColor(background, accent, 0.08F), 11.5F);
+            glyph(*content, chipX + 11, y + 10, 14, "sparkles", accent);
+            label(*content, chipX + 32, y + 10, caption + 2, "New messages", 12, accent, FontWeight::SemiBold);
+          }
+          y += unreadHeight;
+        }
         const float originalY = y;
         m_messageTops[message.id] = top + y;
         if (y + heights[i] >= 0 && y <= bottom - top) {
@@ -1341,6 +1506,58 @@ namespace app {
         );
       }
       root.addChild(std::move(content));
+      if (m_unreadTimeline.unread()) {
+        std::string caption = "New messages";
+        if (unreadIndex) {
+          const auto count = m_messages.size() - *unreadIndex;
+          caption = std::to_string(count)
+              + (m_unreadTimeline.estimated(m_messages) ? "+" : "")
+              + (count == 1 ? " new message" : " new messages");
+          const auto& timestamp = m_messages[*unreadIndex].timestamp;
+          if (timestamp.size() >= 16)
+            caption += " since " + timestamp.substr(11, 5);
+        }
+        const float x = left + 16, y = 110, width = bodyWidth - 32;
+        const float readWidth = 144;
+        const bool over = hovered(x, y, width - readWidth, 36);
+        rectangle(root, x, y, width, 36, lerpColor(background, accent, 0.3F), 8);
+        if (over)
+          rectangle(root, x, y, width - readWidth, 36, lerpColor(background, accent, 0.4F), 8);
+        glyph(root, x + 12, y + 10, 16, "arrow-down", foreground);
+        label(
+            root, x + 36, y + 10, std::max(1.0F, width - readWidth - 48), caption, 12, foreground, FontWeight::Medium
+        );
+        m_hits.push_back({x, y, width - readWidth, 36, Action::JumpUnread, {}});
+        const float readX = x + width - readWidth;
+        if (hovered(readX, y, readWidth, 36))
+          rectangle(root, readX, y, readWidth, 36, lerpColor(background, accent, 0.5F), 8);
+        label(root, readX + 12, y + 10, readWidth - 40, "Mark as Read", 12, foreground, FontWeight::SemiBold);
+        glyph(root, x + width - 28, y + 10, 16, "checks", foreground);
+        m_hits.push_back({readX, y, readWidth, 36, Action::MarkRead, {}});
+      }
+      if (!m_settingsOpen && m_viewImage.empty()) {
+        const std::string id = "chat-scrollbar";
+        std::unique_ptr<Node> owned;
+        if (auto stored = m_detachedInputs.find(id); stored != m_detachedInputs.end()) {
+          owned = std::move(stored->second);
+          m_detachedInputs.erase(stored);
+        } else {
+          auto bar = std::make_unique<Scrollbar>();
+          bar->setTrackInset(4);
+          bar->setOnScrollChanged([this](float offset) {
+            m_scrolling.stop(m_messageScroll);
+            m_messageScroll = std::clamp(m_messageMaxScroll - offset, 0.0F, m_messageMaxScroll);
+            m_window.invalidate();
+          });
+          owned = std::move(bar);
+        }
+        auto* bar = static_cast<Scrollbar*>(owned.get());
+        m_widgets[id] = bar;
+        bar->setPosition(left + bodyWidth - 12, top);
+        bar->setSize(bar->reservedThickness(), std::max(0.0F, bottom - top));
+        bar->update(std::max(0.0F, bottom - top), totalHeight, m_messageMaxScroll - m_messageScroll);
+        root.addChild(std::move(owned));
+      }
       rectangle(root, left + 22, composerY, bodyWidth - 44, composerHeight, m_fieldFocused ? raised : panel, 14);
       if (replyHeight) {
         const auto& reply = m_replies.at(m_channelId);
@@ -1522,14 +1739,6 @@ namespace app {
     drawContext(root, w, h);
     drawTooltip(root, w, h);
     finishControls();
-    if (!m_demo && readingChannel(m_channelId) && !m_messages.empty()) {
-      const auto& latest = m_messages.back();
-      if (m_localRead[m_channelId] != latest.id && m_client.acknowledge(m_channelId, latest.id)) {
-        m_localRead[m_channelId] = latest.id;
-        m_unreadChannels.erase(m_channelId);
-        m_unreadDMs.erase(m_channelId);
-      }
-    }
     updateCursor();
     m_window.context().renderScene(m_window.target(), m_scene.get());
     if (m_animationDelay != std::chrono::milliseconds::max())
@@ -1659,11 +1868,26 @@ namespace app {
   bool ClientApplication::readingChannel(const std::string& channel) const {
     return m_connected
         && channel == m_channelId
-        && m_window.active()
+        && (m_window.active() || (m_demo && m_demoOverlay == "unread-cycle"))
         && !m_settingsOpen
         && m_dialogKind.empty()
         && m_viewImage.empty()
         && m_messageScroll <= 1;
+  }
+  bool ClientApplication::markChannelRead(bool explicitAction) {
+    if (m_channelId.empty() || m_messages.empty())
+      return false;
+    const auto& latest = m_messages.back().id;
+    if (!explicitAction && m_localRead[m_channelId] == latest)
+      return false;
+    if (!m_demo && !m_client.acknowledge(m_channelId, latest))
+      return false;
+    m_localRead[m_channelId] = latest;
+    m_unreadTimeline.acknowledged(m_channelId, latest);
+    m_unreadChannels.erase(m_channelId);
+    m_unreadDMs.erase(m_channelId);
+    m_unreadGuilds.erase(m_channelId);
+    return true;
   }
   void ClientApplication::cacheChannel() {
     if (m_channelId.empty())
@@ -1690,6 +1914,7 @@ namespace app {
     m_dmMode = false;
     m_guildId = id;
     m_channelId.clear();
+    m_unreadTimeline.open({});
     m_channels.clear();
     m_messages.clear();
     m_messageLayouts.clear();
@@ -1734,6 +1959,7 @@ namespace app {
     m_dmMode = true;
     m_guildId.clear();
     m_channelId.clear();
+    m_unreadTimeline.open({});
     m_channels = m_privateChannels;
     m_messages.clear();
     m_messageLayouts.clear();
@@ -1766,6 +1992,7 @@ namespace app {
     m_controlInput.setFocus(nullptr);
     m_focusedInput = "composer";
     m_channelId = id;
+    m_unreadTimeline.open(id);
     m_lastChannels[m_guildId.empty() ? "@me" : m_guildId] = id;
     m_edit.end(m_drafts[id]);
     m_attachmentScroll = 0;
@@ -1986,6 +2213,7 @@ namespace app {
         m_unreadChannels.clear();
         m_unreadGuilds.clear();
         m_localRead.clear();
+        m_unreadTimeline.reset();
         m_guilds.clear();
         m_channels.clear();
         m_messages.clear();
@@ -2091,11 +2319,16 @@ namespace app {
           m_loadingChannels = m_client.channels(m_guildId);
         }
       } else if (event.operation == discord::Operation::ReadState) {
+        m_unreadTimeline.snapshot(std::move(event.unreadCursors), event.resource);
+        if (event.resource == "reset")
+          m_localRead.clear();
+        else if (!event.resource.empty())
+          m_localRead.erase(event.resource);
         m_unreadChannels.clear();
         m_unreadDMs.clear();
         m_unreadGuilds = std::move(event.unread);
         for (const auto& [id, guild] : m_unreadGuilds) {
-          if (readingChannel(id))
+          if (!m_unreadTimeline.cursor(id))
             continue;
           m_unreadChannels.insert(id);
           if (guild.empty()
@@ -2340,6 +2573,14 @@ namespace app {
         m_sentGif = false;
         m_pendingReply.reset();
         m_pendingAttachments.clear();
+      }
+      if (event.operation == discord::Operation::Acknowledge && !event.error.empty()) {
+        m_unreadTimeline.failed(event.resource, event.messageId);
+        if (m_unreadTimeline.cursor(event.resource)) {
+          m_unreadChannels.insert(event.resource);
+          if (std::ranges::find(m_privateChannels, event.resource, &discord::Channel::id) != m_privateChannels.end())
+            m_unreadDMs.insert(event.resource);
+        }
       }
       if (!event.error.empty())
         m_status = event.error;
@@ -2737,6 +2978,19 @@ namespace app {
         m_settingsStatus.clear();
       }
       break;
+    case Action::JumpUnread:
+      if (const auto first = m_unreadTimeline.first(m_messages)) {
+        const auto at = m_messageTops.find(m_messages[*first].id);
+        if (at != m_messageTops.end()) {
+          m_scrolling.stop(m_messageScroll);
+          m_messageScroll =
+              std::clamp(m_messageScroll + m_messageViewportTop + 36 - at->second, 0.0F, m_messageMaxScroll);
+        }
+      }
+      break;
+    case Action::MarkRead:
+      markChannelRead(true);
+      break;
     case Action::Preference:
       if (hit.id.starts_with("theme:"))
         m_preferences.theme = hit.id.substr(6);
@@ -3035,6 +3289,7 @@ namespace app {
       m_unreadChannels.clear();
       m_unreadGuilds.clear();
       m_localRead.clear();
+      m_unreadTimeline.reset();
       m_guildChannels.clear();
       m_channelCacheOrder.clear();
       m_channelMessages.clear();

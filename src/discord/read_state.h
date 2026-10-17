@@ -4,6 +4,10 @@
 #include <string>
 
 namespace discord {
+  struct UnreadCursor {
+    std::string after, latest;
+    bool operator==(const UnreadCursor&) const = default;
+  };
   // Gateway-owned channel read state. Numeric snowflakes compare without overflow.
   class ReadState {
   public:
@@ -12,6 +16,7 @@ namespace discord {
     void message(const nlohmann::json& value, const std::string& self);
     void acknowledge(const nlohmann::json& value);
     std::map<std::string, std::string> unread() const;
+    std::map<std::string, UnreadCursor> unreadCursors() const;
 
   private:
     struct Entry {

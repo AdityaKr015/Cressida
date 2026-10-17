@@ -428,9 +428,11 @@ namespace discord {
         event.users = std::move(users);
         publish(std::move(event));
       }
-      auto publishReads = [&] {
+      auto publishReads = [&](std::string rewind = {}) {
         Event state{.operation = Operation::ReadState, .session = session};
+        state.resource = std::move(rewind);
         state.unread = m_readState.unread();
+        state.unreadCursors = m_readState.unreadCursors();
         publish(std::move(state));
       };
       if (type == "CHANNEL_UNREAD_UPDATE") {
@@ -439,7 +441,7 @@ namespace discord {
         publishReads();
       } else if (type == "MESSAGE_ACK") {
         m_readState.acknowledge(data);
-        publishReads();
+        publishReads(data.value("manual", false) ? data.value("channel_id", "") : "");
       } else if (type == "PRESENCE_SENT") {
         Event event{.operation = Operation::PresenceChanged, .session = session};
         event.presence = Presence{data.value("status", "unknown"), data.value("text", "")};
@@ -453,7 +455,7 @@ namespace discord {
           if (data.contains("user"))
             m_self = data["user"].value("id", "");
           m_readState.ready(data);
-          publishReads();
+          publishReads("reset");
         }
         publish(Event{.operation = Operation::Gateway, .session = session, .live = true});
         if (data.contains("users"))
@@ -673,6 +675,8 @@ namespace discord {
           || (command.operation == Operation::SavePresence && command.presenceRevision != m_presenceRevision))
         continue;
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
+      if (command.operation == Operation::Acknowledge)
+        event.messageId = command.content;
       Transfer transfer{{}, stop, &m_session, command.session, connection.get()};
       event.restoredLogin = command.restoredLogin;
       bool saveCredential = false;

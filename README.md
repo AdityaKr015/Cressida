@@ -132,6 +132,12 @@ Unread channels have brighter, bold names and an edge marker. Incoming DMs appea
 as avatar shortcuts above servers. Read state follows login and acknowledgements
 from other clients; this client acknowledges messages when their latest timeline
 is visible in the focused window.
+An accent divider marks new messages within the conversation. A wide banner at
+its top shows the unread count and time; click it to jump to the first loaded
+unread message, or choose **Mark as Read**. Both indicators disappear when you
+catch up, mark the conversation read, or read it on another device. Counts use
+**+** when older unread history falls outside the loaded messages. A draggable
+scrollbar on the right lets you move through the chat.
 
 The composer grows with your draft. Its clipboard glyph pastes text or an image;
 the smile glyph opens the emoji picker, and **GIF** opens the GIF picker.

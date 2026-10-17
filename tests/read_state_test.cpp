@@ -37,7 +37,13 @@ int main() {
         state.unread() == std::map<std::string, std::string>{{"10", "1"}, {"20", ""}},
         "Initial unread channels compare numeric snowflakes; ignore non-channel states"
     );
+    require(
+        state.unreadCursors()
+            == std::map<std::string, discord::UnreadCursor>{{"10", {"99", "100"}}, {"20", {"899", "900"}}},
+        "Unread snapshots expose exact read cursors, without unrelated channel states"
+    );
     state.acknowledge(json{{"channel_id", "10"}, {"message_id", "100"}});
+    require(!state.unreadCursors().contains("10"), "Read cursor snapshots omit acknowledged channels");
     require(!state.unread().contains("10"), "Another client's read acknowledgement clears channel state");
     state.channels(json::array({{{"id", "10"}, {"last_message_id", "101"}}}), "1");
     require(state.unread().contains("10"), "Passive channel updates mark new messages unread");

@@ -88,4 +88,14 @@ namespace discord {
         result[id] = entry.guild;
     return result;
   }
+  std::map<std::string, UnreadCursor> ReadState::unreadCursors() const {
+    std::map<std::string, UnreadCursor> result;
+    for (const auto& [id, entry] : m_channels)
+      if (entry.mentions > 0 || (!entry.latest.empty() && newer(entry.latest, entry.acknowledged)))
+        result[id] = {
+            validSnowflake(entry.acknowledged) ? entry.acknowledged : "",
+            validSnowflake(entry.latest) ? entry.latest : ""
+        };
+    return result;
+  }
 } // namespace discord

@@ -214,3 +214,5 @@ scroll_test = executable('scroll_motion_test', 'tests/scroll_motion_test.cpp', d
 test('scroll_motion', scroll_test)
 emoji_test = executable('emoji_catalog_test', 'tests/emoji_catalog_test.cpp', link_with: emoji_catalog, dependencies: [backend_dep, markdown_dep])
 test('emoji_catalog', emoji_test, args: [meson.project_source_root() / 'assets'])
+unread_timeline_test = executable('unread_timeline_test', 'tests/unread_timeline_test.cpp', dependencies: backend_dep)
+test('unread_timeline', unread_timeline_test)

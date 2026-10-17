@@ -5,6 +5,7 @@
 #include "app/scroll_motion.h"
 #include "app/session_store.h"
 #include "app/text_edit.h"
+#include "app/unread_timeline.h"
 #include "app/window.h"
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
@@ -41,6 +42,8 @@ namespace app {
       SaveProfile,
       ResetProfile,
       Preference,
+      JumpUnread,
+      MarkRead,
       SetPresence,
       TogglePresence,
       SaveCustomStatus,
@@ -342,6 +345,7 @@ namespace app {
     std::set<std::string> m_collapsedCategories;
     std::set<std::string> m_unreadDMs, m_unreadChannels;
     std::map<std::string, std::string> m_unreadGuilds, m_localRead;
+    UnreadTimeline m_unreadTimeline;
     std::map<std::string, std::vector<discord::Channel>> m_guildChannels;
     std::map<std::string, std::vector<discord::Message>> m_channelMessages;
     std::vector<std::string> m_channelCacheOrder;
@@ -353,6 +357,7 @@ namespace app {
     std::map<std::string, std::string> m_lastChannels;
     void cacheChannel();
     bool readingChannel(const std::string& channel) const;
+    bool markChannelRead(bool explicitAction = false);
     std::vector<discord::Message> m_messages;
     struct CachedMessageLayout {
       MessageLayout layout;
@@ -423,5 +428,6 @@ namespace app {
     std::vector<Hit> m_hits;
     float m_pointerX = 0, m_pointerY = 0;
     float m_guildScroll = 0, m_channelScroll = 0, m_messageScroll = 0, m_messageMaxScroll = 0, m_memberScroll = 0;
+    float m_messageViewportTop = 122;
   };
 } // namespace app

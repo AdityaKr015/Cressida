@@ -81,6 +81,7 @@ namespace discord {
     std::optional<SettingValues> settings;
     std::vector<SettingsEntry> settingsEntries;
     std::map<std::string, std::string> unread;
+    std::map<std::string, UnreadCursor> unreadCursors;
     UserUpdates users;
     std::optional<discord::Interaction> interaction;
     std::optional<ReactionUpdate> reaction;
