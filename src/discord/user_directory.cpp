@@ -17,6 +17,7 @@ namespace discord {
       m_statuses.clear();
       m_relationships.clear();
       m_mutedChannels.clear();
+      m_tags.clear();
     }
     for (const auto& [id, user] : update.users) {
       if (!validSnowflake(id))
@@ -31,6 +32,8 @@ namespace discord {
         m_statuses[id] = *user.status;
       if (user.relationship && (m_relationships.contains(id) || m_relationships.size() < maxUsers))
         m_relationships[id] = *user.relationship;
+      if (user.guildTag && (m_tags.contains(id) || m_tags.size() < maxUsers))
+        m_tags[id] = *user.guildTag;
     }
     for (const auto& [id, muted] : update.mutedChannels)
       if (validSnowflake(id) && (m_mutedChannels.contains(id) || m_mutedChannels.size() < maxUsers))
@@ -53,6 +56,10 @@ namespace discord {
     const auto found = m_mutedChannels.find(channel);
     return found != m_mutedChannels.end() && found->second;
   }
+  std::optional<GuildTag> UserDirectory::guildTag(const std::string& user, const std::optional<GuildTag>& fallback) const {
+    const auto at = m_tags.find(user);
+    return at == m_tags.end() ? fallback : at->second;
+  }
 
   UserUpdates UserDirectory::consume(std::string_view type, const nlohmann::json& data) {
     UserUpdates changes;
@@ -63,9 +70,25 @@ namespace discord {
       m_globalStatuses.clear();
       m_guildStatuses.clear();
     }
+    auto recordTag = [&](const nlohmann::json& user) {
+      const auto id = text(user, "id");
+      const auto at = user.find(user.contains("primary_guild") ? "primary_guild" : "clan");
+      if (!validSnowflake(id) || at == user.end() || (changes.users.size() >= maxUsers && !changes.users.contains(id)))
+        return;
+      if (at->is_null() || (at->is_object() && at->contains("identity_enabled") && (*at)["identity_enabled"] == false))
+        changes.users[id].guildTag.emplace(std::nullopt);
+      else if (const auto tag = parseGuildTag(user))
+        changes.users[id].guildTag.emplace(tag);
+    };
+    if (type == "USER_UPDATE") recordTag(data);
+    if (data.contains("user")) recordTag(data["user"]);
+    if (data.contains("author")) recordTag(data["author"]);
+    if ((type == "READY" || type == "READY_SUPPLEMENTAL") && data.contains("users") && data["users"].is_array())
+      for (const auto& user : data["users"]) recordTag(user);
     auto relationship = [&](const nlohmann::json& item, bool removed = false) {
       if (!item.is_object())
         return;
+      if (item.contains("user")) recordTag(item["user"]);
       auto id = text(item, "id");
       if (!validSnowflake(id) || changes.users.size() >= maxUsers)
         return;
@@ -82,6 +105,7 @@ namespace discord {
     auto presence = [&](const nlohmann::json& item, const std::string& guild = std::string{}) {
       if (!item.is_object())
         return;
+      if (item.contains("user")) recordTag(item["user"]);
       auto id = text(item, "user_id");
       if (const auto user = item.find("user"); user != item.end() && user->is_object())
         id = text(*user, "id");

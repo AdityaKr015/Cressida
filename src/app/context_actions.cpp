@@ -1,6 +1,7 @@
 #include "app/client_application.h"
 #include "app/theme.h"
 #include "core/files/resource_paths.h"
+#include "render/scene/rect_node.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +14,7 @@ namespace app {
   using namespace theme;
   namespace {
     std::string interactionKey(const discord::Interaction& action) {
-      return std::to_string(static_cast<int>(action.kind))
+      auto key = std::to_string(static_cast<int>(action.kind))
           + ":"
           + action.channel
           + ":"
@@ -23,6 +24,10 @@ namespace app {
           + ":"
           + action.emoji
           + (action.burst ? ":burst" : ":normal");
+      if (action.kind == discord::InteractionKind::UserProfile || action.kind == discord::InteractionKind::GuildProfile
+          || action.kind == discord::InteractionKind::JoinGuild)
+        key += ":" + action.guild + ":" + std::to_string(action.revision);
+      return key;
     }
   } // namespace
   discord::Account ClientApplication::lookupUser(const std::string& id) const {
@@ -440,8 +445,26 @@ namespace app {
       }
       return true;
     }
+    if ((m_dialogKind == "profile" || m_dialogKind == "guild-profile") && m_dialogBounds.contains(x, y)) {
+      // Only this overlay's retained scrollbar may receive native input here.
+      // The conversation's scrollbar/composer can be directly behind the card.
+      const auto bar = m_widgets.find("profile-scrollbar");
+      if (bar != m_widgets.end() && bar->second->parent()
+          && x >= bar->second->x() && x < bar->second->x() + bar->second->width()
+          && y >= bar->second->y() && y < bar->second->y() + bar->second->height()) {
+        m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+      } else {
+        for (auto it = m_hits.rbegin(); it != m_hits.rend(); ++it)
+          if (it->contains(x, y)) {
+            const auto hit = *it;
+            activate(hit);
+            break;
+          }
+      }
+      return true;
+    }
     if (!m_dialogKind.empty() && !m_dialogBounds.contains(x, y)) {
-      if (!m_dialogPending)
+      if (!m_dialogPending || m_dialogKind == "profile" || m_dialogKind == "guild-profile")
         closeDialog();
       return true;
     }
@@ -512,7 +535,7 @@ namespace app {
       return true;
     }
     if (!m_dialogKind.empty() && key.symbol == XKB_KEY_Escape) {
-      if (!m_dialogPending)
+      if (!m_dialogPending || m_dialogKind == "profile" || m_dialogKind == "guild-profile")
         closeDialog();
       return true;
     }
@@ -655,14 +678,30 @@ namespace app {
     if (!discord::validSnowflake(user))
       return;
     closeContext();
+    closeGifPicker();
+    closeEmojiPicker();
+    m_scrolling.stopAll();
     ++m_dialogGeneration;
     m_dialogKind = "profile";
     m_dialogTitle = "Profile";
     m_dialogAccount = lookupUser(user);
+    m_profileCard = {};
+    m_profileCard.user = m_dialogAccount;
+    m_profileCard.guild = m_dmMode ? "" : m_guildId;
+    m_profileExpanded = false;
+    m_profileRevealSpoilers = false;
+    m_profileScroll = 0;
+    m_profileAnchorX = m_pointerX;
+    m_profileAnchorY = m_pointerY;
     m_dialogText.clear();
     m_dialogError.clear();
-    m_dialogAction = discord::Interaction{.kind = discord::InteractionKind::UserProfile, .user = user};
+    m_dialogAction = discord::Interaction{.kind = discord::InteractionKind::UserProfile, .user = user,
+                                        .guild = m_profileCard.guild, .revision = m_dialogGeneration};
     m_dialogPending = !m_demo && startInteraction(*m_dialogAction);
+    if (m_demo)
+      prepareProfileDemo();
+    else if (!m_dialogPending)
+      m_dialogError = m_status;
   }
   void ClientApplication::closeDialog() {
     ++m_dialogGeneration;
@@ -671,6 +710,12 @@ namespace app {
     m_dialogPending = false;
     m_dialogText.clear();
     m_dialogAccount = {};
+    m_scrolling.stop(m_profileScroll);
+    m_profileCard = {};
+    m_profileExpanded = false;
+    m_guildProfile = {};
+    m_guildPreviewJoined = m_guildPreviewVerification = false;
+    m_profileScroll = 0;
     if (m_inputs.contains("dialog"))
       m_inputs["dialog"]->setValue("");
     m_controlInput.setFocus(nullptr);
@@ -694,10 +739,15 @@ namespace app {
   void ClientApplication::drawDialog(Node& root, float w, float h) {
     if (m_dialogKind.empty())
       return;
-    const float width = std::min(500.0F, w - 32),
-                height = m_dialogKind == "profile" ? 390
-        : m_dialogKind == "edit"                   ? 328
-                                                   : 230;
+    if (m_dialogKind == "guild-profile") {
+      drawGuildProfile(root, w, h);
+      return;
+    }
+    if (m_dialogKind == "profile") {
+      drawProfileCard(root, w, h);
+      return;
+    }
+    const float width = std::min(500.0F, w - 32), height = m_dialogKind == "edit" ? 328 : 230;
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
     rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.65F});
     m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
@@ -715,23 +765,7 @@ namespace app {
          {}},
         "x", "Close"
     );
-    if (m_dialogKind == "profile") {
-      const auto& user = m_dialogAccount;
-      avatar(root, x + 24, y + 68, 64, user.avatar, userName(user.id, user.name));
-      statusBadge(root, x + 74, y + 118, userStatus(user.id), sidebar);
-      roleLabel(
-          root, x + 104, y + 76, width - 128, userName(user.id, user.name), 19, foreground, FontWeight::SemiBold,
-          user.id, "profile:" + user.id, false
-      );
-      label(root, x + 104, y + 105, width - 128, user.username.empty() ? user.name : user.username, 13, muted);
-      label(root, x + 24, y + 156, width - 48, user.pronouns, 13, muted);
-      label(
-          root, x + 24, y + 190, width - 48,
-          user.bio.empty() ? (m_dialogPending ? "Loading profile…" : "No About Me text.") : user.bio, 14, foreground,
-          FontWeight::Normal, 5
-      );
-      label(root, x + 24, y + height - 60, width - 48, m_dialogError, 12, rgbHex(0xED4245), FontWeight::Normal, 2);
-    } else {
+    {
       if (m_dialogKind == "edit" || m_dialogKind == "nickname")
         inputControl(
             root, x + 24, y + 70, width - 48, m_dialogKind == "edit" ? 142 : 44, "dialog", m_dialogText,
@@ -805,6 +839,12 @@ namespace app {
       return;
     }
     using Kind = discord::InteractionKind;
+    if (action.kind == Kind::JoinGuild && !event.guildVerificationRequired)
+      for (const auto& guild : event.guilds)
+        if (guild.id == action.guild && std::ranges::find(m_guilds, guild.id, &discord::Guild::id) == m_guilds.end()) {
+          m_guilds.push_back(guild);
+          m_folders.push_back({{}, {}, 0, {guild.id}});
+        }
     if (action.kind == Kind::AddReaction) {
       m_sessionStore.recordReaction(m_account.id, action.emoji);
       m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
@@ -848,8 +888,25 @@ namespace app {
       m_privateChannels.insert(m_privateChannels.begin(), channel);
       showDirectMessages();
       selectChannel(channel.id);
+    } else if (action.kind == Kind::GuildProfile && dialog) {
+      if (event.guildProfile)
+        m_guildProfile = *event.guildProfile;
+      m_dialogPending = false;
+      return;
+    } else if (action.kind == Kind::JoinGuild && dialog) {
+      m_guildPreviewJoined = true;
+      m_guildPreviewVerification = event.guildVerificationRequired || m_guildProfile.recruitment;
+      if (!m_guildPreviewVerification && std::ranges::find(m_guilds, action.guild, &discord::Guild::id) == m_guilds.end()) {
+        m_guilds.push_back({m_guildProfile.id, m_guildProfile.name, m_guildProfile.icon});
+        m_folders.push_back({{}, {}, 0, {action.guild}});
+      }
+      m_dialogPending = false;
+      return;
     } else if (action.kind == Kind::UserProfile && dialog) {
       m_dialogAccount = event.account;
+      if (event.profile) {
+        m_profileCard = *event.profile;
+      }
       m_dialogPending = false;
       return;
     }
@@ -977,35 +1034,58 @@ namespace app {
     float rx = 0, ry = 0;
     for (const auto& reaction : message.reactions) {
       const auto count = std::to_string(reaction.count);
-      const float chip = 34 + m_window.target().renderer().measureText(count, 12).width;
+      const float chip = 42 + m_window.target().renderer().measureText(count, 13, FontWeight::Medium).width;
       if (rx && rx + chip > width) {
         rx = 0;
-        ry += 30;
+        ry += 32;
       }
       if (parent) {
         const auto ax = x + rx, ay = y + ry;
-        rectangle(*parent, ax, ay, chip, 26, reaction.me ? accent : raised, 7);
-        if (reaction.id.empty())
-          label(*parent, ax + 5, ay + 3, 24, reaction.name, 17, foreground);
-        else
-          emojiImage(*parent, ax + 5, ay + 4, 18, discord::emojiPath(reaction.id));
-        label(*parent, ax + 27, ay + 6, chip - 29, count, 12, reaction.me ? ink : foreground);
         float ox = 0, oy = 0;
         for (auto* node = parent; node && node != m_scene.get(); node = node->parent()) {
           ox += node->x();
           oy += node->y();
         }
-        Hit hit{ax + ox, ay + oy, chip, 26, Action::ToggleReaction, message.id + "\n" + discord::reactionKey(reaction)};
+        Hit hit{ax + ox, ay + oy, chip, 28, Action::ToggleReaction, message.id + "\n" + discord::reactionKey(reaction)};
+        const bool over = hit.contains(m_pointerX, m_pointerY);
+        const bool mine = reaction.me || reaction.meBurst;
+        auto frame = std::make_unique<RectNode>();
+        frame->setPosition(ax, ay);
+        frame->setSize(chip, 28);
+        frame->setStyle(RoundedRectStyle{
+            .fill = mine ? lerpColor(background, accent, over ? 0.19F : 0.10F) : over ? raised : panel,
+            .border = mine || over ? withAlpha(accent, mine ? 0.8F : 0.45F) : withAlpha(muted, 0.16F),
+            .radius = 8,
+            .borderWidth = 1
+        });
+        parent->addChild(std::move(frame));
+        if (reaction.id.empty()) {
+          // Color-emoji fallback fonts can have a wider em than the requested
+          // point size. Fit the actual metrics, so Pango cannot ellipsize the
+          // reaction into a row of dots inside its reserved square.
+          const auto natural = m_window.target().renderer().measureText(reaction.name, 20);
+          const float size = 20 * std::min({1.0F, 20 / std::max(1.0F, natural.width),
+                                         20 / std::max(1.0F, natural.bottom - natural.top)});
+          const auto emoji = m_window.target().renderer().measureText(reaction.name, size);
+          label(*parent, ax + 7 + (20 - emoji.width) / 2, ay + (28 - (emoji.bottom - emoji.top)) / 2,
+                std::ceil(emoji.width) + 2, reaction.name, size, foreground);
+        } else
+          emojiImage(*parent, ax + 7, ay + 4, 20, discord::emojiPath(reaction.id));
+        const auto metrics = m_window.target().renderer().measureText(count, 13, FontWeight::Medium);
+        label(*parent, ax + 34, ay + (28 - (metrics.bottom - metrics.top)) / 2, chip - 39,
+              count, 13, mine ? accent : foreground, FontWeight::Medium);
         m_hits.push_back(hit);
-        if (hit.contains(m_pointerX, m_pointerY))
-          rectangle(*parent, ax, ay + 25, chip, 1, accent, 0);
         hoverReaction(message, reaction, hit);
       }
       rx += chip + 6;
     }
-    return ry + 30;
+    return ry + 32;
   }
   bool ClientApplication::interactionAction(const Hit& hit) {
+    if (guildProfileAction(hit))
+      return true;
+    if (profileAction(hit))
+      return true;
     switch (hit.action) {
     case Action::UserProfile:
       showProfile(hit.id);
@@ -1030,7 +1110,7 @@ namespace app {
       submitDialog();
       break;
     case Action::CloseDialog:
-      if (!m_dialogPending || m_dialogKind == "profile")
+      if (!m_dialogPending || m_dialogKind == "profile" || m_dialogKind == "guild-profile")
         closeDialog();
       break;
     case Action::RevealBlocked:

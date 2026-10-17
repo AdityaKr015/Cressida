@@ -18,6 +18,8 @@ namespace discord {
     std::string id;
     int position = 0;
     RoleColors colors;
+    std::string name;
+    std::string icon, unicodeEmoji;
   };
   struct GuildRoleUpdate {
     std::string guild;
@@ -43,6 +45,10 @@ namespace discord {
         const std::string& guild, const std::string& user,
         const std::optional<std::vector<std::string>>& fallbackRoles = {}
     ) const;
+    std::vector<ColoredRole> roles(const std::string& guild, const std::string& user,
+                                 const std::optional<std::vector<std::string>>& fallbackRoles = {}) const;
+    std::optional<ColoredRole> icon(const std::string& guild, const std::string& user,
+                                 const std::optional<std::vector<std::string>>& fallbackRoles = {}) const;
   private:
     struct GuildRoles {
       bool enhanced = true;

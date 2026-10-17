@@ -61,6 +61,10 @@ namespace app {
         demoHistoryStep();
       if (m_demo && m_demoOverlay == "role-style-cycle")
         demoRoleStep();
+      if (m_demo && m_demoOverlay == "profile-card-cycle")
+        demoProfileStep();
+      if (m_demo && m_demoOverlay == "guild-tag-cycle")
+        demoGuildTagStep();
       if (m_demo && m_demoOverlay == "emoji-fit") {
         int images = 0;
         auto inspect = [&](auto&& self, const Node& node) -> void {
@@ -425,6 +429,12 @@ namespace app {
         scrollContext(delta);
         return;
       }
+      if (m_dialogKind == "profile") {
+        if (m_dialogBounds.contains(m_pointerX, m_pointerY))
+          scroll(m_profileScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (!m_dialogKind.empty())
         return;
       if (m_settingsOpen) {
@@ -484,7 +494,9 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "role-style-cycle"         ? 7
+        smokeTest ? (m_demo && view && std::string_view(view) == "guild-tag-cycle"          ? 10
+                         : m_demo && view && std::string_view(view) == "profile-card-cycle"        ? 8
+                         : m_demo && view && std::string_view(view) == "role-style-cycle"         ? 7
                          : m_demo && view && std::string_view(view) == "unread-badge-cycle" ? 4
                          : m_demo && view && std::string_view(view) == "unread-cycle"       ? 10
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
@@ -605,10 +617,14 @@ namespace app {
             || view == "edit-message"
             || view == "block-user"
             || view == "user-profile"
+            || view.starts_with("profile-card")
+            || view.starts_with("guild-tag") || view == "guild-profile"
             || view == "reactions"
             || view == "tooltip-long"
             || view == "blocked") {
           m_demoOverlay = view;
+          if (view == "profile-card-light")
+            m_preferences.theme = "light";
           // Keep interaction previews focused on the conversation, rather than
           // scrolling it above the large media fixture used by the regular demo.
           m_messages.resize(5);
@@ -621,6 +637,8 @@ namespace app {
           discord::UserUpdates users;
           users.users["11"].relationship = view == "blocked" ? 2 : 1;
           m_userDirectory.apply(users);
+          if (view.starts_with("guild-tag") || view == "guild-profile")
+            prepareGuildTagDemo();
           if (view == "reply")
             m_replies[m_channelId] = {"1", m_channelId, "11", "Maya", m_messages.front().content};
         }
@@ -980,6 +998,7 @@ namespace app {
             || view == "appearance"
             || view == "text"
             || view == "expressions"
+            || view == "cressida-settings" || view == "cressida-settings-search"
             || view == "presence"
             || view == "privacy"
             || view == "notifications"
@@ -990,7 +1009,9 @@ namespace app {
             || view == "search"
         ) {
           openSettings();
-          selectSettingsPage(view == "search" ? "privacy" : view);
+          selectSettingsPage(view.starts_with("cressida-settings") ? "cressida" : view == "search" ? "privacy" : view);
+          if (view == "cressida-settings-search")
+            m_settingsFields["search"] = "role";
           if (view == "search")
             m_settingsFields["search"] = "privacy";
         }
@@ -1052,7 +1073,8 @@ namespace app {
     return width;
   }
 
-  void ClientApplication::button(Node& parent, Hit hit, std::string text, bool primary, bool selected, bool fill) {
+  void ClientApplication::button(Node& parent, Hit hit, std::string text, bool primary, bool selected, bool fill,
+                                 bool centered) {
     float offsetX = 0, offsetY = 0;
     for (auto* node = &parent; node && node != m_scene.get(); node = node->parent()) {
       offsetX += node->x();
@@ -1073,8 +1095,10 @@ namespace app {
     );
     const auto metrics = m_window.target().renderer().measureText(text, 14, FontWeight::Medium, hit.width - 24, 1);
     const float textHeight = metrics.bottom - metrics.top;
+    const float captionWidth = std::max(1.0F, std::min(natural.width, hit.width - 24));
     label(
-        parent, hit.x + 14, hit.y + (hit.height - textHeight) / 2, hit.width - 24, std::move(text), 14,
+        parent, hit.x + (centered ? (hit.width - captionWidth) / 2 : 14), hit.y + (hit.height - textHeight) / 2,
+        centered ? std::ceil(captionWidth) + 1 : hit.width - 24, std::move(text), 14,
         primary ? ink : foreground, FontWeight::Medium
     );
     hit.x += offsetX;
@@ -1749,25 +1773,34 @@ namespace app {
             y += 24;
           }
           const auto author = userName(message.authorId, message.author);
-          avatar(*content, 0, y + 1, 34, message.avatar, author);
+          const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
+          const float headerWidth = std::max(24.0F, textWidth - 64);
+          const float roleSpace = !m_dmMode && m_roleDirectory.icon(m_guildId, message.authorId, message.memberRoles) ? 22 : 0;
+          const float tagSpace = m_preferences.showGuildTags && authorTag
+              ? std::min(104.0F, std::ceil(m_window.target().renderer().measureText(authorTag->tag, 11, FontWeight::Medium).width) + 32) + 6 : 0;
+          const bool tagFits = headerWidth >= tagSpace + roleSpace + 38;
+          const float nameMax = std::max(24.0F, headerWidth - (tagFits ? tagSpace : 0) - roleSpace - 6);
+          const float authorWidth = std::min(nameMax, m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4);
+          avatar(*content, 0, y + 1, 40, message.avatar, author);
           roleLabel(
-              *content, 50, y, std::max(24.0F, textWidth - 64), author, 13, foreground, FontWeight::SemiBold,
+              *content, 50, y, nameMax, author, 13, foreground, FontWeight::SemiBold,
               message.authorId, "message:" + message.id,
               y + 18 >= 0 && y < bottom - top && hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop),
               message.memberRoles
           );
+          const float tagUsed = m_preferences.showGuildTags && tagFits
+              ? drawGuildTag(*content, 50 + authorWidth + 4, y - 2, headerWidth - authorWidth - roleSpace - 4, authorTag) : 0;
+          if (!m_dmMode && headerWidth - authorWidth - tagUsed >= 22)
+            drawRoleIcon(*content, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId, message.memberRoles);
           if (!message.authorId.empty()) {
             const auto avatarY = std::max(top, top + y);
-            const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 35) - avatarY);
-            const auto nameWidth = std::min(
-                std::max(24.0F, textWidth - 64),
-                m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4
-            );
-            m_contextTargets.push_back({left + 24, avatarY, 35, avatarH, Action::UserMenu, message.authorId});
+            const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 41) - avatarY);
+            const auto nameWidth = authorWidth;
+            m_contextTargets.push_back({left + 24, avatarY, 40, avatarH, Action::UserMenu, message.authorId});
             m_contextTargets.push_back(
                 {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
             );
-            m_hits.push_back({left + 24, avatarY, 35, avatarH, Action::UserProfile, message.authorId});
+            m_hits.push_back({left + 24, avatarY, 40, avatarH, Action::UserProfile, message.authorId});
             m_hits.push_back(
                 {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserProfile, message.authorId}
             );
@@ -1927,7 +1960,7 @@ namespace app {
         float rowY = 12;
         for (int row = 0; row < 24 && rowY < viewport; ++row) {
           if (!m_preferences.compact)
-            rectangle(*content, 0, rowY + 1, 34, 34, avatarColor, 17);
+            rectangle(*content, 0, rowY + 1, 40, 40, avatarColor, 20);
           rectangle(*content, 50, rowY + 3, std::min(lineWidth, 68.0F + (row * 23 % 69)), 9, nameColor, 4.5F);
           const int count = lines[row % 7];
           for (int line = 0; line < count; ++line) {
@@ -2143,10 +2176,14 @@ namespace app {
             avatar(*members, 16, rowY + 5, 32, member.user.avatar, name);
             statusBadge(*members, 38, rowY + 27, status, sidebar);
             roleLabel(
-                *members, 60, rowY + 12, memberWidth - 78, name, 13, status == "offline" ? muted : foreground,
+                *members, 60, rowY + 12, memberWidth - 78 - (!m_dmMode && m_roleDirectory.icon(m_guildId, member.user.id) ? 22 : 0), name, 13, status == "offline" ? muted : foreground,
                 FontWeight::Normal, member.user.id, "member:" + member.user.id,
                 hovered(memberX + 8, 148 + rowY, memberWidth - 16, 42)
             );
+            if (!m_dmMode) {
+              const float nameWidth = std::min(memberWidth - 100, m_window.target().renderer().measureText(name, 13).width);
+              drawRoleIcon(*members, 66 + nameWidth, rowY + 12, m_guildId, member.user.id);
+            }
             const auto rowTop = std::max(148.0F, 148 + rowY), rowBottom = std::min(h - 10, 148 + rowY + 42);
             m_contextTargets.push_back(
                 {memberX + 8, rowTop, memberWidth - 16, std::max(0.0F, rowBottom - rowTop), Action::UserMenu,
@@ -2192,8 +2229,10 @@ namespace app {
         m_contextUser = "11";
         m_contextChannel = m_channelId;
         contextAction(m_demoOverlay == "edit-message" ? Action::EditMessage : Action::BlockUser);
-      } else if (m_demoOverlay == "user-profile")
-        showProfile("11");
+      } else if (m_demoOverlay == "user-profile" || m_demoOverlay.starts_with("profile-card"))
+        showProfile(m_demoOverlay == "profile-card-self" ? m_account.id : "11");
+      else if (m_demoOverlay == "guild-profile")
+        showGuildProfile("99");
     }
     if (m_demoOverlay == "tooltip-long") {
       m_tooltip = "A tooltip sizes itself to its text, wraps long descriptions, and stays inside the window.\nA second "
@@ -3750,6 +3789,8 @@ namespace app {
         m_preferences.roleColors = !m_preferences.roleColors;
       else if (hit.id == "animate_role_colors")
         m_preferences.animateRoleColors = !m_preferences.animateRoleColors;
+      else if (hit.id == "guild_tags")
+        m_preferences.showGuildTags = !m_preferences.showGuildTags;
       else if (hit.id.starts_with("zoom")) {
         m_window.setUiScale(hit.id == "zoom0" ? 1 : m_window.uiScale() * (hit.id == "zoom+" ? 1.1F : 1 / 1.1F));
         saveSelection();

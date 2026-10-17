@@ -919,21 +919,25 @@ namespace discord {
             break;
           }
           case Operation::Interaction:
-            if (command.interaction->kind == InteractionKind::ListReactions)
+            if (command.interaction->kind == InteractionKind::GuildProfile) {
+              event.guildProfile = parseGuildProfile(*response);
+              if (event.guildProfile->id != command.interaction->guild)
+                throw std::runtime_error("Unexpected server profile identity");
+            } else if (command.interaction->kind == InteractionKind::JoinGuild) {
+              event.guildVerificationRequired = response->contains("show_verification_form") && (*response)["show_verification_form"] == true;
+              if (response->contains("id") && (*response)["id"].is_string() && (*response)["id"] == command.interaction->guild)
+                event.guilds = parseGuilds(Json::array({*response}));
+            } else if (command.interaction->kind == InteractionKind::ListReactions)
               event.reactors = parseReactors(*response);
             else if (command.interaction->kind == InteractionKind::EditMessage)
               event.messages = parseMessages(Json::array({*response}));
             else if (command.interaction->kind == InteractionKind::OpenDm)
               event.channels = parsePrivateChannels(Json::array({*response}));
             else if (command.interaction->kind == InteractionKind::UserProfile) {
-              event.account = parseAccount(response->at("user"));
-              if (response->contains("user_profile") && (*response)["user_profile"].is_object()) {
-                const auto& profile = (*response)["user_profile"];
-                if (profile.contains("bio") && profile["bio"].is_string())
-                  event.account.bio = profile["bio"];
-                if (profile.contains("pronouns") && profile["pronouns"].is_string())
-                  event.account.pronouns = profile["pronouns"];
-              }
+              event.profile = parseUserProfile(*response, command.interaction->guild);
+              if (event.profile->user.id != command.interaction->user)
+                throw std::runtime_error("Unexpected profile identity");
+              event.account = event.profile->user;
             }
             break;
           case Operation::AccountSettings:

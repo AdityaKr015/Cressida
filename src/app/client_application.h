@@ -137,7 +137,18 @@ namespace app {
       CloseDialog,
       JumpReply,
       RevealBlocked,
-      QuickReaction
+      QuickReaction,
+      ProfileExpand,
+      ProfileMessage,
+      ProfileEdit,
+      ProfileFriend,
+      ProfileUnblock,
+      ProfileRetry,
+      ProfileSpoiler,
+      GuildProfile,
+      GuildProfileRetry,
+      JoinGuild,
+      OpenPreviewGuild
     };
     struct Hit {
       float x, y, width, height;
@@ -177,6 +188,18 @@ namespace app {
     void applyHistory(discord::Event& event);
     void demoHistoryStep();
     void demoRoleStep();
+    void drawProfileCard(Node& root, float width, float height);
+    bool profileAction(const Hit& hit);
+    void demoProfileStep();
+    void prepareProfileDemo();
+    float drawGuildTag(Node& parent, float x, float y, float width, const std::optional<discord::GuildTag>& tag, bool clickable = true);
+    float drawRoleIcon(Node& parent, float x, float y, const std::string& guild, const std::string& user,
+                       const std::optional<std::vector<std::string>>& roles = {});
+    void showGuildProfile(const std::string& guild);
+    void drawGuildProfile(Node& root, float width, float height);
+    bool guildProfileAction(const Hit& hit);
+    void prepareGuildTagDemo();
+    void demoGuildTagStep();
     void send();
     void rectangle(Node& parent, float x, float y, float w, float h, Color fill, float radius = 0);
     float countBadge(Node& parent, float right, float y, int count, bool rail = false);
@@ -190,7 +213,8 @@ namespace app {
         FontWeight weight = FontWeight::Normal, int lines = 1, bool markup = false
     );
     void
-    button(Node& parent, Hit hit, std::string text, bool primary = false, bool selected = false, bool fill = false);
+    button(Node& parent, Hit hit, std::string text, bool primary = false, bool selected = false, bool fill = false,
+           bool centered = false);
     bool image(Node& parent, float x, float y, float size, const std::string& path, float radius);
     bool emojiImage(Node& parent, float x, float y, float size, const std::string& path);
     void avatar(Node& parent, float x, float y, float size, const std::string& path, const std::string& name);
@@ -349,6 +373,11 @@ namespace app {
     std::string m_dialogKind, m_dialogTitle, m_dialogText, m_dialogError;
     std::optional<discord::Interaction> m_dialogAction;
     discord::Account m_dialogAccount;
+    discord::UserProfile m_profileCard;
+    discord::GuildProfile m_guildProfile;
+    bool m_guildPreviewJoined = false, m_guildPreviewVerification = false;
+    bool m_profileExpanded = false, m_profileRevealSpoilers = false;
+    float m_profileScroll = 0, m_profileAnchorX = -1, m_profileAnchorY = -1;
     bool m_dialogPending = false;
     std::uint64_t m_dialogGeneration = 0, m_pasteDialogGeneration = 0;
     std::set<std::string> m_pendingInteractions, m_revealedBlocked;

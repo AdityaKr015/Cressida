@@ -19,7 +19,9 @@ namespace discord {
     UserProfile,
     Mute,
     Unmute,
-    ListReactions
+    ListReactions,
+    GuildProfile,
+    JoinGuild
   };
   struct Interaction {
     InteractionKind kind = InteractionKind::AddReaction;

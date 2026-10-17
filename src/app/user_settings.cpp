@@ -18,6 +18,7 @@ namespace app {
       const char* name;
       const char* group;
       float height;
+      const char* keywords = "";
     };
     constexpr SettingsPage pages[] = {
         {"account", "My Account", "ACCOUNT", 530},
@@ -41,13 +42,15 @@ namespace app {
         {"activity", "Activity Privacy", "ACTIVITY SETTINGS", 480},
         {"games", "Registered Games", "ACTIVITY SETTINGS", 350},
         {"overlay", "Game Overlay", "ACTIVITY SETTINGS", 350},
-        {"expressions", "Expressions", "CRESSIDA", 360},
-        {"role-styles", "Role Styles", "CRESSIDA", 340}
+        {"cressida", "General", "CRESSIDA", 610, "expressions emoji fake nitro name badges server tags role colors gradients animation"}
     };
     std::string folded(std::string text) {
       for (auto& c : text)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
       return text;
+    }
+    bool matches(const SettingsPage& page, const std::string& query) {
+      return query.empty() || folded(std::string(page.name) + " " + page.group + " " + page.keywords).contains(query);
     }
     bool listPage(const std::string& id) { return id == "connections" || id == "devices" || id == "authorized"; }
   } // namespace
@@ -60,6 +63,10 @@ namespace app {
     m_settingsLoaded = m_loadingSettings = m_savingSettings = false;
   }
   void ClientApplication::selectSettingsPage(const std::string& page) {
+    if (page == "expressions" || page == "name-badges" || page == "role-styles") {
+      selectSettingsPage("cressida");
+      return;
+    }
     m_scrolling.stopAll();
     if (std::ranges::none_of(pages, [&](const auto& item) { return item.id == page; }))
       return;
@@ -73,7 +80,7 @@ namespace app {
     const auto query = folded(m_settingsFields["search"]);
     const float navHeight = std::max(30.0F, static_cast<float>(m_window.height()) - 222);
     for (const auto& entry : pages) {
-      if (!query.empty() && folded(std::string(entry.name) + " " + entry.group).find(query) == std::string::npos)
+      if (!matches(entry, query))
         continue;
       if (group != entry.group) {
         group = entry.group;
@@ -191,7 +198,7 @@ namespace app {
     std::string group;
     const auto query = folded(m_settingsFields["search"]);
     for (const auto& page : pages) {
-      if (!query.empty() && folded(std::string(page.name) + " " + page.group).find(query) == std::string::npos)
+      if (!matches(page, query))
         continue;
       if (group != page.group) {
         group = page.group;
@@ -496,30 +503,22 @@ namespace app {
           p, 0, 362, width, "Appearance changes apply immediately and are saved for this account on this device.", 12,
           muted, FontWeight::Normal, 3
       );
-    } else if (m_settingsPage == "expressions") {
-      toggle(
-          0, "FakeNitro emoji", m_preferences.fakeNitroEmojis, "fake_nitro_emojis", false,
-          "Send unsupported server emoji as image links."
-      );
-      label(
-          p, 0, 108, width,
-          "External and animated emoji use named image links when your account cannot send them normally. "
-          "Other clients may show a link or image preview; channel embed permissions still apply.",
-          13, muted, FontWeight::Normal, 4
-      );
-      label(
-          p, 0, 220, width,
-          "Applies to messages and edits. Reactions use Discord's normal rules. Saved only for this account in "
-          "Cressida.",
-          12, muted, FontWeight::Normal, 3
-      );
-    } else if (m_settingsPage == "role-styles") {
-      toggle(0, "Show role colors", m_preferences.roleColors, "role_colors", false,
+    } else if (m_settingsPage == "cressida") {
+      label(p, 0, 0, width, "Names & Roles", 17, foreground, FontWeight::SemiBold);
+      toggle(32, "Show server tags in chat", m_preferences.showGuildTags, "guild_tags", false,
+             "Show clickable server badges beside message authors. Profile tags stay visible.");
+      toggle(126, "Show role colors", m_preferences.roleColors, "role_colors", false,
              "Use server role colors and gradients for member names.");
-      toggle(88, "Animate gradients on hover", m_preferences.animateRoleColors, "animate_role_colors", false,
+      toggle(220, "Animate gradients on hover", m_preferences.animateRoleColors, "animate_role_colors", false,
              "Animate while hovering a name, member row or message.");
-      label(p, 0, 202, width, "Turn off hover animation to keep static gradients. Turn off role colors to use the normal text color. "
-            "These preferences are saved for this account on this device.", 13, muted, FontWeight::Normal, 4);
+      label(p, 0, 332, width, "Expressions", 17, foreground, FontWeight::SemiBold);
+      toggle(364, "FakeNitro emoji", m_preferences.fakeNitroEmojis, "fake_nitro_emojis", false,
+             "Send unsupported server emoji as image links.");
+      label(p, 0, 466, width,
+            "Other clients may show an image or a link; channel embed permissions still apply. "
+            "Reactions use Discord's normal rules.", 12, muted, FontWeight::Normal, 3);
+      label(p, 0, 548, width, "These preferences apply immediately and are saved for this account on this device.",
+            12, muted, FontWeight::Normal, 2);
     } else if (m_settingsPage == "text") {
       toggle(0, "Show link previews and embeds", m_preferences.showEmbeds, "embeds");
       toggle(76, "Show image attachments", m_preferences.showImages, "images");

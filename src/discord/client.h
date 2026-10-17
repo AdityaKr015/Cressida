@@ -10,6 +10,7 @@
 #include "discord/models.h"
 #include "discord/read_state.h"
 #include "discord/role_styles.h"
+#include "discord/profile.h"
 #include "discord/user_directory.h"
 
 #include <atomic>
@@ -91,6 +92,9 @@ namespace discord {
     std::optional<discord::Interaction> interaction;
     std::optional<ReactionUpdate> reaction;
     std::vector<Account> reactors;
+    std::optional<UserProfile> profile;
+    std::optional<GuildProfile> guildProfile;
+    bool guildVerificationRequired = false;
     bool noSavedLogin = false, restoredLogin = false;
     std::optional<auth::CredentialOperation> credentialOperation;
     std::vector<Gif> gifs;

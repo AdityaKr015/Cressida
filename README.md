@@ -21,8 +21,12 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **Message actions:** native context menus with icons, replies, editing/deleting
   your own messages, copy text/link/ID, and a hover emoji submenu. Four quick
   reactions adapt to successful local usage; hover a reaction to see who reacted.
-- **People:** native profile cards, opening DMs, friend nicknames and relationship
-  actions, blocking/unblocking, and muting existing conversations.
+- **People:** compact profile cards with banners, overlapping avatars, presence,
+  badges, expandable bios, mutual counts and server role chips. Open DMs, edit
+  your profile, manage friend nicknames and relationships, block/unblock people,
+  and mute existing conversations.
+  Chat names show server tags and role icons; clicking a tag previews its server
+  and offers Join or Open Server.
 - **Your servers:** saved server order and folders, icons, channel categories,
   collapsible sections and a member sidebar with role group counts. Mention badges
   appear on channels, servers and folders; a floating badge reveals mentioned
@@ -33,7 +37,7 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **Personal nicknames:** names you assigned to friends appear in conversations,
   message authors, mentions and member lists, including live nickname changes.
 - **Role colors:** server role colors, gradients and holographic palettes on names,
-  with animation on hover. **Settings → Cressida → Role Styles** lets you disable
+  with animation on hover. **Settings → Cressida → General → Names & Roles** lets you disable
   role colors or keep gradients static. These preferences are saved per account.
 - **Native editing:** multiline drafts, mouse/keyboard selection, word navigation,
   copy/cut/paste and undo/redo. Enter sends; Shift+Enter inserts a line.
@@ -51,7 +55,8 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   and frequently used emoji, including static and animated server emoji.
   Unicode and custom emoji share inline sizing; emoji-only messages get larger
   emoji, with up to 27 per message. Compact mode keeps them inline.
-- **Cressida settings:** optional FakeNitro emoji under **Cressida → Expressions**.
+- **Cressida settings:** one **General** page groups name/tag/role preferences
+  and expressions. Optional FakeNitro emoji lives under **Cressida → General → Expressions**.
   Unsupported server emoji send as named image links, including animated emoji.
   Other clients may display links or image previews. Reactions keep Discord's
   normal restrictions; channel embed permissions still apply. The option defaults
@@ -208,6 +213,18 @@ permission errors leave the dialog open with an explanation.
 Right-click a username, avatar, member or DM row for profile, message, mention,
 friend and block actions. Conversation mute controls apply to existing DMs/groups.
 Blocked messages collapse locally and can be revealed without unblocking.
+
+Click an avatar or message author to open their profile card. Server profiles
+show server-specific details when Discord supplies them. **View Full Bio**
+expands longer biographies; Markdown, custom emoji and Discord timestamps render
+inside the card. **Message** opens a conversation, and your own card's
+**Edit Profile** opens profile settings. Role chips are read-only.
+
+Server tags include their badge icon in profiles and beside chat names. Hide chat
+tags in **Settings → Cressida → General → Names & Roles**. Role icons remain visible when tags
+are hidden. Click a tag to preview its server; joining requires an explicit click.
+Private servers need an invite, and recruitment or server verification may require
+continuing in your default browser.
 
 | Shortcut | Action |
 | --- | --- |

@@ -55,7 +55,7 @@ namespace app {
     }
   }
   void ClientApplication::drawTooltip(Node& root, float w, float h) {
-    if (m_tooltip.empty() || m_contextOpen || !m_dialogKind.empty())
+    if (m_tooltip.empty() || m_contextOpen || (!m_dialogKind.empty() && m_dialogKind != "profile"))
       return;
     auto& renderer = m_window.target().renderer();
     const auto natural =

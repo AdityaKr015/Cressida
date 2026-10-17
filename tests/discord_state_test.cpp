@@ -66,7 +66,7 @@ int main() {
         "Accept legacy settings without inventing folders"
     );
     require(
-        discord::avatarPath(json{{"id", "123"}, {"avatar", "a_abc"}}) == "/avatars/123/a_abc.png?size=64",
+        discord::avatarPath(json{{"id", "123"}, {"avatar", "a_abc"}}) == "/avatars/123/a_abc.png?size=128",
         "Request the static frame of animated avatars"
     );
     require(

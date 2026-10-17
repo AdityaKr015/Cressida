@@ -42,8 +42,26 @@ namespace discord {
         text(value, "pronouns"),
         value.contains("premium_type") && value["premium_type"].is_number_integer()
             ? std::optional(std::clamp(value["premium_type"].get<int>(), 0, 3))
-            : std::nullopt
+            : std::nullopt,
+        parseGuildTag(value)
     };
+  }
+
+  bool validAssetHash(std::string_view value) {
+    if (value.starts_with("a_"))
+      value.remove_prefix(2);
+    return !value.empty() && value.size() <= 64 && std::ranges::all_of(value, [](unsigned char c) {
+      return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    });
+  }
+  std::optional<GuildTag> parseGuildTag(const nlohmann::json& user) {
+    const auto at = user.find(user.contains("primary_guild") ? "primary_guild" : "clan");
+    if (at == user.end() || !at->is_object() || !at->contains("identity_enabled") || (*at)["identity_enabled"] != true)
+      return {};
+    const auto guild = text(*at, "identity_guild_id"), tag = text(*at, "tag"), badge = text(*at, "badge");
+    if (!validSnowflake(guild) || tag.empty() || tag.size() > 32 || std::ranges::any_of(tag, [](unsigned char c) { return c < 32 || c == 127; }))
+      return {};
+    return GuildTag{guild, tag, validAssetHash(badge) ? "/guild-tag-badges/" + guild + "/" + badge + ".png?size=32" : ""};
   }
 
   std::vector<Guild> parseGuilds(const nlohmann::json& value) {
@@ -194,7 +212,9 @@ namespace discord {
         continue;
       auto path = value.substr(std::string_view(origin).size());
       for (auto prefix :
-           {"avatars/", "icons/", "emojis/", "embed/avatars/", "attachments/", "external/", "channel-icons/"})
+           {"avatars/", "icons/", "emojis/", "embed/avatars/", "attachments/", "external/", "channel-icons/",
+            "banners/", "guilds/", "badge-icons/", "guild-tag-badges/", "clan-badges/", "role-icons/",
+            "avatar-decoration-presets/", "discovery-splashes/", "clan-banners/"})
         if (path.starts_with(prefix))
           return std::string(value);
     }
@@ -234,6 +254,9 @@ namespace discord {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
+    if (value.contains("author") && value["author"].is_object()
+        && (value["author"].contains("primary_guild") || value["author"].contains("clan")))
+      patch.authorTag.emplace(parseGuildTag(value["author"]));
     if (value.contains("member"))
       patch.memberRoles = parseMemberRoles(value["member"]);
     if (value.contains("message_reference")) {
@@ -347,6 +370,8 @@ namespace discord {
     return patch;
   }
   void MessagePatch::apply(Message& message) const {
+    if (authorTag)
+      message.authorTag = *authorTag;
     if (memberRoles)
       message.memberRoles = *memberRoles;
     if (reply)
@@ -464,7 +489,7 @@ namespace discord {
     if (!hash.empty() && hash.size() <= 128 && std::ranges::all_of(hash, [](unsigned char c) {
           return std::isalnum(c) || c == '_';
         }))
-      return "/avatars/" + userId + "/" + hash + ".png?size=64";
+      return "/avatars/" + userId + "/" + hash + ".png?size=128";
     std::uint64_t number = 0;
     const auto [end, error] = std::from_chars(userId.data(), userId.data() + userId.size(), number);
     if (error != std::errc{})

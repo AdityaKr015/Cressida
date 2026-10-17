@@ -10,12 +10,20 @@
 
 namespace discord {
 
+  struct GuildTag {
+    std::string guild, tag, badge;
+    bool operator==(const GuildTag&) const = default;
+  };
+  bool validAssetHash(std::string_view value);
+  std::optional<GuildTag> parseGuildTag(const nlohmann::json& user);
+
   struct Account {
     std::string id;
     std::string name;
     std::string avatar;
     std::string username, displayName, bio, pronouns;
     std::optional<int> premiumType;
+    std::optional<GuildTag> guildTag;
   };
 
   struct Presence {
@@ -148,6 +156,7 @@ namespace discord {
     std::optional<MessageReference> reply;
     std::vector<Reaction> reactions;
     std::optional<std::vector<std::string>> memberRoles;
+    std::optional<GuildTag> authorTag;
   };
 
   struct MessagePatch {
@@ -158,6 +167,7 @@ namespace discord {
     std::optional<std::optional<MessageReference>> reply;
     std::optional<std::vector<Reaction>> reactions;
     std::optional<std::vector<std::string>> memberRoles;
+    std::optional<std::optional<GuildTag>> authorTag;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

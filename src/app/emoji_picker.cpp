@@ -428,7 +428,7 @@ namespace app {
       if (m_reactionMessage.empty()
           && discord::emojiNeedsImage(*emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0)))
         source =
-            m_preferences.fakeNitroEmojis ? "Sends as an image link" : "Enable FakeNitro in Cressida → Expressions";
+            m_preferences.fakeNitroEmojis ? "Sends as an image link" : "Enable FakeNitro in Cressida → General → Expressions";
       label(root, gridX + 44, y + height - 24, gridWidth - 48, source, 11, muted);
     }
   }

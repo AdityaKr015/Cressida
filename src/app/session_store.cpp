@@ -135,6 +135,7 @@ namespace app {
       result.fakeNitroEmojis = value.value("fake_nitro_emojis", false);
       result.roleColors = value.value("role_colors", true);
       result.animateRoleColors = value.value("animate_role_colors", true);
+      result.showGuildTags = value.value("guild_tags", true);
     } catch (...) {
       return {};
     }
@@ -154,7 +155,8 @@ namespace app {
           {"autoplay_gifs", preferences.autoplayGifs},
           {"fake_nitro_emojis", preferences.fakeNitroEmojis},
           {"role_colors", preferences.roleColors},
-          {"animate_role_colors", preferences.animateRoleColors}
+          {"animate_role_colors", preferences.animateRoleColors},
+          {"guild_tags", preferences.showGuildTags}
       };
       writeState(m_path, all);
     } catch (...) {

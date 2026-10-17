@@ -1,6 +1,7 @@
 #include "app/message_layout.h"
 
 #include "app/reply_preview.h"
+#include "app/discord_timestamp.h"
 #include "discord/emoji.h"
 #include "discord/models.h"
 
@@ -29,7 +30,7 @@ namespace app {
     // MD4C handles Markdown nesting/escaping; these tokens preserve Discord's
     // double-underscore underline and spoilers without interpreting raw HTML.
     constexpr std::string_view underline = "\uE000", spoiler = "\uE001";
-    std::string discordSyntax(std::string_view text) {
+    std::string discordSyntax(std::string_view text, bool timestamps) {
       std::vector<std::size_t> underscores, spoilers;
       std::string fence;
       for (std::size_t i = 0; i < text.size();) {
@@ -77,7 +78,7 @@ namespace app {
           const auto colon = token.rfind(':');
           if (((token.starts_with(':') || token.starts_with("a:")) && colon != std::string_view::npos && colon > 1)
               || token.starts_with('@')
-              || token.starts_with('#')) {
+              || token.starts_with('#') || (timestamps && token.starts_with("t:"))) {
             result += "\uE002";
             result += token;
             result += "\uE003";
@@ -256,6 +257,12 @@ namespace app {
             const auto end = text.find('>', pos);
             if (end != std::string_view::npos && end - pos <= 128) {
               const auto token = text.substr(pos + 1, end - pos - 1);
+              if (options && options->discordTimestamps)
+                if (const auto timestamp = discordTimestamp(token)) {
+                  word(*timestamp);
+                  pos = end + 1;
+                  continue;
+                }
               const auto colon = token.rfind(':');
               if (token.starts_with('@') || token.starts_with('#')) {
                 auto id = token.substr(1);
@@ -488,7 +495,7 @@ namespace app {
           .leave_span = leaveSpan,
           .text = textCallback
       };
-      const auto input = discordSyntax(content);
+      const auto input = discordSyntax(content, options.discordTimestamps);
       md_parse(input.data(), input.size(), &parser, &layout);
       layout.alignLine();
       layout.output.height = layout.y + (layout.x > layout.indent ? layout.lineHeight : 0);

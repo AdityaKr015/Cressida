@@ -46,6 +46,7 @@ namespace app {
   struct MessageOptions {
     bool fakeNitroEmojis = false, compact = false;
     std::function<bool(std::string_view)> unicodeEmoji;
+    bool discordTimestamps = false;
   };
   MessageLayout layoutRichMessage(
       const discord::Message& message, float width,

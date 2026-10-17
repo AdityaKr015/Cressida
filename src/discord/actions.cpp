@@ -81,6 +81,13 @@ namespace discord {
     using Kind = InteractionKind;
     InteractionRequest request;
     switch (action.kind) {
+    case Kind::GuildProfile:
+    case Kind::JoinGuild:
+      if (!validSnowflake(action.guild))
+        return {};
+      request.path = "/guilds/" + action.guild + (action.kind == Kind::GuildProfile ? "/profile" : "/members/@me");
+      request.method = action.kind == Kind::GuildProfile ? "GET" : "PUT";
+      break;
     case Kind::AddReaction:
     case Kind::RemoveReaction:
     case Kind::ListReactions:
@@ -124,7 +131,11 @@ namespace discord {
         request.method = "POST";
         request.body = {{"recipient_id", action.user}};
       } else if (action.kind == Kind::UserProfile) {
-        request.path = "/users/" + action.user + "/profile";
+        if (!action.guild.empty() && !validSnowflake(action.guild))
+          return {};
+        request.path = "/users/" + action.user + "/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=true&type=popout";
+        if (!action.guild.empty())
+          request.path += "&guild_id=" + action.guild;
         request.method = "GET";
       } else {
         request.path = "/users/@me/relationships/" + action.user;

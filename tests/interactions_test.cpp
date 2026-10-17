@@ -110,6 +110,21 @@ int main() {
     );
     auto profile = interactionRequest({.kind = Kind::UserProfile, .user = "7"});
     require(profile && profile->method == "GET" && profile->body.is_null(), "Profile requests are read-only");
+    require(profile->path.find("with_mutual_friends_count=true") != std::string::npos
+                && profile->path.ends_with("type=popout") && profile->path.find("guild_id") == std::string::npos,
+            "Global popouts request mutual counts without a server context");
+    auto guildProfile = interactionRequest({.kind = Kind::UserProfile, .user = "7", .guild = "10"});
+    require(guildProfile && guildProfile->path.ends_with("&guild_id=10"), "Server popouts request the selected guild profile");
+    require(!interactionRequest({.kind = Kind::UserProfile, .user = "7", .guild = "1&other=2"}), "Profile queries validate guild IDs");
+    const auto server = interactionRequest({.kind = Kind::GuildProfile, .guild = "99"});
+    const auto join = interactionRequest({.kind = Kind::JoinGuild, .guild = "99"});
+    require(server && server->method == "GET" && server->path == "/guilds/99/profile" && server->body.is_null(),
+            "Opening a tag preview is a read-only profile request");
+    require(join && join->method == "PUT" && join->path == "/guilds/99/members/@me" && join->body.is_null(),
+            "Joining is a separate explicit action, without lurking or unrelated account fields");
+    require(!interactionRequest({.kind = Kind::GuildProfile, .guild = "../users"})
+                && !interactionRequest({.kind = Kind::JoinGuild, .guild = "1?lurker=true"}),
+            "Server preview/join routes reject path and query injection");
     auto mute = interactionRequest({.kind = Kind::Mute, .channel = "10"});
     require(
         mute

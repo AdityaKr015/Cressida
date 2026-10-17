@@ -1,4 +1,5 @@
 #include "app/emoji_catalog.h"
+#include "app/discord_timestamp.h"
 #include "app/message_layout.h"
 #include "app/reply_preview.h"
 #include "app/text_edit.h"
@@ -43,6 +44,20 @@ int main(int argc, char** argv) {
     const app::MessageMeasure emojiMeasure = [](std::string_view text, const app::MessageStyle& style) {
       return style.emoji ? style.size : static_cast<float>(text.size() * 8);
     };
+    auto profileOptions = emojiOptions;
+    profileOptions.compact = true;
+    profileOptions.discordTimestamps = true;
+    auto profileBio = app::layoutMessage("**My midnight** is <t:1754172000:t> <:wave:123>", 900, emojiMeasure, 13, {}, profileOptions);
+    require(profileBio.plainText.find(*app::discordTimestamp("t:1754172000:t")) != std::string::npos
+                && profileBio.plainText.find("<t:") == std::string::npos
+                && std::ranges::any_of(profileBio.runs, [](const auto& run) { return run.style.bold; })
+                && std::ranges::any_of(profileBio.runs, [](const auto& run) { return !run.image.empty(); }),
+            "Profile bios format Discord timestamps alongside escaped Markdown and custom emoji");
+    profileBio = app::layoutMessage("`<t:1754172000:t>` <t:invalid:t> <span color='red'>bio</span>", 900, emojiMeasure, 13, {}, profileOptions);
+    require(std::ranges::any_of(profileBio.runs, [](const auto& run) { return run.style.code && run.text == "<t:1754172000:t>"; })
+                && profileBio.plainText.find("<t:invalid:t>") != std::string::npos
+                && profileBio.plainText.find("<span color='red'>bio</span>") != std::string::npos,
+            "Timestamps in code, malformed tokens and raw HTML stay literal in profiles");
     reference.deleted = false;
     reference.content = "my beautiful pink role <:woe:1407464763293831269> <a:dance:123> 🙂";
     auto reply = app::layoutReplyPreview(reference, "Yocraft", 1000, emojiMeasure, emojiOptions);

@@ -2,6 +2,7 @@
 #include "discord/models.h"
 
 #include <algorithm>
+#include <set>
 #include <nlohmann/json.hpp>
 
 namespace discord {
@@ -28,6 +29,15 @@ namespace discord {
         return {};
       ColoredRole result;
       result.id = id;
+      result.name = text(value, "name");
+      const auto image = text(value, "icon");
+      if (validAssetHash(image))
+        result.icon = "/role-icons/" + id + "/" + image + ".png?size=32";
+      result.unicodeEmoji = text(value, "unicode_emoji");
+      if (result.unicodeEmoji.size() > 64 || std::ranges::any_of(result.unicodeEmoji, [](unsigned char c) { return c < 32 || c == 127; }))
+        result.unicodeEmoji.clear();
+      if (result.name.size() > 400)
+        result.name.clear();
       if (value.contains("position") && value["position"].is_number_integer())
         result.position = static_cast<int>(std::clamp<std::int64_t>(value["position"].get<std::int64_t>(), 0, 1000000));
       result.colors.primary = color(value, "color").value_or(0);
@@ -230,5 +240,41 @@ namespace discord {
       result.tertiary.reset();
     }
     return result;
+  }
+  std::vector<ColoredRole> RoleDirectory::roles(const std::string& guild, const std::string& user,
+                                              const std::optional<std::vector<std::string>>& fallbackRoles) const {
+    std::vector<ColoredRole> result;
+    const auto at = m_guilds.find(guild);
+    if (at == m_guilds.end())
+      return result;
+    const auto known = at->second.members.find(user);
+    const auto* ids = known != at->second.members.end() ? &known->second : fallbackRoles ? &*fallbackRoles : nullptr;
+    if (!ids)
+      return result;
+    std::set<std::string> seen;
+    for (const auto& id : *ids)
+      if (id != guild && seen.insert(id).second)
+        if (const auto role = at->second.roles.find(id); role != at->second.roles.end() && !role->second.name.empty())
+          result.push_back(role->second);
+    std::ranges::sort(result, higher);
+    return result;
+  }
+  std::optional<ColoredRole> RoleDirectory::icon(const std::string& guild, const std::string& user,
+                                              const std::optional<std::vector<std::string>>& fallbackRoles) const {
+    const auto at = m_guilds.find(guild);
+    if (at == m_guilds.end())
+      return {};
+    const auto known = at->second.members.find(user);
+    const auto* ids = known != at->second.members.end() ? &known->second : fallbackRoles ? &*fallbackRoles : nullptr;
+    if (!ids)
+      return {};
+    const ColoredRole* best = nullptr;
+    for (const auto& id : *ids)
+      if (id != guild)
+        if (const auto role = at->second.roles.find(id); role != at->second.roles.end()
+            && (!role->second.icon.empty() || !role->second.unicodeEmoji.empty())
+            && (!best || higher(role->second, *best)))
+          best = &role->second;
+    return best ? std::optional(*best) : std::nullopt;
   }
 } // namespace discord

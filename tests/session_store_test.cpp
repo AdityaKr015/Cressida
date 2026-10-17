@@ -88,7 +88,12 @@ int main() {
     require(preferences.roleColors && preferences.animateRoleColors, "Role colors and hover animation default on");
     pausedGifs.roleColors = false;
     pausedGifs.animateRoleColors = false;
+    require(preferences.showGuildTags, "Chat server tags default on for existing accounts");
+    pausedGifs.showGuildTags = false;
     restored.savePreferences("123", pausedGifs);
+    require(!app::SessionStore(path).preferences("123").showGuildTags
+                && app::SessionStore(path).preferences("456").showGuildTags,
+            "Chat tag visibility persists independently for each account");
     require(
         app::SessionStore(path).preferences("123").fakeNitroEmojis
             && !app::SessionStore(path).preferences("456").fakeNitroEmojis,
