@@ -5,6 +5,8 @@
 #include "core/timer_manager.h"
 #include "cursor-shape-v1-client-protocol.h"
 #include "render/gl_shared_context.h"
+#include "render/scene/input_area.h"
+#include "ui/style.h"
 #include "xdg-decoration-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -37,6 +39,7 @@ namespace app {
     wl_compositor* compositor = nullptr;
     xdg_wm_base* shell = nullptr;
     wl_surface* surface = nullptr;
+    wl_callback* frameCallback = nullptr;
     xdg_surface* role = nullptr;
     xdg_toplevel* toplevel = nullptr;
     zxdg_decoration_manager_v1* decorationManager = nullptr;
@@ -89,6 +92,9 @@ namespace app {
     std::vector<Write> writes;
     float pointerX = 0;
     float pointerY = 0;
+    double axisValue = 0;
+    std::int32_t axisDiscrete = 0, axisValue120 = 0;
+    std::uint32_t axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;
     int width = 1120;
     int height = 760;
     int scale = 1;
@@ -104,6 +110,8 @@ namespace app {
     ~Impl() {
       // EGL resources must be destroyed before their wl_surface and display.
       target.destroy();
+      if (frameCallback)
+        wl_callback_destroy(frameCallback);
       context.cleanup();
       shared.cleanup();
       if (pasteFd >= 0)
@@ -168,6 +176,31 @@ namespace app {
       );
       target.resize(width * scale, height * scale);
       dirty = true;
+    }
+
+    void dispatchAxis() {
+      if (axisValue == 0 && axisDiscrete == 0 && axisValue120 == 0)
+        return;
+      InputArea::PointerData event;
+      event.axisSource = axisSource;
+      event.axisValue = axisValue;
+      event.axisLines = axisValue120 ? axisValue120 / 120.0F : float(axisDiscrete);
+      if (state && xkb_state_mod_name_is_active(state, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0 && owner.zoom)
+        owner.zoom(axisValue != 0 ? axisValue : event.axisLines);
+      else if (owner.scroll)
+        owner.scroll(event.scrollDelta(Style::scrollWheelStep) / uiScale);
+      axisValue = 0;
+      axisDiscrete = axisValue120 = 0;
+    }
+
+    void requestFrame() {
+      frameCallback = wl_surface_frame(surface);
+      static const wl_callback_listener listener{.done = [](void* data, wl_callback* callback, std::uint32_t) {
+        auto& self = *static_cast<Impl*>(data);
+        self.frameCallback = nullptr;
+        wl_callback_destroy(callback);
+      }};
+      wl_callback_add_listener(frameCallback, &listener, this);
     }
 
     void emitKey(std::uint32_t code) {
@@ -349,21 +382,28 @@ namespace app {
                 self.owner.click(self.pointerX / self.uiScale, self.pointerY / self.uiScale, serial);
             },
         .axis =
-            [](void* data, wl_pointer*, std::uint32_t, std::uint32_t axis, wl_fixed_t value) {
+            [](void* data, wl_pointer* pointer, std::uint32_t, std::uint32_t axis, wl_fixed_t value) {
               auto& self = *static_cast<Impl*>(data);
               if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
-                if (self.state
-                    && xkb_state_mod_name_is_active(self.state, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0
-                    && self.owner.zoom)
-                  self.owner.zoom(wl_fixed_to_double(value));
-                else if (self.owner.scroll)
-                  self.owner.scroll(wl_fixed_to_double(value) / self.uiScale);
+                self.axisValue += wl_fixed_to_double(value);
+                if (wl_proxy_get_version(reinterpret_cast<wl_proxy*>(pointer)) < WL_POINTER_FRAME_SINCE_VERSION)
+                  self.dispatchAxis();
               }
             },
-        .frame = [](void*, wl_pointer*) {},
-        .axis_source = [](void*, wl_pointer*, std::uint32_t) {},
+        .frame = [](void* data, wl_pointer*) { static_cast<Impl*>(data)->dispatchAxis(); },
+        .axis_source = [](void* data, wl_pointer*,
+                          std::uint32_t source) { static_cast<Impl*>(data)->axisSource = source; },
         .axis_stop = [](void*, wl_pointer*, std::uint32_t, std::uint32_t) {},
-        .axis_discrete = [](void*, wl_pointer*, std::uint32_t, std::int32_t) {},
+        .axis_discrete =
+            [](void* data, wl_pointer*, std::uint32_t axis, std::int32_t value) {
+              if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+                static_cast<Impl*>(data)->axisDiscrete += value;
+            },
+        .axis_value120 =
+            [](void* data, wl_pointer*, std::uint32_t axis, std::int32_t value) {
+              if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
+                static_cast<Impl*>(data)->axisValue120 += value;
+            },
     };
 
     void bindDataDevice() {
@@ -491,7 +531,7 @@ namespace app {
                 xdg_wm_base_add_listener(self.shell, &listener, nullptr);
               } else if (std::strcmp(interface, wl_seat_interface.name) == 0 && !self.seat) {
                 self.seat =
-                    static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, 5U)));
+                    static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, 8U)));
                 static const wl_seat_listener listener{
                     .capabilities =
                         [](void* data, wl_seat* seat, std::uint32_t capabilities) {
@@ -623,18 +663,29 @@ namespace app {
         m->emitKey(m->repeatKey);
         m->repeatAt = Clock::now() + std::chrono::milliseconds(1000 / m->repeatRate);
       }
-      if (m->configured && m->dirty && draw) {
+      if (m->configured && m->dirty && !m->frameCallback && draw) {
         m->dirty = false;
+        const bool animating = animate && animate();
+        m->requestFrame();
         draw();
+        if (animating)
+          m->dirty = true;
         if (frameLimit > 0 && ++frames >= frameLimit)
           break;
       }
       if (!m->running)
         break;
+      bool redraw = false;
       while (wl_display_prepare_read(m->display) != 0) {
         if (wl_display_dispatch_pending(m->display) < 0)
           throw std::runtime_error("Wayland connection lost");
+        if (m->configured && m->dirty && !m->frameCallback) {
+          redraw = true;
+          break;
+        }
       }
+      if (redraw)
+        continue;
       const int flushed = wl_display_flush(m->display);
       if (flushed < 0 && errno != EAGAIN) {
         wl_display_cancel_read(m->display);
@@ -761,6 +812,9 @@ namespace app {
       xdg_toplevel_set_maximized(m->toplevel);
   }
   bool Window::active() const { return m->keyboardFocused; }
+  bool Window::preciseScroll() const {
+    return m->axisSource == WL_POINTER_AXIS_SOURCE_FINGER || m->axisSource == WL_POINTER_AXIS_SOURCE_CONTINUOUS;
+  }
   bool Window::maximized() const { return m->maximized; }
   float Window::titlebarHeight() const {
     return m->fullscreen || m->decorationMode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE ? 0 : 36;

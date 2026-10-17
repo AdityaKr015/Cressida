@@ -49,6 +49,8 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::openContext(float x, float y) {
+    m_scrolling.stopAll();
+    closeGifPicker();
     if (!m_connected || m_settingsOpen || !m_viewImage.empty() || !m_dialogKind.empty())
       return;
     const auto target = std::find_if(m_contextTargets.rbegin(), m_contextTargets.rend(), [&](const auto& hit) {
@@ -759,6 +761,10 @@ namespace app {
       return;
     auto action = *m_dialogAction;
     action.text = m_dialogText;
+    if (action.kind == discord::InteractionKind::EditMessage)
+      action.text = m_emojiCatalog.messageContent(
+          action.text, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
+      );
     if (startInteraction(action)) {
       m_dialogAction = action;
       m_dialogPending = true;

@@ -298,8 +298,12 @@ namespace discord {
           command.customStatus = pending.customStatus;
       std::erase_if(m_commands, [](const auto& pending) { return pending.operation == Operation::SavePresence; });
     }
+    if (command.operation == Operation::GifSearch)
+      std::erase_if(m_commands, [](const auto& pending) { return pending.operation == Operation::GifSearch; });
     if (command.operation != Operation::Send
         && command.operation != Operation::Interaction
+        && command.operation != Operation::SaveGifFavorite
+        && command.operation != Operation::SaveEmojiFavorite
         && std::ranges::any_of(m_commands, [&](const auto& pending) {
              return pending.operation == command.operation && pending.resource == command.resource;
            }))
@@ -334,6 +338,26 @@ namespace discord {
   }
 
   bool Client::accountSettings() { return enqueue({Operation::AccountSettings, m_session, {}, {}}); }
+  bool Client::searchGifs(const std::string& query) {
+    if (query.size() > 256)
+      return false;
+    return enqueue({Operation::GifSearch, m_session, query, {}});
+  }
+  bool Client::gifFavorites() { return enqueue({Operation::GifFavorites, m_session, {}, {}}); }
+  bool Client::guildEmojis(const std::string& guild) {
+    return validSnowflake(guild) && enqueue({Operation::GuildEmojis, m_session, guild, {}});
+  }
+  bool Client::emojiPreferences() { return enqueue({Operation::EmojiPreferences, m_session, {}, {}}); }
+  bool Client::saveEmojiFavorite(const std::string& key, bool add) {
+    return validEmojiKey(key) && enqueue({Operation::SaveEmojiFavorite, m_session, key, add ? "add" : "remove"});
+  }
+  bool Client::saveGifFavorite(const Gif& gif, bool add) {
+    if (!validGif(gif))
+      return false;
+    auto value = gifJson(gif);
+    value["add"] = add;
+    return enqueue({Operation::SaveGifFavorite, m_session, gif.url, value.dump()});
+  }
   bool Client::saveAccountSettings(SettingValues changes) {
     if (!validSettingChanges(changes))
       return false;
@@ -439,6 +463,11 @@ namespace discord {
           }
         if (data.contains("guilds"))
           for (const auto& guild : data["guilds"]) {
+            if (guild.contains("emojis") && guild["emojis"].is_array()) {
+              Event event{.operation = Operation::GuildEmojis, .session = session, .resource = guild.value("id", "")};
+              event.emojis = parseGuildEmojis(guild["emojis"], event.resource);
+              publish(std::move(event));
+            }
             if (guild.contains("channels") && guild["channels"].is_array()) {
               Event snapshot{
                   .operation = Operation::ChannelSnapshot, .session = session, .resource = guild.value("id", "")
@@ -473,6 +502,11 @@ namespace discord {
           publish(std::move(event));
         }
       } else if (type == "USER_SETTINGS_PROTO_UPDATE") {
+        if (data.at("settings").value("type", 0) == 2) {
+          Event changed{.operation = Operation::GifFavorites, .session = session, .resource = "changed"};
+          publish(std::move(changed));
+          publish(Event{.operation = Operation::EmojiPreferences, .session = session, .resource = "changed"});
+        }
         if (data.at("settings").value("type", 0) == 1) {
           Event changed{.operation = Operation::AccountSettings, .session = session, .resource = "changed"};
           publish(std::move(changed));
@@ -532,6 +566,15 @@ namespace discord {
               break;
             }
           }
+      } else if (
+          type == "GUILD_EMOJIS_UPDATE" || type == "GUILD_CREATE" || type == "GUILD_UPDATE" || type == "GUILD_DELETE"
+      ) {
+        const auto guild = data.value("guild_id", data.value("id", std::string{}));
+        if (data.contains("emojis") || type == "GUILD_DELETE") {
+          Event event{.operation = Operation::GuildEmojis, .session = session, .resource = guild};
+          event.emojis = parseGuildEmojis(data.value("emojis", Json::array()), guild);
+          publish(std::move(event));
+        }
       } else if (
           (type == "CHANNEL_CREATE" || type == "CHANNEL_UPDATE" || type == "CHANNEL_DELETE")
           && data.contains("guild_id")
@@ -660,6 +703,43 @@ namespace discord {
         const char* method = nullptr;
         std::optional<InteractionRequest> interaction;
         switch (command.operation) {
+        case Operation::GuildEmojis:
+          path = "/guilds/" + command.resource + "/emojis";
+          break;
+        case Operation::EmojiPreferences:
+          path = "/users/@me/settings-proto/2";
+          break;
+        case Operation::SaveEmojiFavorite: {
+          path = "/users/@me/settings-proto/2";
+          auto snapshot = request(token, path, nullptr, transfer, cooldown);
+          if (!snapshot) {
+            event.error = snapshot.error().message;
+            event.unauthorized = snapshot.error().unauthorized;
+            break;
+          }
+          body = emojiFavoritePatch(*snapshot, command.resource, command.content == "add");
+          method = "PATCH";
+          break;
+        }
+        case Operation::GifSearch:
+          path = gifSearchPath(command.resource);
+          break;
+        case Operation::GifFavorites:
+          path = "/users/@me/settings-proto/2";
+          break;
+        case Operation::SaveGifFavorite: {
+          path = "/users/@me/settings-proto/2";
+          auto snapshot = request(token, path, nullptr, transfer, cooldown);
+          if (!snapshot) {
+            event.error = snapshot.error().message;
+            event.unauthorized = snapshot.error().unauthorized;
+            break;
+          }
+          const auto value = Json::parse(command.content);
+          body = gifFavoritePatch(*snapshot, gifFromJson(value), value.at("add").get<bool>());
+          method = "PATCH";
+          break;
+        }
         case Operation::Interaction:
           if (!command.interaction || !(interaction = interactionRequest(*command.interaction)))
             continue;
@@ -737,16 +817,38 @@ namespace discord {
         default:
           continue;
         }
-        auto response = request(
-            token, path,
-            (interaction ? !body.is_null() : command.operation == Operation::Send || method) ? &body : nullptr,
-            transfer, cooldown, command.uploads, method
-        );
+        auto response = event.error.empty()
+            ? request(
+                  command.operation == Operation::GifSearch ? std::string{} : token, path,
+                  (interaction ? !body.is_null() : command.operation == Operation::Send || method) ? &body : nullptr,
+                  transfer, cooldown, command.uploads, method
+              )
+            : std::expected<Json, Failure>(std::unexpected(Failure{event.error, event.unauthorized}));
         if (!response) {
           event.error = response.error().message;
           event.unauthorized = response.error().unauthorized;
         } else
           switch (command.operation) {
+          case Operation::GuildEmojis:
+            event.emojis = parseGuildEmojis(*response, command.resource);
+            break;
+          case Operation::EmojiPreferences:
+          case Operation::SaveEmojiFavorite:
+            if (response->value("out_of_date", false))
+              event.error = "Emoji favorites changed on another device. Please try again.";
+            else
+              event.emojiPreferences = parseEmojiPreferences(*response);
+            break;
+          case Operation::GifSearch:
+            event.gifs = parseGifs(*response);
+            break;
+          case Operation::GifFavorites:
+          case Operation::SaveGifFavorite:
+            if (response->value("out_of_date", false))
+              event.error = "Favorite GIFs changed on another device. Please try again.";
+            else
+              event.gifs = parseGifFavorites(*response);
+            break;
           case Operation::Connect: {
             event.account = parseAccount(*response);
             // Establish the live socket while REST bootstraps organization/settings.

@@ -71,33 +71,9 @@ namespace app {
     rectangle(root, x, y, width, height, theme::raised, 6);
     label(root, x + 10, y + 8, width - 20, m_tooltip, 12, theme::foreground, FontWeight::Normal, 0);
   }
-  void ClientApplication::drawEmojiPicker(Node& root, float w, float h) {
-    const float width = std::min(344.0F, w - 32),
-                x = std::clamp(
-                    w - (m_showMembers && w >= 1000 ? 240 : 0) - width - 24, 16.0F, std::max(16.0F, w - width - 16)
-                );
-    const float y = std::max(48.0F, m_composerTop - 272);
-    m_hits.push_back({0, 36, w, h - 36, Action::ToggleEmoji, {}});
-    rectangle(root, x, y, width, 256, theme::sidebar, 12);
-    m_hits.push_back({x, y, width, 256, Action::None, {}});
-    label(
-        root, x + 16, y + 16, width - 56, m_reactionMessage.empty() ? "Emoji" : "Add reaction", 16, theme::foreground,
-        FontWeight::SemiBold
-    );
-    iconButton(root, {x + width - 42, y + 8, 32, 32, Action::ToggleEmoji, {}}, "x", "Close emoji picker");
-    int index = 0;
-    for (const auto* emoji :
-         {"😀", "😄", "😂", "🥹", "😍", "😎", "🤔", "😭", "😡", "😴", "👍", "👎", "👋", "🙌", "🙏", "💪",
-          "❤️",  "💜", "🔥", "✨", "🎉", "✅", "❌", "💯", "👀", "🌿", "🚀", "💡", "🐸", "☕", "🌙", "🫶"}) {
-      const float ex = x + 12 + (index % 8) * 40, ey = y + 56 + (index / 8) * 46;
-      ++index;
-      if (hovered(ex, ey, 38, 40))
-        rectangle(root, ex, ey, 38, 40, theme::raised, 6);
-      label(root, ex + 5, ey + 5, 32, emoji, 25, theme::foreground);
-      m_hits.push_back({ex, ey, 38, 40, Action::InsertEmoji, emoji});
-    }
-  }
   ClientApplication::~ClientApplication() {
+    m_animationTimer.stop();
+    m_gifSearchTimer.stop();
     m_reactorHoverTimer.stop();
     // Destroy tracked input areas while their dispatcher and callback state live.
     m_buildingScene = true;
@@ -225,6 +201,21 @@ namespace app {
             m_drafts[m_channelId] = text;
             m_edit.end(text);
           }
+        } else if (id == "emoji-search") {
+          if (text.size() <= 256) {
+            m_emojiQuery = text;
+            m_emojiJump.clear();
+            m_scrolling.stop(m_emojiScroll);
+            m_emojiScroll = 0;
+          }
+        } else if (id == "gif-search") {
+          if (text.size() <= 256) {
+            m_gifQuery = text;
+            m_gifScroll = 0;
+            m_gifSearchTimer.stop();
+            if (!m_gifFavoritesTab && !m_demo)
+              m_gifSearchTimer.start(std::chrono::milliseconds(300), [this] { searchGifs(); });
+          }
         } else if (id == "dialog") {
           m_dialogText = text;
         } else if (id == "token") {
@@ -246,6 +237,10 @@ namespace app {
       field->setOnSubmit([this, id](const std::string&) {
         if (id == "composer")
           send();
+        else if (id == "emoji-search") {
+          // Selection is explicit; Enter must not submit account settings.
+        } else if (id == "gif-search")
+          searchGifs();
         else if (id == "dialog")
           submitDialog();
         else if (id == "token")

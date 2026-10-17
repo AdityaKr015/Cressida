@@ -33,14 +33,15 @@ namespace app {
         {"appearance", "Appearance", "APP SETTINGS", 440},
         {"accessibility", "Accessibility", "APP SETTINGS", 400},
         {"voice", "Voice & Video", "APP SETTINGS", 350},
-        {"text", "Text & Images", "APP SETTINGS", 360},
+        {"text", "Text & Images", "APP SETTINGS", 410},
         {"notifications", "Notifications", "APP SETTINGS", 920},
         {"keybinds", "Keybinds", "APP SETTINGS", 530},
         {"language", "Language", "APP SETTINGS", 350},
         {"advanced", "Advanced", "APP SETTINGS", 350},
         {"activity", "Activity Privacy", "ACTIVITY SETTINGS", 480},
         {"games", "Registered Games", "ACTIVITY SETTINGS", 350},
-        {"overlay", "Game Overlay", "ACTIVITY SETTINGS", 350}
+        {"overlay", "Game Overlay", "ACTIVITY SETTINGS", 350},
+        {"expressions", "Expressions", "CRESSIDA", 360}
     };
     std::string folded(std::string text) {
       for (auto& c : text)
@@ -58,6 +59,7 @@ namespace app {
     m_settingsLoaded = m_loadingSettings = m_savingSettings = false;
   }
   void ClientApplication::selectSettingsPage(const std::string& page) {
+    m_scrolling.stopAll();
     if (std::ranges::none_of(pages, [&](const auto& item) { return item.id == page; }))
       return;
     m_settingsPage = page;
@@ -65,6 +67,26 @@ namespace app {
     m_settingsField.clear();
     m_controlInput.setFocus(nullptr);
     m_focusedInput.clear();
+    float rowY = 0;
+    std::string group;
+    const auto query = folded(m_settingsFields["search"]);
+    const float navHeight = std::max(30.0F, static_cast<float>(m_window.height()) - 222);
+    for (const auto& entry : pages) {
+      if (!query.empty() && folded(std::string(entry.name) + " " + entry.group).find(query) == std::string::npos)
+        continue;
+      if (group != entry.group) {
+        group = entry.group;
+        rowY += 30;
+      }
+      if (page == entry.id) {
+        if (rowY < m_settingsNavScroll)
+          m_settingsNavScroll = rowY;
+        else if (rowY + 32 > m_settingsNavScroll + navHeight)
+          m_settingsNavScroll = rowY + 32 - navHeight;
+        break;
+      }
+      rowY += 36;
+    }
     if (listPage(page) && !m_demo && !m_settingsLists.contains(page) && !m_loadingSettingsLists.contains(page)) {
       if (m_client.settingsList(page)) {
         m_loadingSettingsLists.insert(page);
@@ -81,6 +103,8 @@ namespace app {
     m_profileDirty = false;
   }
   void ClientApplication::openSettings() {
+    m_scrolling.stopAll();
+    closeGifPicker();
     m_settingsOpen = true;
     m_presenceMenu = false;
     m_emojiMenu = false;
@@ -176,7 +200,7 @@ namespace app {
       navHeight += 36;
     }
     const float navY = 132, navH = std::max(30.0F, h - navY - 90);
-    m_settingsNavScroll = std::clamp(m_settingsNavScroll, 0.0F, std::max(0.0F, navHeight - navH));
+    m_scrolling.limit(m_settingsNavScroll, std::max(0.0F, navHeight - navH));
     auto nav = std::make_unique<Node>();
     nav->setPosition(frameX, navY);
     nav->setSize(navWidth, navH);
@@ -227,7 +251,7 @@ namespace app {
     float pageHeight = selected == std::end(pages) ? 400 : selected->height;
     if (listPage(m_settingsPage))
       pageHeight = 150 + m_settingsLists[m_settingsPage].size() * 96;
-    m_settingsScroll = std::clamp(m_settingsScroll, 0.0F, std::max(0.0F, pageHeight - viewportH));
+    m_scrolling.limit(m_settingsScroll, std::max(0.0F, pageHeight - viewportH));
     auto page = std::make_unique<Node>();
     page->setPosition(contentX, viewportY);
     page->setSize(contentWidth, viewportH);
@@ -470,13 +494,32 @@ namespace app {
           p, 0, 362, width, "Appearance changes apply immediately and are saved for this account on this device.", 12,
           muted, FontWeight::Normal, 3
       );
+    } else if (m_settingsPage == "expressions") {
+      toggle(
+          0, "FakeNitro emoji", m_preferences.fakeNitroEmojis, "fake_nitro_emojis", false,
+          "Send unsupported server emoji as image links."
+      );
+      label(
+          p, 0, 108, width,
+          "External and animated emoji use named image links when your account cannot send them normally. "
+          "Other clients may show a link or image preview; channel embed permissions still apply.",
+          13, muted, FontWeight::Normal, 4
+      );
+      label(
+          p, 0, 220, width,
+          "Applies to messages and edits. Reactions use Discord's normal rules. Saved only for this account in "
+          "Cressida.",
+          12, muted, FontWeight::Normal, 3
+      );
     } else if (m_settingsPage == "text") {
       toggle(0, "Show link previews and embeds", m_preferences.showEmbeds, "embeds");
       toggle(76, "Show image attachments", m_preferences.showImages, "images");
+      toggle(152, "Automatically play GIFs", m_preferences.autoplayGifs, "autoplay_gifs");
       label(
-          p, 0, 176, width,
-          "Hidden image attachments remain available as links. These preferences only affect this client.", 13, muted,
-          FontWeight::Normal, 3
+          p, 0, 252, width,
+          "GIFs play while this window is focused, or on hover when autoplay is off. Hidden images remain available as "
+          "links. These preferences only affect this client.",
+          13, muted, FontWeight::Normal, 3
       );
     } else {
       rectangle(p, 0, 0, width, 194, sidebar, 12);

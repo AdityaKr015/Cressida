@@ -9,6 +9,8 @@ namespace app {
     std::string theme = "dark";
     float messageSize = 14;
     bool compact = false, showEmbeds = true, showImages = true;
+    bool autoplayGifs = true;
+    bool fakeNitroEmojis = false;
   };
   struct LastChannel {
     std::string guild, channel;
@@ -25,6 +27,8 @@ namespace app {
     void savePreferences(const std::string& account, const Preferences& preferences) const;
     std::vector<std::string> frequentReactions(const std::string& account) const;
     void recordReaction(const std::string& account, const std::string& emoji) const;
+    std::vector<std::string> frequentEmojis(const std::string& account) const;
+    void recordEmoji(const std::string& account, const std::string& key) const;
 
   private:
     std::filesystem::path m_path, m_legacyPath;

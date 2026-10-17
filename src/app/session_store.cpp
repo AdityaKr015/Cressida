@@ -1,6 +1,7 @@
 #include "app/session_store.h"
 
 #include "discord/actions.h"
+#include "discord/emoji.h"
 #include "discord/models.h"
 
 #include <algorithm>
@@ -130,6 +131,8 @@ namespace app {
       result.compact = value.value("compact", false);
       result.showEmbeds = value.value("embeds", true);
       result.showImages = value.value("images", true);
+      result.autoplayGifs = value.value("autoplay_gifs", true);
+      result.fakeNitroEmojis = value.value("fake_nitro_emojis", false);
     } catch (...) {
       return {};
     }
@@ -145,8 +148,53 @@ namespace app {
           {"message_size", preferences.messageSize},
           {"compact", preferences.compact},
           {"embeds", preferences.showEmbeds},
-          {"images", preferences.showImages}
+          {"images", preferences.showImages},
+          {"autoplay_gifs", preferences.autoplayGifs},
+          {"fake_nitro_emojis", preferences.fakeNitroEmojis}
       };
+      writeState(m_path, all);
+    } catch (...) {
+    }
+  }
+  std::vector<std::string> SessionStore::frequentEmojis(const std::string& account) const {
+    std::vector<std::pair<int, std::string>> ranked;
+    try {
+      const auto all = readState(m_path, m_legacyPath);
+      if (all.contains(account) && all[account].contains("emoji_usage") && all[account]["emoji_usage"].is_object())
+        for (const auto& [key, count] : all[account]["emoji_usage"].items()) {
+          if (ranked.size() >= 64)
+            break;
+          if (discord::validEmojiKey(key) && count.is_number_integer() && count > 0 && count <= 1000000)
+            ranked.emplace_back(count.get<int>(), key);
+        }
+    } catch (...) {
+    }
+    std::ranges::sort(ranked, [](const auto& a, const auto& b) {
+      return a.first > b.first || (a.first == b.first && a.second < b.second);
+    });
+    std::vector<std::string> result;
+    for (const auto& [_, key] : ranked)
+      result.push_back(key);
+    return result;
+  }
+  void SessionStore::recordEmoji(const std::string& account, const std::string& key) const {
+    if (m_path.empty() || !discord::validSnowflake(account) || !discord::validEmojiKey(key))
+      return;
+    try {
+      auto all = readState(m_path, m_legacyPath);
+      auto& usage = all[account]["emoji_usage"];
+      if (!usage.is_object())
+        usage = nlohmann::json::object();
+      if (!usage.contains(key) && usage.size() >= 64) {
+        auto lowest = usage.begin();
+        for (auto it = usage.begin(); it != usage.end(); ++it)
+          if (!it.value().is_number_integer() || (lowest.value().is_number_integer() && it.value() < lowest.value()))
+            lowest = it;
+        usage.erase(lowest);
+      }
+      const auto previous =
+          usage.contains(key) && usage[key].is_number_integer() ? std::clamp(usage[key].get<int>(), 0, 999999) : 0;
+      usage[key] = previous + 1;
       writeState(m_path, all);
     } catch (...) {
     }

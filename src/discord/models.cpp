@@ -38,7 +38,10 @@ namespace discord {
         text(value, "username"),
         text(value, "global_name"),
         text(value, "bio"),
-        text(value, "pronouns")
+        text(value, "pronouns"),
+        value.contains("premium_type") && value["premium_type"].is_number_integer()
+            ? std::optional(std::clamp(value["premium_type"].get<int>(), 0, 3))
+            : std::nullopt
     };
   }
 
@@ -171,10 +174,18 @@ namespace discord {
   }
 
   std::string mediaUrl(std::string_view value) {
-    if (value.size() > 4096 || value.find_first_of("\r\n\t \\") != std::string_view::npos)
+    if (value.size() > 4096
+        || std::ranges::any_of(value, [](unsigned char c) { return c <= 32 || c == 127 || c == '\\'; }))
       return {};
     if (value.starts_with('/'))
       return mediaUrl("https://cdn.discordapp.com" + std::string(value));
+    // Exact public provider origins; never follow arbitrary embed URLs/redirects.
+    for (auto origin :
+         {"https://static.klipy.com/", "https://media.tenor.com/", "https://media.giphy.com/", "https://i.giphy.com/",
+          "https://media0.giphy.com/", "https://media1.giphy.com/", "https://media2.giphy.com/",
+          "https://media3.giphy.com/", "https://media4.giphy.com/"})
+      if (value.starts_with(origin))
+        return std::string(value);
     for (auto origin :
          {"https://cdn.discordapp.com/", "https://media.discordapp.net/", "https://images-ext-1.discordapp.net/",
           "https://images-ext-2.discordapp.net/"}) {
@@ -319,6 +330,8 @@ namespace discord {
           embed.image = parseMedia(item["image"]);
         if (item.contains("thumbnail"))
           embed.thumbnail = parseMedia(item["thumbnail"]);
+        if (item.contains("video"))
+          embed.video = parseMedia(item["video"]);
         if (item.contains("fields") && item["fields"].is_array())
           for (const auto& field : item["fields"]) {
             if (embed.fields.size() >= 25)
@@ -462,8 +475,8 @@ namespace discord {
     return "/embed/avatars/" + std::to_string(index) + ".png";
   }
 
-  std::string emojiPath(const std::string& emojiId) {
-    return validSnowflake(emojiId) ? "/emojis/" + emojiId + ".png?size=32" : "";
+  std::string emojiPath(const std::string& emojiId, bool animated) {
+    return validSnowflake(emojiId) ? "/emojis/" + emojiId + (animated ? ".gif?size=128" : ".png?size=128") : "";
   }
 
   std::vector<GuildFolder> arrangeGuilds(const std::vector<Guild>& guilds, const GuildLayout& layout) {

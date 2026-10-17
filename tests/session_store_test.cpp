@@ -54,6 +54,14 @@ int main() {
         "New accounts get familiar quick reaction defaults"
     );
     restored.recordReaction("123", "🎉");
+    restored.recordEmoji("123", "heart");
+    restored.recordEmoji("123", "123456789012345678");
+    restored.recordEmoji("123", "heart");
+    require(
+        app::SessionStore(path).frequentEmojis("123").front() == "heart"
+            && app::SessionStore(path).frequentEmojis("456").empty(),
+        "Emoji usage survives restart and remains account-scoped"
+    );
     restored.recordReaction("123", "🎉");
     restored.recordReaction("123", "wave:123");
     restored.recordReaction("123", "../invalid");
@@ -72,6 +80,22 @@ int main() {
     );
     require(second && second->guild.empty() && second->channel == "30", "Remember DMs independently for each account");
     const auto preferences = restored.preferences("123");
+    require(preferences.autoplayGifs, "GIF autoplay defaults on for existing accounts");
+    auto pausedGifs = preferences;
+    require(!preferences.fakeNitroEmojis, "FakeNitro defaults off for existing accounts");
+    pausedGifs.fakeNitroEmojis = true;
+    pausedGifs.autoplayGifs = false;
+    restored.savePreferences("123", pausedGifs);
+    require(
+        app::SessionStore(path).preferences("123").fakeNitroEmojis
+            && !app::SessionStore(path).preferences("456").fakeNitroEmojis,
+        "FakeNitro persists only for the account that enabled it"
+    );
+    require(
+        !app::SessionStore(path).preferences("123").autoplayGifs
+            && app::SessionStore(path).preferences("456").autoplayGifs,
+        "GIF autoplay persists per account"
+    );
     require(
         preferences.theme == "midnight"
             && preferences.messageSize == 18

@@ -27,6 +27,7 @@
   python3,
   md4c,
   libsecret,
+  ffmpeg-headless,
 }:
 stdenv.mkDerivation {
   pname = "cressida";
@@ -76,6 +77,7 @@ stdenv.mkDerivation {
     nlohmann_json
     md4c
     libsecret
+    ffmpeg-headless
     (curl.override { websocketSupport = true; })
     (callPackage ./stb.nix { })
   ];

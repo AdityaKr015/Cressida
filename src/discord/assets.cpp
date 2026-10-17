@@ -102,10 +102,19 @@ namespace discord {
         if (status != CURLE_OK || code != 200)
           data.bytes.clear();
       }
+      auto animation = media::decodeAnimation(data.bytes, stop);
       if (!stop.stop_requested()) {
         std::lock_guard lock(m_mutex);
+        std::size_t resident = 0;
+        for (const auto& result : m_results)
+          resident += result.bytes.size() + (result.animation ? result.animation->byteSize() : 0);
+        if (resident + data.bytes.size() > 128 * 1024 * 1024)
+          data.bytes.clear();
+        if (data.bytes.empty()
+            || resident + data.bytes.size() + (animation ? animation->byteSize() : 0) > 128 * 1024 * 1024)
+          animation.reset();
         if (m_results.size() < 128)
-          m_results.push_back({std::move(path), std::move(data.bytes)});
+          m_results.push_back({std::move(path), std::move(data.bytes), std::move(animation)});
         else
           m_pending.erase(path);
         (void)m_wake.signal();

@@ -16,6 +16,12 @@ int main() {
   try {
     auto account = discord::parseAccount(json{{"id", "123"}, {"username", "alex"}, {"global_name", nullptr}});
     require(account.name == "alex", "A null global name must fall back to the username");
+    require(
+        !account.premiumType
+            && discord::parseAccount(json{{"id", "123"}, {"premium_type", 2}}).premiumType == 2
+            && discord::parseAccount(json{{"id", "123"}, {"premium_type", 0}}).premiumType == 0,
+        "Distinguish omitted premium state in partial account updates from explicit non-premium"
+    );
     auto channels = discord::parseChannels(
         json::array({
             {{"id", "4"}, {"name", "voice"}, {"type", 2}},

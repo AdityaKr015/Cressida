@@ -1,3 +1,5 @@
+#include "discord/emoji.h"
+#include "discord/gifs.h"
 #include "discord/models.h"
 
 #include <nlohmann/json.hpp>
@@ -139,6 +141,199 @@ namespace discord {
       return result;
     }
   } // namespace
+  EmojiPreferences parseEmojiPreferences(const nlohmann::json& value) {
+    if (!value.is_object() || (!value.contains("settings") && !value.contains("proto")))
+      throw std::runtime_error("Unreadable emoji settings");
+    const auto bytes = base64(encodedSettings(value));
+    Wire root(bytes);
+    EmojiPreferences result;
+    std::vector<std::pair<std::uint64_t, std::string>> usage;
+    while (root.next()) {
+      if (root.type != 2 || (root.field != 5 && root.field != 6))
+        continue;
+      const auto group = root.field;
+      Wire fields(root.data);
+      while (fields.next()) {
+        if (fields.field != 1 || fields.type != 2)
+          continue;
+        if (group == 5) {
+          std::string key(fields.data);
+          if (validEmojiKey(key))
+            result.favorites.push_back(std::move(key));
+          if (result.favorites.size() > 4096)
+            throw std::runtime_error("Too many favorite emoji");
+        } else {
+          Wire entry(fields.data);
+          std::string key;
+          std::uint64_t uses = 0;
+          while (entry.next()) {
+            if (entry.field == 1 && entry.type == 2)
+              key = entry.data;
+            if (entry.field == 2 && entry.type == 2) {
+              Wire counts(entry.data);
+              while (counts.next())
+                if (counts.field == 1 && counts.type == 0)
+                  uses = counts.number;
+            }
+          }
+          if (uses && validEmojiKey(key) && usage.size() < 4096)
+            usage.emplace_back(uses, std::move(key));
+        }
+      }
+    }
+    std::ranges::sort(usage, [](const auto& a, const auto& b) {
+      return a.first > b.first || (a.first == b.first && a.second < b.second);
+    });
+    for (const auto& [_, key] : usage)
+      if (result.frequent.size() < 64)
+        result.frequent.push_back(key);
+    return result;
+  }
+  nlohmann::json emojiFavoritePatch(const nlohmann::json& snapshot, const std::string& key, bool add) {
+    if (!validEmojiKey(key))
+      throw std::runtime_error("Invalid favorite emoji");
+    const auto bytes = base64(encodedSettings(snapshot));
+    Wire root(bytes);
+    std::optional<std::uint64_t> version;
+    std::string block;
+    bool exists = false;
+    while (root.next()) {
+      if (root.field == 1 && root.type == 2) {
+        Wire versions(root.data);
+        while (versions.next())
+          if (versions.field == 3 && versions.type == 0)
+            version = versions.number;
+      }
+      if (root.field != 5 || root.type != 2)
+        continue;
+      Wire favorites(root.data);
+      while (!favorites.bytes.empty()) {
+        const auto before = favorites.bytes;
+        favorites.next();
+        const bool match = favorites.field == 1 && favorites.type == 2 && favorites.data == key;
+        exists |= match;
+        if (!match || add)
+          block += before.substr(0, before.size() - favorites.bytes.size());
+      }
+    }
+    if (!version)
+      throw std::runtime_error("Emoji settings need a data version");
+    if (add && !exists)
+      block += field(1, key);
+    return {{"settings", encode64(field(5, block))}, {"required_data_version", *version}};
+  }
+  std::vector<Gif> parseGifFavorites(const nlohmann::json& value) {
+    if (!value.is_object() || (!value.contains("settings") && !value.contains("proto")))
+      throw std::runtime_error("Unreadable favorite GIF settings");
+    const auto bytes = base64(encodedSettings(value));
+    Wire root(bytes);
+    std::map<std::string, Gif> byUrl;
+    while (root.next()) {
+      if (root.field != 2 || root.type != 2)
+        continue;
+      Wire favorites(root.data);
+      while (favorites.next()) {
+        if (favorites.field != 1 || favorites.type != 2)
+          continue;
+        Wire entry(favorites.data);
+        Gif gif;
+        while (entry.next()) {
+          if (entry.field == 1 && entry.type == 2)
+            gif.url = entry.data;
+          if (entry.field == 2 && entry.type == 2) {
+            Wire fields(entry.data);
+            while (fields.next()) {
+              if (fields.field == 1 && fields.type == 0)
+                gif.format = fields.number;
+              if (fields.field == 2 && fields.type == 2)
+                gif.src = mediaUrl(fields.data);
+              if (fields.field == 3 && fields.type == 0 && fields.number <= 16384)
+                gif.width = fields.number;
+              if (fields.field == 4 && fields.type == 0 && fields.number <= 16384)
+                gif.height = fields.number;
+              if (fields.field == 5 && fields.type == 0 && fields.number <= UINT32_MAX)
+                gif.order = fields.number;
+            }
+          }
+        }
+        if (validGif(gif))
+          byUrl[gif.url] = std::move(gif);
+        if (byUrl.size() > 1000)
+          throw std::runtime_error("Too many favorite GIFs");
+      }
+    }
+    std::vector<Gif> result;
+    for (auto& [_, gif] : byUrl)
+      result.push_back(std::move(gif));
+    std::ranges::sort(result, [](const auto& a, const auto& b) {
+      return a.order > b.order || (a.order == b.order && a.url < b.url);
+    });
+    return result;
+  }
+  nlohmann::json gifFavoritePatch(const nlohmann::json& snapshot, const Gif& gif, bool add) {
+    if (!validGif(gif))
+      throw std::runtime_error("Invalid favorite GIF");
+    const auto bytes = base64(encodedSettings(snapshot));
+    Wire root(bytes);
+    std::optional<std::uint64_t> version;
+    std::string block;
+    std::uint64_t lastOrder = 0;
+    bool exists = false;
+    while (root.next()) {
+      if (root.field == 1 && root.type == 2) {
+        Wire versions(root.data);
+        while (versions.next())
+          if (versions.field == 3 && versions.type == 0)
+            version = versions.number;
+      }
+      if (root.field != 2 || root.type != 2)
+        continue;
+      Wire favorites(root.data);
+      while (!favorites.bytes.empty()) {
+        const auto before = favorites.bytes;
+        favorites.next();
+        bool retain = true;
+        if (favorites.field == 1 && favorites.type == 2) {
+          Wire entry(favorites.data);
+          std::string key;
+          while (entry.next()) {
+            if (entry.field == 1 && entry.type == 2)
+              key = entry.data;
+            if (entry.field == 2 && entry.type == 2) {
+              Wire fields(entry.data);
+              while (fields.next())
+                if (fields.field == 5 && fields.type == 0)
+                  lastOrder = std::max(lastOrder, fields.number);
+            }
+          }
+          if (key == gif.url) {
+            exists = true;
+            retain = add;
+          }
+        }
+        if (retain)
+          block += before.substr(0, before.size() - favorites.bytes.size());
+      }
+    }
+    if (!version)
+      throw std::runtime_error("Favorite GIF settings need a data version");
+    if (add && !exists) {
+      if (lastOrder >= UINT32_MAX)
+        throw std::runtime_error("Favorite GIF order is out of range");
+      std::string value;
+      auto scalar = [&](unsigned id, std::uint64_t number) {
+        integer(value, id << 3);
+        integer(value, number);
+      };
+      scalar(1, gif.format);
+      value += field(2, gif.src);
+      scalar(3, gif.width);
+      scalar(4, gif.height);
+      scalar(5, lastOrder + 1);
+      block += field(1, field(1, gif.url) + field(2, value));
+    }
+    return {{"settings", encode64(field(2, block))}, {"required_data_version", *version}};
+  }
   std::optional<Presence> parsePresenceSettings(const nlohmann::json& value) {
     auto bytes = base64(encodedSettings(value));
     Wire root(bytes);

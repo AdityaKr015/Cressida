@@ -3,7 +3,9 @@
 #include "auth/credentials.h"
 #include "core/process/wake_event.h"
 #include "discord/actions.h"
+#include "discord/emoji.h"
 #include "discord/gateway.h"
+#include "discord/gifs.h"
 #include "discord/models.h"
 #include "discord/read_state.h"
 #include "discord/user_directory.h"
@@ -48,7 +50,13 @@ namespace discord {
     PrivateChannels,
     PrivateChannelUpsert,
     PrivateChannelDelete,
-    Credentials
+    Credentials,
+    GifSearch,
+    GifFavorites,
+    SaveGifFavorite,
+    GuildEmojis,
+    EmojiPreferences,
+    SaveEmojiFavorite
   };
 
   struct Event {
@@ -79,6 +87,9 @@ namespace discord {
     std::vector<Account> reactors;
     bool noSavedLogin = false, restoredLogin = false;
     std::optional<auth::CredentialOperation> credentialOperation;
+    std::vector<Gif> gifs;
+    std::vector<Emoji> emojis;
+    std::optional<EmojiPreferences> emojiPreferences;
   };
 
   // One cancellable network worker. No rendering or window-system dependency.
@@ -107,6 +118,12 @@ namespace discord {
     bool interact(discord::Interaction action);
     bool profile();
     bool accountSettings();
+    bool searchGifs(const std::string& query);
+    bool gifFavorites();
+    bool saveGifFavorite(const Gif& gif, bool add);
+    bool guildEmojis(const std::string& guild);
+    bool emojiPreferences();
+    bool saveEmojiFavorite(const std::string& key, bool add);
     bool saveAccountSettings(SettingValues changes);
     bool settingsList(const std::string& section);
     bool saveProfile(const Account& profile);

@@ -4,6 +4,7 @@
 #include "app/theme.h"
 #include "core/deferred_call.h"
 #include "core/environment.h"
+#include "core/files/resource_paths.h"
 #include "core/input/key_modifiers.h"
 #include "core/timer_manager.h"
 #include "render/core/texture_manager.h"
@@ -17,6 +18,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
 #include <limits>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -38,6 +40,7 @@ namespace app {
   } // namespace
 
   ClientApplication::ClientApplication(bool demoMode, std::string token) : m_token(std::move(token)) {
+    m_emojiCatalog.load(paths::assetPath("emoji.json"), paths::assetPath("emoji-aliases.json"));
     m_edit.end(m_token);
     m_showTokenEntry = !m_token.empty();
     m_fieldFocused = m_showTokenEntry;
@@ -46,6 +49,19 @@ namespace app {
       draw();
       if (m_demo && m_demoOverlay == "interaction-cycle")
         demoInteractionStep();
+      if (m_demo && m_demoOverlay == "gif-cycle")
+        demoGifStep();
+      if (m_demo && m_demoOverlay == "scroll-cycle") {
+        const auto step = m_demoInteractionStep++ % 16;
+        if (step == 0 || step == 4 || step == 8 || step == 12) {
+          m_window.motion(450, 200 + m_window.titlebarHeight() - 36);
+          m_window.scroll(step == 8 ? 48 : -120);
+          if (step == 8 && m_scrolling.target(m_messageScroll) >= m_messageScroll)
+            throw std::runtime_error("Scroll reversal must change direction immediately");
+        }
+        std::clog << "Offline scroll frame " << m_demoInteractionStep << " offset " << m_messageScroll << '\n';
+        m_window.invalidate();
+      }
     };
     m_window.motion = [this](float x, float y) {
       m_pointerX = x;
@@ -81,9 +97,26 @@ namespace app {
       m_pointerY = y;
       if (overlayClick(x, y))
         return;
+      if (m_emojiMenu
+          && m_emojiBounds.contains(x, y)
+          && y >= m_emojiBounds.y + 52
+          && y < m_emojiBounds.y + 90
+          && m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false)) {
+        m_window.invalidate();
+        return;
+      }
+      if (m_gifMenu
+          && m_gifBounds.contains(x, y)
+          && y >= m_gifBounds.y + 52
+          && y < m_gifBounds.y + 90
+          && m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false)) {
+        m_window.invalidate();
+        return;
+      }
       if (m_viewImage.empty()
           && !m_presenceMenu
           && !m_emojiMenu
+          && !m_gifMenu
           && m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false)) {
         m_window.invalidate();
         return;
@@ -109,6 +142,17 @@ namespace app {
       openContext(x, y);
     };
     m_window.key = [this](const Key& key) { onKey(key); };
+    m_window.animate = [this] {
+      const bool active = m_scrolling.tick();
+      if (m_showMembers && !m_dmMode && !m_demo && !m_guildId.empty() && !m_channelId.empty()) {
+        const int page = static_cast<int>(m_memberScroll / 44) / 100 * 100;
+        if (page != m_memberPage) {
+          m_memberPage = page;
+          m_client.subscribe(m_guildId, m_channelId, page);
+        }
+      }
+      return active;
+    };
     m_window.zoom = [this](float delta) {
       if (!m_viewImage.empty()) {
         m_viewZoom = std::clamp(m_viewZoom * (delta < 0 ? 1.1F : 1 / 1.1F), 0.25F, 4.0F);
@@ -172,6 +216,19 @@ namespace app {
       m_window.invalidate();
     };
     m_window.scroll = [this](float delta) {
+      auto scroll = [&](float& offset, float amount) { m_scrolling.scroll(offset, amount, m_window.preciseScroll()); };
+      if (m_emojiMenu) {
+        if (m_emojiBounds.contains(m_pointerX, m_pointerY))
+          scroll(m_pointerX < m_emojiBounds.x + 56 ? m_emojiRailScroll : m_emojiScroll, delta);
+        m_window.invalidate();
+        return;
+      }
+      if (m_gifMenu) {
+        if (m_gifBounds.contains(m_pointerX, m_pointerY))
+          scroll(m_gifScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (m_contextOpen) {
         scrollContext(delta);
         return;
@@ -179,8 +236,7 @@ namespace app {
       if (!m_dialogKind.empty())
         return;
       if (m_settingsOpen) {
-        auto& scroll = m_pointerX < m_settingsNavRight ? m_settingsNavScroll : m_settingsScroll;
-        scroll = std::max(0.0F, scroll + delta * 3);
+        scroll(m_pointerX < m_settingsNavRight ? m_settingsNavScroll : m_settingsScroll, delta);
         m_window.invalidate();
         return;
       }
@@ -196,25 +252,15 @@ namespace app {
           && m_pointerX < m_attachmentX + m_attachmentWidth
           && m_pointerY >= m_attachmentY
           && m_pointerY < m_attachmentY + 90)
-        m_attachmentScroll = std::clamp(
-            m_attachmentScroll + delta * 3, 0.0F,
-            std::max(0.0F, m_attachments[m_channelId].size() * 96.0F - m_attachmentWidth)
-        );
+        scroll(m_attachmentScroll, delta);
       else if (m_pointerX < 78)
-        m_guildScroll = std::max(0.0F, m_guildScroll + delta * 3);
+        scroll(m_guildScroll, delta);
       else if (m_pointerX < 326)
-        m_channelScroll = std::max(0.0F, m_channelScroll + delta * 3);
+        scroll(m_channelScroll, delta);
       else if (m_showMembers && m_window.width() >= 1000 && m_pointerX >= m_window.width() - 240) {
-        m_memberScroll = std::clamp(
-            m_memberScroll + delta * 3, 0.0F, std::max(0.0F, m_memberCount * 44.0F - (m_window.height() - 130))
-        );
-        const int page = static_cast<int>(m_memberScroll / 44) / 100 * 100;
-        if (page != m_memberPage && !m_demo) {
-          m_memberPage = page;
-          m_client.subscribe(m_guildId, m_channelId, page);
-        }
+        scroll(m_memberScroll, delta);
       } else
-        m_messageScroll = std::clamp(m_messageScroll - delta * 3, 0.0F, m_messageMaxScroll);
+        scroll(m_messageScroll, -delta);
       m_window.invalidate();
     };
     if (demoMode)
@@ -234,7 +280,12 @@ namespace app {
         restoreLogin();
     }
     const auto* view = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW");
-    const bool interactionCycle = m_demo && view && std::string_view(view) == "interaction-cycle";
+    const bool interactionCycle = m_demo
+        && view
+        && (std::string_view(view) == "interaction-cycle"
+            || std::string_view(view) == "animation-cycle"
+            || std::string_view(view) == "gif-cycle"
+            || std::string_view(view) == "scroll-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); }, smokeTest ? (interactionCycle ? 64 : 1) : 0, m_assets.eventFd()
     );
@@ -307,6 +358,109 @@ namespace app {
           m_retrySavedLogin = view == "login-retry";
           m_status = m_restoringLogin ? "Your desktop keyring may ask you to unlock it."
                                       : "Could not reach Discord. Your saved sign-in is still available.";
+        } else if (
+            view == "gif-picker"
+            || view == "gif-favorites"
+            || view == "animated-media"
+            || view == "animation-cycle"
+            || view == "gif-cycle"
+            || view == "animated-image"
+        ) {
+          for (int i = 0; i < 8; ++i) {
+            const auto path = "https://static.klipy.com/ii/cressida-demo-" + std::to_string(i) + ".gif";
+            auto animation = std::make_shared<media::Animation>();
+            animation->width = 96;
+            animation->height = 64 + i * 8;
+            animation->duration = std::chrono::milliseconds(240);
+            for (int f = 0; f < 3; ++f) {
+              media::Frame frame;
+              frame.duration = std::chrono::milliseconds(80);
+              frame.rgba.resize(animation->width * animation->height * 4);
+              for (int py = 0; py < animation->height; ++py)
+                for (int px = 0; px < animation->width; ++px) {
+                  const auto index = (py * animation->width + px) * 4;
+                  frame.rgba[index] = 60 + (px + i * 17 + f * 24) % 160;
+                  frame.rgba[index + 1] = 60 + (py + i * 12) % 150;
+                  frame.rgba[index + 2] = 180 + f * 20;
+                  frame.rgba[index + 3] = 255;
+                }
+              animation->frames.push_back(std::move(frame));
+            }
+            auto& cached = m_images[path];
+            cached.animation = animation;
+            cached.texture = m_window.context().textureManager().loadFromRgba(
+                animation->frames[0].rgba.data(), animation->width, animation->height
+            );
+            discord::Gif gif;
+            gif.url = "https://klipy.com/gifs/cressida-demo-" + std::to_string(i);
+            gif.src = path;
+            gif.width = animation->width;
+            gif.height = animation->height;
+            gif.title = "Offline animation " + std::to_string(i + 1);
+            m_gifs.push_back(gif);
+            if (i % 2 == 0)
+              m_gifFavorites.push_back(gif);
+          }
+          m_gifFavoritesLoaded = true;
+          if (view == "gif-cycle")
+            m_demoOverlay = view;
+          if (view == "animated-media" || view == "animation-cycle" || view == "animated-image") {
+            m_messages.resize(1);
+            m_messages[0].content = "Native looping media";
+            discord::Embed gif;
+            gif.type = "gifv";
+            gif.url = m_gifs[0].url;
+            gif.video = {m_gifs[0].src, 480, 320};
+            m_messages[0].embeds = {gif};
+            m_messageLayouts.clear();
+            if (view == "animated-image") {
+              m_viewImage = m_gifs[0].src;
+              m_viewUrl = m_gifs[0].url;
+            }
+          } else {
+            m_gifMenu = true;
+            m_gifFavoritesTab = view == "gif-favorites";
+            m_focusedInput = "gif-search";
+          }
+        } else if (view == "scroll-cycle") {
+          m_demoOverlay = view;
+          m_messages.clear();
+          for (int i = 0; i < 100; ++i)
+            m_messages.push_back(
+                {std::to_string(3000 + i), m_channelId, "Maya",
+                 "Smooth native scrolling through a conversation.\nA second line keeps the timeline long enough to "
+                 "scroll.",
+                 "2026-10-17T09:41:00Z"}
+            );
+          m_messageLayouts.clear();
+        } else if (view == "emoji-sizing" || view == "emoji-sizing-compact") {
+          m_preferences.compact = view == "emoji-sizing-compact";
+          prepareEmojiPicker();
+          m_showMembers = false;
+          m_messages.clear();
+          const auto* emoji = m_emojiCatalog.find("800000000000000000");
+          const auto custom = emoji ? emoji->token() : "<:wave:123>";
+          const std::vector<std::string> samples = {
+              "Inline emoji: 🙂 ❤️ 👩🏽‍💻 " + custom + " with normal text.", "🙂 ❤️ " + custom,
+              "👨‍👩‍👧‍👦 🇩🇪 1️⃣ 👩🏽‍💻", "`🙂 " + custom + "` stays literal in code."
+          };
+          for (std::size_t i = 0; i < samples.size(); ++i)
+            m_messages.push_back({std::to_string(8000 + i), m_channelId, "Maya", samples[i], "2026-10-17T09:41:00Z"});
+          m_messageLayouts.clear();
+        } else if (view == "media-only") {
+          prepareEmojiPicker();
+          const auto* emoji = m_emojiCatalog.find("800000000000000000");
+          if (emoji) {
+            const auto url = "https://cdn.discordapp.com" + discord::emojiPath(emoji->id, emoji->animated);
+            m_messages.resize(1);
+            m_messages[0].content = "[woe](" + url + ")";
+            discord::Embed preview;
+            preview.type = "image";
+            preview.url = url;
+            preview.thumbnail = {discord::emojiPath(emoji->id, emoji->animated), 160, 160};
+            m_messages[0].embeds = {preview};
+            m_messageLayouts.clear();
+          }
         } else if (view == "composer") {
           m_drafts[m_channelId] = "A centered message";
         } else if (view == "emoji-picker")
@@ -361,6 +515,7 @@ namespace app {
             || view == "profile"
             || view == "appearance"
             || view == "text"
+            || view == "expressions"
             || view == "presence"
             || view == "privacy"
             || view == "notifications"
@@ -453,12 +608,66 @@ namespace app {
   ) {
     if (path.empty() || (m_demo && !m_images.contains(path)))
       return false;
+    auto global = [&](const Node* node) {
+      std::pair<float, float> pos{};
+      for (; node && node != m_scene.get(); node = node->parent()) {
+        pos.first += node->x();
+        pos.second += node->y();
+      }
+      return pos;
+    };
+    const auto [ox, oy] = global(&parent);
+    const float gx = x + ox, gy = y + oy;
+    float clipLeft = 0, clipTop = 36, clipRight = m_window.width(),
+          clipBottom = m_window.height() + 36 - m_window.titlebarHeight();
+    for (auto* node = &parent; node && node != m_scene.get(); node = node->parent())
+      if (node->clipChildren()) {
+        const auto [nx, ny] = global(node);
+        clipLeft = std::max(clipLeft, nx);
+        clipTop = std::max(clipTop, ny);
+        clipRight = std::min(clipRight, nx + node->width());
+        clipBottom = std::min(clipBottom, ny + node->height());
+      }
+    if (gx + width <= clipLeft || gx >= clipRight || gy + height <= clipTop || gy >= clipBottom)
+      return false;
     auto& cached = m_images[path];
     cached.touched = ++m_imageSerial;
     if (!cached.texture.valid()) {
       if (!m_pendingImages.contains(path) && std::chrono::steady_clock::now() >= cached.retry && m_assets.request(path))
         m_pendingImages.insert(path);
       return false;
+    }
+    if (cached.animation && cached.animation->frames.size() > 1) {
+      const auto now = std::chrono::steady_clock::now();
+      if (cached.visibleFrame + 1 < m_animationDraw || cached.animationStart == std::chrono::steady_clock::time_point{})
+        cached.animationStart = now;
+      cached.visibleFrame = m_animationDraw;
+      const bool playing = (m_demo || m_window.active())
+          && (m_preferences.autoplayGifs || hovered(gx, gy, width, height))
+          && (m_viewImage.empty() || path == m_viewImage);
+      if (playing) {
+        if (cached.playingDraw + 1 < m_animationDraw)
+          cached.animationStart = now;
+        cached.playingDraw = m_animationDraw;
+      }
+      const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - cached.animationStart);
+      const auto& animation = *cached.animation;
+      const auto frame = playing || cached.playingDraw == m_animationDraw ? animation.frameAt(elapsed) : 0;
+      if (frame != cached.animationFrame) {
+        m_window.context().textureManager().updateSubImage(
+            cached.texture, animation.frames[frame].rgba.data(), 0, 0, animation.width, animation.height,
+            TextureDataFormat::Rgba
+        );
+        cached.animationFrame = frame;
+      }
+      if (playing) {
+        auto offset = elapsed % animation.duration;
+        for (std::size_t i = 0; i < frame; ++i)
+          offset -= animation.frames[i].duration;
+        m_animationDelay = std::min(
+            m_animationDelay, std::max(std::chrono::milliseconds(10), animation.frames[frame].duration - offset)
+        );
+      }
     }
     auto node = std::make_unique<ImageNode>();
     node->setPosition(x, y);
@@ -484,9 +693,14 @@ namespace app {
   }
 
   void ClientApplication::draw() {
+    ++m_animationDraw;
+    m_animationDelay = std::chrono::milliseconds::max();
     theme::select(m_preferences.theme);
     const float w = m_window.width(), h = m_window.height() + 36 - m_window.titlebarHeight();
     m_tooltip.clear();
+    if (!m_emojiMenu && m_emojiOpened)
+      closeEmojiPicker();
+    m_gifTargets.clear();
     m_reactionHoveredThisFrame = false;
     m_contextTargets.clear();
     m_messageTops.clear();
@@ -613,7 +827,7 @@ namespace app {
           }
         }
       }
-      m_guildScroll = std::min(m_guildScroll, std::max(0.0F, rail.size() * 60.0F - (h - 164)));
+      m_scrolling.limit(m_guildScroll, std::max(0.0F, rail.size() * 60.0F - (h - 164)));
       for (std::size_t i = 0; i < rail.size(); ++i) {
         const float y = 113 + i * 60 - m_guildScroll;
         if (y < 102 || y + 48 > h - 50)
@@ -670,7 +884,7 @@ namespace app {
       for (const auto& channel : m_channels)
         if (channel.type == 4 || !m_collapsedCategories.contains(channel.parentId) || channel.id == m_channelId)
           visibleChannels.push_back(&channel);
-      m_channelScroll = std::min(m_channelScroll, std::max(0.0F, visibleChannels.size() * 38.0F - (h - 228)));
+      m_scrolling.limit(m_channelScroll, std::max(0.0F, visibleChannels.size() * 38.0F - (h - 228)));
       for (std::size_t i = 0; i < visibleChannels.size(); ++i) {
         const float y = 142 + i * 38 - m_channelScroll;
         if (y < 138 || y + 34 > h - 76)
@@ -760,7 +974,7 @@ namespace app {
       rectangle(root, left, 101, bodyWidth, 1, raised);
       const auto& draft = m_drafts[m_channelId];
       m_edit.clamp(draft);
-      m_draftWidth = std::max(32.0F, bodyWidth - 150);
+      m_draftWidth = std::max(32.0F, bodyWidth - 186);
       m_draftOffsets = TextEdit::stops(draft);
       m_window.target().renderer().measureTextCursorStopsWrapped(draft, 14, m_draftOffsets, m_draftWidth, m_draftStops);
       const float fullDraftHeight =
@@ -807,7 +1021,12 @@ namespace app {
           if (!m_preferences.showImages)
             for (auto& attachment : displayed.attachments)
               attachment.image.url.clear();
-          cached.layout = layoutRichMessage(displayed, textWidth, measure, m_preferences.messageSize);
+          cached.layout = layoutRichMessage(
+              displayed, textWidth, measure, m_preferences.messageSize,
+              {.fakeNitroEmojis = m_preferences.fakeNitroEmojis && m_preferences.showImages,
+               .compact = m_preferences.compact,
+               .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
+          );
           cached.width = textWidth;
           cached.scale = renderer.renderScale();
           cached.fonts = renderer.textMetricsGeneration();
@@ -822,7 +1041,7 @@ namespace app {
         totalHeight += height;
       }
       m_messageMaxScroll = std::max(0.0F, totalHeight - (bottom - top));
-      m_messageScroll = std::clamp(m_messageScroll, 0.0F, m_messageMaxScroll);
+      m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
       float y = std::min(0.0F, bottom - top - totalHeight) + m_messageScroll + 12;
       for (std::size_t i = 0; i < m_messages.size(); ++i) {
         const auto& message = m_messages[i];
@@ -913,8 +1132,8 @@ namespace app {
             const float rx = 50 + run.x, ry = bodyY + run.y;
             const bool hidden = run.style.spoiler && !m_revealedSpoilers.contains(message.id);
             if (hidden) {
-              rectangle(*content, rx, ry, run.width, 20, raised, 3);
-              m_hits.push_back({left + 24 + rx, top + ry, run.width, 22, Action::RevealSpoiler, message.id});
+              rectangle(*content, rx, ry, run.width, run.height, raised, 3);
+              m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::RevealSpoiler, message.id});
               continue;
             }
             if (m_selectedMessage == message.id && m_selectedText == layout.plainText && m_chatEdit.selected()) {
@@ -926,7 +1145,7 @@ namespace app {
                 const auto length = run.image.empty()
                     ? measure(std::string_view(run.text).substr(from - run.offset, to - from), run.style)
                     : run.width;
-                rectangle(*content, rx + offset, ry, length, 22, rgbHex(0x574D70), 2);
+                rectangle(*content, rx + offset, ry, length, run.height, rgbHex(0x574D70), 2);
               }
             }
             if (run.image.empty())
@@ -938,10 +1157,11 @@ namespace app {
               label(*content, rx, ry, 22, "…", 14, muted);
             m_textAreas.push_back({run, message.id, left + 24 + rx, top + ry});
             if (!run.style.link.empty())
-              m_hits.push_back({left + 24 + rx, top + ry, run.width, 22, Action::OpenUrl, run.style.link});
+              m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link});
           }
           for (const auto& pic : layout.pictures) {
-            rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
+            if (pic.video)
+              rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
             picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6);
             const float px = left + 74 + pic.x, py = top + bodyY + pic.y;
             if (pic.video) {
@@ -957,6 +1177,32 @@ namespace app {
               if (m_viewImage.empty())
                 m_viewerImages.push_back({pic.media.url, pic.link.empty() ? pic.media.url : pic.link});
               m_hits.push_back({px, py, pic.width, pic.height, Action::ViewImage, pic.media.url});
+              const auto cachedImage = m_images.find(pic.media.url);
+              const bool animated = pic.animated
+                  || pic.media.url.contains(".gif")
+                  || (cachedImage != m_images.end()
+                      && cachedImage->second.animation
+                      && cachedImage->second.animation->frames.size() > 1);
+              if (animated && hovered(px, py, pic.width, pic.height) && py >= top && py + 36 <= bottom) {
+                if (!m_demo && !m_gifFavoritesLoaded && !m_loadingGifFavorites)
+                  m_loadingGifFavorites = m_client.gifFavorites();
+                discord::Gif gif;
+                gif.url = pic.link.empty() ? discord::mediaUrl(pic.media.url) : pic.link;
+                gif.src = discord::mediaUrl(pic.media.url);
+                gif.width = pic.media.width;
+                gif.height = pic.media.height;
+                gif.format = pic.media.url.contains(".mp4") || pic.media.url.contains(".webm") ? 2 : 1;
+                const bool favorite =
+                    std::ranges::find(m_gifFavorites, gif.url, &discord::Gif::url) != m_gifFavorites.end();
+                m_gifTargets[gif.url] = gif;
+                rectangle(*content, 50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30, sidebar, 7);
+                iconButton(
+                    *content,
+                    {50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30,
+                     m_pendingGifFavorites.contains(gif.url) ? Action::None : Action::FavoriteGif, gif.url},
+                    favorite ? "star-filled" : "star", favorite ? "Remove GIF from favorites" : "Favorite GIF", favorite
+                );
+              }
             }
           }
           if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
@@ -1015,8 +1261,8 @@ namespace app {
       m_attachmentX = left + 36;
       m_attachmentY = composerY + replyHeight + 10;
       m_attachmentWidth = bodyWidth - 72;
-      m_attachmentScroll = std::clamp(
-          m_attachmentScroll, 0.0F, std::max(0.0F, m_attachments[m_channelId].size() * 96.0F - m_attachmentWidth)
+      m_scrolling.limit(
+          m_attachmentScroll, std::max(0.0F, m_attachments[m_channelId].size() * 96.0F - m_attachmentWidth)
       );
       auto previews = std::make_unique<Node>();
       previews->setPosition(m_attachmentX, m_attachmentY);
@@ -1054,9 +1300,11 @@ namespace app {
       iconButton(
           root, {left + bodyWidth - 62, actionY, 32, 32, Action::ToggleEmoji, {}}, "mood-smile", "Emoji", m_emojiMenu
       );
+      iconButton(root, {left + bodyWidth - 98, actionY, 32, 32, Action::ToggleGif, {}}, "gif", "GIFs", m_gifMenu);
       if (!m_status.empty())
         label(root, left + 28, 105, bodyWidth - 56, m_status, 11, muted);
       if (memberWidth > 0) {
+        m_scrolling.limit(m_memberScroll, std::max(0.0F, m_memberCount * 44.0F - (h - 158)));
         const float memberX = w - memberWidth;
         rectangle(root, memberX, 102, memberWidth, h - 102, sidebar);
         label(
@@ -1107,6 +1355,8 @@ namespace app {
       drawPresenceMenu(root, h);
     if (m_emojiMenu && !m_settingsOpen && m_viewImage.empty())
       drawEmojiPicker(root, w, h);
+    if (m_gifMenu && !m_settingsOpen && m_viewImage.empty())
+      drawGifPicker(root, w, h);
     if (!m_viewImage.empty())
       drawImageViewer(root, w, h);
     if (m_demo && !m_demoOverlayApplied && !m_demoOverlay.empty()) {
@@ -1186,6 +1436,10 @@ namespace app {
     }
     updateCursor();
     m_window.context().renderScene(m_window.target(), m_scene.get());
+    if (m_animationDelay != std::chrono::milliseconds::max())
+      m_animationTimer.start(m_animationDelay, [this] { m_window.invalidate(); });
+    else
+      m_animationTimer.stop();
   }
 
   std::string ClientApplication::userName(const std::string& id, const std::string& fallback) const {
@@ -1280,6 +1534,9 @@ namespace app {
   }
 
   void ClientApplication::demo() {
+    clearEmojiState();
+    m_scrolling.stopAll();
+    clearGifs();
     clearInteractions();
     m_login.cancel();
     m_client.disconnect();
@@ -1327,6 +1584,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    m_scrolling.stopAll();
     if (!m_dmMode && m_guildId == id && !m_channels.empty())
       return;
     cacheChannel();
@@ -1371,6 +1629,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    m_scrolling.stopAll();
     cacheChannel();
     if (m_restoreChannel.empty())
       m_restoreChannel = m_lastChannels.contains("@me") ? m_lastChannels["@me"]
@@ -1397,6 +1656,8 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(const std::string& id) {
+    m_scrolling.stopAll();
+    closeGifPicker();
     closeContext();
     closeDialog();
     m_reactionMessage.clear();
@@ -1504,7 +1765,10 @@ namespace app {
     if (draft.empty() && uploads.empty())
       return;
     const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
-    if (!m_client.send(m_channelId, draft, std::move(uploads), reply)) {
+    const auto content = m_emojiCatalog.messageContent(
+        draft, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
+    );
+    if (!m_client.send(m_channelId, content, std::move(uploads), reply)) {
       m_status = "Messages can contain up to 2,000 characters. Please try again.";
     } else {
       m_pendingDraft = draft;
@@ -1527,12 +1791,33 @@ namespace app {
     for (auto& asset : m_assets.drain()) {
       m_pendingImages.erase(asset.path);
       auto& cached = m_images[asset.path];
-      if (!asset.bytes.empty() && m_window.context().makeCurrent(m_window.target()))
-        cached.texture =
-            m_window.context().textureManager().loadFromEncodedBytes(asset.bytes.data(), asset.bytes.size());
+      if (!asset.bytes.empty() && m_window.context().makeCurrent(m_window.target())) {
+        cached.animation = std::move(asset.animation);
+        cached.animationFrame = 0;
+        cached.animationStart = {};
+        cached.texture = cached.animation && !cached.animation->frames.empty()
+            ? m_window.context().textureManager().loadFromRgba(
+                  cached.animation->frames[0].rgba.data(), cached.animation->width, cached.animation->height
+              )
+            : m_window.context().textureManager().loadFromEncodedBytes(asset.bytes.data(), asset.bytes.size());
+      }
       cached.bytes = std::move(asset.bytes);
       cached.retry = std::chrono::steady_clock::now() + std::chrono::seconds(60);
       imagesChanged = true;
+    }
+    std::size_t animationBytes = 0;
+    std::vector<std::pair<std::uint64_t, std::string>> animationAge;
+    for (const auto& [path, cached] : m_images)
+      if (cached.animation) {
+        animationBytes += cached.animation->byteSize();
+        animationAge.emplace_back(cached.touched, path);
+      }
+    std::ranges::sort(animationAge);
+    for (const auto& [_, path] : animationAge) {
+      if (animationBytes <= 192 * 1024 * 1024)
+        break;
+      animationBytes -= m_images[path].animation->byteSize();
+      m_images[path].animation.reset();
     }
     std::size_t encodedBytes = 0;
     for (const auto& [_, cached] : m_images)
@@ -1579,6 +1864,9 @@ namespace app {
               || (event.operation == discord::Operation::Messages && event.resource != m_channelId)))
         continue;
       if (event.unauthorized) {
+        clearEmojiState();
+        m_scrolling.stopAll();
+        clearGifs();
         clearInteractions();
         m_userDirectory = {};
         clearAccountSettings();
@@ -1631,6 +1919,7 @@ namespace app {
           m_desiredPresence.clear();
           m_preferences = m_sessionStore.preferences(m_account.id);
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
+          m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
           m_presence = event.presence.value_or(discord::Presence{});
           m_guilds = std::move(event.guilds);
           m_folders = discord::arrangeGuilds(m_guilds, event.layout);
@@ -1652,6 +1941,18 @@ namespace app {
           } else
             showDirectMessages();
         }
+      } else if (
+          event.operation == discord::Operation::GifSearch
+          || event.operation == discord::Operation::GifFavorites
+          || event.operation == discord::Operation::SaveGifFavorite
+      ) {
+        gifEvent(event);
+      } else if (
+          event.operation == discord::Operation::GuildEmojis
+          || event.operation == discord::Operation::EmojiPreferences
+          || event.operation == discord::Operation::SaveEmojiFavorite
+      ) {
+        emojiEvent(event);
       } else if (event.operation == discord::Operation::Credentials) {
         m_loginStorageStatus = !event.error.empty()                        ? event.error
             : event.credentialOperation == auth::CredentialOperation::Save ? "Sign-in is saved in your desktop keyring."
@@ -1746,6 +2047,8 @@ namespace app {
           m_savingProfile = false;
         if (event.error.empty() && event.account.id == m_account.id) {
           const bool editing = m_settingsOpen && m_profileDirty;
+          if (!event.account.premiumType)
+            event.account.premiumType = m_account.premiumType;
           m_account = std::move(event.account);
           if (event.operation == discord::Operation::SaveProfile || !editing)
             resetProfile();
@@ -1908,7 +2211,7 @@ namespace app {
       } else if (event.operation == discord::Operation::Send) {
         m_sending = false;
         if (event.error.empty()) {
-          if (m_drafts[event.resource] == m_pendingDraft) {
+          if (!m_sentGif && m_drafts[event.resource] == m_pendingDraft) {
             m_drafts[event.resource].clear();
             if (m_pendingReply
                 && m_replies.contains(event.resource)
@@ -1917,6 +2220,11 @@ namespace app {
           }
           if (event.resource == m_channelId)
             m_edit.clamp(m_drafts[event.resource]);
+          if (m_sentGif
+              && m_pendingReply
+              && m_replies.contains(event.resource)
+              && m_replies[event.resource].message == m_pendingReply->message)
+            m_replies.erase(event.resource);
           std::erase_if(m_attachments[event.resource], [&](auto& image) {
             if (std::ranges::find(m_pendingAttachments, image.key) == m_pendingAttachments.end())
               return false;
@@ -1933,6 +2241,7 @@ namespace app {
           m_status.clear();
         }
         m_pendingDraft.clear();
+        m_sentGif = false;
         m_pendingReply.reset();
         m_pendingAttachments.clear();
       }
@@ -1992,7 +2301,7 @@ namespace app {
     const TextArea* area = nullptr;
     for (const auto& item : m_textAreas)
       if (item.message == m_selectedMessage) {
-        const auto dy = std::max(0.0F, std::abs(y - item.y - 11) - 11);
+        const auto dy = std::max(0.0F, std::abs(y - item.y - item.run.height / 2) - item.run.height / 2);
         const auto dx = x < item.x ? item.x - x : std::max(0.0F, x - item.x - item.run.width);
         const auto distance = dx * dx + dy * dy * 10000;
         if (distance < nearest) {
@@ -2055,6 +2364,10 @@ namespace app {
   }
 
   void ClientApplication::onKey(const Key& key) {
+    if (key.symbol == XKB_KEY_Escape && m_gifMenu) {
+      closeGifPicker();
+      return;
+    }
     if (overlayKey(key))
       return;
     if (!m_viewImage.empty()) {
@@ -2132,7 +2445,9 @@ namespace app {
       return;
     }
     if (key.symbol == XKB_KEY_Escape && m_emojiMenu) {
-      m_emojiMenu = false;
+      closeEmojiPicker();
+      m_reactionMessage.clear();
+      m_reactionChannel.clear();
       m_window.invalidate();
       return;
     }
@@ -2227,6 +2542,11 @@ namespace app {
   }
 
   void ClientApplication::activate(const Hit& hit) {
+    if (hit.action == Action::PickEmoji) {
+      pickEmoji(hit.id);
+      m_window.invalidate();
+      return;
+    }
     if (interactionAction(hit))
       return;
     switch (hit.action) {
@@ -2334,6 +2654,10 @@ namespace app {
         m_preferences.showEmbeds = !m_preferences.showEmbeds;
       else if (hit.id == "images")
         m_preferences.showImages = !m_preferences.showImages;
+      else if (hit.id == "autoplay_gifs")
+        m_preferences.autoplayGifs = !m_preferences.autoplayGifs;
+      else if (hit.id == "fake_nitro_emojis")
+        m_preferences.fakeNitroEmojis = !m_preferences.fakeNitroEmojis;
       else if (hit.id.starts_with("zoom")) {
         m_window.setUiScale(hit.id == "zoom0" ? 1 : m_window.uiScale() * (hit.id == "zoom+" ? 1.1F : 1 / 1.1F));
         saveSelection();
@@ -2357,6 +2681,7 @@ namespace app {
       m_window.toggleMaximized();
       break;
     case Action::ViewImage:
+      m_scrolling.stopAll();
       m_viewImage = hit.id;
       m_viewZoom = 1;
       m_viewPanX = m_viewPanY = 0;
@@ -2443,7 +2768,95 @@ namespace app {
       }
       break;
     case Action::ToggleEmoji:
-      m_emojiMenu = !m_emojiMenu;
+      closeGifPicker();
+      m_scrolling.stopAll();
+      if (m_emojiMenu)
+        closeEmojiPicker();
+      else
+        m_emojiMenu = true;
+      break;
+    case Action::CloseEmoji:
+      closeEmojiPicker();
+      m_reactionMessage.clear();
+      m_reactionChannel.clear();
+      break;
+    case Action::PickEmoji:
+      break;
+    case Action::FavoriteEmoji:
+      favoriteEmoji(hit.id);
+      break;
+    case Action::EmojiSection:
+      m_scrolling.stop(m_emojiScroll);
+      m_emojiQuery.clear();
+      m_emojiSection = hit.id;
+      if (hit.id == "all") {
+        m_emojiScroll = 0;
+        m_emojiJump.clear();
+      } else
+        m_emojiJump = hit.id;
+      prepareEmojiPicker();
+      break;
+    case Action::EmojiRetry:
+      m_emojiError.clear();
+      if (!hit.id.empty())
+        m_emojiGuildErrors.erase(hit.id);
+      prepareEmojiPicker();
+      break;
+    case Action::ToggleGif:
+      m_scrolling.stopAll();
+      if (m_gifMenu)
+        closeGifPicker();
+      else {
+        closeContext();
+        m_emojiMenu = m_presenceMenu = false;
+        m_gifMenu = true;
+        m_gifScroll = 0;
+        m_focusedInput = "gif-search";
+        if (!m_demo && !m_loadingGifFavorites)
+          m_loadingGifFavorites = m_client.gifFavorites();
+        if (!m_gifFavoritesTab)
+          searchGifs();
+      }
+      break;
+    case Action::CloseGif:
+      closeGifPicker();
+      break;
+    case Action::GifTab:
+      m_scrolling.stop(m_gifScroll);
+      m_gifFavoritesTab = hit.id == "favorites";
+      m_gifScroll = 0;
+      m_gifSearchTimer.stop();
+      if (!m_gifFavoritesTab)
+        searchGifs();
+      else if (!m_demo && !m_gifFavoritesLoaded && !m_loadingGifFavorites)
+        m_loadingGifFavorites = m_client.gifFavorites();
+      break;
+    case Action::GifRetry:
+      if (m_gifFavoritesTab) {
+        m_gifFavoriteError.clear();
+        if (!m_demo)
+          m_loadingGifFavorites = m_client.gifFavorites();
+      } else
+        searchGifs();
+      break;
+    case Action::FavoriteGif:
+      if (const auto gif = m_gifTargets.find(hit.id); gif != m_gifTargets.end())
+        toggleGifFavorite(gif->second);
+      break;
+    case Action::SendGif:
+      if (const auto gif = m_gifTargets.find(hit.id);
+          gif != m_gifTargets.end() && !m_demo && !m_sending && !m_channelId.empty()) {
+        const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
+        if (m_client.send(m_channelId, gif->second.url, {}, reply)) {
+          m_sending = m_sentGif = true;
+          m_pendingDraft.clear();
+          m_pendingAttachments.clear();
+          m_pendingReply = reply;
+          m_status = "Sending GIF…";
+          closeGifPicker();
+        } else
+          m_gifError = "Could not send this GIF. Check the connection.";
+      }
       break;
     case Action::InsertEmoji:
       m_emojiMenu = false;
@@ -2495,6 +2908,9 @@ namespace app {
         });
       break;
     case Action::SignOut:
+      clearEmojiState();
+      m_scrolling.stopAll();
+      clearGifs();
       clearInteractions();
       clearAccountSettings();
       m_controlInput.setFocus(nullptr);

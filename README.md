@@ -31,6 +31,17 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **Images:** paste PNG/JPEG/WebP attachments, review before sending, and expand
   received images in a fit/zoom/pan viewer. Video links have thumbnails and open
   in your browser.
+- **GIFs:** looping GIF/WebP images and GIF video embeds, animated custom emoji,
+  a native GIF picker with trending/search, and favorites synced to Discord.
+- **Emoji picker:** a server rail, Unicode categories, search, account favorites
+  and frequently used emoji, including static and animated server emoji.
+  Unicode and custom emoji share inline sizing; emoji-only messages get larger
+  emoji, with up to 27 per message. Compact mode keeps them inline.
+- **Cressida settings:** optional FakeNitro emoji under **Cressida → Expressions**.
+  Unsupported server emoji send as named image links, including animated emoji.
+  Other clients may display links or image previews. Reactions keep Discord's
+  normal restrictions; channel embed permissions still apply. The option defaults
+  off and is remembered locally per account.
 - **Settings:** a dedicated in-client view with search, grouped navigation, native
   switches, profile editing, account preferences and local appearance controls.
 - **Presence:** Online, Idle, Do Not Disturb, Invisible and custom-status text.
@@ -120,9 +131,31 @@ from other clients; this client acknowledges messages when their latest timeline
 is visible in the focused window.
 
 The composer grows with your draft. Its clipboard glyph pastes text or an image;
-the smile glyph opens a quick emoji picker. Review pasted image previews and
-remove unwanted attachments with × before sending. A draft accepts up to ten
+the smile glyph opens the emoji picker, and **GIF** opens the GIF picker.
+The emoji picker's left rail jumps to favorites, frequent choices, servers or
+Unicode categories. Search names, aliases or keywords; hover an emoji to see its
+name and server, then click to insert it. Its star adds/removes an account
+favorite. Local selections are remembered per account and combined with
+Discord's frequent emoji. Server emoji availability updates live.
+
+Review pasted image previews and remove unwanted attachments with × before sending. A draft accepts up to ten
 images and 20 MiB combined; Discord may impose further account/channel limits.
+
+Search GIFs or browse trending results, then click a result to send it. This
+keeps any text or attachments already in your draft. Hover a GIF in the picker
+or chat and click its star to add/remove it from **Favorites**. Favorites load
+from your Discord account and changes sync there; errors leave the existing list
+intact. Search and preview downloads use public endpoints without account tokens.
+
+GIFs loop in visible chat messages and the image viewer while the window is
+focused. Disable **Automatically play GIFs** in **Text & Images** for playback
+on hover. Animated custom emoji follow the same preference. Ordinary video links
+still open in your browser. Standalone image/GIF links, including links with
+labels, display just their media preview. Transparent images have no added
+background; captions remain visible.
+
+Wheel scrolling animates between positions at the compositor's refresh rate.
+Touchpad scrolling follows the gesture directly.
 
 Click an image to expand it. Scroll to zoom, drag to pan, use Left/Right to move
 through visible images, and press Escape or click the backdrop to close. Ctrl+C
@@ -198,12 +231,14 @@ Initial history loads the latest 50 messages; the live timeline retains up to 20
 Recently visited conversations and member lists use a bounded session cache.
 REST/CDN connections are reused, and media completion wakes the UI immediately.
 
-Voice/video, older-history pagination, arbitrary file uploads, drag-and-drop,
-syntax highlighting remain future work. Animated media
-currently uses a static frame. Message forwarding, threads, pins/bookmarks,
+Voice/video calls, older-history pagination, arbitrary file uploads, drag-and-drop
+and syntax highlighting remain future work. Animation decoding has bounded size,
+frame count, memory and time; longer clips may use a smaller resolution, and
+clips exceeding those bounds show a still frame. Message forwarding, threads,
+pins/bookmarks,
 reminders, apps, speech and moderation menus are not implemented. Reactions can
-be sent normally; sending super reactions and a full guild custom-emoji picker
-remain pending. Quick-reaction usage is local and does not import Discord's
+be sent normally; sending super reactions and sticker selection remain pending.
+Quick-reaction usage is local and does not import Discord's
 frequently used list. Explicit channel mute flags filter unread indicators;
 inherited guild mutes, timed-mute expiry and detailed mention-count badges still
 need fuller handling.
@@ -262,5 +297,6 @@ research and remaining implementation work.
 ## License
 
 Project code is available under the [MIT license](LICENSE). Bundled
-[Tabler icons](assets/fonts/tabler-icons-license.txt) and
+[Tabler icons](assets/fonts/tabler-icons-license.txt),
+[Unicode emoji alias data](assets/emoji-data-license.txt) and
 [Wuffs](third_party/wuffs) retain their own license notices.

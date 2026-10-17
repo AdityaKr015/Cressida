@@ -1,3 +1,4 @@
+#include "app/emoji_catalog.h"
 #include "app/message_layout.h"
 #include "app/text_edit.h"
 
@@ -5,18 +6,86 @@
 #include <iostream>
 #include <stdexcept>
 
-int main() {
+int main(int argc, char** argv) {
   auto require = [](bool value, const char* message) {
     if (!value)
       throw std::runtime_error(message);
   };
   try {
+    require(argc == 2, "Emoji assets directory required");
+    app::EmojiCatalog catalog;
+    catalog.load(std::filesystem::path(argv[1]) / "emoji.json", std::filesystem::path(argv[1]) / "emoji-aliases.json");
+    const app::MessageOptions emojiOptions{.unicodeEmoji = [&](std::string_view text) {
+      return catalog.isUnicode(text);
+    }};
+    const app::MessageMeasure emojiMeasure = [](std::string_view text, const app::MessageStyle& style) {
+      return style.emoji ? style.size : static_cast<float>(text.size() * 8);
+    };
+    discord::Message emojiMessage;
+    emojiMessage.content = "🙂 ❤️ 👩🏽‍💻 🇩🇪 1️⃣ <:wave:123>";
+    auto sized = app::layoutRichMessage(emojiMessage, 600, emojiMeasure, 14, emojiOptions);
+    require(
+        sized.runs.size() == 6
+            && std::ranges::all_of(
+                sized.runs,
+                [](const auto& run) {
+                  return run.style.emoji && (run.image.empty() ? run.style.size == 48 : run.width == 48);
+                }
+            ),
+        "Unicode, skin tones, ZWJ, flags, keycaps and custom emoji share jumbo sizing"
+    );
+    for (const auto& run : sized.runs)
+      require(run.y + run.height <= sized.height, "Jumbo rows reserve height for every emoji");
+    auto compact = emojiOptions;
+    compact.compact = true;
+    sized = app::layoutRichMessage(emojiMessage, 600, emojiMeasure, 14, compact);
+    require(
+        std::ranges::all_of(
+            sized.runs,
+            [](const auto& run) {
+              return run.style.emoji && (run.image.empty() ? run.style.size == 22 : run.width == 22);
+            }
+        ),
+        "Compact messages retain consistent inline sizing"
+    );
+    emojiMessage.content = "Hello 🙂 <:wave:123>!";
+    sized = app::layoutRichMessage(emojiMessage, 600, emojiMeasure, 14, emojiOptions);
+    require(
+        std::ranges::count_if(sized.runs, [](const auto& run) { return run.style.emoji; }) == 2
+            && std::ranges::all_of(
+                sized.runs,
+                [](const auto& run) {
+                  return !run.style.emoji || (run.image.empty() ? run.style.size == 22 : run.width == 22);
+                }
+            ),
+        "Mixed text uses larger inline Unicode emoji without enlarging the message"
+    );
+    emojiMessage.content.clear();
+    for (int i = 0; i < 27; ++i)
+      emojiMessage.content += "🙂";
+    sized = app::layoutRichMessage(emojiMessage, 120, emojiMeasure, 14, emojiOptions);
+    require(
+        sized.runs.size() == 27 && sized.runs.front().style.size == 48 && sized.height > 100,
+        "Up to 27 jumbo emoji wrap across lines"
+    );
+    emojiMessage.content += "🙂";
+    sized = app::layoutRichMessage(emojiMessage, 120, emojiMeasure, 14, emojiOptions);
+    require(sized.runs.size() == 28 && sized.runs.front().style.size == 22, "28 emoji return to inline size");
+    emojiMessage.content = "`🙂 <:wave:123>`";
+    sized = app::layoutRichMessage(emojiMessage, 600, emojiMeasure, 14, emojiOptions);
+    require(
+        std::ranges::none_of(sized.runs, [](const auto& run) { return run.style.emoji; }),
+        "Code keeps literal text sizing"
+    );
+    emojiMessage.content = "<:wave:123>";
+    sized = app::layoutRichMessage(emojiMessage, 32, emojiMeasure, 14, emojiOptions);
+    require(sized.runs.front().width <= 32, "Jumbo custom emoji fit narrow columns");
     auto measure = [](std::string_view value) { return static_cast<float>(value.size() * 8); };
     auto layout = app::layoutMessage("hi <:wave:123> there\n<a:dance:456>!", 200, measure);
     require(
         layout.runs.size() == 5
-            && layout.runs[1].image == "/emojis/123.png?size=32"
-            && layout.runs[3].image == "/emojis/456.png?size=32",
+            && layout.runs[1].image == "/emojis/123.png?size=128"
+            && layout.runs[3].image == "/emojis/456.gif?size=128",
         "Render static and animated custom emoji inline"
     );
     require(
@@ -126,6 +195,100 @@ int main() {
           "Selection offsets refer to rendered plain text"
       );
     discord::Message video;
+    discord::Message animated;
+    discord::Embed gif;
+    gif.type = "gifv";
+    gif.url = "https://klipy.com/gifs/example";
+    gif.video = {"https://static.klipy.com/ii/example.mp4", 320, 180};
+    gif.thumbnail = {"https://static.klipy.com/ii/still.png", 320, 180};
+    animated.embeds.push_back(gif);
+    animated.content = gif.url;
+    const auto animationLayout =
+        app::layoutRichMessage(animated, 400, [&](std::string_view text, const app::MessageStyle&) {
+          return measure(text);
+        });
+    require(
+        animationLayout.pictures.size() == 1
+            && !animationLayout.pictures[0].video
+            && animationLayout.pictures[0].animated
+            && animationLayout.pictures[0].media.url == gif.video.url
+            && animationLayout.boxes.empty(),
+        "GIF videos use their looping media, without a video link card or play overlay"
+    );
+    require(
+        animationLayout.runs.empty() && animationLayout.plainText.empty(),
+        "A standalone GIF link disappears when the media preview is rendered"
+    );
+    auto mixed = animated;
+    auto masked = animated;
+    masked.content = "[woe](" + gif.url + ")";
+    require(
+        app::layoutRichMessage(
+            masked, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }
+        ).runs.empty(),
+        "Hide a masked media-only link without a duplicate label"
+    );
+    mixed.content = "Look at this " + gif.url;
+    auto mixedLayout = app::layoutRichMessage(mixed, 400, [&](std::string_view text, const app::MessageStyle&) {
+      return measure(text);
+    });
+    require(
+        mixedLayout.plainText.contains("Look at this") && mixedLayout.plainText.contains(gif.url),
+        "Keep captions and mixed message text"
+    );
+    auto hidden = animated;
+    hidden.embeds.clear();
+    require(
+        !app::layoutRichMessage(
+             hidden, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }
+        ).runs.empty(),
+        "Hidden or missing GIF previews retain their source link"
+    );
+    auto image = animated;
+    image.embeds.front().type = "image";
+    image.embeds.front().video = {};
+    image.embeds.front().image = {};
+    const auto imageLayout = app::layoutRichMessage(image, 400, [&](std::string_view text, const app::MessageStyle&) {
+      return measure(text);
+    });
+    require(
+        imageLayout.pictures.size() == 1
+            && imageLayout.boxes.empty()
+            && imageLayout.runs.empty()
+            && imageLayout.pictures[0].media.url == gif.thumbnail.url,
+        "Image embeds with thumbnail media display as an unframed image, not a link card"
+    );
+    discord::Message fake;
+    const std::string fakeUrl = "https://cdn.discordapp.com/emojis/123456789.gif?size=48&name=wave&lossless=true";
+    fake.content = "[wave](" + fakeUrl + ")";
+    auto fakeLayout = app::layoutRichMessage(
+        fake, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }, 14,
+        {.fakeNitroEmojis = true}
+    );
+    require(
+        fakeLayout.runs.size() == 1 && !fakeLayout.runs[0].image.empty() && fakeLayout.pictures.empty(),
+        "Standalone FakeNitro links render inline without requiring a server embed"
+    );
+    discord::Embed duplicate;
+    duplicate.type = "image";
+    duplicate.url = fakeUrl;
+    duplicate.thumbnail = {fakeUrl, 48, 48};
+    fake.embeds.push_back(duplicate);
+    fakeLayout = app::layoutRichMessage(
+        fake, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }, 14,
+        {.fakeNitroEmojis = true}
+    );
+    require(fakeLayout.runs.size() == 1 && fakeLayout.pictures.empty(), "Suppress duplicate FakeNitro image previews");
+    fake.content = "`" + fake.content + "`";
+    fake.embeds.clear();
+    fakeLayout = app::layoutRichMessage(
+        fake, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }, 14,
+        {.fakeNitroEmojis = true}
+    );
+    require(
+        std::ranges::none_of(fakeLayout.runs, [](const auto& run) { return !run.image.empty(); }),
+        "Code containing emoji CDN links remains literal"
+    );
     discord::Embed youtube;
     youtube.type = "video";
     youtube.provider = "YouTube";

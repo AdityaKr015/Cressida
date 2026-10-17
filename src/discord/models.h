@@ -15,6 +15,7 @@ namespace discord {
     std::string name;
     std::string avatar;
     std::string username, displayName, bio, pronouns;
+    std::optional<int> premiumType;
   };
 
   struct Presence {
@@ -102,6 +103,7 @@ namespace discord {
     std::uint32_t color = 0x5865F2;
     Media image, thumbnail;
     std::vector<EmbedField> fields;
+    Media video;
   };
   struct Upload {
     std::string filename, mime;
@@ -109,7 +111,7 @@ namespace discord {
   };
   constexpr std::size_t maxUploadBytes = 20 * 1024 * 1024;
   bool validUploads(const std::vector<Upload>& uploads);
-  // Only these Discord HTTPS origins may be fetched automatically, without credentials.
+  // Fixed Discord CDN/proxy and public GIF provider origins, without credentials.
   std::string mediaUrl(std::string_view value);
 
   struct Reaction {
@@ -171,6 +173,6 @@ namespace discord {
   GuildLayout parseGuildLayout(const nlohmann::json& value);
   std::vector<GuildFolder> arrangeGuilds(const std::vector<Guild>& guilds, const GuildLayout& layout);
   std::string avatarPath(const nlohmann::json& user);
-  std::string emojiPath(const std::string& id);
+  std::string emojiPath(const std::string& id, bool animated = false);
 
 } // namespace discord

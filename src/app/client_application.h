@@ -1,6 +1,8 @@
 #pragma once
 
+#include "app/emoji_catalog.h"
 #include "app/message_layout.h"
+#include "app/scroll_motion.h"
 #include "app/session_store.h"
 #include "app/text_edit.h"
 #include "app/window.h"
@@ -70,6 +72,17 @@ namespace app {
       PasteClipboard,
       ToggleEmoji,
       InsertEmoji,
+      PickEmoji,
+      FavoriteEmoji,
+      EmojiSection,
+      EmojiRetry,
+      CloseEmoji,
+      ToggleGif,
+      CloseGif,
+      GifTab,
+      GifRetry,
+      SendGif,
+      FavoriteGif,
       Composer,
       RemoveAttachment,
       CopyMessage,
@@ -140,6 +153,20 @@ namespace app {
     void glyph(Node& parent, float x, float y, float size, const std::string& name, Color color);
     void iconButton(Node& parent, Hit hit, const std::string& icon, const std::string& tooltip, bool selected = false);
     void drawEmojiPicker(Node& root, float w, float h);
+    void prepareEmojiPicker();
+    void closeEmojiPicker();
+    void clearEmojiState();
+    void emojiEvent(discord::Event& event);
+    void pickEmoji(const std::string& key);
+    void favoriteEmoji(const std::string& key);
+    std::string favoriteEmojiKey(const discord::Emoji& emoji) const;
+    void drawGifPicker(Node& root, float w, float h);
+    void searchGifs();
+    void closeGifPicker();
+    void clearGifs();
+    void gifEvent(discord::Event& event);
+    void toggleGifFavorite(const discord::Gif& gif);
+    void demoGifStep();
     void drawTooltip(Node& root, float w, float h);
     void drawSettings(Node& root, float w, float h);
     Input& inputControl(
@@ -199,6 +226,7 @@ namespace app {
     void demoInteractionStep();
 
     Window m_window;
+    ScrollMotion m_scrolling;
     discord::Client m_client;
     discord::Assets m_assets;
     auth::BrowserLogin m_login;
@@ -224,6 +252,25 @@ namespace app {
     std::unique_ptr<TextClipboard> m_controlClipboard;
     std::string m_focusedInput, m_pasteInput;
     bool m_buildingScene = false, m_emojiMenu = false;
+    EmojiCatalog m_emojiCatalog;
+    discord::EmojiPreferences m_emojiPreferences;
+    std::vector<std::string> m_recentEmojis;
+    std::set<std::string> m_loadedEmojiGuilds, m_loadingEmojiGuilds, m_pendingEmojiFavorites;
+    std::map<std::string, std::string> m_emojiGuildErrors;
+    bool m_emojiPreferencesLoaded = false, m_loadingEmojiPreferences = false, m_emojiPreferencesDirty = false,
+         m_emojiOpened = false;
+    std::string m_emojiQuery, m_emojiSection = "all", m_emojiError, m_emojiHovered, m_emojiJump;
+    Hit m_emojiBounds{};
+    float m_emojiScroll = 0, m_emojiRailScroll = 0;
+    bool m_gifMenu = false, m_gifFavoritesTab = false, m_loadingGifs = false, m_loadingGifFavorites = false,
+         m_gifFavoritesLoaded = false, m_gifFavoritesDirty = false, m_sentGif = false;
+    std::string m_gifQuery, m_gifRequestedQuery, m_gifError, m_gifFavoriteError;
+    std::vector<discord::Gif> m_gifs, m_gifFavorites;
+    std::map<std::string, discord::Gif> m_gifTargets;
+    std::set<std::string> m_pendingGifFavorites;
+    Hit m_gifBounds{};
+    float m_gifScroll = 0, m_gifMaxScroll = 0;
+    Timer m_gifSearchTimer;
     std::string m_tooltip;
     std::vector<Hit> m_contextTargets;
     std::vector<ContextMenuControlEntry> m_contextEntries;
@@ -321,10 +368,17 @@ namespace app {
       std::vector<unsigned char> bytes;
       std::uint64_t touched = 0;
       std::chrono::steady_clock::time_point retry{};
+      std::shared_ptr<const media::Animation> animation;
+      std::chrono::steady_clock::time_point animationStart{};
+      std::size_t animationFrame = 0;
+      std::uint64_t visibleFrame = 0, playingDraw = 0;
     };
     std::map<std::string, CachedImage> m_images;
     std::set<std::string> m_pendingImages;
     std::uint64_t m_imageSerial = 0;
+    std::uint64_t m_animationDraw = 0;
+    std::chrono::milliseconds m_animationDelay = std::chrono::milliseconds::max();
+    Timer m_animationTimer;
     std::string m_token;
     std::string m_guildId;
     std::string m_channelId;

@@ -30,6 +30,7 @@ namespace app {
     void toggleMaximized();
     bool maximized() const;
     bool active() const;
+    bool preciseScroll() const;
     float titlebarHeight() const;
     void setPointerCursor(bool interactive);
     void invalidate();
@@ -43,6 +44,8 @@ namespace app {
     RenderTarget& target();
 
     std::function<void()> draw;
+    // Run before a presented frame; true requests another compositor-paced frame.
+    std::function<bool()> animate;
     std::function<void(float, float, std::uint32_t)> click;
     std::function<void(float, float)> contextClick;
     std::function<void(float, float)> motion;

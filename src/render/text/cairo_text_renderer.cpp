@@ -101,6 +101,8 @@ namespace {
         return true; // malformed — be safe
       }
       i += static_cast<std::size_t>(len);
+      if (cp == 0x20E3 || cp == 0xFE0F)
+        return true; // keycaps and explicit emoji presentation need color layers
       if (cp >= 0x2600 && cp <= 0x27BF)
         return true; // misc symbols + dingbats
       if (cp >= 0x1F000 && cp <= 0x1FFFF)

@@ -1,5 +1,6 @@
 #include "app/message_layout.h"
 
+#include "discord/emoji.h"
 #include "discord/models.h"
 
 #include <algorithm>
@@ -112,6 +113,9 @@ namespace app {
       bool codeBlock = false;
       std::size_t codeBox = 0;
       bool underlineOn = false, spoilerOn = false;
+      float emojiSize = 22;
+      std::size_t lineStart = 0;
+      const MessageOptions* options = nullptr;
       const std::map<std::string, std::string>* mentions = nullptr;
       std::string pending;
       void flush() {
@@ -120,7 +124,17 @@ namespace app {
         if (!value.empty())
           text(restoreEmoji(std::move(value)));
       }
+      void alignLine() {
+        const bool hasEmoji = std::any_of(output.runs.begin() + lineStart, output.runs.end(), [](const auto& run) {
+          return run.style.emoji;
+        });
+        if (hasEmoji)
+          for (auto i = lineStart; i < output.runs.size(); ++i)
+            output.runs[i].y += std::max(0.0F, (lineHeight - output.runs[i].height) / 2);
+        lineStart = output.runs.size();
+      }
       void newline(bool semantic = false) {
+        alignLine();
         x = indent;
         y += lineHeight;
         lineHeight = fontSize + 8;
@@ -131,21 +145,27 @@ namespace app {
         if (x > indent)
           newline(true);
       }
-      void add(std::string text, std::string image = {}) {
+      void add(std::string text, std::string image = {}, bool unicodeEmoji = false) {
         auto current = style;
         current.underline |= underlineOn;
         current.spoiler |= spoilerOn;
-        const float size = image.empty() ? measure(text, current) : current.size + 8;
+        current.emoji = !image.empty() || unicodeEmoji;
+        if (unicodeEmoji)
+          current.size = emojiSize;
+        const float size = image.empty() ? measure(text, current) : emojiSize;
+        const float height = image.empty() ? current.size + 8 : emojiSize;
         if (x > indent && x + size > width - (codeBlock ? 10 : 0))
           newline();
         if (current.code && !codeBlock)
           output.boxes.push_back({x - 2, y - 1, size + 4, current.size + 7, false, {}});
-        output.runs.push_back({std::move(text), std::move(image), x, y, size, current, output.plainText.size()});
+        output.runs.push_back(
+            {std::move(text), std::move(image), x, y, size, current, output.plainText.size(), height}
+        );
         output.plainText += output.runs.back().text;
         x += size;
-        lineHeight = std::max(lineHeight, current.size + 8);
+        lineHeight = std::max(lineHeight, current.emoji ? emojiSize + 8 : height);
       }
-      void word(std::string_view word) {
+      void plainWord(std::string_view word) {
         const float available = std::max(22.0F, width - indent - (codeBlock ? 10 : 0));
         auto current = style;
         current.underline |= underlineOn;
@@ -175,6 +195,35 @@ namespace app {
         }
         if (!part.empty())
           add(std::move(part));
+      }
+      void word(std::string_view value) {
+        if (style.code || !options || !options->unicodeEmoji || std::ranges::none_of(value, [](unsigned char ch) {
+              return ch >= 0x80;
+            })) {
+          plainWord(value);
+          return;
+        }
+        const auto count = g_utf8_strlen(value.data(), value.size());
+        std::vector<PangoLogAttr> attrs(count + 1);
+        pango_get_log_attrs(value.data(), value.size(), -1, pango_language_get_default(), attrs.data(), attrs.size());
+        const char* start = value.data();
+        const char* end = start;
+        const char* plain = start;
+        for (glong i = 1; i <= count; ++i) {
+          end = g_utf8_next_char(end);
+          if (!attrs[i].is_cursor_position)
+            continue;
+          const std::string_view cluster(start, end - start);
+          if (options->unicodeEmoji(cluster)) {
+            if (plain < start)
+              plainWord(std::string_view(plain, start - plain));
+            add(std::string(cluster), {}, true);
+            plain = end;
+          }
+          start = end;
+        }
+        if (plain < end)
+          plainWord(std::string_view(plain, end - plain));
       }
       void text(std::string_view text, bool literal = false) {
         for (std::size_t pos = 0; pos < text.size();) {
@@ -227,7 +276,7 @@ namespace app {
                 }
               }
               if ((token.starts_with(':') || token.starts_with("a:")) && colon != std::string_view::npos && colon > 1) {
-                auto path = discord::emojiPath(std::string(token.substr(colon + 1)));
+                auto path = discord::emojiPath(std::string(token.substr(colon + 1)), token.starts_with("a:"));
                 if (!path.empty()) {
                   add(std::string(text.substr(pos, end - pos + 1)), std::move(path));
                   pos = end + 1;
@@ -414,38 +463,118 @@ namespace app {
       return 0;
     }
   } // namespace
+  namespace {
+    MessageLayout parseMessage(
+        std::string_view content, float width, const MessageMeasure& measure, float fontSize,
+        const std::map<std::string, std::string>& mentions, const MessageOptions& options, float emojiSize
+    ) {
+      if (content.empty())
+        return {};
+      Layout layout{
+          .width = std::max(width, 32.0F), .lineHeight = fontSize + 8, .fontSize = fontSize, .measure = measure
+      };
+      layout.style.size = fontSize;
+      layout.emojiSize = std::min(emojiSize, layout.width);
+      layout.options = &options;
+      layout.mentions = &mentions;
+      const MD_PARSER parser{
+          .abi_version = 0,
+          .flags =
+              MD_FLAG_NOHTML | MD_FLAG_NOINDENTEDCODEBLOCKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_PERMISSIVEURLAUTOLINKS,
+          .enter_block = enterBlock,
+          .leave_block = leaveBlock,
+          .enter_span = enterSpan,
+          .leave_span = leaveSpan,
+          .text = textCallback
+      };
+      const auto input = discordSyntax(content);
+      md_parse(input.data(), input.size(), &parser, &layout);
+      layout.alignLine();
+      layout.output.height = layout.y + (layout.x > layout.indent ? layout.lineHeight : 0);
+      return std::move(layout.output);
+    }
+  } // namespace
   MessageLayout layoutMessage(
       std::string_view content, float width, const MessageMeasure& measure, float fontSize,
-      const std::map<std::string, std::string>& mentions
+      const std::map<std::string, std::string>& mentions, const MessageOptions& options
   ) {
-    if (content.empty())
-      return {};
-    Layout layout{
-        .width = std::max(width, 32.0F), .lineHeight = fontSize + 8, .fontSize = fontSize, .measure = measure
-    };
-    layout.style.size = fontSize;
-    layout.mentions = &mentions;
-    const MD_PARSER parser{
-        .abi_version = 0,
-        .flags = MD_FLAG_NOHTML | MD_FLAG_NOINDENTEDCODEBLOCKS | MD_FLAG_STRIKETHROUGH | MD_FLAG_PERMISSIVEURLAUTOLINKS,
-        .enter_block = enterBlock,
-        .leave_block = leaveBlock,
-        .enter_span = enterSpan,
-        .leave_span = leaveSpan,
-        .text = textCallback
-    };
-    const auto input = discordSyntax(content);
-    md_parse(input.data(), input.size(), &parser, &layout);
-    layout.output.height = layout.y + (layout.x > layout.indent ? layout.lineHeight : 0);
-    return std::move(layout.output);
+    return parseMessage(content, width, measure, fontSize, mentions, options, 22 * fontSize / 14);
   }
   MessageLayout
   layoutMessage(std::string_view content, float width, const std::function<float(std::string_view)>& measure) {
     return layoutMessage(content, width, [&](std::string_view text, const MessageStyle&) { return measure(text); });
   }
-  MessageLayout
-  layoutRichMessage(const discord::Message& message, float width, const MessageMeasure& measure, float fontSize) {
-    auto result = layoutMessage(message.content, width, measure, fontSize, message.mentions);
+  MessageLayout layoutRichMessage(
+      const discord::Message& message, float width, const MessageMeasure& measure, float fontSize,
+      const MessageOptions& options
+  ) {
+    // Only a standalone parsed link is transformed. Code, spoilers and captions
+    // keep their original presentation; the source message always stays intact.
+    if (options.fakeNitroEmojis) {
+      const auto probe = layoutMessage(message.content, width, measure, fontSize, message.mentions);
+      if (!probe.runs.empty() && probe.boxes.empty()) {
+        const auto& link = probe.runs.front().style.link;
+        const auto emoji = discord::emojiFromImageLink(link);
+        if (emoji && std::ranges::all_of(probe.runs, [&](const auto& run) {
+              return run.style.link == link && !run.style.code && !run.style.spoiler && run.image.empty();
+            })) {
+          auto shown = message;
+          shown.content = emoji->token();
+          std::erase_if(shown.embeds, [&](const auto& embed) {
+            return (embed.type == "image" || embed.type == "gifv")
+                && (embed.url == link || embed.image.url == link || embed.thumbnail.url == link);
+          });
+          auto transformed = options;
+          transformed.fakeNitroEmojis = false;
+          return layoutRichMessage(shown, width, measure, fontSize, transformed);
+        }
+      }
+    }
+    auto content = std::string_view(message.content);
+    const auto first = content.find_first_not_of(" \r\n\t"), last = content.find_last_not_of(" \r\n\t");
+    const auto trimmed = first == std::string_view::npos ? std::string_view{} : content.substr(first, last - first + 1);
+    // Only replace an exact standalone media link whose preview is present.
+    // Keep captions, mixed messages and unexpanded/hidden links readable.
+    for (const auto& embed : message.embeds)
+      if ((embed.type == "gifv" || embed.type == "image")
+          && trimmed == embed.url
+          && (!embed.image.url.empty() || !embed.thumbnail.url.empty() || !embed.video.url.empty())) {
+        content = {};
+        break;
+      }
+    auto result = layoutMessage(content, width, measure, fontSize, message.mentions, options);
+    // Discord also emits masked links such as [woe](https://.../emoji.gif).
+    // A media-only hyperlink may wrap into several runs; every visible run
+    // must refer to the same rendered image, with no caption or code mixed in.
+    if (!result.runs.empty() && result.boxes.empty()) {
+      for (const auto& embed : message.embeds) {
+        if ((embed.type != "image" && embed.type != "gifv")
+            || (embed.image.url.empty() && embed.thumbnail.url.empty() && embed.video.url.empty()))
+          continue;
+        const bool onlyLink = std::ranges::all_of(result.runs, [&](const auto& run) {
+          return !run.style.code
+              && !run.style.spoiler
+              && run.image.empty()
+              && !run.style.link.empty()
+              && (run.style.link == embed.url
+                  || run.style.link == embed.image.url
+                  || run.style.link == embed.thumbnail.url
+                  || run.style.link == embed.video.url);
+        });
+        if (onlyLink) {
+          result = {};
+          break;
+        }
+      }
+    }
+    if (!options.compact
+        && !result.runs.empty()
+        && result.runs.size() <= 27
+        && result.boxes.empty()
+        && std::ranges::all_of(result.runs, [](const auto& run) {
+             return run.style.emoji && !run.style.code && !run.style.spoiler && run.style.link.empty();
+           }))
+      result = parseMessage(content, width, measure, fontSize, message.mentions, options, 48 * fontSize / 14);
     float y = result.height;
     auto append = [&](std::string_view text, float x, float atY, float available, MessageStyle style = {}) {
       auto block = layoutMessage(
@@ -456,7 +585,7 @@ namespace app {
             merged.size = original.size;
             return measure(part, merged);
           },
-          style.size * fontSize / 14
+          style.size * fontSize / 14, {}, options
       );
       const auto offset = result.plainText.size();
       result.plainText += block.plainText;
@@ -499,11 +628,21 @@ namespace app {
     }
     for (const auto& embed : message.embeds) {
       y += 8;
+      if (embed.type == "gifv" || embed.type == "image") {
+        const auto& media = !embed.video.url.empty() ? embed.video
+            : !embed.image.url.empty()               ? embed.image
+                                                     : embed.thumbnail;
+        if (!media.url.empty()) {
+          y += picture(media, 0, y, width, 300, embed.url);
+          result.pictures.back().animated = embed.type == "gifv";
+          continue;
+        }
+      }
       const float start = y, cardWidth = std::min(width, 480.0F);
       const auto box = result.boxes.size();
       result.boxes.push_back({0, start, cardWidth, 0, false, {}, true, embed.color});
       y += 12;
-      const bool video = embed.type == "video" || embed.type == "gifv" || embed.provider == "YouTube";
+      const bool video = embed.type == "video" || embed.provider == "YouTube";
       const bool thumbnail = !video && !embed.thumbnail.url.empty() && embed.image.url.empty() && cardWidth >= 200;
       const float contentWidth = std::max(32.0F, cardWidth - 32 - (thumbnail ? 88 : 0));
       if (!embed.provider.empty())
