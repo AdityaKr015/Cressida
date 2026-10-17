@@ -69,7 +69,7 @@ namespace app {
       if (!value)
         return {};
       for (std::size_t i = 0; i < messages.size(); ++i)
-        if (discord::validSnowflake(messages[i].id) && newer(messages[i].id, value->after))
+        if (!(messages[i].flags & 64) && discord::validSnowflake(messages[i].id) && newer(messages[i].id, value->after))
           return i;
       return {};
     }

@@ -43,6 +43,8 @@ int main() {
         "Unread snapshots expose exact read cursors, without unrelated channel states"
     );
     state.acknowledge(json{{"channel_id", "10"}, {"message_id", "100"}});
+    state.message(json{{"channel_id", "10"}, {"id", "102"}, {"flags", 64}, {"author", {{"id", "3"}}}}, "2");
+    require(!state.unreadCursors().contains("10"), "Ephemeral application replies never advance public unread state");
     require(!state.unreadCursors().contains("10"), "Read cursor snapshots omit acknowledged channels");
     require(!state.unread().contains("10"), "Another client's read acknowledgement clears channel state");
     state.channels(json::array({{{"id", "10"}, {"last_message_id", "101"}}}), "1");

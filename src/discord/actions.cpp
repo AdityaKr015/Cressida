@@ -1,5 +1,7 @@
 #include "discord/actions.h"
 
+#include "discord/channel_features.h"
+
 #include <algorithm>
 #include <cctype>
 
@@ -81,6 +83,81 @@ namespace discord {
     using Kind = InteractionKind;
     InteractionRequest request;
     switch (action.kind) {
+    case Kind::SubmitModal:
+      if (!action.modal
+          || action.application != action.modal->application
+          || action.channel != action.modal->channel
+          || !validSnowflake(action.nonce)
+          || (!action.guild.empty() && !validSnowflake(action.guild)))
+        return {};
+      try {
+        request.body = {
+            {"type", 5},
+            {"nonce", action.nonce},
+            {"channel_id", action.channel},
+            {"application_id", action.application},
+            {"data", modalSubmission(*action.modal, action.values)}
+        };
+      } catch (const std::exception&) {
+        return {};
+      }
+      request.path = "/interactions";
+      request.method = "POST";
+      if (!action.guild.empty())
+        request.body["guild_id"] = action.guild;
+      break;
+    case Kind::MessageButton:
+      if (!validSnowflake(action.channel)
+          || !validSnowflake(action.message)
+          || !validSnowflake(action.application)
+          || !validSnowflake(action.nonce)
+          || (!action.guild.empty() && !validSnowflake(action.guild))
+          || action.customId.empty()
+          || action.customId.size() > 400
+          || utf8Length(action.customId) > 100)
+        return {};
+      request.path = "/interactions";
+      request.method = "POST";
+      request.body = {
+          {"type", 3},
+          {"nonce", action.nonce},
+          {"channel_id", action.channel},
+          {"message_id", action.message},
+          {"message_flags", action.messageFlags},
+          {"application_id", action.application},
+          {"data", {{"component_type", 2}, {"custom_id", action.customId}}}
+      };
+      if (!action.guild.empty())
+        request.body["guild_id"] = action.guild;
+      break;
+    case Kind::EditChannel:
+      if (!validSnowflake(action.channel) || (!action.channelName && !action.channelTopic))
+        return {};
+      if (action.channelName
+          && (action.channelName->empty()
+              || utf8Length(*action.channelName) > 100
+              || action.channelName->size() > 400
+              || std::ranges::any_of(*action.channelName, [](unsigned char c) { return c < 32 || c == 127; })))
+        return {};
+      if (action.channelTopic && (utf8Length(*action.channelTopic) > 4096 || action.channelTopic->size() > 16384))
+        return {};
+      request.path = "/channels/" + action.channel;
+      request.method = "PATCH";
+      request.body = nlohmann::json::object();
+      if (action.channelName)
+        request.body["name"] = *action.channelName;
+      if (action.channelTopic)
+        request.body["topic"] = *action.channelTopic;
+      break;
+    case Kind::GrantChannelAccess:
+      if (!validSnowflake(action.channel)
+          || !validSnowflake(action.user)
+          || (action.overwriteType != 0 && action.overwriteType != 1))
+        return {};
+      request.path = "/channels/" + action.channel + "/permissions/" + action.user;
+      request.method = "PUT";
+      request.body = {{"type", action.overwriteType}}; // Fresh overwrite bits are merged on the REST worker.
+      break;
     case Kind::CreateThread:
     case Kind::CreateForumPost:
       if (!validSnowflake(action.channel)

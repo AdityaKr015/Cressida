@@ -31,6 +31,18 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   collapsible sections and a member sidebar with role group counts. Mention badges
   appear on channels, servers and folders; a floating badge reveals mentioned
   channels further down the list.
+- **Channel details:** topics in the header and at the beginning of the conversation,
+  access-role chips, and permission-aware channel editing and access management.
+  The header provides Threads, Mute, Pins, Members and native message search.
+  Search and pinned results open the original message, loading surrounding history
+  when necessary. Press Ctrl+F to search.
+  Deleted channels disappear directly from Gateway updates, including an open
+  channel's timeline, without waiting for a channel-list reload.
+- **Message buttons:** bot action buttons and browser links below messages,
+  with disabled/pending states and application response errors. Follow-up buttons
+  can open native text forms with required fields and multiline editing.
+  Ephemeral replies show **Only you can see this** and a local **Dismiss message**
+  action. Select menus, premium buttons and non-text form fields remain unsupported.
 - **Direct messages:** personal/group conversations, avatars, unread styling and
   incoming DM shortcuts with unread counts above the server list. Presence badges update live in
   DM rows, conversation headers and the participant list.
@@ -291,7 +303,7 @@ REST/CDN connections are reused, and media completion wakes the UI immediately.
 Voice/video calls, arbitrary file uploads, drag-and-drop
 and syntax highlighting remain future work. GIF animation decoding has bounded size,
 frame count, memory and time; longer clips may use a smaller resolution, and
-clips exceeding those bounds show a still frame. Message forwarding, pins/bookmarks,
+clips exceeding those bounds show a still frame. Message forwarding, pin/unpin actions and bookmarks,
 reminders, apps, speech and moderation menus are not implemented. Reactions can
 be sent normally; sending super reactions and sticker selection remain pending.
 Quick-reaction usage is local and does not import Discord's
@@ -352,6 +364,9 @@ Tests use synthetic data and loopback peers, with no Discord credentials or real
 account mutations. GPU smoke checks use the offline demo. Live account testing
 is still needed for newly added settings, uploads, context actions, reaction
 lookups, history pagination and read acknowledgements.
+Channel edits, access changes, pins and message search also need live account
+testing; their automated checks use synthetic responses. Main and follow-up bot
+buttons, text forms and ephemeral reply handling have been confirmed in live use.
 
 [`AGENTS.md`](AGENTS.md) documents architecture, development rules, protocol
 research and remaining implementation work.

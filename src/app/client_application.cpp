@@ -63,6 +63,8 @@ namespace app {
         demoRoleStep();
       if (m_demo && m_demoOverlay == "profile-card-cycle")
         demoProfileStep();
+      if (m_demo && m_demoOverlay == "channel-cycle")
+        demoChannelStep();
       if (m_demo && m_demoOverlay == "forum-cycle")
         demoForumStep();
       if (m_demo && m_demoOverlay == "thread-cycle")
@@ -344,7 +346,13 @@ namespace app {
         return;
       if (!m_pasteInput.empty()) {
         auto id = std::exchange(m_pasteInput, {});
-        if ((id == "dialog" || id == "forum-body") && m_pasteDialogGeneration != m_dialogGeneration)
+        if ((id == "dialog"
+             || id == "forum-body"
+             || id == "channel-name"
+             || id == "channel-topic"
+             || id == "channel-access-filter"
+             || id.starts_with("application-field:"))
+            && m_pasteDialogGeneration != m_dialogGeneration)
           return;
         if (id == m_focusedInput && mime.starts_with("text/plain")) {
           pasteControl(id, std::move(bytes));
@@ -439,6 +447,12 @@ namespace app {
         m_window.invalidate();
         return;
       }
+      if (m_dialogKind == "channel-info" || m_dialogKind == "channel-access" || m_dialogKind == "application-modal") {
+        if (m_dialogBounds.contains(m_pointerX, m_pointerY))
+          scroll(m_channelDialogScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (m_dialogKind == "profile") {
         if (m_dialogBounds.contains(m_pointerX, m_pointerY))
           scroll(m_profileScroll, delta);
@@ -469,6 +483,11 @@ namespace app {
         scroll(m_guildScroll, delta);
       else if (m_pointerX < 326)
         scroll(m_channelScroll, delta);
+      else if (
+          !m_channelPanel.empty()
+          && m_pointerX >= m_window.width() - std::min(380.0F, std::max(250.0F, m_window.width() - 576.0F))
+      )
+        scroll(m_channelPanelScroll, delta);
       else if (forumView())
         scroll(m_forumScroll, delta);
       else if (m_showMembers && m_window.width() >= 1000 && m_pointerX >= m_window.width() - 240) {
@@ -506,7 +525,8 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "forum-cycle"              ? 12
+        smokeTest ? (m_demo && view && std::string_view(view) == "channel-cycle"            ? 18
+                         : m_demo && view && std::string_view(view) == "forum-cycle"        ? 12
                          : m_demo && view && std::string_view(view) == "thread-cycle"       ? 10
                          : m_demo && view && std::string_view(view) == "guild-tag-cycle"    ? 10
                          : m_demo && view && std::string_view(view) == "profile-card-cycle" ? 8
@@ -518,6 +538,8 @@ namespace app {
                   : 0,
         m_assets.eventFd(), m_video.eventFd()
     );
+    if (m_demoOverlay == "channel-cycle" && m_demoInteractionStep != 18)
+      throw std::runtime_error("Channel feature replay did not complete");
     if (m_demoOverlay == "forum-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Forum replay did not complete");
     if (m_demoOverlay == "thread-cycle" && m_demoInteractionStep != 10)
@@ -558,6 +580,13 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view == "channel"
+            || view == "channel-cycle"
+            || view == "channel-search"
+            || view == "channel-edit"
+            || view == "channel-ephemeral"
+            || view == "channel-modal")
+          prepareChannelDemo(view);
         if (view == "forum" || view == "forum-error" || view == "forum-cycle")
           prepareForumDemo(view);
         if (view == "threads" || view == "thread" || view == "thread-cycle")
@@ -1571,53 +1600,10 @@ namespace app {
       iconButton(root, {276, h - 57, 36, 36, Action::Settings, {}}, "settings", "User settings");
 
       const bool forum = forumView();
-      const float memberWidth = !forum && m_showMembers && w >= 1000 ? 240 : 0;
-      const float left = 326, bodyWidth = w - left - memberWidth;
-      rectangle(root, left, 36, bodyWidth, 66, background);
-      std::string heading = "Choose a channel";
-      float headingOffset = 24;
-      for (const auto& channel : m_channels)
-        if (channel.id == m_channelId) {
-          heading = (m_dmMode || channel.isThread() ? "" : "#  ") + channelName(channel);
-          if (m_dmMode && channel.type == 1 && !channel.recipients.empty()) {
-            statusBadge(root, left + 24, 64, userStatus(channel.recipients.front().id), background);
-            headingOffset = 44;
-          }
-        }
-      const auto* selectedThread = m_dmMode ? nullptr : m_threads.find(m_guildId, m_channelId);
-      if (selectedThread) {
-        iconButton(
-            root, {left + 16, 52, 30, 32, Action::ThreadParent, selectedThread->parentId}, "arrow-left",
-            "Back to channel"
-        );
-        headingOffset = 54;
-        const auto action = selectedThread->archived.value_or(false) ? Action::ReopenThread
-            : selectedThread->joined.value_or(false)                 ? Action::LeaveThread
-                                                                     : Action::JoinThread;
-        button(
-            root,
-            {left + bodyWidth - 156, 55, 94, 30, m_threadPending.contains(m_channelId) ? Action::None : action,
-             m_channelId},
-            m_threadPending.contains(m_channelId) ? "Saving…"
-                : action == Action::ReopenThread  ? "Reopen"
-                : action == Action::LeaveThread   ? "Leave"
-                                                  : "Join",
-            false
-        );
-      }
-      if (!m_dmMode && !m_channelId.empty() && !forum)
-        iconButton(
-            root,
-            {left + bodyWidth - 54, 52, 32, 32, Action::BrowseThreads,
-             selectedThread ? selectedThread->parentId : m_channelId},
-            "messages", "Threads"
-        );
-      label(
-          root, left + headingOffset, 57, std::max(30.0F, bodyWidth - (selectedThread ? 226 : 100) - headingOffset),
-          heading, 19, foreground, FontWeight::SemiBold
-      );
-      if (!forum)
-        iconButton(root, {w - 64, 50, 36, 36, Action::ToggleMembers, {}}, "users", "Member list", m_showMembers);
+      const float panelWidth = m_channelPanel.empty() ? 0 : std::min(380.0F, std::max(250.0F, w - 576));
+      const float memberWidth = !forum && m_channelPanel.empty() && m_showMembers && w >= 1000 ? 240 : 0;
+      const float left = 326, bodyWidth = w - left - memberWidth - panelWidth;
+      drawChannelHeader(root, w);
       rectangle(root, left, 101, bodyWidth, 1, raised);
       if (forum)
         drawForum(root, left, 102, bodyWidth, h - 102);
@@ -1655,7 +1641,8 @@ namespace app {
         std::vector<const MessageLayout*> layouts;
         auto unreadIndex = m_unreadTimeline.first(m_messages);
         constexpr float unreadHeight = 36;
-        float totalHeight = 24 + (unreadIndex ? unreadHeight : 0);
+        const float introHeight = channelIntro(nullptr, 0, 0, textWidth);
+        float totalHeight = 24 + introHeight + (unreadIndex ? unreadHeight : 0);
         for (const auto& message : m_messages) {
           auto& cached = m_messageLayouts[message.id];
           const auto& renderer = m_window.target().renderer();
@@ -1703,7 +1690,8 @@ namespace app {
                   + (m_preferences.compact ? 26 : 34)
                   + (message.reply ? 24 : 0)
                   + reactionStrip(nullptr, message, 0, 0, textWidth)
-                  + threadStrip(nullptr, message, 0, 0, textWidth);
+                  + threadStrip(nullptr, message, 0, 0, textWidth)
+                  + messageButtons(nullptr, message, 0, 0, textWidth);
           layouts.push_back(&cached.layout);
           heights.push_back(height);
           totalHeight += height;
@@ -1715,7 +1703,7 @@ namespace app {
              || m_keepHistoryAnchor)
             && !m_unreadTimeline.positionPending()) {
           std::vector<TimelineAnchor::Row> positions;
-          float rowY = bottom - totalHeight + m_messageScroll + 12;
+          float rowY = bottom - totalHeight + m_messageScroll + 12 + introHeight;
           for (std::size_t i = 0; i < m_messages.size(); ++i) {
             if (unreadIndex && i == *unreadIndex)
               rowY += unreadHeight;
@@ -1730,9 +1718,27 @@ namespace app {
         }
         m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
         m_keepHistoryAnchor = false;
+        if (!m_seekMessage.empty() && !m_loadingMessages) {
+          float preceding = 12 + introHeight;
+          for (std::size_t i = 0; i < m_messages.size(); ++i) {
+            if (unreadIndex && i == *unreadIndex)
+              preceding += unreadHeight;
+            if (m_messages[i].id == m_seekMessage) {
+              m_scrolling.stop(m_messageScroll);
+              m_messageScroll = std::clamp(
+                  totalHeight - (bottom - top) - preceding + (bottom - top) * 0.35F, 0.0F, m_messageMaxScroll
+              );
+              break;
+            }
+            preceding += heights[i];
+          }
+          m_seekMessage.clear();
+          m_unreadTimeline.positioned();
+          m_timelineAnchor.reset();
+        }
         if (m_unreadTimeline.positionPending() && !m_unreadTimeline.waiting() && !m_loadingMessages) {
           if (unreadIndex) {
-            float preceding = 12;
+            float preceding = 12 + introHeight;
             for (std::size_t i = 0; i < *unreadIndex; ++i)
               preceding += heights[i];
             m_scrolling.stop(m_messageScroll);
@@ -1759,6 +1765,7 @@ namespace app {
           m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
         }
         m_messageViewportTop = top;
+        m_messageViewportBottom = bottom;
         // Keep the same transform at rest: switching snapping back on can move
         // glyphs against the scroll direction in the final frame.
         content->setTextPixelSnap(false);
@@ -1776,6 +1783,10 @@ namespace app {
         content->setPosition(left + 24, top);
         content->setSize(bodyWidth - 48, std::max(0.0F, bottom - top));
         float y = std::min(0.0F, bottom - top - totalHeight) + m_messageScroll + 12;
+        if (introHeight > 0) {
+          channelIntro(content.get(), 50, y, textWidth);
+          y += introHeight;
+        }
         for (std::size_t i = 0; i < m_messages.size(); ++i) {
           const auto& message = m_messages[i];
           if (unreadIndex && i == *unreadIndex) {
@@ -1814,6 +1825,10 @@ namespace app {
               );
               y += heights[i];
               continue;
+            }
+            if (message.flags & 64) {
+              rectangle(*content, 0, y - 3, bodyWidth - 48, heights[i] - 4, lerpColor(background, accent, .06F), 6);
+              rectangle(*content, 0, y - 3, 3, heights[i] - 4, lerpColor(background, accent, .6F), 2);
             }
             if (message.reply) {
               const auto& reply = *message.reply;
@@ -1897,9 +1912,13 @@ namespace app {
             label(*content, bodyWidth - 132, y + 1, 56, timestamp, 10, muted);
             const auto& layout = *layouts[i];
             const float bodyY = y + 18;
+            const float componentHeight =
+                messageButtons(content.get(), message, 50, bodyY + layout.height + 6, textWidth);
             const float reactionHeight =
-                reactionStrip(content.get(), message, 50, bodyY + layout.height + 6, textWidth);
-            threadStrip(content.get(), message, 50, bodyY + layout.height + 6 + reactionHeight, textWidth);
+                reactionStrip(content.get(), message, 50, bodyY + layout.height + 6 + componentHeight, textWidth);
+            threadStrip(
+                content.get(), message, 50, bodyY + layout.height + 6 + componentHeight + reactionHeight, textWidth
+            );
             m_messageText[message.id] = layout.plainText;
             m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
             // Card backgrounds precede nested code/quote decoration.
@@ -2298,6 +2317,10 @@ namespace app {
         }
       }
     }
+    if (m_connected && !m_channelPanel.empty() && !m_settingsOpen) {
+      const float panel = std::min(380.0F, std::max(250.0F, w - 576));
+      drawChannelPanel(root, w - panel, 102, panel, h - 102);
+    }
     if (m_settingsOpen)
       drawSettings(root, w, h);
     else if (m_presenceMenu)
@@ -2538,7 +2561,12 @@ namespace app {
   bool ClientApplication::markChannelRead(bool explicitAction) {
     if (m_channelId.empty() || m_messages.empty() || !m_history.atLatest() || (!m_demo && !m_history.initialized()))
       return false;
-    const auto& latest = m_messages.back().id;
+    const auto publicMessage = std::ranges::find_if(m_messages.rbegin(), m_messages.rend(), [](const auto& message) {
+      return !(message.flags & 64);
+    });
+    if (publicMessage == m_messages.rend())
+      return false;
+    const auto& latest = publicMessage->id;
     if (!explicitAction && m_localRead[m_channelId] == latest)
       return false;
     if (!m_demo && !m_client.acknowledge(m_channelId, latest))
@@ -2550,7 +2578,7 @@ namespace app {
     return true;
   }
   void ClientApplication::cacheChannel() {
-    if (m_channelId.empty())
+    if (m_channelId.empty() || m_deletedChannels.contains(m_channelId))
       return;
     if (m_history.atLatest()) {
       const auto first = m_messages.size() > 200 ? m_messages.size() - 200 : 0;
@@ -2568,6 +2596,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    closeChannelPanel();
     m_roleMotion.clear();
     closeVideo();
     m_scrolling.stopAll();
@@ -2627,6 +2656,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    closeChannelPanel();
     m_roleMotion.clear();
     closeVideo();
     m_scrolling.stopAll();
@@ -2660,6 +2690,9 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(std::string id) {
+    closeChannelPanel();
+    m_seekMessage.clear();
+    m_pendingMessageJump.reset();
     const auto selected = std::ranges::find(m_channels, id, &discord::Channel::id);
     const bool forum = selected != m_channels.end() && selected->isForum();
     m_forumSearchTimer.stop();
@@ -2724,6 +2757,15 @@ namespace app {
     if (id.empty()) {
       m_window.invalidate();
       return;
+    }
+    if (!m_demo && !m_dmMode && !m_channelDetailsLoaded.contains(id)) {
+      const auto channel = selectedChannel();
+      if (channel
+          && !channel->isThread()
+          && (!channel->topic || !channel->overwrites)
+          && !m_channelDetailRequests.contains(id)
+          && m_client.channelDetails(id))
+        m_channelDetailRequests.insert(id);
     }
     if (forum) {
       m_threadParent = id;
@@ -2809,8 +2851,10 @@ namespace app {
       if (m_demo)
         m_demoHistoryQuery = *query;
       m_liveChanges.clear();
-      if (direction == discord::HistoryDirection::Latest)
+      if (direction == discord::HistoryDirection::Latest || direction == discord::HistoryDirection::Around)
         m_loadingMessages = true;
+      if (direction == discord::HistoryDirection::Around)
+        m_seekMessage = query->cursor;
     } else
       m_history.fail(*query, "Could not load message history. Try again.");
     m_window.invalidate();
@@ -2819,7 +2863,8 @@ namespace app {
   void ClientApplication::applyHistory(discord::Event& event) {
     if (!event.history || event.resource != m_channelId || !m_history.accepts(*event.history))
       return;
-    if (event.history->direction == discord::HistoryDirection::Latest)
+    if (event.history->direction == discord::HistoryDirection::Latest
+        || event.history->direction == discord::HistoryDirection::Around)
       m_loadingMessages = false;
     if (!event.error.empty()) {
       m_history.fail(*event.history, event.error);
@@ -3078,6 +3123,11 @@ namespace app {
     for (auto& event : m_client.drain()) {
       if (event.session != m_session || m_demo)
         continue;
+      filterDeletedChannels(event);
+      if (!event.unauthorized
+          && event.operation == discord::Operation::ChannelDetails
+          && m_deletedChannels.contains(event.resource))
+        continue;
       if (!event.unauthorized
           && ((event.operation == discord::Operation::Channels && event.resource != m_guildId)
               || (event.operation == discord::Operation::Messages && event.resource != m_channelId)))
@@ -3184,6 +3234,14 @@ namespace app {
       ) {
         threadEvent(event);
         continue; // Scoped browsing errors belong to their forum/browser, never another channel.
+      } else if (
+          event.operation == discord::Operation::ChannelDetails || event.operation == discord::Operation::ChannelPage
+      ) {
+        channelFeatureEvent(event);
+        continue;
+      } else if (event.operation == discord::Operation::ComponentResult) {
+        componentResult(event);
+        continue;
       } else if (event.operation == discord::Operation::Credentials) {
         m_loginStorageStatus = !event.error.empty()                        ? event.error
             : event.credentialOperation == auth::CredentialOperation::Save ? "Sign-in is saved in your desktop keyring."
@@ -3230,6 +3288,10 @@ namespace app {
           m_restoreChannel.clear();
         }
       } else if (event.operation == discord::Operation::InvalidateChannels) {
+        if (!event.removed.empty()) {
+          removeGuildChannels(event);
+          continue;
+        }
         m_guildChannels.erase(event.resource);
         if (!m_dmMode && event.resource == m_guildId) {
           m_restoreChannel = m_channelId;
@@ -3387,8 +3449,13 @@ namespace app {
           refresh();
         }
       } else if (event.operation == discord::Operation::MessageCreate) {
+        std::erase_if(event.messages, [&](const auto& message) { return m_dismissedEphemeral.contains(message.id); });
+        if (event.messages.empty())
+          continue;
+        const bool ephemeral =
+            std::ranges::all_of(event.messages, [](const auto& message) { return (message.flags & 64) != 0; });
         auto dm = std::ranges::find(m_privateChannels, event.resource, &discord::Channel::id);
-        if (dm != m_privateChannels.end()) {
+        if (dm != m_privateChannels.end() && !ephemeral) {
           auto channel = std::move(*dm);
           m_privateChannels.erase(dm);
           if (!event.messages.empty())
@@ -3401,7 +3468,7 @@ namespace app {
               && event.messages.back().authorId != m_account.id)
             m_unreadDMs.insert(event.resource);
         }
-        const bool fromOther = !event.messages.empty() && event.messages.back().authorId != m_account.id;
+        const bool fromOther = !ephemeral && !event.messages.empty() && event.messages.back().authorId != m_account.id;
         if (!readingChannel(event.resource) && fromOther)
           m_unreadChannels.insert(event.resource);
         if (event.resource != m_channelId) {
@@ -3421,6 +3488,8 @@ namespace app {
               upsertMessage(std::move(message));
           }
       } else if (event.operation == discord::Operation::MessageUpdate) {
+        if (m_dismissedEphemeral.contains(event.messageId))
+          continue;
         if (auto preview = m_forumFirstMessages.find(event.resource);
             preview != m_forumFirstMessages.end() && preview->second.id == event.messageId)
           event.patch.apply(preview->second);
@@ -3632,6 +3701,24 @@ namespace app {
   }
 
   void ClientApplication::onKey(const Key& key) {
+    if (m_connected
+        && !m_settingsOpen
+        && m_dialogKind.empty()
+        && key.control
+        && (key.symbol == XKB_KEY_f || key.symbol == XKB_KEY_F)) {
+      if (m_inputs.contains("channel-search") && m_inputs.at("channel-search")->parent())
+        focusControl("channel-search");
+      else {
+        m_channelPanel = "search";
+        m_focusedInput = "channel-search-panel";
+        m_window.invalidate();
+      }
+      return;
+    }
+    if (key.symbol == XKB_KEY_Escape && m_dialogKind.empty() && !m_channelPanel.empty()) {
+      closeChannelPanel();
+      return;
+    }
     if (videoKey(key))
       return;
     if (key.symbol == XKB_KEY_Escape && m_gifMenu) {
@@ -4079,7 +4166,11 @@ namespace app {
         m_openFolders.insert(hit.id);
       break;
     case Action::ToggleMembers:
-      m_showMembers = !m_showMembers;
+      if (!m_channelPanel.empty()) {
+        closeChannelPanel();
+        m_showMembers = true;
+      } else
+        m_showMembers = !m_showMembers;
       break;
     case Action::PasteClipboard:
       if (!m_demo && !m_channelId.empty()) {

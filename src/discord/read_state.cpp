@@ -159,6 +159,8 @@ namespace discord {
   }
 
   void ReadState::message(const nlohmann::json& value, const std::string& self, bool blocked, bool muted) {
+    if (integer(value, "flags").value_or(0) & 64)
+      return; // Private application replies never advance channel read state.
     const auto id = string(value, "channel_id"), latest = string(value, "id");
     if (!validSnowflake(id)
         || !validSnowflake(latest)

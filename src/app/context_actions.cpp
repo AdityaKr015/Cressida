@@ -30,6 +30,12 @@ namespace app {
           || action.kind == discord::InteractionKind::CreateThread
           || action.kind == discord::InteractionKind::CreateForumPost)
         key += ":" + action.guild + ":" + std::to_string(action.revision);
+      if (action.kind == discord::InteractionKind::MessageButton
+          || action.kind == discord::InteractionKind::SubmitModal)
+        key += ":" + action.customId + ":" + action.nonce;
+      if (action.kind == discord::InteractionKind::EditChannel
+          || action.kind == discord::InteractionKind::GrantChannelAccess)
+        key += ":" + std::to_string(action.revision);
       return key;
     }
   } // namespace
@@ -558,7 +564,9 @@ namespace app {
         return false;
       if (key.control && key.symbol == XKB_KEY_comma)
         return true;
-      if (m_focusedInput != "dialog"
+      if (!m_focusedInput.starts_with("channel-")
+          && !m_focusedInput.starts_with("application-field:")
+          && m_focusedInput != "dialog"
           && !(m_dialogKind == "forum-create" && m_focusedInput == "forum-body")
           && key.symbol != XKB_KEY_Tab)
         return true;
@@ -732,6 +740,13 @@ namespace app {
       m_dialogError = m_status;
   }
   void ClientApplication::closeDialog() {
+    m_applicationModal.reset();
+    m_applicationValues.clear();
+    m_modalNonce.clear();
+    for (auto& [id, input] : m_inputs)
+      if (id.starts_with("application-field:")) {
+        input->setValue("");
+      }
     ++m_dialogGeneration;
     m_archiveQuery.reset();
     m_scrolling.stop(m_threadScroll);
@@ -770,6 +785,14 @@ namespace app {
   void ClientApplication::drawDialog(Node& root, float w, float h) {
     if (m_dialogKind.empty())
       return;
+    if (m_dialogKind == "application-modal") {
+      drawApplicationModal(root, w, h);
+      return;
+    }
+    if (m_dialogKind.starts_with("channel-")) {
+      drawChannelDialog(root, w, h);
+      return;
+    }
     if (m_dialogKind == "forum-create") {
       drawForumPostDialog(root, w, h);
       return;
@@ -889,6 +912,11 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
+    if (action.kind == discord::InteractionKind::MessageButton
+        || action.kind == discord::InteractionKind::SubmitModal) {
+      componentResult(event);
+      return;
+    }
     m_threadPending.erase(action.channel);
     const bool dialog = m_dialogAction && interactionKey(*m_dialogAction) == key;
     if (!event.error.empty()) {
@@ -899,6 +927,8 @@ namespace app {
       m_status = event.error;
       return;
     }
+    if (channelFeatureInteraction(event, dialog))
+      return;
     if (threadInteraction(event, dialog))
       return;
     using Kind = discord::InteractionKind;
@@ -1154,6 +1184,8 @@ namespace app {
     return ry + 32;
   }
   bool ClientApplication::interactionAction(const Hit& hit) {
+    if (channelFeatureAction(hit))
+      return true;
     if (threadAction(hit))
       return true;
     if (guildProfileAction(hit))

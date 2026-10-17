@@ -86,6 +86,10 @@ namespace discord {
   struct ForumTag {
     std::string id, name, emojiId, emojiName;
   };
+  struct PermissionOverwrite {
+    std::string id, allow, deny;
+    int type = 0;
+  };
   struct Channel {
     std::string id;
     std::string name;
@@ -103,6 +107,8 @@ namespace discord {
     std::vector<ForumTag> availableTags;
     std::optional<std::vector<std::string>> appliedTags;
     bool requireTag = false;
+    std::optional<std::string> topic;
+    std::optional<std::vector<PermissionOverwrite>> overwrites;
     bool isThread() const { return type == 10 || type == 11 || type == 12; }
     bool isForum() const { return type == 15 || type == 16; }
   };
@@ -171,6 +177,14 @@ namespace discord {
     std::optional<GuildTag> authorTag;
     std::optional<Channel> thread;
     bool hasThread = false;
+    struct Button {
+      std::string label, customId, url, emojiId, emojiName;
+      int style = 2;
+      bool disabled = false, animated = false;
+    };
+    std::vector<std::vector<Button>> buttons;
+    std::string applicationId;
+    std::uint64_t flags = 0;
   };
 
   struct MessagePatch {
@@ -184,6 +198,9 @@ namespace discord {
     std::optional<std::optional<GuildTag>> authorTag;
     std::optional<std::optional<Channel>> thread;
     std::optional<bool> hasThread;
+    std::optional<std::vector<std::vector<Message::Button>>> buttons;
+    std::optional<std::string> applicationId;
+    std::optional<std::uint64_t> flags;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

@@ -151,8 +151,12 @@ namespace app {
     auto input = m_inputs.find(id);
     if (input == m_inputs.end() || !input->second->parent() || !g_utf8_validate(text.data(), text.size(), nullptr))
       return;
-    const bool multiline =
-        id == "composer" || id == "forum-body" || id == "settings:bio" || (id == "dialog" && m_dialogKind == "edit");
+    const bool multiline = id == "composer"
+        || id == "forum-body"
+        || id == "channel-topic"
+        || id == "settings:bio"
+        || (id.starts_with("application-field:") && m_dialogKind == "application-modal")
+        || (id == "dialog" && m_dialogKind == "edit");
     std::erase_if(text, [&](unsigned char c) {
       return (c < 32 && !(multiline && (c == '\n' || c == '\t'))) || c == 127;
     });
@@ -210,6 +214,22 @@ namespace app {
             m_scrolling.stop(m_emojiScroll);
             m_emojiScroll = 0;
           }
+        } else if (id == "channel-search" || id == "channel-search-panel") {
+          if (text.size() <= 1024)
+            m_channelSearchText = text;
+        } else if (id == "channel-name")
+          m_channelFormName = text;
+        else if (id == "channel-topic")
+          m_channelFormTopic = text;
+        else if (id == "channel-access-filter") {
+          m_channelAccessFilter = text;
+          m_scrolling.stop(m_channelDialogScroll);
+          m_channelDialogScroll = 0;
+        } else if (id.starts_with("application-field:")) {
+          if (m_applicationModal && m_dialogKind == "application-modal" && !m_dialogPending)
+            for (std::size_t i = 0; i < m_applicationValues.size(); ++i)
+              if (id == "application-field:" + std::to_string(i) && text.size() <= 16000)
+                m_applicationValues[i] = text;
         } else if (id == "forum-search") {
           if (text.size() <= 400 && discord::utf8Length(text) <= 100) {
             m_forumSearch = text;
@@ -249,6 +269,15 @@ namespace app {
           send();
         else if (id == "emoji-search") {
           // Selection is explicit; Enter must not submit account settings.
+        } else if (id == "channel-search" || id == "channel-search-panel")
+          searchChannel();
+        else if (
+            id == "channel-access-filter"
+            || id == "channel-name"
+            || id == "channel-topic"
+            || id.starts_with("application-field:")
+        ) {
+          // Forms submit through their explicit Save/Submit action.
         } else if (id == "gif-search")
           searchGifs();
         else if (id == "forum-search") {

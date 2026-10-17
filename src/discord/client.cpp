@@ -303,6 +303,7 @@ namespace discord {
     if (command.operation != Operation::Send
         && command.operation != Operation::Interaction
         && command.operation != Operation::Threads
+        && command.operation != Operation::ChannelPage
         && command.operation != Operation::SaveGifFavorite
         && command.operation != Operation::SaveEmojiFavorite
         && std::ranges::any_of(m_commands, [&](const auto& pending) {
@@ -317,6 +318,16 @@ namespace discord {
   }
 
   bool Client::channels(const std::string& id) { return enqueue({Operation::Channels, m_session, id, {}}); }
+  bool Client::channelDetails(const std::string& channel) {
+    return validSnowflake(channel) && enqueue({Operation::ChannelDetails, m_session, channel, {}});
+  }
+  bool Client::channelPage(ChannelPageQuery query) {
+    if (channelPagePath(query).empty())
+      return false;
+    Command command{Operation::ChannelPage, m_session, query.channel, {}};
+    command.channelQuery = std::move(query);
+    return enqueue(std::move(command));
+  }
   bool Client::threads(ThreadQuery query) {
     if (threadListPath(query).empty())
       return false;
@@ -413,7 +424,9 @@ namespace discord {
   }
 
   void Client::subscribe(const std::string& guild, const std::string& channel, int first) {
-    if (m_authenticatedSession != m_session || (!guild.empty() && !validSnowflake(guild)) || !validSnowflake(channel))
+    if (m_authenticatedSession != m_session
+        || (!guild.empty() && !validSnowflake(guild))
+        || (channel.empty() ? !guild.empty() : !validSnowflake(channel)))
       return;
     {
       std::lock_guard lock(m_mutex);
@@ -440,6 +453,37 @@ namespace discord {
       }
       if (type == "READY" && data.contains("user"))
         m_self = data["user"].value("id", "");
+      if (type == "READY") {
+        const auto at = data.find("session_id");
+        std::lock_guard lock(m_mutex);
+        m_gatewaySessionId = at != data.end() && at->is_string() && at->get_ref<const std::string&>().size() <= 128
+            ? at->get<std::string>()
+            : "";
+        m_gatewaySessionGeneration = session;
+      }
+      if (type == "INTERACTION_SUCCESS" || type == "INTERACTION_FAILURE" || type == "INTERACTION_MODAL_CREATE") {
+        Event result{.operation = Operation::ComponentResult, .session = session};
+        if (data.contains("nonce") && data["nonce"].is_string())
+          result.nonce = data["nonce"].get<std::string>();
+        if (type == "INTERACTION_FAILURE")
+          result.error = "The application could not complete this action.";
+        if (type == "INTERACTION_MODAL_CREATE") {
+          try {
+            result.modal = parseApplicationModal(data);
+          } catch (const std::exception& error) {
+            result.error = error.what();
+          }
+        }
+        publish(std::move(result));
+      }
+      if (type == "CHANNEL_DELETE" && data.contains("guild_id")) {
+        const auto guild = data.value("guild_id", ""), channel = data.value("id", "");
+        if (validSnowflake(guild) && validSnowflake(channel)) {
+          Event event{.operation = Operation::InvalidateChannels, .session = session, .resource = guild};
+          event.removed = {channel};
+          publish(std::move(event));
+        }
+      }
       auto threads = parseThreadUpdates(type, data, m_self);
       if (threads.reset || !threads.changes.empty()) {
         Event event{.operation = Operation::ThreadUpdate, .session = session};
@@ -619,10 +663,7 @@ namespace discord {
           event.emojis = parseGuildEmojis(data.value("emojis", Json::array()), guild);
           publish(std::move(event));
         }
-      } else if (
-          (type == "CHANNEL_CREATE" || type == "CHANNEL_UPDATE" || type == "CHANNEL_DELETE")
-          && data.contains("guild_id")
-      ) {
+      } else if ((type == "CHANNEL_CREATE" || type == "CHANNEL_UPDATE") && data.contains("guild_id")) {
         publish(
             Event{
                 .operation = Operation::InvalidateChannels, .session = session, .resource = data.value("guild_id", "")
@@ -724,6 +765,7 @@ namespace discord {
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
       event.history = command.history;
       event.threadQuery = command.threadQuery;
+      event.channelQuery = command.channelQuery;
       if (command.operation == Operation::Acknowledge)
         event.messageId = command.content;
       Transfer transfer{{}, stop, &m_session, command.session, connection.get()};
@@ -800,6 +842,36 @@ namespace discord {
           path = interaction->path;
           body = interaction->body;
           method = interaction->method.c_str();
+          if (command.interaction->kind == InteractionKind::MessageButton
+              || command.interaction->kind == InteractionKind::SubmitModal) {
+            std::lock_guard lock(m_mutex);
+            if (m_gatewaySessionGeneration != command.session || m_gatewaySessionId.empty())
+              event.error = "Wait for the live connection before using application buttons.";
+            else
+              body["session_id"] = m_gatewaySessionId;
+          } else if (command.interaction->kind == InteractionKind::GrantChannelAccess) {
+            auto snapshot = request(token, "/channels/" + command.resource, nullptr, transfer, cooldown);
+            if (!snapshot) {
+              event.error = snapshot.error().message;
+              event.unauthorized = snapshot.error().unauthorized;
+              break;
+            }
+            Channel fresh;
+            parseChannelDetails(fresh, *snapshot);
+            if (!fresh.overwrites) {
+              event.error = "Could not read the current channel permissions. Try again.";
+              break;
+            }
+            std::string allow = "0", deny = "0";
+            for (const auto& o : *fresh.overwrites)
+              if (o.id == command.interaction->user && o.type == command.interaction->overwriteType) {
+                allow = o.allow;
+                deny = o.deny;
+                break;
+              }
+            body["allow"] = withViewPermission(allow, true);
+            body["deny"] = withViewPermission(deny, false);
+          }
           break;
         case Operation::Acknowledge:
           path = "/channels/" + command.resource + "/messages/" + command.content + "/ack";
@@ -849,6 +921,12 @@ namespace discord {
           method = "PATCH";
           break;
         }
+        case Operation::ChannelDetails:
+          path = "/channels/" + command.resource;
+          break;
+        case Operation::ChannelPage:
+          path = channelPagePath(*command.channelQuery);
+          break;
         case Operation::Threads:
           path = threadListPath(*command.threadQuery);
           break;
@@ -947,9 +1025,19 @@ namespace discord {
             break;
           }
           case Operation::Interaction:
-            if (command.interaction->kind == InteractionKind::CreateThread
+            if (command.interaction->kind == InteractionKind::EditChannel) {
+              event.channels = parseChannels(Json::array({*response}));
+              if (event.channels.size() != 1 || event.channels[0].id != command.resource)
+                throw std::runtime_error("Unexpected channel identity");
+            } else if (command.interaction->kind == InteractionKind::GrantChannelAccess) {
+              auto updated = request(token, "/channels/" + command.resource, nullptr, transfer, cooldown);
+              if (updated)
+                event.channels = parseChannels(Json::array({*updated}));
+            } else if (
+                command.interaction->kind == InteractionKind::CreateThread
                 || command.interaction->kind == InteractionKind::CreateForumPost
-                || command.interaction->kind == InteractionKind::UnarchiveThread) {
+                || command.interaction->kind == InteractionKind::UnarchiveThread
+            ) {
               auto thread = parseThread(*response);
               if (!thread
                   || (command.interaction->kind == InteractionKind::UnarchiveThread
@@ -1015,6 +1103,17 @@ namespace discord {
               event.error = "Status changed on another device. Please try again.";
             else
               event.presence = parsePresenceSettings(*response);
+            break;
+          case Operation::ChannelDetails:
+            event.channels = parseChannels(Json::array({*response}));
+            if (event.channels.size() != 1 || event.channels[0].id != command.resource)
+              throw std::runtime_error("Unexpected channel identity");
+            break;
+          case Operation::ChannelPage:
+            if (response->contains("code") && (*response)["code"] == 110000)
+              event.error = "Search is being indexed. Please try again shortly.";
+            else
+              event.channelPage = parseChannelPage(*response, *command.channelQuery);
             break;
           case Operation::Threads:
             if (response->contains("code") && (*response)["code"] == 110000)

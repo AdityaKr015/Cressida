@@ -1,5 +1,6 @@
 #include "discord/models.h"
 
+#include "discord/channel_features.h"
 #include "discord/role_styles.h"
 #include "discord/threads.h"
 
@@ -99,6 +100,7 @@ namespace discord {
           {id(item), text(item, "name", "unnamed"), type, item.value("position", 0), text(item, "parent_id")}
       );
       auto& channel = result.back();
+      parseChannelDetails(channel, item);
       if (channel.isForum()) {
         if (item.contains("flags") && item["flags"].is_number_integer())
           channel.requireTag = (item["flags"].get<std::uint64_t>() & 16) != 0;
@@ -273,6 +275,18 @@ namespace discord {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
+    if (value.contains("components") && value["components"].is_array())
+      patch.buttons = parseMessageButtons(value["components"]);
+    if (value.contains("application_id")) {
+      if (value["application_id"].is_null())
+        patch.applicationId = "";
+      else if (value["application_id"].is_string() && validSnowflake(value["application_id"].get<std::string>()))
+        patch.applicationId = value["application_id"].get<std::string>();
+    }
+    if (value.contains("flags")
+        && value["flags"].is_number_integer()
+        && (value["flags"].is_number_unsigned() || value["flags"].get<std::int64_t>() >= 0))
+      patch.flags = value["flags"].get<std::uint64_t>();
     if (value.contains("thread")) {
       if (value["thread"].is_null())
         patch.thread.emplace();
@@ -400,6 +414,12 @@ namespace discord {
     return patch;
   }
   void MessagePatch::apply(Message& message) const {
+    if (buttons)
+      message.buttons = *buttons;
+    if (applicationId)
+      message.applicationId = *applicationId;
+    if (flags)
+      message.flags = *flags;
     if (thread)
       message.thread = *thread;
     if (hasThread)
@@ -502,10 +522,18 @@ namespace discord {
           {id(item), text(item, "channel_id"), std::move(author), std::move(content), text(item, "timestamp")}
       );
       parseMessagePatch(item).apply(result.back());
-      if (result.back().content.empty() && result.back().attachments.empty() && result.back().embeds.empty())
+      if (result.back().content.empty()
+          && result.back().attachments.empty()
+          && result.back().embeds.empty()
+          && result.back().buttons.empty())
         result.back().content = "[System message]";
       if (const auto it = item.find("author"); it != item.end() && it->is_object()) {
         result.back().authorId = text(*it, "id");
+        if (result.back().applicationId.empty()
+            && it->contains("bot")
+            && (*it)["bot"] == true
+            && validSnowflake(result.back().authorId))
+          result.back().applicationId = result.back().authorId;
         result.back().avatar = avatarPath(*it);
       }
     }

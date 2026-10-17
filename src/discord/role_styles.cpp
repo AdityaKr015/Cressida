@@ -1,9 +1,11 @@
 #include "discord/role_styles.h"
+
+#include "discord/channel_features.h"
 #include "discord/models.h"
 
 #include <algorithm>
-#include <set>
 #include <nlohmann/json.hpp>
+#include <set>
 
 namespace discord {
   namespace {
@@ -30,11 +32,15 @@ namespace discord {
       ColoredRole result;
       result.id = id;
       result.name = text(value, "name");
+      const auto permissions = text(value, "permissions");
+      if (permissionBits(permissions))
+        result.permissions = permissions;
       const auto image = text(value, "icon");
       if (validAssetHash(image))
         result.icon = "/role-icons/" + id + "/" + image + ".png?size=32";
       result.unicodeEmoji = text(value, "unicode_emoji");
-      if (result.unicodeEmoji.size() > 64 || std::ranges::any_of(result.unicodeEmoji, [](unsigned char c) { return c < 32 || c == 127; }))
+      if (result.unicodeEmoji.size() > 64
+          || std::ranges::any_of(result.unicodeEmoji, [](unsigned char c) { return c < 32 || c == 127; }))
         result.unicodeEmoji.clear();
       if (result.name.size() > 400)
         result.name.clear();
@@ -56,7 +62,7 @@ namespace discord {
       // Equal positions: older (smaller snowflake) roles rank higher.
       return a.id.size() != b.id.size() ? a.id.size() < b.id.size() : a.id < b.id;
     }
-  }
+  } // namespace
   std::optional<std::vector<std::string>> parseMemberRoles(const Json& member) {
     const auto at = member.find("roles");
     if (at == member.end() || !at->is_array() || at->size() > 250)
@@ -95,12 +101,20 @@ namespace discord {
             if (auto parsed = role(item))
               update.roles.push_back(std::move(*parsed));
       }
-      const auto& properties = value.contains("properties") && value["properties"].is_object() ? value["properties"] : value;
+      const auto& properties =
+          value.contains("properties") && value["properties"].is_object() ? value["properties"] : value;
+      if (validSnowflake(text(properties, "owner_id")))
+        update.owner = text(properties, "owner_id");
       if (properties.contains("features") && properties["features"].is_array()) {
         update.enhanced = false;
         for (const auto& feature : properties["features"])
           if (feature == "ENHANCED_ROLE_COLORS")
             update.enhanced = true;
+      }
+      if (value.contains("member") && value["member"].is_object() && data.contains("user")) {
+        auto own = value["member"];
+        own["user_id"] = text(data["user"], "id");
+        member(update, own);
       }
       if (value.contains("members") && value["members"].is_array())
         for (const auto& item : value["members"])
@@ -111,8 +125,10 @@ namespace discord {
       if (data.contains("guilds") && data["guilds"].is_array())
         for (std::size_t i = 0; i < data["guilds"].size() && i < 1000; ++i) {
           auto update = guild(data["guilds"][i]);
-          if (data.contains("merged_members") && data["merged_members"].is_array()
-              && i < data["merged_members"].size() && data["merged_members"][i].is_array())
+          if (data.contains("merged_members")
+              && data["merged_members"].is_array()
+              && i < data["merged_members"].size()
+              && data["merged_members"][i].is_array())
             for (const auto& item : data["merged_members"][i])
               member(update, item);
           result.guilds.push_back(std::move(update));
@@ -188,13 +204,19 @@ namespace discord {
       if (!m_guilds.contains(update.guild) && m_guilds.size() >= 1000)
         continue;
       auto& target = m_guilds[update.guild];
+      if (update.owner)
+        target.owner = *update.owner;
       if (update.enhanced)
         target.enhanced = *update.enhanced;
       if (update.replaceRoles)
         target.roles.clear();
       for (const auto& role : update.roles)
-        if (validSnowflake(role.id) && (target.roles.contains(role.id) || target.roles.size() < 1000))
-          target.roles[role.id] = role;
+        if (validSnowflake(role.id) && (target.roles.contains(role.id) || target.roles.size() < 1000)) {
+          auto copy = role;
+          if (!copy.permissions && target.roles.contains(role.id))
+            copy.permissions = target.roles.at(role.id).permissions;
+          target.roles[role.id] = std::move(copy);
+        }
       for (const auto& id : update.removedRoles)
         target.roles.erase(id);
       for (const auto& id : update.removedMembers)
@@ -210,9 +232,28 @@ namespace discord {
         }
     }
   }
+  std::vector<ColoredRole> RoleDirectory::allRoles(const std::string& guild) const {
+    std::vector<ColoredRole> result;
+    if (auto i = m_guilds.find(guild); i != m_guilds.end())
+      for (const auto& [id, role] : i->second.roles)
+        result.push_back(role);
+    std::ranges::sort(result, higher);
+    return result;
+  }
+  std::optional<std::vector<std::string>>
+  RoleDirectory::memberships(const std::string& guild, const std::string& user) const {
+    auto g = m_guilds.find(guild);
+    if (g == m_guilds.end())
+      return {};
+    auto m = g->second.members.find(user);
+    return m == g->second.members.end() ? std::optional<std::vector<std::string>>{} : m->second;
+  }
+  std::string RoleDirectory::owner(const std::string& guild) const {
+    auto i = m_guilds.find(guild);
+    return i == m_guilds.end() ? "" : i->second.owner;
+  }
   std::optional<RoleColors> RoleDirectory::colors(
-      const std::string& guild, const std::string& user,
-      const std::optional<std::vector<std::string>>& fallbackRoles
+      const std::string& guild, const std::string& user, const std::optional<std::vector<std::string>>& fallbackRoles
   ) const {
     const auto at = m_guilds.find(guild);
     if (at == m_guilds.end() || !validSnowflake(user))
@@ -225,8 +266,7 @@ namespace discord {
     const ColoredRole* best = nullptr;
     auto consider = [&](const std::string& id) {
       const auto role = target.roles.find(id);
-      if (role != target.roles.end() && role->second.colors.primary != 0
-          && (!best || higher(role->second, *best)))
+      if (role != target.roles.end() && role->second.colors.primary != 0 && (!best || higher(role->second, *best)))
         best = &role->second;
     };
     consider(guild);
@@ -241,8 +281,9 @@ namespace discord {
     }
     return result;
   }
-  std::vector<ColoredRole> RoleDirectory::roles(const std::string& guild, const std::string& user,
-                                              const std::optional<std::vector<std::string>>& fallbackRoles) const {
+  std::vector<ColoredRole> RoleDirectory::roles(
+      const std::string& guild, const std::string& user, const std::optional<std::vector<std::string>>& fallbackRoles
+  ) const {
     std::vector<ColoredRole> result;
     const auto at = m_guilds.find(guild);
     if (at == m_guilds.end())
@@ -259,8 +300,9 @@ namespace discord {
     std::ranges::sort(result, higher);
     return result;
   }
-  std::optional<ColoredRole> RoleDirectory::icon(const std::string& guild, const std::string& user,
-                                              const std::optional<std::vector<std::string>>& fallbackRoles) const {
+  std::optional<ColoredRole> RoleDirectory::icon(
+      const std::string& guild, const std::string& user, const std::optional<std::vector<std::string>>& fallbackRoles
+  ) const {
     const auto at = m_guilds.find(guild);
     if (at == m_guilds.end())
       return {};

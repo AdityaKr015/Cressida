@@ -17,6 +17,7 @@ namespace app {
       m_newerEnd = true;
       m_initialized = false;
       m_error.clear();
+      m_failedCursor.clear();
       m_olderCursor.clear();
       m_newerCursor.clear();
       m_patches.clear();
@@ -32,6 +33,8 @@ namespace app {
     std::optional<discord::HistoryQuery>
     begin(discord::HistoryDirection direction, std::span<const discord::Message> messages, bool retry = false) {
       using enum discord::HistoryDirection;
+      if (direction == Around)
+        return retry ? beginAround(m_failedCursor) : std::nullopt;
       if (direction != Latest
           && (busy()
               || (!retry && !m_error.empty())
@@ -47,11 +50,20 @@ namespace app {
       m_patches.clear();
       return query;
     }
+    std::optional<discord::HistoryQuery> beginAround(const std::string& message) {
+      if (!discord::validSnowflake(message))
+        return {};
+      m_pending = discord::HistoryQuery{discord::HistoryDirection::Around, message, ++m_serial};
+      m_error.clear();
+      m_patches.clear();
+      return m_pending;
+    }
     bool accepts(const discord::HistoryQuery& query) const { return m_pending == query; }
     void fail(const discord::HistoryQuery& query, std::string error) {
       if (!accepts(query))
         return;
       m_failed = query.direction;
+      m_failedCursor = query.cursor;
       m_pending.reset();
       m_error = std::move(error);
       m_patches.clear();
@@ -69,6 +81,11 @@ namespace app {
           target = source;
       };
       merge(combined.content, patch.content);
+      merge(combined.buttons, patch.buttons);
+      merge(combined.applicationId, patch.applicationId);
+      merge(combined.flags, patch.flags);
+      merge(combined.thread, patch.thread);
+      merge(combined.hasThread, patch.hasThread);
       merge(combined.attachments, patch.attachments);
       merge(combined.embeds, patch.embeds);
       merge(combined.mentions, patch.mentions);
@@ -102,7 +119,13 @@ namespace app {
         fail(query, "Message history did not advance. Try again.");
         return false;
       }
-      if (query.direction == Latest) {
+      if (query.direction == Around) {
+        messages.clear();
+        m_olderEnd = page.empty();
+        m_newerEnd = page.empty();
+        m_olderCursor = page.empty() ? "" : page.front().id;
+        m_newerCursor = page.empty() ? "" : page.back().id;
+      } else if (query.direction == Latest) {
         // Keep a contiguous cached prefix only when the latest page overlaps it.
         bool overlaps = false;
         for (const auto& message : page)
@@ -182,7 +205,7 @@ namespace app {
     std::optional<discord::HistoryQuery> m_pending;
     std::uint64_t m_serial = 0;
     bool m_olderEnd = false, m_newerEnd = true, m_initialized = false;
-    std::string m_error;
+    std::string m_error, m_failedCursor;
     std::string m_olderCursor, m_newerCursor;
     std::map<std::string, discord::MessagePatch> m_patches;
     discord::HistoryDirection m_failed = discord::HistoryDirection::Older;

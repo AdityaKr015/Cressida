@@ -3,6 +3,7 @@
 #include "auth/credentials.h"
 #include "core/process/wake_event.h"
 #include "discord/actions.h"
+#include "discord/channel_features.h"
 #include "discord/emoji.h"
 #include "discord/gateway.h"
 #include "discord/gifs.h"
@@ -63,7 +64,10 @@ namespace discord {
     SaveEmojiFavorite,
     RoleStyles,
     Threads,
-    ThreadUpdate
+    ThreadUpdate,
+    ChannelDetails,
+    ChannelPage,
+    ComponentResult
   };
 
   struct Event {
@@ -83,6 +87,10 @@ namespace discord {
     ThreadUpdates threadUpdates;
     std::optional<ThreadQuery> threadQuery;
     std::optional<ThreadPage> threadPage;
+    std::optional<ChannelPageQuery> channelQuery;
+    std::optional<ChannelPageResult> channelPage;
+    std::string nonce;
+    std::optional<ApplicationModal> modal;
     int memberCount = 0;
     std::vector<std::string> removed;
     std::string messageId;
@@ -126,6 +134,8 @@ namespace discord {
     bool channels(const std::string& guildId);
     bool privateChannels();
     bool threads(ThreadQuery query);
+    bool channelDetails(const std::string& channel);
+    bool channelPage(ChannelPageQuery query);
     bool acknowledge(const std::string& channel, const std::string& message);
     bool messages(const std::string& channelId, HistoryQuery query = {});
     bool send(
@@ -164,6 +174,7 @@ namespace discord {
       bool restoredLogin = false;
       std::optional<HistoryQuery> history;
       std::optional<ThreadQuery> threadQuery;
+      std::optional<ChannelPageQuery> channelQuery;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);
@@ -185,6 +196,9 @@ namespace discord {
     std::unique_ptr<Gateway> m_gateway;
     std::unique_ptr<auth::CredentialStore> m_credentials;
     std::string m_selectedGuild, m_selectedChannel;
+    // Private Gateway session identity is only read by the REST worker for explicit component actions.
+    std::string m_gatewaySessionId;
+    std::uint64_t m_gatewaySessionGeneration = 0;
     int m_selectedMemberFirst = 0;
     // These caches belong exclusively to the Gateway worker.
     std::uint64_t m_memberSession = 0;

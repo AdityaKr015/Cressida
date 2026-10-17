@@ -8,7 +8,7 @@
 
 namespace discord {
   inline constexpr std::size_t messagePageSize = 100;
-  enum class HistoryDirection { Latest, Older, Newer };
+  enum class HistoryDirection { Latest, Older, Newer, Around };
   struct HistoryQuery {
     HistoryDirection direction = HistoryDirection::Latest;
     std::string cursor;
@@ -22,7 +22,10 @@ namespace discord {
       return {};
     auto path = "/channels/" + channel + "/messages?limit=" + std::to_string(messagePageSize);
     if (query.direction != HistoryDirection::Latest)
-      path += (query.direction == HistoryDirection::Older ? "&before=" : "&after=") + query.cursor;
+      path += (query.direction == HistoryDirection::Older        ? "&before="
+                   : query.direction == HistoryDirection::Around ? "&around="
+                                                                 : "&after=")
+          + query.cursor;
     return path;
   }
 } // namespace discord

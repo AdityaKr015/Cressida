@@ -1,5 +1,6 @@
 #pragma once
 
+#include "discord/channel_features.h"
 #include "discord/models.h"
 
 #include <nlohmann/json.hpp>
@@ -26,7 +27,11 @@ namespace discord {
     CreateForumPost,
     JoinThread,
     LeaveThread,
-    UnarchiveThread
+    UnarchiveThread,
+    MessageButton,
+    EditChannel,
+    GrantChannelAccess,
+    SubmitModal
   };
   struct Interaction {
     InteractionKind kind = InteractionKind::AddReaction;
@@ -36,6 +41,12 @@ namespace discord {
     std::uint64_t stateRevision = 0; // Thread directory version, never sent to Discord.
     std::string content;
     std::vector<std::string> tags;
+    std::string application, customId, nonce;
+    std::uint64_t messageFlags = 0;
+    std::optional<std::string> channelName, channelTopic;
+    int overwriteType = 0;
+    std::optional<ApplicationModal> modal;
+    std::vector<std::string> values;
   };
   struct InteractionRequest {
     std::string path, method;

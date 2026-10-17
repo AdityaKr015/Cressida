@@ -17,6 +17,9 @@ int main() {
     require(timeline.waiting() && timeline.positionPending(), "Wait for READY before positioning or acknowledging");
     timeline.snapshot({{"10", {"99", "101"}}, {"20", {"100", "101"}}});
     require(!timeline.waiting() && timeline.first(messages) == 2, "Import numeric read cursors across digit lengths");
+    messages[2].flags = 64;
+    require(timeline.first(messages) == 3, "Ephemeral messages cannot become the public unread boundary");
+    messages[2].flags = 0;
     require(!timeline.estimated(messages), "A loaded read boundary gives an exact loaded unread count");
     timeline.positioned();
     timeline.acknowledged("10", "100");

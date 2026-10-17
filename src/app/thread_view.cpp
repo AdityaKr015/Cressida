@@ -10,6 +10,7 @@
 namespace app {
   using namespace theme;
   void ClientApplication::clearThreads() {
+    clearChannelFeatures();
     m_threads = {};
     m_forumSearchTimer.stop();
     m_forumFirstMessages.clear();
@@ -130,9 +131,13 @@ namespace app {
       }
       if (opening) {
         m_openThreadQuery.reset();
-        if (event.error.empty() && query.guild == m_guildId && m_threads.find(query.guild, query.parent))
+        if (event.error.empty() && query.guild == m_guildId && m_threads.find(query.guild, query.parent)) {
+          const auto jump = m_pendingMessageJump;
+          m_pendingMessageJump.reset();
           openThread(query.parent);
-        else
+          if (jump && jump->first == query.parent)
+            jumpToMessage(jump->first, jump->second);
+        } else
           m_status = event.error.empty() ? "This thread is no longer available." : event.error;
       }
     }

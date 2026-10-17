@@ -165,7 +165,26 @@ namespace app {
       ForumRetry,
       ForumMore,
       NewForumPost,
-      ForumPostTag
+      ForumPostTag,
+      ChannelInfo,
+      EditChannel,
+      AddChannelAccess,
+      ChannelAccessMode,
+      ChannelAccessTarget,
+      SaveChannelEdit,
+      SaveChannelAccess,
+      ChannelDetailsRetry,
+      ToggleChannelMute,
+      ChannelPins,
+      ChannelSearch,
+      CloseChannelPanel,
+      ChannelPanelNext,
+      ChannelPanelPrevious,
+      ChannelPanelRetry,
+      ChannelPanelJump,
+      MessageButton,
+      DismissEphemeral,
+      SubmitApplicationModal
     };
     struct Hit {
       float x, y, width, height;
@@ -219,6 +238,30 @@ namespace app {
     void showGuildProfile(const std::string& guild);
     void drawGuildProfile(Node& root, float width, float height);
     void clearThreads();
+    const discord::Channel* selectedChannel() const;
+    std::optional<std::uint64_t> selectedChannelPermissions() const;
+    void clearChannelFeatures();
+    void closeChannelPanel();
+    void drawChannelHeader(Node& root, float width);
+    float channelIntro(Node* root, float x, float y, float width);
+    float messageButtons(Node* root, const discord::Message& message, float x, float y, float width);
+    void channelFeatureEvent(const discord::Event& event);
+    void componentResult(const discord::Event& event);
+    bool channelFeatureAction(const Hit& hit);
+    bool channelFeatureInteraction(const discord::Event& event, bool dialog);
+    void drawChannelDialog(Node& root, float width, float height);
+    void drawApplicationModal(Node& root, float width, float height);
+    void submitApplicationModal();
+    void dismissEphemeral(const std::string& message);
+    void removeGuildChannels(const discord::Event& event);
+    void filterDeletedChannels(discord::Event& event) const;
+    void drawChannelPanel(Node& root, float x, float y, float width, float height);
+    void openChannelDialog(const std::string& kind);
+    void requestChannelPage(bool next = false, bool previous = false);
+    void searchChannel();
+    void jumpToMessage(const std::string& channel, const std::string& message);
+    void prepareChannelDemo(const std::string& view);
+    void demoChannelStep();
     void loadThreads(bool retry = false, bool more = false);
     void rebuildThreadChannels();
     void threadEvent(const discord::Event& event);
@@ -498,6 +541,29 @@ namespace app {
     bool m_threadMore = false;
     float m_threadScroll = 0;
     std::uint64_t m_threadSerial = 0;
+    std::set<std::string> m_channelDetailRequests, m_channelDetailsLoaded;
+    std::map<std::string, std::string> m_channelDetailErrors;
+    std::string m_channelSearchText, m_channelPanel, m_channelPanelError;
+    std::optional<discord::ChannelPageQuery> m_channelPageRequest, m_channelPageShown;
+    discord::ChannelPageResult m_channelPage;
+    std::vector<std::string> m_pinCursors;
+    float m_channelPanelScroll = 0, m_channelDialogScroll = 0;
+    std::string m_channelFormName, m_channelFormTopic, m_channelAccessFilter, m_channelAccessTarget;
+    int m_channelAccessMode = 0;
+    discord::Channel m_channelEditOriginal;
+    std::uint64_t m_channelFeatureSerial = 0;
+    std::string m_seekMessage;
+    std::optional<std::pair<std::string, std::string>> m_pendingMessageJump;
+    struct ComponentState {
+      std::string nonce, status;
+      bool pending = false;
+    };
+    std::map<std::string, ComponentState> m_componentStates;
+    std::optional<discord::ApplicationModal> m_applicationModal;
+    std::vector<std::string> m_applicationValues;
+    std::string m_modalNonce;
+    std::set<std::string> m_dismissedEphemeral;
+    std::set<std::string> m_deletedChannels;
     std::map<std::string, std::vector<discord::Message>> m_channelMessages;
     std::vector<std::string> m_channelCacheOrder;
     struct MemberSnapshot {
@@ -580,6 +646,6 @@ namespace app {
     std::vector<Hit> m_hits;
     float m_pointerX = 0, m_pointerY = 0;
     float m_guildScroll = 0, m_channelScroll = 0, m_messageScroll = 0, m_messageMaxScroll = 0, m_memberScroll = 0;
-    float m_messageViewportTop = 122;
+    float m_messageViewportTop = 122, m_messageViewportBottom = 600;
   };
 } // namespace app
