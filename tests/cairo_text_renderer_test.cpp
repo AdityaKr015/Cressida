@@ -1,8 +1,10 @@
 #include "render/text/cairo_text_renderer.h"
 #include "render/text/text_position.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <pango/pangocairo.h>
 #include <print>
 #include <string_view>
 
@@ -87,6 +89,61 @@ namespace {
     return 0;
   }
 
+  // A short symbol run may fall back to Noto Sans Math, whose font-wide
+  // clipping box accommodates huge operators. It must not become our line box.
+  int fallbackBoundsCase(CairoTextRenderer& renderer) {
+    auto* fontMap = pango_cairo_font_map_new();
+    auto* context = pango_font_map_create_context(fontMap);
+    auto* options = cairo_font_options_create();
+    cairo_font_options_set_antialias(options, CAIRO_ANTIALIAS_GRAY);
+    pango_cairo_context_set_font_options(context, options);
+    cairo_font_options_destroy(options);
+    bool failed = false;
+    constexpr std::array texts{
+        "Alex",       "⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "⪻𝚂ҟ₳𝘕ↁ✧亗⪼ [KURU]", "𝓢𝓮𝓻𝓮𝓲𝓷",        "𓆩Serein𓆪",
+        "Ágatha é q̱", "Z̴a̶l̷g̸o̶",      "العربية עברית",     "日本語 한국어", "First line\n⪻𝚂ҟ₳𝘕ↁ✧亗⪼"
+    };
+    for (const float scale : {1.0F, 1.25F, 2.0F}) {
+      for (auto weight : {FontWeight::Normal, FontWeight::SemiBold}) {
+        auto* desc = pango_font_description_new();
+        pango_font_description_set_family(desc, "sans-serif");
+        pango_font_description_set_weight(desc, static_cast<PangoWeight>(weight));
+        pango_font_description_set_absolute_size(desc, 13.0 * scale * PANGO_SCALE);
+        for (const auto* text : texts) {
+          auto* layout = pango_layout_new(context);
+          pango_layout_set_font_description(layout, desc);
+          pango_layout_set_text(layout, text, -1);
+          PangoRectangle ink, logical;
+          pango_layout_get_extents(layout, &ink, &logical);
+          const int baseline = pango_layout_get_baseline(layout);
+          const float unit = 1.0F / (PANGO_SCALE * scale);
+          const float expectedTop = std::min(logical.y, ink.y) * unit - baseline * unit;
+          const float expectedBottom =
+              std::max(logical.y + logical.height, ink.y + ink.height) * unit - baseline * unit;
+          const auto actual = renderer.measure(scale, text, 13, weight);
+          if (std::abs(actual.top - expectedTop) > 0.01F
+              || std::abs(actual.bottom - expectedBottom) > 0.01F
+              || actual.top > actual.inkTop + 0.01F
+              || actual.bottom < actual.inkBottom - 0.01F) {
+            std::println(
+                stderr, "cairo_text_renderer_test: FAIL: fallback line bounds at {}x: expected {}..{}, got {}..{}",
+                scale, expectedTop, expectedBottom, actual.top, actual.bottom
+            );
+            failed = true;
+          }
+          const auto cached = renderer.measure(scale, text, 13, weight);
+          if (!sameMetrics(actual, cached))
+            failed = true;
+          g_object_unref(layout);
+        }
+        pango_font_description_free(desc);
+      }
+    }
+    g_object_unref(context);
+    g_object_unref(fontMap);
+    return failed ? 1 : 0;
+  }
+
 } // namespace
 
 int main() {
@@ -115,6 +172,9 @@ int main() {
   CairoTextRenderer renderer;
   renderer.initialize(nullptr, nullptr);
 
+  if (const int rc = fallbackBoundsCase(renderer); rc != 0) {
+    return rc;
+  }
   if (const int rc = scaleKeyedCacheCase(renderer); rc != 0) {
     return rc;
   }

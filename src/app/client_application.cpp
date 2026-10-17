@@ -504,6 +504,22 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view == "unicode-names") {
+          m_messages.clear();
+          const std::vector<std::string> names = {"Alex", "⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "⪻𝚂ҟ₳𝘕ↁ✧亗⪼ [KURU]", "𝓢𝓮𝓻𝓮𝓲𝓷", "𓆩Serein𓆪"};
+          m_members.clear();
+          for (std::size_t i = 0; i < names.size(); ++i) {
+            const auto id = std::to_string(8100 + i);
+            m_messages.push_back({id, m_channelId, names[i], "what is serein?", "2026-10-17T09:50:00Z", id});
+            discord::MemberRow member;
+            member.index = static_cast<int>(i);
+            member.user = {id, names[i]};
+            member.status = "online";
+            m_members.push_back(std::move(member));
+          }
+          m_memberCount = static_cast<int>(m_members.size());
+          m_showMembers = true;
+        }
         if (view == "video" || view == "video-cycle") {
           m_demoOverlay = view;
           m_showMembers = false;

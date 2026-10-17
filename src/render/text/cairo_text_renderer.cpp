@@ -133,40 +133,6 @@ namespace {
     return VerticalExtents{.top = top, .bottom = bottom, .valid = true};
   }
 
-  VerticalExtents clippingExtentsFromSingleLineRuns(PangoLayout* layout, float unitToLogicalPx) {
-    if (layout == nullptr || pango_layout_get_line_count(layout) != 1) {
-      return {};
-    }
-
-    VerticalExtents out;
-    PangoLayoutIter* iter = pango_layout_get_iter(layout);
-    if (iter == nullptr) {
-      return {};
-    }
-
-    do {
-      PangoLayoutRun* run = pango_layout_iter_get_run_readonly(iter);
-      if (run == nullptr || run->item == nullptr || run->item->analysis.font == nullptr) {
-        continue;
-      }
-
-      const VerticalExtents runExtents = clippingExtentsFromFont(run->item->analysis.font, unitToLogicalPx);
-      if (!runExtents.valid) {
-        continue;
-      }
-
-      if (!out.valid) {
-        out = runExtents;
-      } else {
-        out.top = std::min(out.top, runExtents.top);
-        out.bottom = std::max(out.bottom, runExtents.bottom);
-      }
-    } while (pango_layout_iter_next_run(iter));
-
-    pango_layout_iter_free(iter);
-    return out;
-  }
-
 } // namespace
 
 // ── CacheKey equality/hash ──────────────────────────────────────────────────
@@ -479,14 +445,17 @@ CairoTextRenderer::TextMetrics CairoTextRenderer::metricsFromLayout(float conten
   const float inkBottom = static_cast<float>(ink.y + ink.height - baselinePango) * pscale * invScale;
   const float inkLeft = static_cast<float>(ink.x) * pscale * invScale;
   const float inkRight = static_cast<float>(ink.x + ink.width) * pscale * invScale;
-  const auto stableExtents = clippingExtentsFromSingleLineRuns(layout, pscale * invScale);
 
   TextMetrics m;
   m.width = width;
   m.left = 0.0F;
   m.right = width;
-  m.top = stableExtents.valid ? std::min(stableExtents.top, -ascent) : -ascent;
-  m.bottom = stableExtents.valid ? std::max(stableExtents.bottom, descent) : descent;
+  // Position shaped text using this line's logical and visible ink bounds.
+  // A fallback math font's font-wide clipping ascent/descent includes enormous
+  // operators absent from this text; using it displaces ordinary symbols/names.
+  // Actual ink overhang (including combining marks) must still fit.
+  m.top = std::min(-ascent, inkTop);
+  m.bottom = std::max(descent, inkBottom);
   m.inkTop = inkTop;
   m.inkBottom = inkBottom;
   m.inkLeft = inkLeft;
