@@ -1,4 +1,5 @@
 #include "app/client_application.h"
+#include "app/message_group.h"
 
 #include "app/message_layout.h"
 #include "app/reply_preview.h"
@@ -1638,12 +1639,20 @@ namespace app {
         content->setSize(bodyWidth - 48, std::max(0.0F, bottom - top));
         content->setClipChildren(true);
         std::vector<float> heights;
+        std::vector<bool> continuations(m_messages.size(), false);
         std::vector<const MessageLayout*> layouts;
         auto unreadIndex = m_unreadTimeline.first(m_messages);
         constexpr float unreadHeight = 36;
         const float introHeight = channelIntro(nullptr, 0, 0, textWidth);
         float totalHeight = 24 + introHeight + (unreadIndex ? unreadHeight : 0);
-        for (const auto& message : m_messages) {
+        const auto continues = [&](std::size_t i) {
+          return i > 0 && !blockedMessage(m_messages[i - 1]) && !blockedMessage(m_messages[i])
+            && continuesMessageGroup(m_messages[i - 1], m_messages[i]);
+        };
+        for (std::size_t i = 0; i < m_messages.size(); ++i)
+          continuations[i] = (!unreadIndex || i != *unreadIndex) && continues(i);
+        for (std::size_t i = 0; i < m_messages.size(); ++i) {
+          const auto& message = m_messages[i];
           auto& cached = m_messageLayouts[message.id];
           const auto& renderer = m_window.target().renderer();
           if (cached.width != textWidth
@@ -1687,7 +1696,7 @@ namespace app {
           }
           const float height = blockedMessage(message) ? 36
                                                        : std::max(22.0F, cached.layout.height)
-                  + (m_preferences.compact ? 26 : 34)
+                  + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact)
                   + (message.reply ? 24 : 0)
                   + reactionStrip(nullptr, message, 0, 0, textWidth)
                   + threadStrip(nullptr, message, 0, 0, textWidth)
@@ -1757,6 +1766,14 @@ namespace app {
             && markChannelRead()) {
           if (unreadIndex && !m_unreadTimeline.unread()) {
             totalHeight -= unreadHeight;
+            const auto i = *unreadIndex;
+            if (continues(i) && !continuations[i]) {
+              const float savedGap = m_preferences.compact ? 4 : 10;
+              continuations[i] = true;
+              heights[i] -= 18;
+              heights[i - 1] -= savedGap;
+              totalHeight -= 18 + savedGap;
+            }
             unreadIndex.reset();
           }
           if (!m_unreadTimeline.unread())
@@ -1863,6 +1880,8 @@ namespace app {
                 );
               y += 24;
             }
+            const bool continuation = continuations[i];
+            if (!continuation) {
             const auto author = userName(message.authorId, message.author);
             const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
             const float headerWidth = std::max(24.0F, textWidth - 64);
@@ -1880,10 +1899,14 @@ namespace app {
             const float authorWidth =
                 std::min(nameMax, m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4);
             avatar(*content, 0, y + 1, 40, message.avatar, author);
+            float groupBottom = originalY + heights[i];
+            for (std::size_t next = i + 1; next < m_messages.size() && continuations[next]; ++next)
+              groupBottom += heights[next];
             roleLabel(
                 *content, 50, y, nameMax, author, 13, foreground, FontWeight::SemiBold, message.authorId,
                 "message:" + message.id,
-                y + 18 >= 0 && y < bottom - top && hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop),
+                y + 18 >= 0 && y < bottom - top
+                  && hovered(left + 24, rowTop, bodyWidth - 48, std::max(0.0F, std::min(bottom, top + groupBottom) - rowTop)),
                 message.memberRoles
             );
             const float tagUsed = m_preferences.showGuildTags && tagFits
@@ -1910,8 +1933,12 @@ namespace app {
             }
             const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
             label(*content, bodyWidth - 132, y + 1, 56, timestamp, 10, muted);
+            } else if (hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop)) {
+              const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
+              label(*content, 0, y + 4, 42, timestamp, 9, muted);
+            }
             const auto& layout = *layouts[i];
-            const float bodyY = y + 18;
+            const float bodyY = y + (continuation ? 0 : 18);
             const float componentHeight =
                 messageButtons(content.get(), message, 50, bodyY + layout.height + 6, textWidth);
             const float reactionHeight =

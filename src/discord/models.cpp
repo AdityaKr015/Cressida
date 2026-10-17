@@ -275,6 +275,14 @@ namespace discord {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
+    if (value.contains("type") && value["type"].is_number_integer()
+        && value["type"] >= 0 && value["type"] <= 255)
+      patch.type = value["type"].get<int>();
+    if (value.contains("webhook_id")) {
+      if (value["webhook_id"].is_null()) patch.webhookId = "";
+      else if (value["webhook_id"].is_string() && validSnowflake(value["webhook_id"].get<std::string>()))
+        patch.webhookId = value["webhook_id"].get<std::string>();
+    }
     if (value.contains("components") && value["components"].is_array())
       patch.buttons = parseMessageButtons(value["components"]);
     if (value.contains("application_id")) {
@@ -414,6 +422,8 @@ namespace discord {
     return patch;
   }
   void MessagePatch::apply(Message& message) const {
+    if (type) message.type = *type;
+    if (webhookId) message.webhookId = *webhookId;
     if (buttons)
       message.buttons = *buttons;
     if (applicationId)

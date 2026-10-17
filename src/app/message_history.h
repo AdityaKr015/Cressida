@@ -84,6 +84,8 @@ namespace app {
       merge(combined.buttons, patch.buttons);
       merge(combined.applicationId, patch.applicationId);
       merge(combined.flags, patch.flags);
+      merge(combined.type, patch.type);
+      merge(combined.webhookId, patch.webhookId);
       merge(combined.thread, patch.thread);
       merge(combined.hasThread, patch.hasThread);
       merge(combined.attachments, patch.attachments);

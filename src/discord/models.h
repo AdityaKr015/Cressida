@@ -185,6 +185,8 @@ namespace discord {
     std::vector<std::vector<Button>> buttons;
     std::string applicationId;
     std::uint64_t flags = 0;
+    int type = 0;
+    std::string webhookId;
   };
 
   struct MessagePatch {
@@ -201,6 +203,8 @@ namespace discord {
     std::optional<std::vector<std::vector<Message::Button>>> buttons;
     std::optional<std::string> applicationId;
     std::optional<std::uint64_t> flags;
+    std::optional<int> type;
+    std::optional<std::string> webhookId;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

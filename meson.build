@@ -232,5 +232,7 @@ unread_timeline_test = executable('unread_timeline_test', 'tests/unread_timeline
 test('unread_timeline', unread_timeline_test)
 message_history_test = executable('message_history_test', 'tests/message_history_test.cpp', dependencies: backend_dep)
 test('message_history', message_history_test)
+message_group_test = executable('message_group_test', 'tests/message_group_test.cpp', dependencies: backend_dep)
+test('message_group', message_group_test)
 video_test = executable('video_player_test', 'tests/video_player_test.cpp', dependencies: [video_dep, dependency('egl'), dependency('glesv2')])
 test('video_player', find_program('python3'), args: [files('tests/video_fixture.py'), find_program('ffmpeg'), video_test], timeout: 40)
