@@ -34,6 +34,8 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **Settings:** a dedicated in-client view with search, grouped navigation, native
   switches, profile editing, account preferences and local appearance controls.
 - **Presence:** Online, Idle, Do Not Disturb, Invisible and custom-status text.
+- **Persistent sign-in:** your desktop keyring remembers the last account and
+  restores it automatically on launch.
 - **Remembered navigation:** the last channel in each server and the DM list,
   your last selection at login, interface zoom and display preferences.
 
@@ -81,10 +83,30 @@ browser. Discord hands a one-use ticket back to the client through a temporary
 loopback listener. Allow local network access if your browser asks. You can
 cancel the attempt; it expires after five minutes.
 
+Successful sign-in saves the account token in your desktop keyring through
+Secret Service. Subsequent launches restore it automatically, showing a loading
+view until your account is ready. The login form appears when no saved login is
+available or restoration fails. Cancel stops restoration without removing the
+saved login; a temporary connection failure offers **Retry saved sign-in**.
+
+Remembering sign-in requires a running Secret Service provider, such as GNOME
+Keyring or KeePassXC with Secret Service integration enabled. Your desktop may
+ask you to unlock the keyring. If it is unavailable, the current session still
+works, and Account settings show the storage error. Re-enter `nix develop` after
+updating to pick up the new libsecret dependency.
+
 The client also accepts a token in its masked login field, through
-`CRESSIDA_TOKEN`, or with `--token-file PATH`. Credentials remain in memory;
-the application does not save tokens, passwords or browser cookies. Browser login
-uses Discord's authentication handoff and requires no embedded browser engine.
+`CRESSIDA_TOKEN`, or with `--token-file PATH`. Explicit credentials take precedence
+over the saved login. Only the last successful account is remembered; there is
+no account switcher yet. Passwords and browser cookies are never saved, and there
+is no plaintext token fallback. Browser login uses Discord's authentication
+handoff and requires no embedded browser engine.
+
+Signing out removes the saved login. A credential-free, owner-only
+`$XDG_STATE_HOME/cressida/login-disabled` marker prevents automatic sign-in even
+if keyring deletion fails or the client closes immediately. A subsequent
+successful sign-in saves a new token and clears that marker. Closing the window
+normally keeps your saved login.
 
 ## Using the client
 
@@ -177,7 +199,7 @@ Recently visited conversations and member lists use a bounded session cache.
 REST/CDN connections are reused, and media completion wakes the UI immediately.
 
 Voice/video, older-history pagination, arbitrary file uploads, drag-and-drop,
-syntax highlighting and persistent login remain future work. Animated media
+syntax highlighting remain future work. Animated media
 currently uses a static frame. Message forwarding, threads, pins/bookmarks,
 reminders, apps, speech and moderation menus are not implemented. Reactions can
 be sent normally; sending super reactions and a full guild custom-emoji picker

@@ -56,6 +56,7 @@ namespace app {
       DiscordLogin,
       ToggleToken,
       CancelLogin,
+      RetryLogin,
       Demo,
       Token,
       Guild,
@@ -118,6 +119,7 @@ namespace app {
     void activate(const Hit& hit);
     void connect();
     void beginLogin();
+    void restoreLogin();
     void demo();
     void prepareDemo();
     void selectGuild(const std::string& id);
@@ -265,7 +267,8 @@ namespace app {
     bool m_demoOverlayApplied = false;
     unsigned m_demoInteractionStep = 0;
     bool m_connected = false;
-    bool m_connecting = false;
+    bool m_connecting = false, m_restoringLogin = false, m_retrySavedLogin = false;
+    std::string m_loginStorageStatus;
     bool m_showTokenEntry = false;
     bool m_loadingChannels = false;
     bool m_loadingMessages = false;

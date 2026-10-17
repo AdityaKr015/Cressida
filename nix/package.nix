@@ -26,6 +26,7 @@
   noto-fonts-color-emoji,
   python3,
   md4c,
+  libsecret,
 }:
 stdenv.mkDerivation {
   pname = "cressida";
@@ -74,6 +75,7 @@ stdenv.mkDerivation {
     libxkbcommon
     nlohmann_json
     md4c
+    libsecret
     (curl.override { websocketSupport = true; })
     (callPackage ./stb.nix { })
   ];

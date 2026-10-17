@@ -88,13 +88,18 @@ if meson.can_run_host_binaries()
     error('libcurl needs WebSocket support. Re-enter nix develop to use the project curl build, then reconfigure.')
   endif
 endif
+credential_deps = [dependency('libsecret-1'), dependency('threads')]
+credentials = static_library('credentials', 'src/auth/credentials.cpp', 'src/auth/secret_service.cpp',
+  include_directories: include_directories('src'), dependencies: credential_deps)
+credential_dep = declare_dependency(link_with: credentials,
+  include_directories: include_directories('src'), dependencies: credential_deps)
 backend = static_library('cressida-backend', 'src/discord/models.cpp', 'src/discord/client.cpp',
   'src/discord/settings.cpp', 'src/discord/read_state.cpp', 'src/discord/user_directory.cpp', 'src/discord/actions.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp',
   include_directories: include_directories('src'),
-  dependencies: backend_deps,
+  dependencies: backend_deps + [credential_dep],
 )
 backend_dep = declare_dependency(link_with: backend,
-  include_directories: include_directories('src'), dependencies: backend_deps)
+  include_directories: include_directories('src'), dependencies: backend_deps + [credential_dep])
 
 browser_opener = find_program('xdg-open', required: false)
 browser_args = []
@@ -127,7 +132,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: render_source_paths + control_source_paths + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp'],
+  exclude_files: render_source_paths + control_source_paths + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -187,3 +192,11 @@ test('interactions', interactions_test)
 
 context_menu_test = executable('context_menu_test', 'tests/context_menu_test.cpp', dependencies: render_dep)
 test('context_menu', context_menu_test)
+
+credentials_test = executable('credentials_test', 'tests/credentials_test.cpp', dependencies: credential_dep)
+test('credentials', credentials_test)
+secret_service_test = executable('secret_service_test', 'tests/secret_service_test.cpp', dependencies: credential_dep)
+test('secret_service', secret_service_test,
+  env: ['DBUS_SESSION_BUS_ADDRESS=unix:path=/cressida-test-no-session-bus'], timeout: 10)
+credential_client_test = executable('credential_client_test', 'tests/credential_client_test.cpp', dependencies: backend_dep)
+test('credential_client', credential_client_test)

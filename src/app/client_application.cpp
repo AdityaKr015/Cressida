@@ -227,8 +227,12 @@ namespace app {
           "The renderer library is stale: its menu layout differs from the client. Run just rebuild."
       );
     m_window.initialize();
-    if (!m_demo && !m_token.empty())
-      connect();
+    if (!m_demo) {
+      if (!m_token.empty())
+        connect();
+      else
+        restoreLogin();
+    }
     const auto* view = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW");
     const bool interactionCycle = m_demo && view && std::string_view(view) == "interaction-cycle";
     m_window.run(
@@ -297,7 +301,13 @@ namespace app {
           if (view == "reply")
             m_replies[m_channelId] = {"1", m_channelId, "11", "Maya", m_messages.front().content};
         }
-        if (view == "composer") {
+        if (view == "login-restoring" || view == "login-retry") {
+          m_connected = false;
+          m_connecting = m_restoringLogin = view == "login-restoring";
+          m_retrySavedLogin = view == "login-retry";
+          m_status = m_restoringLogin ? "Your desktop keyring may ask you to unlock it."
+                                      : "Could not reach Discord. Your saved sign-in is still available.";
+        } else if (view == "composer") {
           m_drafts[m_channelId] = "A centered message";
         } else if (view == "emoji-picker")
           m_emojiMenu = true;
@@ -513,13 +523,30 @@ namespace app {
       }
     }
 
-    if (!m_connected) {
-      const float x = (w - 460) / 2, y = std::max(62.0F, (h - 360) / 2);
-      rectangle(root, x, y, 460, 360, sidebar, 22);
+    if (!m_connected && m_restoringLogin) {
+      const float center = h / 2;
+      const std::string title = "Opening Cressida…";
+      const std::string subtitle = "Restoring your saved sign-in";
+      auto& renderer = m_window.target().renderer();
+      const auto titleWidth = renderer.measureText(title, 24, FontWeight::SemiBold).width;
+      const auto subtitleWidth = renderer.measureText(subtitle, 13, FontWeight::Normal).width;
+      glyph(root, (w - 28) / 2, center - 80, 28, "loader", accent);
+      label(root, (w - titleWidth) / 2, center - 24, titleWidth + 2, title, 24, foreground, FontWeight::SemiBold);
+      label(root, (w - subtitleWidth) / 2, center + 18, subtitleWidth + 2, subtitle, 13, muted);
+      button(root, {(w - 96) / 2, center + 62, 96, 32, Action::CancelLogin, {}}, "Cancel");
+    } else if (!m_connected) {
+      const float extra = m_retrySavedLogin && !m_connecting ? 42 : 0;
+      const float x = (w - 460) / 2, y = std::max(62.0F, (h - 360 - extra) / 2);
+      rectangle(root, x, y, 460, 360 + extra, sidebar, 22);
       label(root, x + 32, y + 28, 390, "A LITTLE CLOSER TO YOUR PEOPLE", 10, accent, FontWeight::SemiBold);
       label(root, x + 32, y + 58, 390, "Welcome back.", 32, foreground, FontWeight::Bold);
       label(root, x + 32, y + 106, 390, "Connect your Discord account and settle in.", 14, muted);
-      if (!m_showTokenEntry) {
+      if (m_connecting) {
+        label(root, x + 32, y + 163, 396, "Connecting to Discord…", 16, foreground);
+        button(root, {x + 32, y + 222, 190, 38, Action::CancelLogin, {}}, "Cancel");
+        button(root, {x + 238, y + 222, 190, 38, Action::Demo, {}}, "Explore demo");
+        label(root, x + 32, y + 291, 396, m_status, 12, muted, FontWeight::Normal, 3);
+      } else if (!m_showTokenEntry) {
         label(
             root, x + 32, y + 151, 390, "Sign in using Discord in your default browser.", 13, muted, FontWeight::Normal,
             2
@@ -528,13 +555,15 @@ namespace app {
             root, {x + 32, y + 200, 396, 46, Action::DiscordLogin, {}},
             m_login.active() ? "Waiting for your browser…" : "Sign in with Discord", true
         );
-        button(root, {x + 32, y + 260, 190, 38, Action::Demo, {}}, "Explore demo");
+        if (m_retrySavedLogin)
+          button(root, {x + 32, y + 252, 396, 32, Action::RetryLogin, {}}, "Retry saved sign-in");
+        button(root, {x + 32, y + 260 + extra, 190, 38, Action::Demo, {}}, "Explore demo");
         button(
-            root, {x + 238, y + 260, 190, 38, m_login.active() ? Action::CancelLogin : Action::ToggleToken, {}},
+            root, {x + 238, y + 260 + extra, 190, 38, m_login.active() ? Action::CancelLogin : Action::ToggleToken, {}},
             m_login.active() ? "Cancel sign-in" : "Use a token instead"
         );
         label(
-            root, x + 32, y + 316, 396,
+            root, x + 32, y + 316 + extra, 396,
             m_status.empty() ? "Sign in on Discord's own page. Your password stays there." : m_status, 11, muted,
             FontWeight::Normal, 2
         );
@@ -547,7 +576,7 @@ namespace app {
         );
         button(root, {x + 278, y + 241, 150, 44, Action::ToggleToken, {}}, "Back to sign-in");
         label(
-            root, x + 32, y + 306, 396, m_status.empty() ? "Your token stays in memory for this session." : m_status,
+            root, x + 32, y + 306, 396, m_status.empty() ? "Sign-in is remembered in your desktop keyring." : m_status,
             12, m_status.empty() ? muted : rgbHex(0xF4B6B6), FontWeight::Normal, 2
         );
       }
@@ -1217,12 +1246,26 @@ namespace app {
       return;
     }
     m_status.clear();
+    m_restoringLogin = m_retrySavedLogin = false;
     m_connecting = true;
     m_session = m_client.connect(std::move(m_token));
     m_token.clear();
     if (m_inputs.contains("token"))
       m_inputs["token"]->setValue("");
     m_selectAll = false;
+    m_window.invalidate();
+  }
+
+  void ClientApplication::restoreLogin() {
+    if (m_demo || m_connecting)
+      return;
+    m_login.cancel();
+    m_showTokenEntry = false;
+    m_fieldFocused = false;
+    m_connecting = m_restoringLogin = true;
+    m_retrySavedLogin = false;
+    m_status = "Your desktop keyring may ask you to unlock it.";
+    m_session = m_client.restoreLogin();
     m_window.invalidate();
   }
 
@@ -1241,6 +1284,8 @@ namespace app {
     m_login.cancel();
     m_client.disconnect();
     m_demo = true;
+    m_connecting = m_restoringLogin = m_retrySavedLogin = false;
+    m_loginStorageStatus.clear();
     m_userDirectory = {};
     m_preferences = {};
     m_demoPrepared = false;
@@ -1516,6 +1561,7 @@ namespace app {
     if (auto login = m_login.poll()) {
       if (!login->handoffToken.empty() && !m_connected && !m_demo) {
         m_connecting = true;
+        m_restoringLogin = m_retrySavedLogin = false;
         m_token.clear();
         m_status = "Connecting to your account…";
         m_session = m_client.connectHandoff(std::move(login->key), std::move(login->handoffToken));
@@ -1572,8 +1618,14 @@ namespace app {
         m_fieldFocused = true;
       }
       if (event.operation == discord::Operation::Connect) {
-        m_connecting = false;
-        if (event.error.empty()) {
+        m_connecting = m_restoringLogin = false;
+        m_retrySavedLogin = event.restoredLogin && !event.noSavedLogin && !event.unauthorized && !event.error.empty();
+        if (event.noSavedLogin)
+          m_status.clear();
+        if (event.error.empty() && !event.noSavedLogin) {
+          m_status.clear();
+          m_loginStorageStatus = event.restoredLogin ? "Sign-in restored from your desktop keyring."
+                                                     : "Saving sign-in to your desktop keyring…";
           m_account = std::move(event.account);
           m_savingProfile = m_loadingProfile = false;
           m_desiredPresence.clear();
@@ -1600,6 +1652,10 @@ namespace app {
           } else
             showDirectMessages();
         }
+      } else if (event.operation == discord::Operation::Credentials) {
+        m_loginStorageStatus = !event.error.empty()                        ? event.error
+            : event.credentialOperation == auth::CredentialOperation::Save ? "Sign-in is saved in your desktop keyring."
+                                                                           : "Saved sign-in has been removed.";
       } else if (event.operation == discord::Operation::Interaction) {
         interactionResult(event);
       } else if (event.operation == discord::Operation::Reaction && event.reaction) {
@@ -2336,7 +2392,13 @@ namespace app {
       break;
     case Action::CancelLogin:
       m_login.cancel();
+      if (m_connecting)
+        m_session = m_client.disconnect();
+      m_connecting = m_restoringLogin = m_retrySavedLogin = false;
       m_status.clear();
+      break;
+    case Action::RetryLogin:
+      restoreLogin();
       break;
     case Action::Demo:
       demo();
@@ -2446,7 +2508,9 @@ namespace app {
       m_viewImage.clear();
       m_presence = {};
       m_login.cancel();
-      m_client.disconnect();
+      m_session = m_demo ? m_client.disconnect() : m_client.logout();
+      m_restoringLogin = m_retrySavedLogin = false;
+      m_loginStorageStatus.clear();
       m_connected = false;
       m_demo = false;
       m_connecting = false;

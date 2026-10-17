@@ -32,6 +32,8 @@ int main(int argc, char** argv) {
             valid = false;
           if (type == "MESSAGE_DELETE" && (users.status("7") != "idle" || users.name("7", "Original") != "Original"))
             valid = false;
+          if (type == "CONNECTION_FAILED" && !data.value("authentication_failed", false))
+            valid = false;
           if (type == "MESSAGE_CREATE" && data.value("content", "") != "synthetic 🌿")
             valid = false;
           events.insert(type);
@@ -50,6 +52,7 @@ int main(int argc, char** argv) {
               && events.contains("MESSAGE_CREATE")
               && events.contains("MESSAGE_UPDATE")
               && events.contains("MESSAGE_DELETE")
+              && events.contains("CONNECTION_FAILED")
               && events.contains("RELATIONSHIP_REMOVE")
               && events.contains("PRESENCE_UPDATE")
               && events.contains("GUILD_MEMBER_LIST_UPDATE");

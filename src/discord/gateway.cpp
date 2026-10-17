@@ -137,6 +137,7 @@ namespace discord {
       }
       Connection connection{stop, m_generation, session};
       bool fatal = false;
+      bool authenticationFailed = false;
       std::string failure = "Live connection interrupted";
       try {
         std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
@@ -274,6 +275,7 @@ namespace discord {
             const unsigned closeCode = count >= 2
                 ? (static_cast<unsigned char>(buffer[0]) << 8) | static_cast<unsigned char>(buffer[1])
                 : 1000;
+            authenticationFailed = closeCode == 4004;
             if (closeCode == 4004
                 || closeCode == 4010
                 || closeCode == 4011
@@ -377,7 +379,10 @@ namespace discord {
       } catch (...) { /* Payloads and transport diagnostics may contain credentials. */
       }
       if (!connection.cancelled())
-        m_dispatch(session, fatal ? "CONNECTION_FAILED" : "RECONNECTING", Json{{"reason", failure}});
+        m_dispatch(
+            session, fatal ? "CONNECTION_FAILED" : "RECONNECTING",
+            Json{{"reason", failure}, {"authentication_failed", authenticationFailed}}
+        );
       if (fatal) {
         std::lock_guard lock(m_mutex);
         if (m_session == session)

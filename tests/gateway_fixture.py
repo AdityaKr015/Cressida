@@ -101,10 +101,7 @@ def serve(listener, errors):
             wait_for(connection, 37)
             packet(connection, 0, {"id": "7"}, "RELATIONSHIP_REMOVE", 9)
             packet(connection, 0, {}, "MESSAGE_DELETE", 10)
-            try:
-                wait_for(connection, 1)
-            except EOFError:
-                pass  # The assertion process exits after consuming the final dispatch.
+            frame(connection, struct.pack("!H", 4004), opcode=8)
     except Exception as error:
         errors.append(error)
 

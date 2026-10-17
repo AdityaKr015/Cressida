@@ -20,7 +20,7 @@ namespace app {
       float height;
     };
     constexpr SettingsPage pages[] = {
-        {"account", "My Account", "ACCOUNT", 420},
+        {"account", "My Account", "ACCOUNT", 530},
         {"profile", "Profiles", "ACCOUNT", 540},
         {"presence", "Status", "ACCOUNT", 460},
         {"privacy", "Privacy & Safety", "ACCOUNT", 790},
@@ -293,8 +293,13 @@ namespace app {
       label(p, 22, 179, width - 44, "ACCOUNT ID", 10, muted, FontWeight::SemiBold);
       label(p, 22, 200, width - 44, m_account.id, 14, foreground);
       button(p, {0, 260, 150, 38, Action::SettingsPage, "profile"}, "Edit profile", true);
+      label(p, 0, 324, width, "SIGN-IN", 10, muted, FontWeight::SemiBold);
       label(
-          p, 0, 322, width,
+          p, 0, 346, width, m_demo ? "Demo does not access or change saved sign-in." : m_loginStorageStatus, 13, muted,
+          FontWeight::Normal, 3
+      );
+      label(
+          p, 0, 418, width,
           "Password, email and multi-factor authentication changes still require Discord. Connections and devices have "
           "their own settings pages.",
           13, muted, FontWeight::Normal, 3

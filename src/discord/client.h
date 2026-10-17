@@ -1,5 +1,6 @@
 #pragma once
 
+#include "auth/credentials.h"
 #include "core/process/wake_event.h"
 #include "discord/actions.h"
 #include "discord/gateway.h"
@@ -46,7 +47,8 @@ namespace discord {
     Gateway,
     PrivateChannels,
     PrivateChannelUpsert,
-    PrivateChannelDelete
+    PrivateChannelDelete,
+    Credentials
   };
 
   struct Event {
@@ -75,19 +77,25 @@ namespace discord {
     std::optional<discord::Interaction> interaction;
     std::optional<ReactionUpdate> reaction;
     std::vector<Account> reactors;
+    bool noSavedLogin = false, restoredLogin = false;
+    std::optional<auth::CredentialOperation> credentialOperation;
   };
 
   // One cancellable network worker. No rendering or window-system dependency.
   class Client {
   public:
-    Client();
+    explicit Client(
+        std::unique_ptr<auth::CredentialBackend> credentials = {}, std::filesystem::path disabledLogin = {}
+    );
     ~Client();
     Client(const Client&) = delete;
     Client& operator=(const Client&) = delete;
 
     std::uint64_t connect(std::string token);
     std::uint64_t connectHandoff(std::string key, std::string handoffToken);
-    void disconnect();
+    std::uint64_t restoreLogin();
+    std::uint64_t logout();
+    std::uint64_t disconnect();
     bool channels(const std::string& guildId);
     bool privateChannels();
     bool acknowledge(const std::string& channel, const std::string& message);
@@ -119,22 +127,27 @@ namespace discord {
       std::uint64_t presenceRevision = 0;
       std::optional<MessageReference> reply;
       std::optional<discord::Interaction> interaction;
+      bool restoredLogin = false;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);
     void run(std::stop_token stop);
     void publish(Event event);
+    void saveLogin(std::uint64_t session, const std::string& token);
+    void forgetLogin(std::uint64_t session);
     void gatewayEvent(std::uint64_t session, const std::string& type, const nlohmann::json& data);
 
     process::WakeEvent m_wake;
     std::atomic<std::uint64_t> m_session{0};
     std::atomic<std::uint64_t> m_authenticatedSession{0};
+    std::atomic<std::uint64_t> m_restoringSession{0};
     std::atomic<std::uint64_t> m_presenceRevision{0};
     std::mutex m_mutex;
     std::condition_variable_any m_ready;
     std::deque<Command> m_commands;
     std::vector<Event> m_events;
     std::unique_ptr<Gateway> m_gateway;
+    std::unique_ptr<auth::CredentialStore> m_credentials;
     std::string m_selectedGuild, m_selectedChannel;
     int m_selectedMemberFirst = 0;
     // These caches belong exclusively to the Gateway worker.

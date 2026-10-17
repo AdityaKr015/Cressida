@@ -156,7 +156,8 @@ namespace discord {
     }
   } // namespace
 
-  Client::Client() {
+  Client::Client(std::unique_ptr<auth::CredentialBackend> credentials, std::filesystem::path disabledLogin) {
+    m_credentials = std::make_unique<auth::CredentialStore>(std::move(credentials), std::move(disabledLogin));
     // libcurl initialization is process-wide; this static lives beyond every client worker.
     struct CurlRuntime {
       CurlRuntime() {
@@ -175,7 +176,9 @@ namespace discord {
   }
 
   Client::~Client() {
+    ++m_session;
     m_worker.request_stop();
+    m_credentials->shutdown();
     m_ready.notify_all();
     if (m_worker.joinable())
       m_worker.join();
@@ -189,8 +192,10 @@ namespace discord {
   }
 
   std::uint64_t Client::beginConnect(std::string credential, std::optional<std::string> handoffKey) {
+    m_credentials->cancelLoad();
     const auto session = ++m_session;
     m_authenticatedSession = 0;
+    m_restoringSession = 0;
     m_gateway->reset();
     {
       std::lock_guard lock(m_mutex);
@@ -202,15 +207,70 @@ namespace discord {
     return session;
   }
 
-  void Client::disconnect() {
-    ++m_session;
+  std::uint64_t Client::disconnect() {
+    m_credentials->cancelLoad();
+    const auto session = ++m_session;
     m_authenticatedSession = 0;
+    m_restoringSession = 0;
     m_gateway->reset();
     std::lock_guard lock(m_mutex);
     m_commands.clear();
     m_events.clear();
     // Wake the worker to clear its credential even when no further commands arrive.
     m_ready.notify_all();
+    return session;
+  }
+
+  std::uint64_t Client::restoreLogin() {
+    const auto session = disconnect();
+    m_restoringSession = session;
+    m_credentials->load(session, [this](auth::CredentialResult result) {
+      if (!result.found || !result.error.empty()) {
+        Event event{.operation = Operation::Connect, .session = result.request};
+        event.error = std::move(result.error);
+        event.noSavedLogin = event.error.empty();
+        event.restoredLogin = true;
+        publish(std::move(event));
+        return;
+      }
+      {
+        std::lock_guard lock(m_mutex);
+        if (result.request != m_session)
+          return;
+        Command command{Operation::Connect, result.request, {}, std::move(result.token)};
+        command.restoredLogin = true;
+        m_commands.push_back(std::move(command));
+      }
+      m_ready.notify_all();
+    });
+    return session;
+  }
+  void Client::saveLogin(std::uint64_t session, const std::string& token) {
+    std::lock_guard lock(m_mutex);
+    if (session != m_session)
+      return;
+    m_credentials->save(session, token, [this](auth::CredentialResult result) {
+      Event event{.operation = Operation::Credentials, .session = result.request};
+      event.credentialOperation = result.operation;
+      event.error = std::move(result.error);
+      publish(std::move(event));
+    });
+  }
+  void Client::forgetLogin(std::uint64_t session) {
+    std::lock_guard lock(m_mutex);
+    if (session != m_session)
+      return;
+    m_credentials->forget(session, [this](auth::CredentialResult result) {
+      Event event{.operation = Operation::Credentials, .session = result.request};
+      event.credentialOperation = result.operation;
+      event.error = std::move(result.error);
+      publish(std::move(event));
+    });
+  }
+  std::uint64_t Client::logout() {
+    const auto session = disconnect();
+    forgetLogin(session);
+    return session;
   }
 
   bool Client::enqueue(Command command) {
@@ -431,6 +491,12 @@ namespace discord {
         }
       } else if (type == "RECONNECTING" || type == "CONNECTION_FAILED") {
         Event event{.operation = Operation::Gateway, .session = session};
+        if (type == "CONNECTION_FAILED" && data.value("authentication_failed", false)) {
+          event.unauthorized = true;
+          if (m_authenticatedSession == session || m_restoringSession == session)
+            forgetLogin(session);
+          m_authenticatedSession = 0;
+        }
         event.error = type == "CONNECTION_FAILED" ? "Live connection was rejected. Sign out and reconnect."
                                                   : "Reconnecting… " + data.value("reason", std::string{});
         publish(std::move(event));
@@ -565,10 +631,12 @@ namespace discord {
         continue;
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
       Transfer transfer{{}, stop, &m_session, command.session, connection.get()};
+      event.restoredLogin = command.restoredLogin;
+      bool saveCredential = false;
       try {
         if (command.operation == Operation::Connect) {
           token = std::move(command.content);
-          if (token.empty() || token.size() > 4096 || token.find_first_of("\r\n") != std::string::npos)
+          if (!auth::validCredential(token))
             throw std::runtime_error("Enter a valid account token.");
           if (command.handoffKey) {
             if (command.handoffKey->size() != 64 || !std::ranges::all_of(*command.handoffKey, [](unsigned char ch) {
@@ -583,7 +651,7 @@ namespace discord {
               continue;
             }
             token = exchange->at("token").get<std::string>();
-            if (token.empty() || token.size() > 4096 || token.find_first_of("\r\n") != std::string::npos)
+            if (!auth::validCredential(token))
               throw std::runtime_error("Invalid browser session");
           }
         }
@@ -755,10 +823,9 @@ namespace discord {
                 && response->contains("token")
                 && (*response)["token"].is_string()) {
               const auto replacement = (*response)["token"].get<std::string>();
-              if (!replacement.empty()
-                  && replacement.size() <= 4096
-                  && replacement.find_first_of("\r\n") == std::string::npos) {
+              if (auth::validCredential(replacement)) {
                 token = replacement;
+                saveCredential = true;
                 m_gateway->authenticate(command.session, token);
               }
             }
@@ -788,6 +855,10 @@ namespace discord {
         // Do not expose arbitrary JSON/transport exceptions, which can contain account data.
         event.error = "Could not read Discord's response. Reconnect or try again.";
       }
+      if (event.unauthorized
+          && command.session == m_session
+          && (command.restoredLogin || m_authenticatedSession == command.session))
+        forgetLogin(command.session);
       if (event.unauthorized || (command.operation == Operation::Connect && !event.error.empty())) {
         token.clear();
         m_authenticatedSession = 0;
@@ -802,7 +873,10 @@ namespace discord {
           && !event.unauthorized)
         continue;
       const auto initialPresence = event.presence.value_or(Presence{});
+      const bool remember = (startGateway && !command.restoredLogin) || (saveCredential && event.error.empty());
       publish(std::move(event));
+      if (remember)
+        saveLogin(command.session, token);
       if (startGateway)
         m_gateway->authenticate(command.session, token, initialPresence);
     }
