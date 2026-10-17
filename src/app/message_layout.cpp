@@ -1,5 +1,6 @@
 #include "app/message_layout.h"
 
+#include "app/reply_preview.h"
 #include "discord/emoji.h"
 #include "discord/models.h"
 
@@ -499,6 +500,101 @@ namespace app {
       const std::map<std::string, std::string>& mentions, const MessageOptions& options
   ) {
     return parseMessage(content, width, measure, fontSize, mentions, options, 22 * fontSize / 14);
+  }
+
+  MessageLayout layoutReplyPreview(
+      const discord::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
+      const MessageOptions& options
+  ) {
+    MessageLayout result;
+    result.height = 20;
+    if (width <= 0)
+      return result;
+    MessageStyle base;
+    base.size = 12;
+    std::vector<MessageRun> runs;
+    auto append = [&](std::string text, MessageStyle style, std::string image = {}) {
+      if (text.empty())
+        return;
+      style.size = style.emoji || !image.empty() ? 16 : 12;
+      style.link.clear(); // The entire preview jumps to its referenced message.
+      const auto size = image.empty() ? measure(text, style) : 16;
+      runs.push_back({std::move(text), std::move(image), 0, 0, size, style, 0, 20});
+    };
+    // Names are plain text, never interpreted as Markdown or emoji tokens.
+    append("↳ " + oneLineReplyText(author) + ": ", base);
+    auto bodyOptions = options;
+    bodyOptions.compact = true;
+    auto body = parseMessage(replyContent(reply), 32768, measure, 12, {}, bodyOptions, 16);
+    if (options.fakeNitroEmojis && !body.runs.empty() && body.boxes.empty()) {
+      const auto& link = body.runs.front().style.link;
+      if (const auto emoji = discord::emojiFromImageLink(link);
+          emoji && std::ranges::all_of(body.runs, [&](const auto& run) {
+            return run.image.empty() && !run.style.code && !run.style.spoiler && run.style.link == link;
+          }))
+        body = parseMessage(emoji->token(), 32768, measure, 12, {}, bodyOptions, 16);
+    }
+    std::size_t previous = 0;
+    for (const auto& run : body.runs) {
+      if (run.offset > previous)
+        append(oneLineReplyText(std::string_view(body.plainText).substr(previous, run.offset - previous)), base);
+      append(oneLineReplyText(run.text), run.style, run.image);
+      previous = run.offset + run.text.size();
+    }
+    float total = 0;
+    for (const auto& run : runs)
+      total += run.width;
+    const bool truncated = total > width;
+    const float ellipsis = measure("…", base);
+    const float limit = truncated ? std::max(0.0F, width - ellipsis) : width;
+    float x = 0;
+    for (auto run : runs) {
+      if (run.width > limit - x) {
+        if (run.image.empty() && !run.style.emoji) {
+          const auto count = g_utf8_strlen(run.text.data(), run.text.size());
+          std::vector<PangoLogAttr> attrs(count + 1);
+          pango_get_log_attrs(
+              run.text.data(), run.text.size(), -1, pango_language_get_default(), attrs.data(), attrs.size()
+          );
+          std::vector<std::size_t> offsets{0};
+          const char* end = run.text.data();
+          for (glong i = 1; i <= count; ++i) {
+            end = g_utf8_next_char(end);
+            if (attrs[i].is_cursor_position)
+              offsets.push_back(end - run.text.data());
+          }
+          std::size_t low = 0, high = offsets.size();
+          while (low + 1 < high) {
+            const auto mid = low + (high - low) / 2;
+            if (measure(std::string_view(run.text).substr(0, offsets[mid]), run.style) <= limit - x)
+              low = mid;
+            else
+              high = mid;
+          }
+          run.text.resize(offsets[low]);
+          run.width = measure(run.text, run.style);
+        } else
+          run.text.clear(); // Never draw a partial image/Unicode grapheme.
+        if (!run.text.empty()) {
+          run.x = x;
+          run.offset = result.plainText.size();
+          x += run.width;
+          result.plainText += run.text;
+          result.runs.push_back(std::move(run));
+        }
+        break;
+      }
+      run.x = x;
+      run.offset = result.plainText.size();
+      x += run.width;
+      result.plainText += run.text;
+      result.runs.push_back(std::move(run));
+    }
+    if (truncated && ellipsis <= width) {
+      result.runs.push_back({"…", {}, x, 0, ellipsis, base, result.plainText.size(), 20});
+      result.plainText += "…";
+    }
+    return result;
   }
   MessageLayout
   layoutMessage(std::string_view content, float width, const std::function<float(std::string_view)>& measure) {

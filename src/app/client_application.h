@@ -3,12 +3,12 @@
 #include "app/emoji_catalog.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
+#include "app/role_motion.h"
 #include "app/scroll_motion.h"
 #include "app/session_store.h"
 #include "app/text_edit.h"
 #include "app/timeline_anchor.h"
 #include "app/unread_timeline.h"
-#include "app/role_motion.h"
 #include "app/window.h"
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
@@ -19,6 +19,7 @@
 #include "render/backend/gles_framebuffer.h"
 #include "render/core/color.h"
 #include "render/core/texture_handle.h"
+#include "render/scene/image_node.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
 #include "ui/controls/context_menu.h"
@@ -179,9 +180,11 @@ namespace app {
     void send();
     void rectangle(Node& parent, float x, float y, float w, float h, Color fill, float radius = 0);
     float countBadge(Node& parent, float right, float y, int count, bool rail = false);
-    float roleLabel(Node& parent, float x, float y, float width, const std::string& text, float size, Color fallback,
-                    FontWeight weight, const std::string& user, const std::string& key, bool hovered,
-                    const std::optional<std::vector<std::string>>& roles = {});
+    float roleLabel(
+        Node& parent, float x, float y, float width, const std::string& text, float size, Color fallback,
+        FontWeight weight, const std::string& user, const std::string& key, bool hovered,
+        const std::optional<std::vector<std::string>>& roles = {}
+    );
     float label(
         Node& parent, float x, float y, float width, std::string text, float size, Color color,
         FontWeight weight = FontWeight::Normal, int lines = 1, bool markup = false
@@ -189,10 +192,11 @@ namespace app {
     void
     button(Node& parent, Hit hit, std::string text, bool primary = false, bool selected = false, bool fill = false);
     bool image(Node& parent, float x, float y, float size, const std::string& path, float radius);
+    bool emojiImage(Node& parent, float x, float y, float size, const std::string& path);
     void avatar(Node& parent, float x, float y, float size, const std::string& path, const std::string& name);
     bool picture(
         Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
-        bool placeholder = false, bool videoPoster = false
+        bool placeholder = false, bool videoPoster = false, ImageFitMode fit = ImageFitMode::Cover
     );
     void glyph(Node& parent, float x, float y, float size, const std::string& name, Color color);
     void iconButton(Node& parent, Hit hit, const std::string& icon, const std::string& tooltip, bool selected = false);
@@ -419,6 +423,7 @@ namespace app {
     std::vector<discord::Message> m_messages;
     struct CachedMessageLayout {
       MessageLayout layout;
+      MessageLayout reply;
       float width = -1, scale = -1;
       std::uint64_t fonts = 0;
     };

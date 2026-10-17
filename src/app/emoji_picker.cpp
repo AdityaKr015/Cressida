@@ -380,7 +380,7 @@ namespace app {
         }
         if (emoji.id.empty())
           label(*grid, ex + (cell - 36) / 2, ey + 4, 40, emoji.unicode, 30, emoji.available ? foreground : muted);
-        else if (!image(*grid, ex + (cell - 36) / 2, ey + 4, 36, discord::emojiPath(emoji.id, emoji.animated), 0))
+        else if (!emojiImage(*grid, ex + (cell - 36) / 2, ey + 4, 36, discord::emojiPath(emoji.id, emoji.animated)))
           glyph(*grid, ex + 12, ey + 10, 20, "loader", muted);
         const bool selectable = m_reactionMessage.empty() ? m_preferences.fakeNitroEmojis
                 || !discord::emojiNeedsImage(emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0))
@@ -416,7 +416,7 @@ namespace app {
       if (emoji->id.empty())
         label(root, gridX, y + height - 43, 36, emoji->unicode, 27, foreground);
       else
-        image(root, gridX, y + height - 43, 32, discord::emojiPath(emoji->id, emoji->animated), 0);
+        emojiImage(root, gridX, y + height - 43, 32, discord::emojiPath(emoji->id, emoji->animated));
       label(
           root, gridX + 44, y + height - 44, gridWidth - 48, ":" + emoji->name + ":", 13, foreground,
           FontWeight::SemiBold

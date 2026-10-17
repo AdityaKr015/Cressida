@@ -262,7 +262,7 @@ namespace app {
         if (colon == std::string::npos)
           label(root, bx + (cell - 30) / 2, by + 7, 32, emoji, 24, foreground);
         else
-          image(root, bx + (cell - 24) / 2, by + 9, 24, discord::emojiPath(emoji.substr(colon + 1)), 0);
+          emojiImage(root, bx + (cell - 24) / 2, by + 9, 24, discord::emojiPath(emoji.substr(colon + 1)));
         m_hits.push_back({bx, by, cell, 42, Action::QuickReaction, emoji});
       }
     }
@@ -719,8 +719,10 @@ namespace app {
       const auto& user = m_dialogAccount;
       avatar(root, x + 24, y + 68, 64, user.avatar, userName(user.id, user.name));
       statusBadge(root, x + 74, y + 118, userStatus(user.id), sidebar);
-      roleLabel(root, x + 104, y + 76, width - 128, userName(user.id, user.name), 19, foreground, FontWeight::SemiBold,
-                user.id, "profile:" + user.id, false);
+      roleLabel(
+          root, x + 104, y + 76, width - 128, userName(user.id, user.name), 19, foreground, FontWeight::SemiBold,
+          user.id, "profile:" + user.id, false
+      );
       label(root, x + 104, y + 105, width - 128, user.username.empty() ? user.name : user.username, 13, muted);
       label(root, x + 24, y + 156, width - 48, user.pronouns, 13, muted);
       label(
@@ -986,7 +988,7 @@ namespace app {
         if (reaction.id.empty())
           label(*parent, ax + 5, ay + 3, 24, reaction.name, 17, foreground);
         else
-          image(*parent, ax + 5, ay + 4, 18, discord::emojiPath(reaction.id), 0);
+          emojiImage(*parent, ax + 5, ay + 4, 18, discord::emojiPath(reaction.id));
         label(*parent, ax + 27, ay + 6, chip - 29, count, 12, reaction.me ? ink : foreground);
         float ox = 0, oy = 0;
         for (auto* node = parent; node && node != m_scene.get(); node = node->parent()) {

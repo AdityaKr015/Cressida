@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <ranges>
 #include <stdexcept>
 
 int main(int argc, char** argv) {
@@ -42,6 +43,80 @@ int main(int argc, char** argv) {
     const app::MessageMeasure emojiMeasure = [](std::string_view text, const app::MessageStyle& style) {
       return style.emoji ? style.size : static_cast<float>(text.size() * 8);
     };
+    reference.deleted = false;
+    reference.content = "my beautiful pink role <:woe:1407464763293831269> <a:dance:123> 🙂";
+    auto reply = app::layoutReplyPreview(reference, "Yocraft", 1000, emojiMeasure, emojiOptions);
+    auto replyImages = std::views::filter(reply.runs, [](const auto& run) { return !run.image.empty(); });
+    require(
+        std::ranges::distance(replyImages) == 2, "Reply previews render static and animated custom emoji as images"
+    );
+    require(
+        replyImages.front().image == discord::emojiPath("1407464763293831269", false), "Static reply emoji uses PNG"
+    );
+    require(std::next(replyImages.begin())->image == discord::emojiPath("123", true), "Animated reply emoji uses GIF");
+    require(
+        std::ranges::all_of(
+            reply.runs,
+            [](const auto& run) { return run.y == 0 && run.height == 20 && (!run.style.emoji || run.style.size == 16); }
+        ) && reply.height == 20,
+        "Reply emoji stay inline inside one reserved row; never jumbo"
+    );
+    reference.content = "<:wave:123><a:dance:456>";
+    reply = app::layoutReplyPreview(reference, "Maya", 500, emojiMeasure, emojiOptions);
+    require(
+        std::ranges::count_if(reply.runs, [](const auto& run) { return !run.image.empty(); }) == 2,
+        "Adjacent reply emoji are separate native images"
+    );
+    reference.content = "`<:wave:123>` <:bad:not-a-snowflake> <:wave:123>";
+    reply = app::layoutReplyPreview(reference, "**Maya** <:name:789>", 2000, emojiMeasure, emojiOptions);
+    require(
+        std::ranges::count_if(reply.runs, [](const auto& run) { return !run.image.empty(); }) == 1
+            && reply.runs.front().text == "↳ **Maya** <:name:789>: "
+            && std::ranges::any_of(
+                reply.runs, [](const auto& run) { return run.style.code && run.text == "<:wave:123>"; }
+            ),
+        "Reply author names, code and malformed custom tags are never interpreted as emoji images"
+    );
+    reference.content = "first\nsecond\n\nthird <:wave:123>";
+    reply = app::layoutReplyPreview(reference, "Maya", 1000, emojiMeasure, emojiOptions);
+    require(
+        reply.plainText.find('\n') == std::string::npos
+            && std::ranges::all_of(reply.runs, [](const auto& run) { return run.y == 0; }),
+        "Rich reply previews flatten every paragraph onto one line"
+    );
+    reference.content = "lots of words <:wave:123> and more words";
+    reply = app::layoutReplyPreview(reference, "Maya", 140, emojiMeasure, emojiOptions);
+    require(
+        reply.plainText.ends_with("…")
+            && std::ranges::all_of(reply.runs, [](const auto& run) { return run.x >= 0 && run.x + run.width <= 140; }),
+        "Truncated reply runs and ellipsis fit the viewport"
+    );
+    reference.content = "<:wave:123>";
+    const auto prefix = emojiMeasure("↳ Maya: ", {.size = 12});
+    reply = app::layoutReplyPreview(reference, "Maya", prefix + 15, emojiMeasure, emojiOptions);
+    require(
+        std::ranges::none_of(reply.runs, [](const auto& run) { return !run.image.empty(); }),
+        "A clipped emoji is omitted whole, without requesting its asset"
+    );
+    reference.content = "https://cdn.discordapp.com/emojis/123.png?size=48&name=wave";
+    reply = app::layoutReplyPreview(reference, "Maya", 1000, emojiMeasure, {.fakeNitroEmojis = true});
+    require(
+        std::ranges::count_if(reply.runs, [](const auto& run) { return !run.image.empty(); }) == 1,
+        "Opt-in FakeNitro emoji links render consistently in reply previews"
+    );
+    reference.content = "||<:hidden:123>||";
+    reply = app::layoutReplyPreview(reference, "Maya", 500, emojiMeasure, emojiOptions);
+    require(
+        std::ranges::any_of(reply.runs, [](const auto& run) { return run.style.spoiler; }),
+        "Reply previews preserve spoiler masking instead of revealing hidden emoji"
+    );
+    reference.deleted = true;
+    reply = app::layoutReplyPreview(reference, "Maya", 1000, emojiMeasure, emojiOptions);
+    require(
+        reply.plainText == "↳ Maya: Original message deleted"
+            && std::ranges::none_of(reply.runs, [](const auto& run) { return !run.image.empty(); }),
+        "Deleted reply previews cannot load media from old content"
+    );
     discord::Message emojiMessage;
     emojiMessage.content = "🙂 ❤️ 👩🏽‍💻 🇩🇪 1️⃣ <:wave:123>";
     auto sized = app::layoutRichMessage(emojiMessage, 600, emojiMeasure, 14, emojiOptions);

@@ -53,6 +53,10 @@ namespace app {
       const MessageOptions& options = {}
   );
   using MessageMeasure = std::function<float(std::string_view, const MessageStyle&)>;
+  MessageLayout layoutReplyPreview(
+      const discord::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
+      const MessageOptions& options = {}
+  );
   std::string messageMarkup(std::string_view text, const MessageStyle& style);
   MessageLayout layoutMessage(
       std::string_view content, float width, const MessageMeasure& measure, float fontSize = 14,
