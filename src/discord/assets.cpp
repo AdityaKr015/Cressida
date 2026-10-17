@@ -40,7 +40,7 @@ namespace discord {
     m_ready.notify_all();
     m_workers.clear();
   }
-  bool Assets::request(const std::string& path) {
+  bool Assets::request(const std::string& path, bool videoPoster) {
     if (mediaUrl(path).empty())
       return false;
     std::lock_guard lock(m_mutex);
@@ -56,7 +56,8 @@ namespace discord {
                                             : 1;
     };
     m_queue.insert(
-        std::ranges::find_if(m_queue, [&](const auto& pending) { return priority(pending) < priority(path); }), path
+        std::ranges::find_if(m_queue, [&](const auto& pending) { return priority(pending.path) < priority(path); }),
+        {path, videoPoster}
     );
     m_ready.notify_one();
     return true;
@@ -72,11 +73,13 @@ namespace discord {
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
     while (!stop.stop_requested()) {
       std::string path;
+      bool videoPoster = false;
       {
         std::unique_lock lock(m_mutex);
         if (!m_ready.wait(lock, stop, [&] { return !m_queue.empty(); }))
           return;
-        path = std::move(m_queue.front());
+        path = std::move(m_queue.front().path);
+        videoPoster = m_queue.front().videoPoster;
         m_queue.pop_front();
       }
       Download data{{}, stop};
@@ -102,7 +105,8 @@ namespace discord {
         if (status != CURLE_OK || code != 200)
           data.bytes.clear();
       }
-      auto animation = media::decodeAnimation(data.bytes, stop);
+      auto animation =
+          videoPoster ? media::decodeVideoPoster(data.bytes, stop) : media::decodeAnimation(data.bytes, stop);
       if (!stop.stop_requested()) {
         std::lock_guard lock(m_mutex);
         std::size_t resident = 0;

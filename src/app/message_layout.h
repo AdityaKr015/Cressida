@@ -34,6 +34,7 @@ namespace app {
     std::string link;
     bool video = false;
     bool animated = false;
+    std::string videoSource;
   };
   struct MessageLayout {
     std::vector<MessageRun> runs;

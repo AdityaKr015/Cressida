@@ -9,6 +9,7 @@
 #include "core/input/key_modifiers.h"
 #include "core/timer_manager.h"
 #include "render/core/texture_manager.h"
+#include "render/gl_shared_context.h"
 #include "render/scene/image_node.h"
 #include "render/scene/input_area.h"
 #include "render/scene/rect_node.h"
@@ -54,6 +55,8 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "video-cycle")
+        demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
         demoHistoryStep();
       if (m_demo && m_demoOverlay == "interaction-cycle")
@@ -181,6 +184,7 @@ namespace app {
       m_pointerX = x;
       y += 36 - m_window.titlebarHeight();
       m_pointerY = y;
+      videoMotion(x, y);
       m_controlInput.pointerMotion(x, y + m_window.titlebarHeight() - 36, 0);
       contextMotion(x, y);
       if (m_dragImage) {
@@ -197,6 +201,7 @@ namespace app {
         positionChatSelection(x, y);
     };
     m_window.released = [this] {
+      videoRelease();
       m_controlInput.pointerButton(m_pointerX, m_pointerY + m_window.titlebarHeight() - 36, 272, false, 0, 0, false);
       m_dragDraft = m_dragMessage = m_dragImage = false;
     };
@@ -209,8 +214,9 @@ namespace app {
       y += 36 - m_window.titlebarHeight();
       m_pointerX = x;
       m_pointerY = y;
-      if (overlayClick(x, y))
+      if (overlayClick(x, y)) {
         return;
+      }
       if (m_emojiMenu
           && m_emojiBounds.contains(x, y)
           && y >= m_emojiBounds.y + 52
@@ -228,6 +234,7 @@ namespace app {
         return;
       }
       if (m_viewImage.empty()
+          && !m_videoExpanded
           && !m_presenceMenu
           && !m_emojiMenu
           && !m_gifMenu
@@ -249,6 +256,8 @@ namespace app {
       m_window.invalidate();
     };
     m_window.contextClick = [this](float x, float y) {
+      if (m_videoExpanded)
+        return;
       y += 36 - m_window.titlebarHeight();
       m_pointerX = x;
       m_pointerY = y;
@@ -330,6 +339,8 @@ namespace app {
       m_window.invalidate();
     };
     m_window.scroll = [this](float delta) {
+      if (m_videoExpanded)
+        return;
       auto scroll = [&](float& offset, float amount) {
         const bool precise = m_window.preciseScroll();
         m_scrolling.scroll(offset, ScrollMotion::distance(amount, precise), precise || !m_animateWheel);
@@ -423,15 +434,18 @@ namespace app {
             || std::string_view(view) == "scroll-cycle"
             || std::string_view(view) == "emoji-scroll-cycle"
             || std::string_view(view) == "gif-scroll-cycle"
-            || std::string_view(view) == "history-cycle");
+            || std::string_view(view) == "history-cycle"
+            || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest ? (m_demo && view && std::string_view(view) == "unread-cycle" ? 10
-                         : interactionCycle                                     ? 64
-                                                                                : 1)
+                         : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
+                                            : 1)
                   : 0,
-        m_assets.eventFd()
+        m_assets.eventFd(), m_video.eventFd()
     );
+    if (m_demoOverlay == "video-cycle" && m_demoInteractionStep < 11)
+      throw std::runtime_error("Native video replay did not complete");
     m_client.disconnect();
     return 0;
   }
@@ -466,6 +480,17 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view == "video" || view == "video-cycle") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_messages.clear();
+          discord::Message clip{
+              "7000", m_channelId, "Alex", "Original-resolution native video playback", "2026-10-17T09:50:00Z"
+          };
+          clip.attachments.push_back({"7001", "demo.mp4", "demo-video", "video/mp4", {"demo-video", 1280, 720}});
+          m_messages.push_back(std::move(clip));
+          m_images["demo-video"].texture = m_window.context().textureManager().loadFromRgba(pixels.data(), 640, 360);
+        }
         if (view == "message-menu"
             || view == "interaction-cycle"
             || view == "reaction-submenu"
@@ -840,7 +865,8 @@ namespace app {
   }
 
   bool ClientApplication::picture(
-      Node& parent, float x, float y, float width, float height, const std::string& path, float radius, bool placeholder
+      Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
+      bool placeholder, bool videoPoster
   ) {
     if (path.empty() || (m_demo && !m_images.contains(path)))
       return false;
@@ -872,7 +898,7 @@ namespace app {
       if (!m_demo
           && !m_pendingImages.contains(path)
           && std::chrono::steady_clock::now() >= cached.retry
-          && m_assets.request(path))
+          && m_assets.request(path, videoPoster))
         m_pendingImages.insert(path);
       if (placeholder) {
         const bool failed = cached.retry != std::chrono::steady_clock::time_point{} && !m_pendingImages.contains(path);
@@ -895,7 +921,7 @@ namespace app {
       }
       return false;
     }
-    if (cached.animation && cached.animation->frames.size() > 1) {
+    if (!videoPoster && cached.animation && cached.animation->frames.size() > 1) {
       const auto now = std::chrono::steady_clock::now();
       if (cached.visibleFrame + 1 < m_animationDraw || cached.animationStart == std::chrono::steady_clock::time_point{})
         cached.animationStart = now;
@@ -951,6 +977,9 @@ namespace app {
   }
 
   void ClientApplication::draw() {
+    m_videoVisible = false;
+    if (!m_videoExpanded)
+      m_videoPosters.clear();
     ++m_animationDraw;
     m_animationDelay = std::chrono::milliseconds::max();
     theme::select(m_preferences.theme);
@@ -1507,6 +1536,11 @@ namespace app {
               m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link});
           }
           for (const auto& pic : layout.pictures) {
+            if (!pic.videoSource.empty()) {
+              m_videoPosters[pic.videoSource] = pic.media.url;
+              drawVideo(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.videoSource, pic.media.url);
+              continue;
+            }
             if (pic.video)
               rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
             picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6, true);
@@ -1836,6 +1870,8 @@ namespace app {
       drawGifPicker(root, w, h);
     if (!m_viewImage.empty())
       drawImageViewer(root, w, h);
+    if (m_videoExpanded)
+      drawVideoViewer(root, w, h);
     if (m_demo && !m_demoOverlayApplied && !m_demoOverlay.empty()) {
       m_demoOverlayApplied = true;
       if (m_demoOverlay == "message-menu" || m_demoOverlay == "reaction-submenu" || m_demoOverlay == "user-menu") {
@@ -1905,6 +1941,16 @@ namespace app {
     finishControls();
     updateCursor();
     m_window.context().renderScene(m_window.target(), m_scene.get());
+    if (!m_videoVisible || m_settingsOpen || !m_viewImage.empty()) {
+      m_videoPlayRequested = false;
+      if (m_video.state().playing)
+        m_video.pause(true);
+    }
+    if (m_videoContext != EGL_NO_CONTEXT && m_videoVisible) {
+      eglMakeCurrent(m_window.graphics().display(), EGL_NO_SURFACE, EGL_NO_SURFACE, m_videoContext);
+      m_video.presented();
+      m_window.context().makeCurrent(m_window.target());
+    }
     if (m_animationDelay != std::chrono::milliseconds::max())
       m_animationTimer.start(m_animationDelay, [this] { m_window.invalidate(); });
     else
@@ -2003,6 +2049,7 @@ namespace app {
   }
 
   void ClientApplication::demo() {
+    closeVideo();
     clearEmojiState();
     m_scrolling.stopAll();
     clearGifs();
@@ -2075,6 +2122,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    closeVideo();
     m_scrolling.stopAll();
     if (!m_dmMode && m_guildId == id && !m_channels.empty())
       return;
@@ -2123,6 +2171,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    closeVideo();
     m_scrolling.stopAll();
     cacheChannel();
     if (m_restoreChannel.empty())
@@ -2151,6 +2200,7 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(const std::string& id) {
+    closeVideo();
     m_scrolling.stopAll();
     closeGifPicker();
     closeContext();
@@ -2436,6 +2486,23 @@ namespace app {
   }
 
   void ClientApplication::tick() {
+    // Advanced-control requests must be serviced before video metadata arrives,
+    // including while paused or offscreen. Waiting for dimensions deadlocks load.
+    if (m_videoContext != EGL_NO_CONTEXT) {
+      eglMakeCurrent(m_window.graphics().display(), EGL_NO_SURFACE, EGL_NO_SURFACE, m_videoContext);
+      m_video.update();
+      m_window.context().makeCurrent(m_window.target());
+    }
+    if (m_video.drain())
+      m_window.invalidate();
+    if (m_videoPlayRequested
+        && !m_video.state().loading
+        && m_video.state().width > 0
+        && m_video.state().error.empty()) {
+      m_videoPlayRequested = false;
+      m_video.pause(false);
+      m_window.invalidate();
+    }
     DeferredCall::drainWakeFd();
     for (auto& callback : DeferredCall::takePending())
       callback();
@@ -2517,6 +2584,7 @@ namespace app {
               || (event.operation == discord::Operation::Messages && event.resource != m_channelId)))
         continue;
       if (event.unauthorized) {
+        closeVideo();
         clearEmojiState();
         m_scrolling.stopAll();
         clearGifs();
@@ -3037,6 +3105,8 @@ namespace app {
   }
 
   void ClientApplication::onKey(const Key& key) {
+    if (videoKey(key))
+      return;
     if (key.symbol == XKB_KEY_Escape && m_gifMenu) {
       closeGifPicker();
       return;
@@ -3215,6 +3285,8 @@ namespace app {
   }
 
   void ClientApplication::activate(const Hit& hit) {
+    if (videoAction(hit))
+      return;
     if (hit.action == Action::PickEmoji) {
       pickEmoji(hit.id);
       m_window.invalidate();
@@ -3608,6 +3680,7 @@ namespace app {
         });
       break;
     case Action::SignOut:
+      closeVideo();
       clearEmojiState();
       m_scrolling.stopAll();
       clearGifs();

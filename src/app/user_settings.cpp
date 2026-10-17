@@ -103,6 +103,7 @@ namespace app {
     m_profileDirty = false;
   }
   void ClientApplication::openSettings() {
+    closeVideo();
     m_scrolling.stopAll();
     closeGifPicker();
     m_settingsOpen = true;

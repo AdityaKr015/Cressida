@@ -23,4 +23,5 @@ namespace media {
   // Bounds dimensions, frame count, decoded memory and decode time. An over-limit
   // clip keeps its first frame, never an incorrectly shortened animation loop.
   std::shared_ptr<const Animation> decodeAnimation(std::span<const std::uint8_t> bytes, std::stop_token stop = {});
+  std::shared_ptr<const Animation> decodeVideoPoster(std::span<const std::uint8_t> bytes, std::stop_token stop = {});
 } // namespace media

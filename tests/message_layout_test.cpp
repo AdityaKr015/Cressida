@@ -216,6 +216,30 @@ int main(int argc, char** argv) {
           "Selection offsets refer to rendered plain text"
       );
     discord::Message video;
+    discord::Message attachedVideo;
+    const std::string videoUrl = "https://cdn.discordapp.com/attachments/1/2/clip.mp4?ex=a&hm=b";
+    attachedVideo.attachments.push_back({"2", "clip.mp4", videoUrl, "video/mp4", {videoUrl, 1920, 1080}});
+    const auto attachedLayout =
+        app::layoutRichMessage(attachedVideo, 400, [&](std::string_view text, const app::MessageStyle&) {
+          return measure(text);
+        });
+    require(
+        attachedLayout.pictures.size() == 1
+            && attachedLayout.pictures[0].videoSource == videoUrl
+            && !attachedLayout.pictures[0].animated
+            && attachedLayout.pictures[0].media.width == 1920,
+        "Video attachments retain the original signed source and use the native player, never GIF playback"
+    );
+    attachedVideo.attachments[0].contentType.clear();
+    attachedVideo.attachments[0].image = {};
+    const auto missingMetadata =
+        app::layoutRichMessage(attachedVideo, 400, [&](std::string_view text, const app::MessageStyle&) {
+          return measure(text);
+        });
+    require(
+        missingMetadata.pictures.size() == 1 && missingMetadata.pictures[0].videoSource == videoUrl,
+        "Known video extensions remain playable without optional MIME/thumbnail dimensions"
+    );
     discord::Message animated;
     discord::Embed gif;
     gif.type = "gifv";
@@ -231,6 +255,7 @@ int main(int argc, char** argv) {
     require(
         animationLayout.pictures.size() == 1
             && !animationLayout.pictures[0].video
+            && animationLayout.pictures[0].videoSource.empty()
             && animationLayout.pictures[0].animated
             && animationLayout.pictures[0].media.url == gif.video.url
             && animationLayout.boxes.empty(),

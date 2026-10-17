@@ -28,6 +28,7 @@
   md4c,
   libsecret,
   ffmpeg-headless,
+  mpv-unwrapped,
 }:
 stdenv.mkDerivation {
   pname = "cressida";
@@ -78,6 +79,7 @@ stdenv.mkDerivation {
     md4c
     libsecret
     ffmpeg-headless
+    mpv-unwrapped
     (curl.override { websocketSupport = true; })
     (callPackage ./stb.nix { })
   ];

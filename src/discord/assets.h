@@ -21,7 +21,7 @@ namespace discord {
   public:
     Assets();
     ~Assets();
-    bool request(const std::string& path);
+    bool request(const std::string& path, bool videoPoster = false);
     std::vector<Asset> drain();
     int eventFd() const noexcept { return m_wake.fd(); }
 
@@ -30,7 +30,11 @@ namespace discord {
     process::WakeEvent m_wake;
     std::mutex m_mutex;
     std::condition_variable_any m_ready;
-    std::deque<std::string> m_queue;
+    struct Request {
+      std::string path;
+      bool videoPoster = false;
+    };
+    std::deque<Request> m_queue;
     std::set<std::string> m_pending;
     std::vector<Asset> m_results;
     std::vector<std::jthread> m_workers;

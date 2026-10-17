@@ -7,7 +7,7 @@ rendered with OpenGL ES. The client uses your Discord account and signs in throu
 your default browser.
 
 **Early development.** Text chat is usable, and the client is growing through
-regular testing. Voice and video are not available yet. Named after one of
+regular testing. Voice and video calls are not available yet. Named after one of
 Uranus's moons, Cressida builds and installs as `cressida`.
 
 ## Features
@@ -33,9 +33,13 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **Native editing:** multiline drafts, mouse/keyboard selection, word navigation,
   copy/cut/paste and undo/redo. Enter sends; Shift+Enter inserts a line.
 - **Images:** paste PNG/JPEG/WebP attachments, review before sending, and expand
-  received images in a fit/zoom/pan viewer. Video links have thumbnails and open
-  in your browser. Soft image placeholders reserve space while media loads;
+  received images in a fit/zoom/pan viewer. Soft image placeholders reserve space while media loads;
   failed downloads show an unavailable state.
+- **Videos:** native playback for attached MP4/WebM videos and supported media
+  embeds, with audio, play/pause, a draggable timeline, volume/mute and fullscreen.
+  Videos require an explicit Play action and start at 25% volume. Playback keeps
+  the source resolution rather than using the reduced GIF animation frames.
+  YouTube and other web players open in your browser.
 - **GIFs:** looping GIF/WebP images and GIF video embeds, animated custom emoji,
   a native GIF picker with trending/search, and favorites synced to Discord.
 - **Emoji picker:** a server rail, Unicode categories, search, account favorites
@@ -162,10 +166,16 @@ intact. Search and preview downloads use public endpoints without account tokens
 
 GIFs loop in visible chat messages and the image viewer while the window is
 focused. Disable **Automatically play GIFs** in **Text & Images** for playback
-on hover. Animated custom emoji follow the same preference. Ordinary video links
-still open in your browser. Standalone image/GIF links, including links with
+on hover. Animated custom emoji follow the same preference. Standalone image/GIF links, including links with
 labels, display just their media preview. Transparent images have no added
 background; captions remain visible.
+
+Click Play on a video to start it; videos never autoplay. Drag the timeline to
+seek, use the speaker control to mute or adjust volume, and use the fullscreen
+control to expand it. Space toggles playback, Left/Right seek five seconds and M
+mutes while the player has focus or the pointer is over it. Escape exits
+fullscreen and restores the previous window state. Scrolling a video out of view
+pauses it. Leaving the conversation or opening settings closes playback.
 
 Wheel scrolling animates between positions at the compositor's refresh rate.
 Touchpad scrolling follows the gesture directly.
@@ -249,7 +259,7 @@ Recently visited conversations and member lists use a bounded session cache.
 REST/CDN connections are reused, and media completion wakes the UI immediately.
 
 Voice/video calls, arbitrary file uploads, drag-and-drop
-and syntax highlighting remain future work. Animation decoding has bounded size,
+and syntax highlighting remain future work. GIF animation decoding has bounded size,
 frame count, memory and time; longer clips may use a smaller resolution, and
 clips exceeding those bounds show a still frame. Message forwarding, threads,
 pins/bookmarks,

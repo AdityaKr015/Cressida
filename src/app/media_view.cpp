@@ -15,6 +15,7 @@ namespace app {
         break;
       }
     if (m_viewImage.empty()
+        && !m_videoExpanded
         && !m_presenceMenu
         && m_controlInput.inputAreaAt(m_pointerX, m_pointerY + m_window.titlebarHeight() - 36))
       interactive = true;

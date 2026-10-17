@@ -658,7 +658,7 @@ namespace app {
     wl_surface_commit(m->surface);
   }
 
-  void Window::run(int wakeFd, std::function<void()> tick, int frameLimit, int assetFd) {
+  void Window::run(int wakeFd, std::function<void()> tick, int frameLimit, int assetFd, int videoFd) {
     int frames = 0;
     while (m->running) {
       if (wl_display_dispatch_pending(m->display) < 0)
@@ -719,6 +719,7 @@ namespace app {
       const auto timeout = timerTimeout < 0 ? repeatTimeout : std::min(repeatTimeout, timerTimeout);
       descriptors.push_back({DeferredCall::wakeFd(), POLLIN, 0});
       descriptors.push_back({assetFd, POLLIN, 0});
+      descriptors.push_back({videoFd, POLLIN, 0});
       const int ready = ::poll(descriptors.data(), descriptors.size(), timeout);
       if (ready > 0 && (descriptors[0].revents & POLLIN)) {
         if (wl_display_read_events(m->display) < 0)
@@ -828,6 +829,16 @@ namespace app {
     return m->axisSource == WL_POINTER_AXIS_SOURCE_FINGER || m->axisSource == WL_POINTER_AXIS_SOURCE_CONTINUOUS;
   }
   bool Window::maximized() const { return m->maximized; }
+  bool Window::fullscreen() const { return m->fullscreen; }
+  void Window::setFullscreen(bool enabled) {
+    if (!m->toplevel)
+      return;
+    if (enabled)
+      xdg_toplevel_set_fullscreen(m->toplevel, nullptr);
+    else
+      xdg_toplevel_unset_fullscreen(m->toplevel);
+    invalidate();
+  }
   float Window::titlebarHeight() const {
     return m->fullscreen || m->decorationMode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE ? 0 : 36;
   }
@@ -852,4 +863,5 @@ namespace app {
   int Window::height() const { return m->target.logicalHeight(); }
   RenderContext& Window::context() { return m->context; }
   RenderTarget& Window::target() { return m->target; }
+  GlSharedContext& Window::graphics() { return m->shared; }
 } // namespace app

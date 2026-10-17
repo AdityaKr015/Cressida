@@ -162,7 +162,8 @@ namespace media {
     }
     return 0;
   }
-  std::shared_ptr<const Animation> decodeAnimation(std::span<const std::uint8_t> bytes, std::stop_token stop) {
+  static std::shared_ptr<const Animation>
+  decode(std::span<const std::uint8_t> bytes, std::stop_token stop, bool poster) {
     try {
       if (bytes.size() < 12 || bytes.size() > 20 * 1024 * 1024 || stop.stop_requested())
         return {};
@@ -235,6 +236,8 @@ namespace media {
           source.copyFrom({rgba, std::size_t(info.canvas_width) * info.canvas_height * 4});
           dest.convert(scale.get(), source.frame(), frame.rgba);
           result->frames.push_back(std::move(frame));
+          if (poster)
+            break;
           previous = timestamp;
         }
         finish(*result, truncated);
@@ -296,7 +299,8 @@ namespace media {
       decoder.packet = av_packet_alloc();
       if (!decoder.frame || !decoder.packet)
         return {};
-      const double ratio = std::min(1.0, 384.0 / std::max(decoder.codec->width, decoder.codec->height));
+      const double ratio =
+          std::min(1.0, (poster ? 1920.0 : 384.0) / std::max(decoder.codec->width, decoder.codec->height));
       result->width = std::max(1, int(decoder.codec->width * ratio));
       result->height = std::max(1, int(decoder.codec->height * ratio));
       auto frameBytes = std::size_t(result->width) * result->height * 4;
@@ -350,6 +354,8 @@ namespace media {
         dest.resize(result->width, result->height);
         dest.convert(decoder.scale, decoder.frame, frame.rgba);
         result->frames.push_back(std::move(frame));
+        if (poster)
+          break;
         previousPts = pts;
         av_frame_unref(decoder.frame);
       }
@@ -360,5 +366,11 @@ namespace media {
     } catch (...) {
       return {};
     }
+  }
+  std::shared_ptr<const Animation> decodeAnimation(std::span<const std::uint8_t> bytes, std::stop_token stop) {
+    return decode(bytes, stop, false);
+  }
+  std::shared_ptr<const Animation> decodeVideoPoster(std::span<const std::uint8_t> bytes, std::stop_token stop) {
+    return decode(bytes, stop, true);
   }
 } // namespace media

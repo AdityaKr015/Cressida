@@ -618,9 +618,25 @@ namespace app {
     };
     for (const auto& attachment : message.attachments) {
       y += 8;
-      if (!attachment.image.url.empty())
+      const bool videoAttachment = attachment.contentType.starts_with("video/")
+          || (attachment.contentType.empty()
+              && (attachment.filename.ends_with(".mp4") || attachment.filename.ends_with(".webm")));
+      auto source = discord::mediaUrl(attachment.url);
+      if (source.empty())
+        source = attachment.image.url;
+      if (videoAttachment && !source.empty()) {
+        auto poster = attachment.image;
+        if (poster.url.empty())
+          poster.url = source;
+        if (poster.width <= 0 || poster.height <= 0) {
+          poster.width = 640;
+          poster.height = 360;
+        }
+        y += picture(poster, 0, y, width, 300, attachment.url);
+        result.pictures.back().videoSource = std::move(source);
+      } else if (!attachment.image.url.empty()) {
         y += picture(attachment.image, 0, y, width, 300, attachment.url);
-      else {
+      } else {
         result.boxes.push_back({0, y, width, 42, false, {}, true, 0x5865F2});
         append(attachment.filename, 14, y + 12, width - 28, {.link = attachment.url});
         y += 42;
@@ -628,6 +644,12 @@ namespace app {
     }
     for (const auto& embed : message.embeds) {
       y += 8;
+      if (embed.type == "video" && !embed.video.url.empty() && embed.provider != "YouTube") {
+        const auto& poster = !embed.thumbnail.url.empty() ? embed.thumbnail : embed.video;
+        y += picture(poster, 0, y, width, 300, embed.url);
+        result.pictures.back().videoSource = embed.video.url;
+        continue;
+      }
       if (embed.type == "gifv" || embed.type == "image") {
         const auto& media = !embed.video.url.empty() ? embed.video
             : !embed.image.url.empty()               ? embed.image

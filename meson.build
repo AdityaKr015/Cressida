@@ -77,6 +77,9 @@ media_deps = [dependency('libavformat'), dependency('libavcodec'), dependency('l
 media_library = static_library('cressida-media', 'src/media/animation.cpp',
   include_directories: include_directories('src'), dependencies: media_deps)
 media_dep = declare_dependency(link_with: media_library, include_directories: include_directories('src'), dependencies: media_deps)
+video_library = static_library('cressida-video', 'src/media/video_player.cpp',
+  include_directories: include_directories('src'), dependencies: [dependency('mpv', version: '>=2.3'), dependency('threads')])
+video_dep = declare_dependency(link_with: video_library, include_directories: include_directories('src'), dependencies: dependency('threads'))
 backend_deps = [dependency('libcurl', version: '>=8.16'), dependency('nlohmann_json'), dependency('threads')]
 if meson.can_run_host_binaries()
   websocket_check = cpp.run('''
@@ -98,7 +101,7 @@ credentials = static_library('credentials', 'src/auth/credentials.cpp', 'src/aut
 credential_dep = declare_dependency(link_with: credentials,
   include_directories: include_directories('src'), dependencies: credential_deps)
 backend = static_library('cressida-backend', 'src/discord/models.cpp', 'src/discord/client.cpp',
-  'src/discord/settings.cpp', 'src/discord/gifs.cpp', 'src/discord/emoji.cpp', 'src/discord/read_state.cpp', 'src/discord/user_directory.cpp', 'src/discord/actions.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp',
+  'src/discord/settings.cpp', 'src/discord/gifs.cpp', 'src/discord/emoji.cpp', 'src/discord/read_state.cpp', 'src/discord/user_directory.cpp', 'src/discord/actions.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp', 'src/discord/video_source.cpp',
   include_directories: include_directories('src'),
   dependencies: backend_deps + [credential_dep, media_dep],
 )
@@ -127,8 +130,8 @@ message_layout = static_library('message-layout', 'src/app/message_layout.cpp', 
 message_layout_dep = declare_dependency(link_with: message_layout, dependencies: [render_dep, backend_dep, markdown_dep])
 emoji_catalog = static_library('emoji-catalog', 'src/app/emoji_catalog.cpp', dependencies: [backend_dep, markdown_dep])
 client = executable('cressida',
-  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
-  dependencies: [render_dep, backend_dep, browser_dep, markdown_dep],
+  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/video_view.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
+  dependencies: [render_dep, backend_dep, browser_dep, markdown_dep, video_dep],
   link_with: [message_layout, emoji_catalog],
   cpp_args: client_args,
   install: true,
@@ -137,7 +140,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'discord/emoji.cpp'] + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/gifs.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
+  exclude_files: render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'discord/emoji.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'discord/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/gifs.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -218,3 +221,5 @@ unread_timeline_test = executable('unread_timeline_test', 'tests/unread_timeline
 test('unread_timeline', unread_timeline_test)
 message_history_test = executable('message_history_test', 'tests/message_history_test.cpp', dependencies: backend_dep)
 test('message_history', message_history_test)
+video_test = executable('video_player_test', 'tests/video_player_test.cpp', dependencies: [video_dep, dependency('egl'), dependency('glesv2')])
+test('video_player', find_program('python3'), args: [files('tests/video_fixture.py'), find_program('ffmpeg'), video_test], timeout: 40)

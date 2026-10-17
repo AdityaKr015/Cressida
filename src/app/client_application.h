@@ -14,6 +14,8 @@
 #include "core/timer_manager.h"
 #include "discord/assets.h"
 #include "discord/client.h"
+#include "media/video_player.h"
+#include "render/backend/gles_framebuffer.h"
 #include "render/core/color.h"
 #include "render/core/texture_handle.h"
 #include "render/scene/input_dispatcher.h"
@@ -21,6 +23,7 @@
 #include "ui/controls/context_menu.h"
 #include "ui/controls/input.h"
 
+#include <EGL/egl.h>
 #include <chrono>
 #include <map>
 #include <set>
@@ -53,6 +56,13 @@ namespace app {
       SaveCustomStatus,
       None,
       ImagePan,
+      PlayVideo,
+      PauseVideo,
+      ExpandVideo,
+      CloseVideo,
+      SeekVideo,
+      VolumeVideo,
+      MuteVideo,
       ImageZoom,
       Close,
       Minimize,
@@ -133,6 +143,20 @@ namespace app {
       bool contains(float px, float py) const { return px >= x && py >= y && px < x + width && py < y + height; }
     };
     void draw();
+    void closeVideo();
+    void openVideo(const std::string& source);
+    void drawVideo(
+        Node& parent, float x, float y, float width, float height, const std::string& source, const std::string& poster,
+        bool expanded = false
+    );
+    void drawVideoViewer(Node& root, float width, float height);
+    bool videoAction(const Hit& hit);
+    bool videoKey(const Key& key);
+    void videoMotion(float x, float y);
+    void videoRelease();
+    void toggleVideo();
+    void setVideoExpanded(bool enabled);
+    void demoVideoStep();
     void tick();
     void onKey(const Key& key);
     void insert(std::string text);
@@ -161,7 +185,7 @@ namespace app {
     void avatar(Node& parent, float x, float y, float size, const std::string& path, const std::string& name);
     bool picture(
         Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
-        bool placeholder = false
+        bool placeholder = false, bool videoPoster = false
     );
     void glyph(Node& parent, float x, float y, float size, const std::string& name, Color color);
     void iconButton(Node& parent, Hit hit, const std::string& icon, const std::string& tooltip, bool selected = false);
@@ -242,6 +266,16 @@ namespace app {
     ScrollMotion m_scrolling;
     discord::Client m_client;
     discord::Assets m_assets;
+    media::VideoPlayer m_video;
+    EGLContext m_videoContext = EGL_NO_CONTEXT;
+    GlesFramebuffer m_videoTarget;
+    std::string m_videoSource;
+    bool m_videoExpanded = false, m_videoVisible = false, m_videoWasPlaying = false, m_videoPlayRequested = false;
+    bool m_videoPreviousFullscreen = false;
+    int m_videoDrag = 0;
+    float m_videoScrub = 0;
+    Hit m_videoSeek{}, m_videoVolume{}, m_videoBounds{};
+    std::map<std::string, std::string> m_videoPosters;
     auth::BrowserLogin m_login;
     SessionStore m_sessionStore;
     std::string m_restoreChannel;

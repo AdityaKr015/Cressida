@@ -72,6 +72,7 @@ namespace app {
     label(root, x + 10, y + 8, width - 20, m_tooltip, 12, theme::foreground, FontWeight::Normal, 0);
   }
   ClientApplication::~ClientApplication() {
+    closeVideo();
     m_animationTimer.stop();
     m_gifSearchTimer.stop();
     m_reactorHoverTimer.stop();
