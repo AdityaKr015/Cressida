@@ -85,6 +85,9 @@ int main() {
     require(!preferences.fakeNitroEmojis, "FakeNitro defaults off for existing accounts");
     pausedGifs.fakeNitroEmojis = true;
     pausedGifs.autoplayGifs = false;
+    require(preferences.roleColors && preferences.animateRoleColors, "Role colors and hover animation default on");
+    pausedGifs.roleColors = false;
+    pausedGifs.animateRoleColors = false;
     restored.savePreferences("123", pausedGifs);
     require(
         app::SessionStore(path).preferences("123").fakeNitroEmojis
@@ -96,6 +99,11 @@ int main() {
             && app::SessionStore(path).preferences("456").autoplayGifs,
         "GIF autoplay persists per account"
     );
+    require(!app::SessionStore(path).preferences("123").roleColors
+                && !app::SessionStore(path).preferences("123").animateRoleColors
+                && app::SessionStore(path).preferences("456").roleColors
+                && app::SessionStore(path).preferences("456").animateRoleColors,
+            "Role colors and animation preferences persist independently per account");
     require(
         preferences.theme == "midnight"
             && preferences.messageSize == 18

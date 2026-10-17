@@ -2,9 +2,11 @@
 
 #include "render/core/color.h"
 #include "render/core/renderer.h"
+#include "render/core/text_gradient.h"
 #include "render/scene/node.h"
 
 #include <string>
+#include <optional>
 
 class TextNode : public Node {
 public:
@@ -13,6 +15,13 @@ public:
   [[nodiscard]] const std::string& text() const noexcept { return m_text; }
   [[nodiscard]] float fontSize() const noexcept { return m_fontSize; }
   [[nodiscard]] const Color& color() const noexcept { return m_color; }
+  [[nodiscard]] const TextGradient* gradient() const noexcept { return m_gradient ? &*m_gradient : nullptr; }
+  void setGradient(std::optional<TextGradient> gradient) {
+    if (m_gradient == gradient)
+      return;
+    m_gradient = std::move(gradient);
+    markPaintDirty();
+  }
   [[nodiscard]] float maxWidth() const noexcept { return m_maxWidth; }
   [[nodiscard]] int maxLines() const noexcept { return m_maxLines; }
   [[nodiscard]] FontWeight fontWeight() const noexcept { return static_cast<FontWeight>(m_fontWeight); }
@@ -133,6 +142,7 @@ private:
   float m_maxWidth = 0.0F;
   int m_maxLines = 0;
   Color m_color;
+  std::optional<TextGradient> m_gradient;
   TextAlign m_textAlign = TextAlign::Start;
   TextEllipsize m_ellipsize = TextEllipsize::End;
   int m_fontWeight = static_cast<int>(FontWeight::Normal);

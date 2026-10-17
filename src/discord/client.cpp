@@ -430,6 +430,12 @@ namespace discord {
         m_userDirectory = {};
         m_self.clear();
       }
+      auto styles = parseRoleUpdates(type, data);
+      if (styles.reset || !styles.guilds.empty()) {
+        Event event{.operation = Operation::RoleStyles, .session = session};
+        event.roleUpdates = std::move(styles);
+        publish(std::move(event));
+      }
       auto users = m_userDirectory.consume(type, data);
       if (type != "READY")
         m_readState.context(type, data, m_self);

@@ -133,6 +133,8 @@ namespace app {
       result.showImages = value.value("images", true);
       result.autoplayGifs = value.value("autoplay_gifs", true);
       result.fakeNitroEmojis = value.value("fake_nitro_emojis", false);
+      result.roleColors = value.value("role_colors", true);
+      result.animateRoleColors = value.value("animate_role_colors", true);
     } catch (...) {
       return {};
     }
@@ -150,7 +152,9 @@ namespace app {
           {"embeds", preferences.showEmbeds},
           {"images", preferences.showImages},
           {"autoplay_gifs", preferences.autoplayGifs},
-          {"fake_nitro_emojis", preferences.fakeNitroEmojis}
+          {"fake_nitro_emojis", preferences.fakeNitroEmojis},
+          {"role_colors", preferences.roleColors},
+          {"animate_role_colors", preferences.animateRoleColors}
       };
       writeState(m_path, all);
     } catch (...) {

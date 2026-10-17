@@ -1,6 +1,9 @@
 #include "render/programs/glyph_program.h"
 
 #include "render/core/color.h"
+#include "render/core/text_gradient.h"
+#include <algorithm>
+#include <cmath>
 #include "render/core/texture_handle.h"
 
 #include <array>
@@ -18,6 +21,8 @@ uniform vec2 u_surface_size;
 uniform vec2 u_size;
 uniform mat3 u_transform;
 varying vec2 v_texcoord;
+uniform vec2 u_gradient_geometry;
+varying float v_gradient_x;
 
 vec2 to_ndc(vec2 pixel_pos) {
     vec2 normalized = pixel_pos / u_surface_size;
@@ -28,6 +33,7 @@ void main() {
     vec2 local = a_position * u_size;
     vec3 pixel = u_transform * vec3(local, 1.0);
     v_texcoord = a_texcoord;
+    v_gradient_x = (local.x - u_gradient_geometry.x) / max(1.0, u_gradient_geometry.y);
     gl_Position = vec4(to_ndc(pixel.xy), 0.0, 1.0);
 }
 )";
@@ -46,10 +52,27 @@ uniform float u_opacity;
 uniform vec4 u_tint;        // straight (non-premul) rgba
 uniform float u_tint_mode;  // 0 = RGBA texture, 1 = alpha coverage + u_tint
 varying vec2 v_texcoord;
+varying float v_gradient_x;
+uniform vec4 u_gradient_first;
+uniform vec4 u_gradient_second;
+uniform vec4 u_gradient_third;
+uniform float u_gradient_count;
+uniform float u_gradient_phase;
 
 void main() {
     vec4 c = texture2D(u_texture, v_texcoord);
-    if (u_tint_mode > 0.5) {
+    if (u_tint_mode > 1.5) {
+        float t = 1.0 - abs(mod(clamp(v_gradient_x, 0.0, 1.0) + u_gradient_phase * 2.0, 2.0) - 1.0);
+        vec4 tint;
+        if (u_gradient_count > 2.5) {
+            tint = t <= 0.5 ? mix(u_gradient_first, u_gradient_second, t * 2.0)
+                            : mix(u_gradient_second, u_gradient_third, (t - 0.5) * 2.0);
+        } else {
+            tint = mix(u_gradient_first, u_gradient_second, t);
+        }
+        float coverage = c.a * tint.a * u_opacity;
+        gl_FragColor = vec4(tint.rgb * coverage, coverage);
+    } else if (u_tint_mode > 0.5) {
         float coverage = c.a * u_tint.a * u_opacity;
         gl_FragColor = vec4(u_tint.rgb * coverage, coverage);
     } else {
@@ -75,6 +98,17 @@ void GlyphProgram::ensureInitialized() {
   m_transformLocation = glGetUniformLocation(m_program.id(), "u_transform");
   m_tintLocation = glGetUniformLocation(m_program.id(), "u_tint");
   m_tintModeLocation = glGetUniformLocation(m_program.id(), "u_tint_mode");
+
+  m_gradientGeometryLocation = glGetUniformLocation(m_program.id(), "u_gradient_geometry");
+  m_gradientPhaseLocation = glGetUniformLocation(m_program.id(), "u_gradient_phase");
+  m_gradientCountLocation = glGetUniformLocation(m_program.id(), "u_gradient_count");
+  m_gradientColorLocations = {glGetUniformLocation(m_program.id(), "u_gradient_first"),
+                             glGetUniformLocation(m_program.id(), "u_gradient_second"),
+                             glGetUniformLocation(m_program.id(), "u_gradient_third")};
+
+  if (m_gradientGeometryLocation < 0 || m_gradientPhaseLocation < 0 || m_gradientCountLocation < 0
+      || std::ranges::any_of(m_gradientColorLocations, [](GLint location) { return location < 0; }))
+    throw std::runtime_error("failed to query gradient glyph shader locations");
 
   if (m_positionLocation < 0
       || m_texCoordLocation < 0
@@ -157,5 +191,24 @@ void GlyphProgram::drawTinted(
   glUseProgram(m_program.id());
   glUniform1f(m_tintModeLocation, 1.0F);
   glUniform4f(m_tintLocation, tint.r, tint.g, tint.b, tint.a);
+  bindCommon(texture, surfaceWidth, surfaceHeight, width, height, u0, v0, u1, v1, opacity, transform);
+}
+
+void GlyphProgram::drawGradient(
+    TextureId texture, float surfaceWidth, float surfaceHeight, float width, float height, float u0, float v0,
+    float u1, float v1, float opacity, const TextGradient& gradient, float offset, float textWidth,
+    const Mat3& transform
+) const {
+  if (!m_program.isValid() || texture == 0 || width <= 0 || height <= 0)
+    return;
+  glUseProgram(m_program.id());
+  glUniform1f(m_tintModeLocation, 2.0F);
+  glUniform2f(m_gradientGeometryLocation, offset, std::max(1.0F, textWidth));
+  glUniform1f(m_gradientPhaseLocation, std::isfinite(gradient.phase) ? gradient.phase : 0);
+  glUniform1f(m_gradientCountLocation, gradient.count == 3 ? 3 : 2);
+  for (std::size_t i = 0; i < 3; ++i) {
+    const auto& color = gradient.colors[i];
+    glUniform4f(m_gradientColorLocations[i], color.r, color.g, color.b, color.a);
+  }
   bindCommon(texture, surfaceWidth, surfaceHeight, width, height, u0, v0, u1, v1, opacity, transform);
 }

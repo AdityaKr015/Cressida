@@ -401,7 +401,8 @@ void RenderContext::renderNode(
       color.a *= effectiveOpacity;
       m_textRenderer.draw(
           renderScale, sw, sh, 0.0F, 0.0F, text->text(), text->fontSize(), color, worldTransform, text->fontWeight(),
-          text->maxWidth(), text->maxLines(), text->textAlign(), font, text->ellipsize(), text->useMarkup(), snapText
+          text->maxWidth(), text->maxLines(), text->textAlign(), font, text->ellipsize(), text->useMarkup(), snapText,
+          text->gradient()
       );
     }
     break;

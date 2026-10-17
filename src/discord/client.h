@@ -9,6 +9,7 @@
 #include "discord/history.h"
 #include "discord/models.h"
 #include "discord/read_state.h"
+#include "discord/role_styles.h"
 #include "discord/user_directory.h"
 
 #include <atomic>
@@ -57,7 +58,8 @@ namespace discord {
     SaveGifFavorite,
     GuildEmojis,
     EmojiPreferences,
-    SaveEmojiFavorite
+    SaveEmojiFavorite,
+    RoleStyles
   };
 
   struct Event {
@@ -73,6 +75,7 @@ namespace discord {
     std::optional<HistoryQuery> history;
     GuildLayout layout;
     std::vector<MemberRow> members;
+    RoleUpdates roleUpdates;
     int memberCount = 0;
     std::vector<std::string> removed;
     std::string messageId;

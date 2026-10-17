@@ -11,6 +11,7 @@ namespace app {
     bool compact = false, showEmbeds = true, showImages = true;
     bool autoplayGifs = true;
     bool fakeNitroEmojis = false;
+    bool roleColors = true, animateRoleColors = true;
   };
   struct LastChannel {
     std::string guild, channel;

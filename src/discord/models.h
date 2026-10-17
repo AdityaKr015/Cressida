@@ -147,6 +147,7 @@ namespace discord {
     std::map<std::string, std::string> mentions;
     std::optional<MessageReference> reply;
     std::vector<Reaction> reactions;
+    std::optional<std::vector<std::string>> memberRoles;
   };
 
   struct MessagePatch {
@@ -156,6 +157,7 @@ namespace discord {
     std::optional<std::map<std::string, std::string>> mentions;
     std::optional<std::optional<MessageReference>> reply;
     std::optional<std::vector<Reaction>> reactions;
+    std::optional<std::vector<std::string>> memberRoles;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

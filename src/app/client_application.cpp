@@ -59,6 +59,8 @@ namespace app {
         demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
         demoHistoryStep();
+      if (m_demo && m_demoOverlay == "role-style-cycle")
+        demoRoleStep();
       if (m_demo && m_demoOverlay == "unread-badge-cycle") {
         const auto step = m_demoInteractionStep++;
         const auto at = std::ranges::find(m_hits, Action::JumpChannelMention, &Hit::action);
@@ -297,7 +299,7 @@ namespace app {
           m_client.subscribe(m_guildId, m_channelId, page);
         }
       }
-      return active;
+      return active || (m_window.active() && m_roleMotion.active());
     };
     m_window.zoom = [this](float delta) {
       if (!m_viewImage.empty()) {
@@ -461,7 +463,8 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "unread-badge-cycle" ? 4
+        smokeTest ? (m_demo && view && std::string_view(view) == "role-style-cycle" ? 7
+                         : m_demo && view && std::string_view(view) == "unread-badge-cycle" ? 4
                          : m_demo && view && std::string_view(view) == "unread-cycle" ? 10
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
@@ -504,6 +507,39 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view == "role-styles" || view == "role-styles-light" || view == "role-style-cycle" || view == "role-style-settings") {
+          m_demoOverlay = view;
+          if (view == "role-styles-light")
+            m_preferences.theme = "light";
+          const std::vector<std::string> names = {"⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "Prismatic member", "Amber member", "Default member"};
+          discord::GuildRoleUpdate roles;
+          roles.guild = "1";
+          roles.replaceRoles = true;
+          roles.enhanced = true;
+          roles.roles = {{"50", 2, {0xF38BA8, 0x89DCEB, {}}},
+                         {"51", 3, {11127295, 16759788, 16761760}},
+                         {"52", 1, {0xF5B76B, {}, {}}}};
+          m_messages.clear();
+          m_members.clear();
+          for (std::size_t i = 0; i < names.size(); ++i) {
+            const auto user = std::to_string(11 + i);
+            const auto id = std::to_string(8200 + i);
+            m_messages.push_back({id, m_channelId, names[i], "A message from " + names[i] + ".", "2026-10-17T09:50:00Z", user});
+            discord::MemberRow member;
+            member.index = static_cast<int>(i);
+            member.user = {user, names[i]};
+            member.status = "online";
+            m_members.push_back(std::move(member));
+            roles.members[user] = i < 3 ? std::vector<std::string>{std::to_string(50 + i)} : std::vector<std::string>{};
+          }
+          m_roleDirectory.apply({true, {std::move(roles)}});
+          m_memberCount = static_cast<int>(m_members.size());
+          m_showMembers = true;
+          if (view == "role-style-settings") {
+            openSettings();
+            selectSettingsPage("role-styles");
+          }
+        }
         if (view == "unicode-names") {
           m_messages.clear();
           const std::vector<std::string> names = {"Alex", "⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "⪻𝚂ҟ₳𝘕ↁ✧亗⪼ [KURU]", "𝓢𝓮𝓻𝓮𝓲𝓷", "𓆩Serein𓆪"};
@@ -1066,6 +1102,7 @@ namespace app {
   }
 
   void ClientApplication::draw() {
+    m_roleMotion.begin();
     m_videoVisible = false;
     if (!m_videoExpanded)
       m_videoPosters.clear();
@@ -1584,7 +1621,10 @@ namespace app {
           }
           const auto author = userName(message.authorId, message.author);
           avatar(*content, 0, y + 1, 34, message.avatar, author);
-          label(*content, 50, y, std::max(24.0F, textWidth - 64), author, 13, foreground, FontWeight::SemiBold);
+          roleLabel(*content, 50, y, std::max(24.0F, textWidth - 64), author, 13, foreground, FontWeight::SemiBold,
+                    message.authorId, "message:" + message.id,
+                    y + 18 >= 0 && y < bottom - top && hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop),
+                    message.memberRoles);
           if (!message.authorId.empty()) {
             const auto avatarY = std::max(top, top + y);
             const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 35) - avatarY);
@@ -1971,7 +2011,9 @@ namespace app {
             const auto status = m_dmMode ? userStatus(member.user.id) : member.status;
             avatar(*members, 16, rowY + 5, 32, member.user.avatar, name);
             statusBadge(*members, 38, rowY + 27, status, sidebar);
-            label(*members, 60, rowY + 12, memberWidth - 78, name, 13, status == "offline" ? muted : foreground);
+            roleLabel(*members, 60, rowY + 12, memberWidth - 78, name, 13, status == "offline" ? muted : foreground,
+                      FontWeight::Normal, member.user.id, "member:" + member.user.id,
+                      hovered(memberX + 8, 148 + rowY, memberWidth - 16, 42));
             const auto rowTop = std::max(148.0F, 148 + rowY), rowBottom = std::min(h - 10, 148 + rowY + 42);
             m_contextTargets.push_back(
                 {memberX + 8, rowTop, memberWidth - 16, std::max(0.0F, rowBottom - rowTop), Action::UserMenu,
@@ -2067,6 +2109,9 @@ namespace app {
     drawContext(root, w, h);
     drawTooltip(root, w, h);
     finishControls();
+    m_roleMotion.end();
+    if (m_roleMotion.active())
+      m_window.invalidate();
     updateCursor();
     m_window.context().renderScene(m_window.target(), m_scene.get());
     if (!m_videoVisible || m_settingsOpen || !m_viewImage.empty()) {
@@ -2188,6 +2233,8 @@ namespace app {
     m_connecting = m_restoringLogin = m_retrySavedLogin = false;
     m_loginStorageStatus.clear();
     m_userDirectory = {};
+    m_roleDirectory = {};
+    m_roleMotion.clear();
     m_preferences = {};
     m_demoPrepared = false;
     m_demoOverlay.clear();
@@ -2249,6 +2296,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    m_roleMotion.clear();
     closeVideo();
     m_scrolling.stopAll();
     if (!m_dmMode && m_guildId == id && !m_channels.empty())
@@ -2298,6 +2346,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    m_roleMotion.clear();
     closeVideo();
     m_scrolling.stopAll();
     cacheChannel();
@@ -2327,6 +2376,7 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(const std::string& id) {
+    m_roleMotion.clear();
     closeVideo();
     m_scrolling.stopAll();
     closeGifPicker();
@@ -2717,6 +2767,8 @@ namespace app {
         clearGifs();
         clearInteractions();
         m_userDirectory = {};
+    m_roleDirectory = {};
+    m_roleMotion.clear();
         clearAccountSettings();
         m_emojiMenu = false;
         m_settingsOpen = m_presenceMenu = m_savingProfile = m_loadingProfile = false;
@@ -2822,6 +2874,10 @@ namespace app {
               discord::applyReaction(message, change, m_account.id);
               m_liveChanges[message.id] = message;
             }
+      } else if (event.operation == discord::Operation::RoleStyles) {
+        m_roleDirectory.apply(event.roleUpdates);
+        if (event.roleUpdates.reset)
+          m_roleMotion.clear();
       } else if (event.operation == discord::Operation::UserState) {
         m_userDirectory.apply(event.users);
         if (event.users.reset || std::ranges::any_of(event.users.users, [](const auto& item) {
@@ -3557,6 +3613,10 @@ namespace app {
         m_preferences.autoplayGifs = !m_preferences.autoplayGifs;
       else if (hit.id == "fake_nitro_emojis")
         m_preferences.fakeNitroEmojis = !m_preferences.fakeNitroEmojis;
+      else if (hit.id == "role_colors")
+        m_preferences.roleColors = !m_preferences.roleColors;
+      else if (hit.id == "animate_role_colors")
+        m_preferences.animateRoleColors = !m_preferences.animateRoleColors;
       else if (hit.id.starts_with("zoom")) {
         m_window.setUiScale(hit.id == "zoom0" ? 1 : m_window.uiScale() * (hit.id == "zoom+" ? 1.1F : 1 / 1.1F));
         saveSelection();
@@ -3854,6 +3914,8 @@ namespace app {
       m_dmMode = false;
       m_privateChannels.clear();
       m_userDirectory = {};
+    m_roleDirectory = {};
+    m_roleMotion.clear();
       m_unreadDMs.clear();
       m_unreadChannels.clear();
       m_unreadGuilds.clear();

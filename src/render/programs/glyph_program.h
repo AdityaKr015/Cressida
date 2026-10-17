@@ -4,9 +4,11 @@
 #include "render/core/shader_program.h"
 
 #include <GLES2/gl2.h>
+#include <array>
 
 class TextureId;
 struct Color;
+struct TextGradient;
 
 // Renders a glyph quad from either:
 //   - a pre-rasterized premultiplied-RGBA texture (colored emoji, etc.), or
@@ -38,6 +40,12 @@ public:
       float u1, float v1, float opacity, const Color& tint, const Mat3& transform = Mat3::identity()
   ) const;
 
+  void drawGradient(
+      TextureId texture, float surfaceWidth, float surfaceHeight, float width, float height, float u0, float v0,
+      float u1, float v1, float opacity, const TextGradient& gradient, float offset, float textWidth,
+      const Mat3& transform
+  ) const;
+
 private:
   void bindCommon(
       TextureId texture, float surfaceWidth, float surfaceHeight, float width, float height, float u0, float v0,
@@ -54,4 +62,6 @@ private:
   GLint m_transformLocation = -1;
   GLint m_tintLocation = -1;
   GLint m_tintModeLocation = -1;
+  GLint m_gradientGeometryLocation = -1, m_gradientPhaseLocation = -1, m_gradientCountLocation = -1;
+  std::array<GLint, 3> m_gradientColorLocations{-1, -1, -1};
 };

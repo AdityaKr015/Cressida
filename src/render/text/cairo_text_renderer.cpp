@@ -975,7 +975,8 @@ CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
 void CairoTextRenderer::draw(
     float contentScale, float surfaceWidth, float surfaceHeight, float x, float baselineY, std::string_view text,
     float fontSize, const Color& color, const Mat3& transform, FontWeight fontWeight, float maxWidth, int maxLines,
-    TextAlign align, std::string_view fontFamily, TextEllipsize ellipsize, bool useMarkup, bool pixelSnap
+    TextAlign align, std::string_view fontFamily, TextEllipsize ellipsize, bool useMarkup, bool pixelSnap,
+    const TextGradient* gradient
 ) {
   maybeSyncFontConfig();
   if (m_pangoContext == nullptr || m_backend == nullptr || text.empty()) {
@@ -1017,7 +1018,13 @@ void CairoTextRenderer::draw(
     const float tileYLocal = static_cast<float>(tile.pixelYOffset) * invScale;
     const float tileH = static_cast<float>(tile.pixelHeight) * invScale;
     const Mat3 tileWorld = baseWorld * Mat3::translation(0.0F, tileYLocal);
-    if (entry->tinted) {
+    if (gradient) {
+      m_backend->drawGlyph(RenderGlyphDraw{
+          .texture = tile.texture.id, .surfaceWidth = surfaceWidth, .surfaceHeight = surfaceHeight,
+          .width = quadW, .height = tileH, .opacity = color.a, .transform = tileWorld,
+          .gradient = *gradient, .gradientOffset = inkOffX, .gradientWidth = std::max(1.0F, entry->metrics.width)
+      });
+    } else if (entry->tinted) {
       m_backend->drawGlyph(
           RenderGlyphDraw{
               .texture = tile.texture.id,

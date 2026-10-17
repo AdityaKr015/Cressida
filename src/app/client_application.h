@@ -8,6 +8,7 @@
 #include "app/text_edit.h"
 #include "app/timeline_anchor.h"
 #include "app/unread_timeline.h"
+#include "app/role_motion.h"
 #include "app/window.h"
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
@@ -174,9 +175,13 @@ namespace app {
     void loadHistory(discord::HistoryDirection direction, bool retry = false);
     void applyHistory(discord::Event& event);
     void demoHistoryStep();
+    void demoRoleStep();
     void send();
     void rectangle(Node& parent, float x, float y, float w, float h, Color fill, float radius = 0);
     float countBadge(Node& parent, float right, float y, int count, bool rail = false);
+    float roleLabel(Node& parent, float x, float y, float width, const std::string& text, float size, Color fallback,
+                    FontWeight weight, const std::string& user, const std::string& key, bool hovered,
+                    const std::optional<std::vector<std::string>>& roles = {});
     float label(
         Node& parent, float x, float y, float width, std::string text, float size, Color color,
         FontWeight weight = FontWeight::Normal, int lines = 1, bool markup = false
@@ -282,6 +287,8 @@ namespace app {
     SessionStore m_sessionStore;
     std::string m_restoreChannel;
     Preferences m_preferences;
+    discord::RoleDirectory m_roleDirectory;
+    RoleMotion m_roleMotion;
     discord::Presence m_presence;
     bool m_presenceMenu = false, m_settingsOpen = false, m_savingProfile = false, m_loadingProfile = false,
          m_profileDirty = false;

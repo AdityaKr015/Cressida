@@ -719,7 +719,8 @@ namespace app {
       const auto& user = m_dialogAccount;
       avatar(root, x + 24, y + 68, 64, user.avatar, userName(user.id, user.name));
       statusBadge(root, x + 74, y + 118, userStatus(user.id), sidebar);
-      label(root, x + 104, y + 76, width - 128, userName(user.id, user.name), 19, foreground, FontWeight::SemiBold);
+      roleLabel(root, x + 104, y + 76, width - 128, userName(user.id, user.name), 19, foreground, FontWeight::SemiBold,
+                user.id, "profile:" + user.id, false);
       label(root, x + 104, y + 105, width - 128, user.username.empty() ? user.name : user.username, 13, muted);
       label(root, x + 24, y + 156, width - 48, user.pronouns, 13, muted);
       label(

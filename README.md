@@ -32,6 +32,9 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   DM rows, conversation headers and the participant list.
 - **Personal nicknames:** names you assigned to friends appear in conversations,
   message authors, mentions and member lists, including live nickname changes.
+- **Role colors:** server role colors, gradients and holographic palettes on names,
+  with animation on hover. **Settings → Cressida → Role Styles** lets you disable
+  role colors or keep gradients static. These preferences are saved per account.
 - **Native editing:** multiline drafts, mouse/keyboard selection, word navigation,
   copy/cut/paste and undo/redo. Enter sends; Shift+Enter inserts a line.
 - **Images:** paste PNG/JPEG/WebP attachments, review before sending, and expand

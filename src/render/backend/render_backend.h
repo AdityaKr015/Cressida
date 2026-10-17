@@ -1,4 +1,6 @@
 #pragma once
+#include "render/core/text_gradient.h"
+#include <optional>
 
 #include "render/core/color.h"
 #include "render/core/mat3.h"
@@ -83,6 +85,8 @@ struct RenderGlyphDraw {
   Color tint = rgba(1.0F, 1.0F, 1.0F, 1.0F);
   bool tinted = false;
   Mat3 transform = Mat3::identity();
+  std::optional<TextGradient> gradient;
+  float gradientOffset = 0, gradientWidth = 1;
 };
 
 struct RenderScissor {

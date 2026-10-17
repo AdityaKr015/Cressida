@@ -1,4 +1,5 @@
 #include "discord/models.h"
+#include "discord/role_styles.h"
 
 #include <algorithm>
 #include <charconv>
@@ -233,6 +234,8 @@ namespace discord {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
+    if (value.contains("member"))
+      patch.memberRoles = parseMemberRoles(value["member"]);
     if (value.contains("message_reference")) {
       patch.reply.emplace();
       if (value["message_reference"].is_object()) {
@@ -344,6 +347,8 @@ namespace discord {
     return patch;
   }
   void MessagePatch::apply(Message& message) const {
+    if (memberRoles)
+      message.memberRoles = *memberRoles;
     if (reply)
       message.reply = *reply;
     if (reactions)

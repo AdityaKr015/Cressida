@@ -41,7 +41,8 @@ namespace app {
         {"activity", "Activity Privacy", "ACTIVITY SETTINGS", 480},
         {"games", "Registered Games", "ACTIVITY SETTINGS", 350},
         {"overlay", "Game Overlay", "ACTIVITY SETTINGS", 350},
-        {"expressions", "Expressions", "CRESSIDA", 360}
+        {"expressions", "Expressions", "CRESSIDA", 360},
+        {"role-styles", "Role Styles", "CRESSIDA", 340}
     };
     std::string folded(std::string text) {
       for (auto& c : text)
@@ -512,6 +513,13 @@ namespace app {
           "Cressida.",
           12, muted, FontWeight::Normal, 3
       );
+    } else if (m_settingsPage == "role-styles") {
+      toggle(0, "Show role colors", m_preferences.roleColors, "role_colors", false,
+             "Use server role colors and gradients for member names.");
+      toggle(88, "Animate gradients on hover", m_preferences.animateRoleColors, "animate_role_colors", false,
+             "Animate while hovering a name, member row or message.");
+      label(p, 0, 202, width, "Turn off hover animation to keep static gradients. Turn off role colors to use the normal text color. "
+            "These preferences are saved for this account on this device.", 13, muted, FontWeight::Normal, 4);
     } else if (m_settingsPage == "text") {
       toggle(0, "Show link previews and embeds", m_preferences.showEmbeds, "embeds");
       toggle(76, "Show image attachments", m_preferences.showImages, "images");
