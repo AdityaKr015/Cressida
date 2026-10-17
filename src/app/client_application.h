@@ -48,6 +48,7 @@ namespace app {
       ResetProfile,
       Preference,
       JumpUnread,
+      JumpChannelMention,
       MarkRead,
       RetryHistory,
       JumpLatest,
@@ -175,6 +176,7 @@ namespace app {
     void demoHistoryStep();
     void send();
     void rectangle(Node& parent, float x, float y, float w, float h, Color fill, float radius = 0);
+    float countBadge(Node& parent, float right, float y, int count, bool rail = false);
     float label(
         Node& parent, float x, float y, float width, std::string text, float size, Color color,
         FontWeight weight = FontWeight::Normal, int lines = 1, bool markup = false

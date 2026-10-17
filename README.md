@@ -24,9 +24,11 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **People:** native profile cards, opening DMs, friend nicknames and relationship
   actions, blocking/unblocking, and muting existing conversations.
 - **Your servers:** saved server order and folders, icons, channel categories,
-  collapsible sections and a member sidebar with role group counts.
+  collapsible sections and a member sidebar with role group counts. Mention badges
+  appear on channels, servers and folders; a floating badge reveals mentioned
+  channels further down the list.
 - **Direct messages:** personal/group conversations, avatars, unread styling and
-  incoming DM shortcuts above the server list. Presence badges update live in
+  incoming DM shortcuts with unread counts above the server list. Presence badges update live in
   DM rows, conversation headers and the participant list.
 - **Personal nicknames:** names you assigned to friends appear in conversations,
   message authors, mentions and member lists, including live nickname changes.
@@ -267,8 +269,8 @@ reminders, apps, speech and moderation menus are not implemented. Reactions can
 be sent normally; sending super reactions and sticker selection remain pending.
 Quick-reaction usage is local and does not import Discord's
 frequently used list. Explicit channel mute flags filter unread indicators;
-inherited guild mutes, timed-mute expiry and detailed mention-count badges still
-need fuller handling.
+inherited guild mutes and timed-mute expiry still need fuller handling. Direct
+mentions remain visible in muted conversations.
 
 ## Development
 

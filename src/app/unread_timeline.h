@@ -3,6 +3,7 @@
 #include "discord/models.h"
 #include "discord/read_state.h"
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <span>
@@ -45,10 +46,22 @@ namespace app {
       if (const auto read = m_readThrough.find(channel); read != m_readThrough.end()) {
         if (!newer(value.latest, read->second))
           return {};
-        if (newer(read->second, value.after))
+        if (newer(read->second, value.after)) {
           value.after = read->second;
+          // Imported counts can include mentions just read locally, while the
+          // server ACK is in flight. Only known newer live mentions remain.
+          value.mentions = 0;
+          for (const auto& message : value.mentionMessages)
+            if (newer(message, read->second))
+              ++value.mentions;
+          value.mentions = std::min(value.mentions, at->second.mentions);
+        }
       }
       return value;
+    }
+    int mentions(const std::string& channel) const {
+      const auto value = cursor(channel);
+      return value ? value->mentions : 0;
     }
     bool unread() const { return cursor(m_channel).has_value(); }
     std::optional<std::size_t> first(std::span<const discord::Message> messages) const {

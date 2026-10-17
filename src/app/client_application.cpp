@@ -59,6 +59,29 @@ namespace app {
         demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
         demoHistoryStep();
+      if (m_demo && m_demoOverlay == "unread-badge-cycle") {
+        const auto step = m_demoInteractionStep++;
+        const auto at = std::ranges::find(m_hits, Action::JumpChannelMention, &Hit::action);
+        if (step == 0 || step == 2) {
+          if (at == m_hits.end() || at->id != "1200")
+            throw std::runtime_error("Offscreen mentioned channel needs a floating badge");
+          const auto hit = *at;
+          if (step == 0)
+            activate(hit);
+          else
+            m_unreadTimeline.acknowledged("1200", "9000");
+        } else if (step == 1) {
+          if (at != m_hits.end() || m_unreadTimeline.mentions("1200") != 2 || m_channelId != "101")
+            throw std::runtime_error("Revealing a channel hides its floating badge without reading/selecting it");
+          m_scrolling.stop(m_channelScroll);
+          m_channelScroll = 0;
+        } else if (step == 3) {
+          if (at != m_hits.end())
+            throw std::runtime_error("Read mentions must not keep a floating badge");
+          std::clog << "Offline unread badge replay passed\n";
+        }
+        m_window.invalidate();
+      }
       if (m_demo && m_demoOverlay == "interaction-cycle")
         demoInteractionStep();
       if (m_demo && m_demoOverlay == "gif-cycle")
@@ -438,7 +461,8 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "unread-cycle" ? 10
+        smokeTest ? (m_demo && view && std::string_view(view) == "unread-badge-cycle" ? 4
+                         : m_demo && view && std::string_view(view) == "unread-cycle" ? 10
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
@@ -726,13 +750,43 @@ namespace app {
             m_emojiScroll = 59;
           if (view == "emoji-scroll-cycle")
             m_demoOverlay = view;
-        } else if (view == "unread") {
+        } else if (
+            view == "unread" || view == "unread-badges" || view == "unread-badges-light" || view == "unread-badge-cycle"
+        ) {
+          if (view == "unread-badges-light")
+            m_preferences.theme = "light";
           m_privateChannels = {{"900", "Maya", 1}, {"901", "Studio", 3}};
-          m_unreadDMs = {"900", "901"};
-          m_unreadChannels = {"102", "104", "900", "901"};
-          m_unreadGuilds = {{"102", "1"}, {"104", "1"}, {"900", ""}, {"901", ""}};
+          m_unreadTimeline.snapshot(
+              {{"102", {"8999", "9000", 1}},
+               {"104", {"8999", "9000", 12}},
+               {"201", {"8999", "9000", 99}},
+               {"301", {"8999", "9000", 4}},
+               {"900", {"8999", "9000", 3}},
+               {"901", {"8999", "9000", 120}}},
+              "reset"
+          );
+          m_unreadGuilds = {{"102", "1"}, {"104", "1"}, {"201", "2"}, {"301", "3"}, {"900", ""}, {"901", ""}};
+          for (const auto& [channel, guild] : m_unreadGuilds) {
+            m_unreadChannels.insert(channel);
+            if (guild.empty())
+              m_unreadDMs.insert(channel);
+          }
+          // A collapsed folder exercises aggregation without counting icons twice.
+          m_folders = {{"", "", 0, {"1"}}, {"50", "Creative spaces", 0x8A76C7, {"2", "3"}}};
           m_messages.back().content = "Hi <@11>, check <#102>. `literal <@11>`";
           m_messages.back().mentions = {{"11", "Maya"}};
+          if (view == "unread-badge-cycle") {
+            m_demoOverlay = view;
+            for (int i = 0; i < 40; ++i)
+              m_channels.push_back({std::to_string(1100 + i), "quiet-channel-" + std::to_string(i + 1)});
+            m_channels.push_back({"1200", "mentioned-channel"});
+            auto cursors = std::map<std::string, discord::UnreadCursor>{
+                {"102", {"8999", "9000", 1}}, {"104", {"8999", "9000", 12}}, {"1200", {"8999", "9000", 2}}
+            };
+            m_unreadTimeline.snapshot(std::move(cursors), "reset");
+            m_unreadGuilds["1200"] = "1";
+            m_unreadChannels.insert("1200");
+          }
         } else if (view == "dm-presence") {
           m_privateChannels.clear();
           for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
@@ -828,6 +882,25 @@ namespace app {
     node->setSize(width, height);
     parent.addChild(std::move(node));
     return height;
+  }
+
+  float ClientApplication::countBadge(Node& parent, float right, float y, int count, bool rail) {
+    if (count <= 0)
+      return 0;
+    const auto text = count > 99 ? "99+" : std::to_string(count);
+    const auto metrics = m_window.target().renderer().measureText(text, 12, FontWeight::Bold);
+    const float width = std::max(18.0F, std::ceil(metrics.width) + 10);
+    const float x = right - width;
+    if (rail)
+      rectangle(parent, x - 2, y - 2, width + 4, 22, rgbHex(0x14151A), 11);
+    rectangle(parent, x, y, width, 18, rgbHex(0xD6303E), 9);
+    label(
+        parent, x + (width - metrics.width) / 2, y + (18 - (metrics.bottom - metrics.top)) / 2, width, text, 12,
+        rgbHex(0xFFFFFF), FontWeight::Bold
+    );
+    if (hovered(x, y, width, 18))
+      m_tooltip = std::to_string(count) + (count == 1 ? " unread mention" : " unread mentions");
+    return width;
   }
 
   void ClientApplication::button(Node& parent, Hit hit, std::string text, bool primary, bool selected, bool fill) {
@@ -1093,6 +1166,16 @@ namespace app {
       label(root, 98, 113, 200, m_dmMode ? "CONVERSATIONS" : "CHANNELS", 10, muted, FontWeight::SemiBold);
       iconButton(root, {14, 48, 48, 48, Action::Home, {}}, "message-circle", "Direct messages", m_dmMode);
 
+      // Derive rail totals from the same filtered cursors as the channel badges,
+      // so an in-flight local ACK cannot leave a stale server/folder count.
+      std::map<std::string, int> guildMentions;
+      for (const auto& [channel, guild] : m_unreadGuilds) {
+        if (!guild.empty()) {
+          auto& total = guildMentions[guild];
+          total = std::min(1000000, total + m_unreadTimeline.mentions(channel));
+        }
+      }
+
       struct RailRow {
         const discord::Guild* guild;
         const discord::GuildFolder* folder;
@@ -1100,7 +1183,7 @@ namespace app {
       };
       std::vector<RailRow> rail;
       for (const auto& dm : m_privateChannels)
-        if (m_unreadDMs.contains(dm.id) && !m_userDirectory.muted(dm.id))
+        if (m_unreadDMs.contains(dm.id) && (!m_userDirectory.muted(dm.id) || m_unreadTimeline.mentions(dm.id) > 0))
           rail.push_back({nullptr, nullptr, &dm});
       const auto unreadDMRows = rail.size();
       for (const auto& folder : m_folders) {
@@ -1127,8 +1210,7 @@ namespace app {
           if (channel.type == 1 && !channel.recipients.empty())
             statusBadge(root, 48, y + 34, userStatus(channel.recipients.front().id), rgbHex(0x14151A));
           rectangle(root, 0, y + 16, 4, 16, foreground, 2);
-          rectangle(root, 48, y - 2, 18, 18, rgbHex(0xED4245), 9);
-          label(root, 54, y, 12, "•", 12, rgbHex(0xFFFFFF), FontWeight::Bold);
+          countBadge(root, 67, y - 2, m_unreadTimeline.mentions(channel.id), true);
           if (over)
             rectangle(root, 70, y + 14, 4, 20, accent, 2);
           m_hits.push_back({14, y, 48, 48, Action::DirectMessage, channel.id});
@@ -1145,6 +1227,10 @@ namespace app {
             if (guild != m_guilds.end())
               avatar(root, 17 + (j % 2) * 22, y + 5 + (j / 2) * 22, 18, guild->icon, guild->name);
           }
+          int count = 0;
+          for (const auto& guild : row.folder->guildIds)
+            count = std::min(1000000, count + guildMentions[guild]);
+          countBadge(root, 68, y + 34, count, true);
           m_hits.push_back({10, y, 56, 50, Action::Folder, row.folder->id});
           continue;
         }
@@ -1165,18 +1251,29 @@ namespace app {
           rectangle(
               root, 0, y + (selected ? 14 : 19), 4, selected ? 20 : 10, selected || over ? accent : foreground, 2
           );
+        countBadge(root, 67, y + 33, guildMentions[guild.id], true);
         m_hits.push_back({14, y, 48, 48, Action::Guild, guild.id});
       }
       std::vector<const discord::Channel*> visibleChannels;
       for (const auto& channel : m_channels)
-        if (channel.type == 4 || !m_collapsedCategories.contains(channel.parentId) || channel.id == m_channelId)
+        if (channel.type == 4
+            || !m_collapsedCategories.contains(channel.parentId)
+            || channel.id == m_channelId
+            || m_unreadTimeline.mentions(channel.id) > 0)
           visibleChannels.push_back(&channel);
       m_scrolling.limit(m_channelScroll, std::max(0.0F, visibleChannels.size() * 38.0F - (h - 228)));
+      int mentionsBelow = 0;
+      std::string nextMention;
       for (std::size_t i = 0; i < visibleChannels.size(); ++i) {
         const float y = 142 + i * 38 - m_channelScroll;
+        const auto& channel = *visibleChannels[i];
+        if (channel.type != 4 && y + 34 > h - 76 && m_unreadTimeline.mentions(channel.id) > 0) {
+          mentionsBelow = std::min(1000000, mentionsBelow + m_unreadTimeline.mentions(channel.id));
+          if (nextMention.empty())
+            nextMention = channel.id;
+        }
         if (y < 138 || y + 34 > h - 76)
           continue;
-        const auto& channel = *visibleChannels[i];
         if (channel.type == 4) {
           if (hovered(90, y, 224, 34))
             rectangle(root, 90, y, 224, 34, panel, 8);
@@ -1188,8 +1285,9 @@ namespace app {
           continue;
         }
         const bool selected = channel.id == m_channelId;
+        const int mentions = m_unreadTimeline.mentions(channel.id);
         const bool unread = (m_unreadChannels.contains(channel.id) || m_unreadDMs.contains(channel.id))
-            && !m_userDirectory.muted(channel.id);
+            && (!m_userDirectory.muted(channel.id) || mentions > 0);
         const bool over = hovered(90, y, 224, 34);
         if (selected || over)
           rectangle(root, 90, y, 224, 34, selected ? raised : panel, 8);
@@ -1206,14 +1304,28 @@ namespace app {
             );
         } else
           label(root, 102, y + 7, 20, "#", 17, selected ? accent : muted);
+        const float badgeWidth = countBadge(root, 304, y + 8, mentions);
         label(
-            root, m_dmMode ? 136 : 128, y + 8, m_dmMode ? 165 : 173, m_dmMode ? channelName(channel) : channel.name, 14,
-            selected || over || unread ? foreground : muted,
+            root, m_dmMode ? 136 : 128, y + 8, (m_dmMode ? 165 : 173) - (badgeWidth ? badgeWidth + 8 : 0),
+            m_dmMode ? channelName(channel) : channel.name, 14, selected || over || unread ? foreground : muted,
             selected || unread ? FontWeight::SemiBold : FontWeight::Normal
         );
         m_hits.push_back({90, y, 224, 34, Action::Channel, channel.id});
         if (m_dmMode)
           m_contextTargets.push_back({90, y, 224, 34, Action::ConversationMenu, channel.id});
+      }
+      if (mentionsBelow > 0) {
+        const auto text = (mentionsBelow > 99 ? "99+" : std::to_string(mentionsBelow))
+            + std::string(mentionsBelow == 1 ? " NEW MENTION" : " NEW MENTIONS");
+        const auto metrics = m_window.target().renderer().measureText(text, 11, FontWeight::Bold);
+        const float width = std::ceil(metrics.width) + 24, x = 202 - width / 2, y = h - 110;
+        rectangle(root, x - 3, y - 3, width + 6, 34, sidebar, 17);
+        rectangle(root, x, y, width, 28, rgbHex(hovered(x, y, width, 28) ? 0xB72735 : 0xD6303E), 14);
+        label(
+            root, x + 12, y + (28 - (metrics.bottom - metrics.top)) / 2, width - 24, text, 11, rgbHex(0xFFFFFF),
+            FontWeight::Bold
+        );
+        m_hits.push_back({x, y, width, 28, Action::JumpChannelMention, nextMention});
       }
       if (m_channels.empty())
         label(
@@ -2100,7 +2212,6 @@ namespace app {
     m_unreadTimeline.acknowledged(m_channelId, latest);
     m_unreadChannels.erase(m_channelId);
     m_unreadDMs.erase(m_channelId);
-    m_unreadGuilds.erase(m_channelId);
     return true;
   }
   void ClientApplication::cacheChannel() {
@@ -3522,6 +3633,25 @@ namespace app {
     case Action::Channel:
       selectChannel(hit.id);
       break;
+    case Action::JumpChannelMention: {
+      std::size_t index = 0;
+      for (const auto& channel : m_channels) {
+        if (channel.type != 4
+            && m_collapsedCategories.contains(channel.parentId)
+            && channel.id != m_channelId
+            && m_unreadTimeline.mentions(channel.id) == 0)
+          continue;
+        if (channel.id == hit.id) {
+          m_scrolling.stop(m_channelScroll);
+          // Reveal the row above the floating badge, without selecting or ACKing it.
+          const float h = m_window.height() + 36 - m_window.titlebarHeight();
+          m_channelScroll = std::max(0.0F, 142 + index * 38.0F - (h - 160));
+          break;
+        }
+        ++index;
+      }
+      break;
+    }
     case Action::Folder:
       if (!m_openFolders.erase(hit.id))
         m_openFolders.insert(hit.id);

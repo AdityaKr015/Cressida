@@ -431,6 +431,8 @@ namespace discord {
         m_self.clear();
       }
       auto users = m_userDirectory.consume(type, data);
+      if (type != "READY")
+        m_readState.context(type, data, m_self);
       if (users.reset || !users.users.empty() || !users.mutedChannels.empty()) {
         Event event{.operation = Operation::UserState, .session = session};
         event.users = std::move(users);
@@ -443,6 +445,8 @@ namespace discord {
         state.unreadCursors = m_readState.unreadCursors();
         publish(std::move(state));
       };
+      if (type == "CHANNEL_DELETE" || type == "GUILD_DELETE")
+        publishReads();
       if (type == "CHANNEL_UNREAD_UPDATE") {
         if (data.contains("channel_unread_updates"))
           m_readState.channels(data["channel_unread_updates"], data.value("guild_id", ""));
@@ -610,7 +614,10 @@ namespace discord {
         event.reaction = std::move(reaction);
         publish(std::move(event));
       } else if (type == "MESSAGE_CREATE") {
-        m_readState.message(data, m_self);
+        const auto author = data.contains("author") ? data["author"].value("id", std::string{}) : std::string{};
+        m_readState.message(
+            data, m_self, m_userDirectory.relationship(author) == 2, m_userDirectory.muted(data.value("channel_id", ""))
+        );
         publishReads();
         Event event{
             .operation = Operation::MessageCreate, .session = session, .resource = data.value("channel_id", "")
@@ -627,6 +634,8 @@ namespace discord {
         event.patch = parseMessagePatch(data);
         publish(std::move(event));
       } else if (type == "MESSAGE_DELETE" || type == "MESSAGE_DELETE_BULK") {
+        m_readState.removed(data);
+        publishReads();
         Event event{
             .operation = Operation::MessageDelete, .session = session, .resource = data.value("channel_id", "")
         };

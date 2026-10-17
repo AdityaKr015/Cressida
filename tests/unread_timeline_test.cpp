@@ -62,6 +62,21 @@ int main() {
     timeline.acknowledged("20", "101");
     timeline.snapshot({{"20", {"99", "101"}}}, "reset");
     require(timeline.unread(), "A fresh READY is authoritative after reconnect");
+    timeline.snapshot({{"20", {"99", "101", 12}}}, "reset");
+    require(timeline.mentions("20") == 12, "Channel badge imports the authoritative mention count");
+    timeline.acknowledged("20", "101");
+    require(timeline.mentions("20") == 0, "Local reads clear badge counts immediately");
+    timeline.snapshot({{"20", {"99", "102", 13, {"102"}}}});
+    require(timeline.mentions("20") == 1, "New live ping cannot resurrect locally read imported mentions");
+    timeline.snapshot({{"20", {"99", "103", 13, {"102"}}}});
+    require(timeline.mentions("20") == 1, "Ordinary arrivals do not change the mention badge");
+    timeline.snapshot({{"20", {"101", "103", 1, {"102"}}}});
+    require(timeline.mentions("20") == 1, "Server confirmation reconciles a pending local ACK");
+    timeline.acknowledged("20", "103");
+    timeline.failed("20", "103");
+    require(timeline.mentions("20") == 1, "Failed ACK restores the count along with the unread indicators");
+    timeline.snapshot({{"20", {"99", "103", 4}}}, "20");
+    require(timeline.mentions("20") == 4, "Manual unread rewind restores authoritative badge counts");
     timeline.reset();
     require(!timeline.unread() && !timeline.first(messages), "Account reset drops all read state");
   } catch (const std::exception& error) {
