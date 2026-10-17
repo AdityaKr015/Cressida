@@ -146,8 +146,7 @@ namespace app {
       const float gx = x + 12 + tx, gy = top + ty;
       rectangle(*body, tx, ty, tileWidth, tileHeight, panel, 7);
       const auto source = gif.src.empty() ? gif.preview : gif.src;
-      if (!picture(*body, tx, ty, tileWidth, tileHeight, source, 7))
-        label(*body, tx + 12, ty + tileHeight / 2 - 9, tileWidth - 24, "GIF", 14, muted);
+      picture(*body, tx, ty, tileWidth, tileHeight, source, 7, true);
       m_gifTargets[gif.url] = gif;
       const float clippedTop = std::max(top, gy), clippedBottom = std::min(top + available, gy + tileHeight);
       m_hits.push_back({gx, clippedTop, tileWidth, clippedBottom - clippedTop, Action::SendGif, gif.url});

@@ -14,6 +14,8 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 
 - **Real-time chat:** new messages, edits and deletions through Discord's Gateway;
   Markdown, code blocks, mentions, Unicode/custom emoji and embed cards.
+  Muted message placeholders appear while a conversation first loads; cached
+  messages stay visible during refreshes.
 - **Message actions:** native context menus with icons, replies, editing/deleting
   your own messages, copy text/link/ID, and a hover emoji submenu. Four quick
   reactions adapt to successful local usage; hover a reaction to see who reacted.
@@ -30,7 +32,8 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   copy/cut/paste and undo/redo. Enter sends; Shift+Enter inserts a line.
 - **Images:** paste PNG/JPEG/WebP attachments, review before sending, and expand
   received images in a fit/zoom/pan viewer. Video links have thumbnails and open
-  in your browser.
+  in your browser. Soft image placeholders reserve space while media loads;
+  failed downloads show an unavailable state.
 - **GIFs:** looping GIF/WebP images and GIF video embeds, animated custom emoji,
   a native GIF picker with trending/search, and favorites synced to Discord.
 - **Emoji picker:** a server rail, Unicode categories, search, account favorites

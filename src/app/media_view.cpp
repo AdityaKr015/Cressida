@@ -43,6 +43,11 @@ namespace app {
     const auto found = m_images.find(m_viewImage);
     const auto texture = found == m_images.end() ? TextureHandle{} : found->second.texture;
     float iw = texture.valid() ? texture.width : 640, ih = texture.valid() ? texture.height : 480;
+    const auto metadata = std::ranges::find(m_viewerImages, m_viewImage, &ViewerImage::path);
+    if (metadata != m_viewerImages.end() && metadata->width > 0 && metadata->height > 0) {
+      iw = metadata->width;
+      ih = metadata->height;
+    }
     const float scale = std::min({availableW / iw, availableH / ih, 1.0F}) * m_viewZoom;
     iw *= scale;
     ih *= scale;
@@ -53,8 +58,7 @@ namespace app {
     imageLayer->setSize(availableW, availableH);
     imageLayer->setClipChildren(true);
     const float x = (availableW - iw) / 2 + m_viewPanX, y = (availableH - ih) / 2 + m_viewPanY;
-    if (!picture(*imageLayer, x, y, iw, ih, m_viewImage, 0))
-      label(*imageLayer, 16, availableH / 2, availableW - 32, "Loading image…", 16, rgbHex(0x989BAE));
+    picture(*imageLayer, x, y, iw, ih, m_viewImage, 8, true);
     root.addChild(std::move(imageLayer));
     const float hitX = std::max(left, left + x), hitY = std::max(top, top + y);
     const float hitRight = std::min(left + availableW, left + x + iw),

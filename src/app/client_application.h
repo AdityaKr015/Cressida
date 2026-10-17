@@ -149,7 +149,10 @@ namespace app {
     button(Node& parent, Hit hit, std::string text, bool primary = false, bool selected = false, bool fill = false);
     bool image(Node& parent, float x, float y, float size, const std::string& path, float radius);
     void avatar(Node& parent, float x, float y, float size, const std::string& path, const std::string& name);
-    bool picture(Node& parent, float x, float y, float width, float height, const std::string& path, float radius);
+    bool picture(
+        Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
+        bool placeholder = false
+    );
     void glyph(Node& parent, float x, float y, float size, const std::string& name, Color color);
     void iconButton(Node& parent, Hit hit, const std::string& icon, const std::string& tooltip, bool selected = false);
     void drawEmojiPicker(Node& root, float w, float h);
@@ -394,6 +397,7 @@ namespace app {
     std::vector<std::string> m_pendingAttachments;
     struct ViewerImage {
       std::string path, url;
+      float width = 0, height = 0;
     };
     std::vector<ViewerImage> m_viewerImages;
     std::string m_viewImage;

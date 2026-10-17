@@ -422,6 +422,48 @@ namespace app {
             m_gifFavoritesTab = view == "gif-favorites";
             m_focusedInput = "gif-search";
           }
+        } else if (
+            view == "images-loading"
+            || view == "images-loading-light"
+            || view == "images-failed"
+            || view == "image-loading"
+            || view == "image-failed"
+            || view == "images-ready"
+        ) {
+          m_messages = {m_messages.back()};
+          m_messageLayouts.clear();
+          if (view == "images-loading-light")
+            m_preferences.theme = "light";
+          if (view != "images-ready")
+            m_images["demo-preview"].texture = {};
+          if (view == "images-failed" || view == "image-failed")
+            m_images["demo-preview"].retry = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+          if (view == "image-loading" || view == "image-failed") {
+            m_viewImage = "demo-preview";
+            m_viewUrl = "https://example.com/preview.png";
+            m_viewerImages = {{m_viewImage, m_viewUrl, 1280, 720}};
+          }
+        } else if (
+            view == "chat-loading"
+            || view == "chat-loading-light"
+            || view == "chat-loading-compact"
+            || view == "chat-loading-cached"
+            || view == "chat-empty"
+            || view == "channels-loading"
+        ) {
+          m_preferences.compact = view == "chat-loading-compact";
+          if (view == "chat-loading-light")
+            m_preferences.theme = "light";
+          m_loadingMessages = view != "chat-empty" && view != "channels-loading";
+          if (view != "chat-loading-cached") {
+            m_messages.clear();
+            m_messageLayouts.clear();
+          }
+          if (view == "channels-loading") {
+            m_channelId.clear();
+            m_channels.clear();
+            m_loadingChannels = true;
+          }
         } else if (view == "scroll-cycle") {
           m_demoOverlay = view;
           m_messages.clear();
@@ -604,7 +646,7 @@ namespace app {
   }
 
   bool ClientApplication::picture(
-      Node& parent, float x, float y, float width, float height, const std::string& path, float radius
+      Node& parent, float x, float y, float width, float height, const std::string& path, float radius, bool placeholder
   ) {
     if (path.empty() || (m_demo && !m_images.contains(path)))
       return false;
@@ -633,8 +675,30 @@ namespace app {
     auto& cached = m_images[path];
     cached.touched = ++m_imageSerial;
     if (!cached.texture.valid()) {
-      if (!m_pendingImages.contains(path) && std::chrono::steady_clock::now() >= cached.retry && m_assets.request(path))
+      if (!m_demo
+          && !m_pendingImages.contains(path)
+          && std::chrono::steady_clock::now() >= cached.retry
+          && m_assets.request(path))
         m_pendingImages.insert(path);
+      if (placeholder) {
+        const bool failed = cached.retry != std::chrono::steady_clock::time_point{} && !m_pendingImages.contains(path);
+        rectangle(parent, x, y, width, height, lerpColor(background, muted, 0.13F), radius);
+        if (width >= 64 && height >= 64) {
+          const float size = std::min(32.0F, std::min(width, height) * 0.25F);
+          const bool caption = failed && width >= 160 && height >= 100;
+          const float iconY = y + (height - size) / 2;
+          glyph(
+              parent, x + (width - size) / 2, iconY, size, failed ? "photo-off" : "photo",
+              lerpColor(background, muted, 0.38F)
+          );
+          if (caption) {
+            const auto textWidth = m_window.target().renderer().measureText("Image unavailable", 12).width;
+            label(
+                parent, x + (width - textWidth) / 2, iconY + size + 10, textWidth + 2, "Image unavailable", 12, muted
+            );
+          }
+        }
+      }
       return false;
     }
     if (cached.animation && cached.animation->frames.size() > 1) {
@@ -1162,7 +1226,7 @@ namespace app {
           for (const auto& pic : layout.pictures) {
             if (pic.video)
               rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
-            picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6);
+            picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6, true);
             const float px = left + 74 + pic.x, py = top + bodyY + pic.y;
             if (pic.video) {
               rectangle(
@@ -1175,7 +1239,10 @@ namespace app {
               m_hits.push_back({px, py, pic.width, pic.height, Action::OpenUrl, pic.link});
             } else {
               if (m_viewImage.empty())
-                m_viewerImages.push_back({pic.media.url, pic.link.empty() ? pic.media.url : pic.link});
+                m_viewerImages.push_back(
+                    {pic.media.url, pic.link.empty() ? pic.media.url : pic.link, static_cast<float>(pic.media.width),
+                     static_cast<float>(pic.media.height)}
+                );
               m_hits.push_back({px, py, pic.width, pic.height, Action::ViewImage, pic.media.url});
               const auto cachedImage = m_images.find(pic.media.url);
               const bool animated = pic.animated
@@ -1230,13 +1297,42 @@ namespace app {
         }
         y = originalY + heights[i];
       }
-      if (m_messages.empty()) {
+      const bool loadingConversation =
+          m_loadingMessages || (m_channelId.empty() && (m_dmMode ? m_loadingPrivate : m_loadingChannels));
+      if (m_messages.empty() && loadingConversation) {
+        // Match the timeline's geometry without presenting fake text or actions.
+        // Stable widths avoid reshuffling the skeleton on unrelated repaints.
+        const auto nameColor = lerpColor(background, muted, 0.23F);
+        const auto textColor = lerpColor(background, muted, 0.13F);
+        const auto avatarColor = lerpColor(background, muted, 0.17F);
+        const float viewport = std::max(0.0F, bottom - top);
+        const float lineWidth = std::min(textWidth, 620.0F);
+        constexpr int lines[] = {2, 1, 3, 2, 1, 2, 4};
+        float rowY = 12;
+        for (int row = 0; row < 24 && rowY < viewport; ++row) {
+          if (!m_preferences.compact)
+            rectangle(*content, 0, rowY + 1, 34, 34, avatarColor, 17);
+          rectangle(*content, 50, rowY + 3, std::min(lineWidth, 68.0F + (row * 23 % 69)), 9, nameColor, 4.5F);
+          const int count = lines[row % 7];
+          for (int line = 0; line < count; ++line) {
+            const float lineY = rowY + 25 + line * 20;
+            if (lineY >= viewport)
+              break;
+            const float target = lineWidth * (0.42F + ((row * 7 + line * 3) % 10) * 0.055F);
+            float wordX = 0;
+            for (int word = 0; wordX < target; ++word) {
+              const float length = std::min(24.0F + ((row * 19 + line * 13 + word * 23) % 65), target - wordX);
+              rectangle(*content, 50 + wordX, lineY, length, 10, textColor, 5);
+              wordX += length + 6;
+            }
+          }
+          rowY += 25 + count * 20 + (m_preferences.compact ? 12 : 22);
+        }
+      } else if (m_messages.empty()) {
         label(
             *content, 18, 36, bodyWidth - 88,
-            m_loadingMessages         ? "Loading conversation…"
-                : m_channelId.empty() ? "Make yourself at home."
-                                      : "The conversation starts here.",
-            25, foreground, FontWeight::Bold
+            m_channelId.empty() ? "Make yourself at home." : "The conversation starts here.", 25, foreground,
+            FontWeight::Bold
         );
         label(
             *content, 18, 80, bodyWidth - 88,
