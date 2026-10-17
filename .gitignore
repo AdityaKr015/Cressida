@@ -1,0 +1,8 @@
+/build*/
+__pycache__/
+.direnv/
+/result
+/compile_commands.json
+
+# Keep project instructions tracked even when a global ignore excludes them.
+!/AGENTS.md

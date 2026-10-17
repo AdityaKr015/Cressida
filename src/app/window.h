@@ -1,0 +1,59 @@
+#pragma once
+
+#include "render/render_context.h"
+#include "render/render_target.h"
+
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <string>
+
+namespace app {
+  struct Key {
+    std::uint32_t symbol = 0;
+    std::string text;
+    bool control = false;
+    bool shift = false;
+  };
+
+  // A normal xdg-shell desktop window using the project's EGL/GLES renderer.
+  class Window {
+  public:
+    Window();
+    ~Window();
+    Window(const Window&) = delete;
+    Window& operator=(const Window&) = delete;
+    void initialize();
+    void run(int wakeFd, std::function<void()> tick, int frameLimit = 0, int assetFd = -1);
+    void close();
+    void minimize();
+    void toggleMaximized();
+    bool maximized() const;
+    bool active() const;
+    float titlebarHeight() const;
+    void setPointerCursor(bool interactive);
+    void invalidate();
+    void setUiScale(float scale);
+    float uiScale() const;
+    void paste(bool images = false);
+    void copy(std::string bytes, std::string mime = "text/plain;charset=utf-8");
+    int width() const;
+    int height() const;
+    RenderContext& context();
+    RenderTarget& target();
+
+    std::function<void()> draw;
+    std::function<void(float, float, std::uint32_t)> click;
+    std::function<void(float, float)> motion;
+    std::function<void()> released;
+    std::function<void()> pointerLeft;
+    std::function<void(float)> scroll;
+    std::function<void(float)> zoom;
+    std::function<void(const Key&)> key;
+    std::function<void(std::string, std::string)> pasted;
+
+  private:
+    struct Impl;
+    std::unique_ptr<Impl> m;
+  };
+} // namespace app

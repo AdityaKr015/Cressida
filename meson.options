@@ -1,0 +1,1 @@
+option('emoji_font', type: 'string', value: '', description: 'Path to the application color emoji fallback font')

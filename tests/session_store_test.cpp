@@ -1,0 +1,136 @@
+#include "app/session_store.h"
+#include "core/environment.h"
+
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace {
+  struct EnvironmentOverride {
+    std::string name;
+    std::optional<std::string> previous;
+    EnvironmentOverride(const char* key, const char* value) : name(key) {
+      if (const auto* old = std::getenv(key))
+        previous = old;
+      setenv(key, value, 1);
+    }
+    ~EnvironmentOverride() {
+      if (previous)
+        setenv(name.c_str(), previous->c_str(), 1);
+      else
+        unsetenv(name.c_str());
+    }
+  };
+} // namespace
+
+int main() {
+  char directory[] = "/tmp/cressida-state-XXXXXX";
+  if (!mkdtemp(directory))
+    return 1;
+  const auto path = std::filesystem::path(directory) / "session.json";
+  auto require = [](bool value, const char* message) {
+    if (!value)
+      throw std::runtime_error(message);
+  };
+  try {
+    {
+      app::SessionStore store(path);
+      require(!store.load("123"), "First login must not invent a previous server");
+      store.save("123", {"10", "20", 1.2F});
+      store.save("123", {"11", "21", 1.2F});
+      store.save("456", {"", "30", 0.8F});
+      store.savePreferences("123", {"midnight", 18, true, false, true});
+      store.save("123", {"10", "20", 1.2F});
+      store.savePreferences("789", {"light", 16});
+    }
+    app::SessionStore restored(path);
+    const auto first = restored.load("123"), second = restored.load("456");
+    require(
+        first && first->guild == "10" && first->channel == "20" && std::abs(first->scale - 1.2F) < 0.01F,
+        "Restore selected server/channel and zoom after restarting"
+    );
+    require(second && second->guild.empty() && second->channel == "30", "Remember DMs independently for each account");
+    const auto preferences = restored.preferences("123");
+    require(
+        preferences.theme == "midnight"
+            && preferences.messageSize == 18
+            && preferences.compact
+            && !preferences.showEmbeds
+            && preferences.showImages,
+        "Selection saves preserve account appearance preferences"
+    );
+    require(
+        restored.preferences("456").theme == "dark" && restored.preferences("789").theme == "light",
+        "Store preferences independently, including accounts without a previous channel"
+    );
+    require(
+        restored.channelForGuild("123", "10") == "20" && restored.channelForGuild("123", "11") == "21",
+        "Keep the last channel independently for every server"
+    );
+    require(
+        restored.channelForGuild("456", "") == "30" && restored.channelForGuild("123", "99").empty(),
+        "DM history and account histories do not leak across servers"
+    );
+    struct stat state{};
+    require(
+        stat(path.c_str(), &state) == 0 && (state.st_mode & 0777) == 0600,
+        "Private UI state must be owner-readable only"
+    );
+    std::ofstream(path) << "broken JSON";
+    require(!restored.load("123"), "Ignore damaged UI preferences");
+    {
+      const auto root = std::filesystem::path(directory) / "migration";
+      EnvironmentOverride stateHome("XDG_STATE_HOME", root.c_str());
+      const auto oldPath = root / "discord-cpp/session.json";
+      const auto newPath = root / "cressida/session.json";
+      app::SessionStore legacy(oldPath);
+      legacy.save("123", {"10", "20", 1.2F});
+      legacy.save("123", {"11", "21", 1.2F});
+      legacy.savePreferences("123", {"midnight", 18, true, false, true});
+      legacy.save("456", {"", "30", 0.8F});
+      app::SessionStore migrated;
+      require(migrated.load("123")->channel == "21", "Read the old name's last channel before migration");
+      require(migrated.preferences("123").theme == "midnight", "Read old appearance preferences");
+      require(!std::filesystem::exists(newPath), "Reading old state must not create new files");
+      migrated.save("123", {"10", "22", 1.1F});
+      require(std::filesystem::exists(newPath), "Saving migrates to the Cressida directory");
+      require(legacy.load("123")->channel == "21", "Migration leaves the original file intact");
+      require(migrated.channelForGuild("123", "11") == "21", "Migration preserves other servers");
+      require(migrated.load("456")->channel == "30", "Migration preserves other accounts");
+      require(migrated.preferences("123").theme == "midnight", "Migration preserves display preferences");
+      require(stat(newPath.c_str(), &state) == 0 && (state.st_mode & 0777) == 0600, "Migrated state remains private");
+      legacy.save("456", {"", "31", 0.8F});
+      require(migrated.load("456")->channel == "30", "The new state takes precedence over legacy changes");
+      std::ofstream(newPath) << "broken JSON";
+      require(!migrated.load("123"), "Damaged new state must not resurrect legacy selections");
+    }
+    {
+      EnvironmentOverride oldName("DISCORD_CPP_TEST_OVERRIDE", "old");
+      EnvironmentOverride newName("CRESSIDA_TEST_OVERRIDE", "new");
+      require(
+          std::string(cressida::environment("CRESSIDA_TEST_OVERRIDE", "DISCORD_CPP_TEST_OVERRIDE")) == "new",
+          "Cressida overrides take precedence"
+      );
+      unsetenv("CRESSIDA_TEST_OVERRIDE");
+      require(
+          std::string(cressida::environment("CRESSIDA_TEST_OVERRIDE", "DISCORD_CPP_TEST_OVERRIDE")) == "old",
+          "Legacy overrides remain supported"
+      );
+      setenv("CRESSIDA_TEST_OVERRIDE", "", 1);
+      require(
+          *cressida::environment("CRESSIDA_TEST_OVERRIDE", "DISCORD_CPP_TEST_OVERRIDE") == '\0',
+          "An empty override must not resurrect the legacy value"
+      );
+    }
+    std::filesystem::remove_all(directory);
+  } catch (const std::exception& error) {
+    std::filesystem::remove_all(directory);
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}
