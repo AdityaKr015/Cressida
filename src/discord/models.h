@@ -112,6 +112,26 @@ namespace discord {
   // Only these Discord HTTPS origins may be fetched automatically, without credentials.
   std::string mediaUrl(std::string_view value);
 
+  struct Reaction {
+    std::string id, name;
+    int count = 0;
+    bool me = false;
+    int burstCount = 0;
+    bool meBurst = false;
+  };
+  struct MessageReference {
+    std::string message, channel, authorId, author, content;
+    bool deleted = false;
+    bool mention = false;
+  };
+  struct ReactionUpdate {
+    enum class Kind { Add, Remove, RemoveEmoji, RemoveAll };
+    Kind kind = Kind::Add;
+    std::string channel, message, user;
+    Reaction emoji;
+    bool burst = false;
+  };
+  std::optional<ReactionUpdate> parseReactionUpdate(std::string_view type, const nlohmann::json& data);
   struct Message {
     std::string id;
     std::string channelId;
@@ -123,6 +143,8 @@ namespace discord {
     std::vector<Attachment> attachments;
     std::vector<Embed> embeds;
     std::map<std::string, std::string> mentions;
+    std::optional<MessageReference> reply;
+    std::vector<Reaction> reactions;
   };
 
   struct MessagePatch {
@@ -130,9 +152,12 @@ namespace discord {
     std::optional<std::vector<Attachment>> attachments;
     std::optional<std::vector<Embed>> embeds;
     std::optional<std::map<std::string, std::string>> mentions;
+    std::optional<std::optional<MessageReference>> reply;
+    std::optional<std::vector<Reaction>> reactions;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);
+  void applyReaction(Message& message, const ReactionUpdate& update, const std::string& self);
 
   // Parse only protocol data; presentation and account lookups stay outside these records.
   Account parseAccount(const nlohmann::json& value);

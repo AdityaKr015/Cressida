@@ -14,6 +14,11 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 
 - **Real-time chat:** new messages, edits and deletions through Discord's Gateway;
   Markdown, code blocks, mentions, Unicode/custom emoji and embed cards.
+- **Message actions:** native context menus with icons, replies, editing/deleting
+  your own messages, copy text/link/ID, and a hover emoji submenu. Four quick
+  reactions adapt to successful local usage; hover a reaction to see who reacted.
+- **People:** native profile cards, opening DMs, friend nicknames and relationship
+  actions, blocking/unblocking, and muting existing conversations.
 - **Your servers:** saved server order and folders, icons, channel categories,
   collapsible sections and a member sidebar with role group counts.
 - **Direct messages:** personal/group conversations, avatars, unread styling and
@@ -102,6 +107,25 @@ through visible images, and press Escape or click the backdrop to close. Ctrl+C
 copies the viewed PNG/JPEG/WebP. **Open original** opens its source in the browser.
 Code blocks and messages offer Copy on hover; message text also supports selection.
 
+Right-click a message for its actions. The top row holds your four most-used
+reactions in this client, initially ❤️ 👍 😂 🔥. Hover **Add Reaction** for a
+scrollable Unicode emoji list, or use Up/Down, Right to open it, Left to go back,
+and Enter to choose. Tab focuses the quick row; Left/Right selects a quick emoji.
+Click a reaction chip to add/remove your reaction; hover it
+to load the people who reacted, using your personal nicknames. Tooltips show up to
+eight names and summarize additional fetched people. Each normal/super-reaction
+lookup loads at most 100 users; this is not a complete paginated reaction browser.
+
+**Reply** adds a per-channel reply banner above your draft. The author mention is
+off initially and can be enabled explicitly. Enter sends the reply; Shift+Enter
+inserts a line. Edit uses a native multiline editor with an explicit Save action.
+Deletion, blocking and removing friends have confirmation dialogs. Server
+permission errors leave the dialog open with an explanation.
+
+Right-click a username, avatar, member or DM row for profile, message, mention,
+friend and block actions. Conversation mute controls apply to existing DMs/groups.
+Blocked messages collapse locally and can be revealed without unblocking.
+
 | Shortcut | Action |
 | --- | --- |
 | Enter / Shift+Enter | Send / insert a new line |
@@ -113,7 +137,7 @@ Code blocks and messages offer Copy on hover; message text also supports selecti
 | Ctrl+plus / minus / 0 | Zoom in / out / reset |
 | Ctrl+wheel | Change interface scale |
 | Ctrl+comma | Open user settings |
-| Escape | Close settings, an image or the emoji picker |
+| Escape | Close a menu, dialog, settings, image or emoji picker |
 | Ctrl+Q | Quit |
 
 ## User settings
@@ -133,7 +157,7 @@ interface scale and compact spacing. **Text & Images** controls embed and image
 previews. These display preferences apply locally and save per account in
 `$XDG_STATE_HOME/cressida/session.json`, falling back to
 `~/.local/state/cressida/session.json`. The same owner-only file remembers
-navigation; it contains no credentials or profile text.
+navigation and local reaction usage; it contains no credentials or profile text.
 
 Existing `discord-cpp/session.json` state is read automatically until the first
 save migrates it to the Cressida directory. Other accounts and per-server channel
@@ -152,20 +176,53 @@ Initial history loads the latest 50 messages; the live timeline retains up to 20
 Recently visited conversations and member lists use a bounded session cache.
 REST/CDN connections are reused, and media completion wakes the UI immediately.
 
-Voice/video, starting new DM conversations, older-history pagination, arbitrary
-file uploads, drag-and-drop, syntax highlighting and persistent login remain
-future work. Animated media currently uses a static frame. Muted-channel unread
-filtering and detailed mention-count badges are also pending.
+Voice/video, older-history pagination, arbitrary file uploads, drag-and-drop,
+syntax highlighting and persistent login remain future work. Animated media
+currently uses a static frame. Message forwarding, threads, pins/bookmarks,
+reminders, apps, speech and moderation menus are not implemented. Reactions can
+be sent normally; sending super reactions and a full guild custom-emoji picker
+remain pending. Quick-reaction usage is local and does not import Discord's
+frequently used list. Explicit channel mute flags filter unread indicators;
+inherited guild mutes, timed-mute expiry and detailed mention-count badges still
+need fuller handling.
 
 ## Development
 
 ```sh
 just test                # Offline regression suite
+just run asan            # Run with symbolized Address/UndefinedBehaviorSanitizer reports
+just debug               # Run normally in GDB; print thread backtraces on a crash
 just build release       # Optimized build with LTO
 just test asan           # Address/undefined-behaviour sanitizers
 just format              # Format project C++ and Nix
 just check               # Build and test the locked Nix package
 ```
+
+To capture a crash, re-enter `nix develop` after updating the checkout, then run:
+
+```sh
+just run asan 2>&1 | tee /tmp/cressida-asan.log
+```
+
+Reproduce the problem and share the first sanitizer error, including its stack
+and allocation/free traces. The ASan build uses `-O1`, full debug information,
+frame pointers, and ASan/UBSan; runtime reports use the shell's `llvm-symbolizer`
+and stop at the first error. Existing ASan directories are reconfigured with these
+flags. User-supplied `ASAN_OPTIONS`/`UBSAN_OPTIONS` override the defaults.
+GUI runs disable exit-time leak checks by default because driver/font globals
+can obscure the crash report; `ASAN_OPTIONS=detect_leaks=1 just run asan` enables
+them. `just test asan` retains the runtime's default leak checks.
+
+If the issue only reproduces without ASan, use
+`just debug 2>&1 | tee /tmp/cressida-debug.log` instead. It runs the debug build
+under GDB and prints backtraces when it stops, including caught `std::bad_alloc`
+exceptions before the top-level handler exits. Frame arguments and local variables
+are omitted. A desktop-only offline replay is available with
+`CRESSIDA_DEMO_VIEW=interaction-cycle just run debug --smoke-test`; this exercises
+picker/menu transitions over 64 frames without account access.
+
+If startup reports a stale renderer library, run `just rebuild` to compile the
+client and shared controls together, then `just run`.
 
 Run `just` for the full recipe list. Re-enter `nix develop` after dependency or
 flake-lock changes. The project requires libcurl with WebSocket support; the Nix
@@ -174,7 +231,8 @@ are regular project files with no dependency on another checkout.
 
 Tests use synthetic data and loopback peers, with no Discord credentials or real
 account mutations. GPU smoke checks use the offline demo. Live account testing
-is still needed for newly added settings, uploads and read acknowledgements.
+is still needed for newly added settings, uploads, context actions, reaction
+lookups and read acknowledgements.
 
 [`AGENTS.md`](AGENTS.md) documents architecture, development rules, protocol
 research and remaining implementation work.

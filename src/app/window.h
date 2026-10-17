@@ -44,6 +44,7 @@ namespace app {
 
     std::function<void()> draw;
     std::function<void(float, float, std::uint32_t)> click;
+    std::function<void(float, float)> contextClick;
     std::function<void(float, float)> motion;
     std::function<void()> released;
     std::function<void()> pointerLeft;

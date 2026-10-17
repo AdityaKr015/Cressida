@@ -125,7 +125,7 @@ namespace discord {
           );
         long status = 0;
         curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status);
-        auto json = Json::parse(transfer.body, nullptr, false);
+        auto json = decodeRestBody(status, transfer.body);
         // Only Discord rate limits impose a delay; successful reads need no fixed pause.
         if (status == 429) {
           double seconds = 1.0;
@@ -238,9 +238,11 @@ namespace discord {
           command.customStatus = pending.customStatus;
       std::erase_if(m_commands, [](const auto& pending) { return pending.operation == Operation::SavePresence; });
     }
-    if (command.operation != Operation::Send && std::ranges::any_of(m_commands, [&](const auto& pending) {
-          return pending.operation == command.operation && pending.resource == command.resource;
-        }))
+    if (command.operation != Operation::Send
+        && command.operation != Operation::Interaction
+        && std::ranges::any_of(m_commands, [&](const auto& pending) {
+             return pending.operation == command.operation && pending.resource == command.resource;
+           }))
       return true;
     m_commands.push_back(std::move(command));
     m_ready.notify_all();
@@ -250,13 +252,25 @@ namespace discord {
   bool Client::channels(const std::string& id) { return enqueue({Operation::Channels, m_session, id, {}}); }
   bool Client::privateChannels() { return enqueue({Operation::PrivateChannels, m_session, {}, {}}); }
   bool Client::messages(const std::string& id) { return enqueue({Operation::Messages, m_session, id, {}}); }
-  bool Client::send(const std::string& id, std::string content, std::vector<Upload> uploads) {
+  bool Client::send(
+      const std::string& id, std::string content, std::vector<Upload> uploads, std::optional<MessageReference> reply
+  ) {
     if ((content.empty() && uploads.empty())
         || content.size() > 8000
         || utf8Length(content) > 2000
-        || !validUploads(uploads))
+        || !validUploads(uploads)
+        || (reply && (!validSnowflake(reply->message) || reply->channel != id)))
       return false;
-    return enqueue({Operation::Send, m_session, id, std::move(content), {}, std::move(uploads)});
+    Command command{Operation::Send, m_session, id, std::move(content), {}, std::move(uploads)};
+    command.reply = std::move(reply);
+    return enqueue(std::move(command));
+  }
+  bool Client::interact(discord::Interaction action) {
+    if (!interactionRequest(action))
+      return false;
+    Command command{Operation::Interaction, m_session, action.channel, {}};
+    command.interaction = std::move(action);
+    return enqueue(std::move(command));
   }
 
   bool Client::accountSettings() { return enqueue({Operation::AccountSettings, m_session, {}, {}}); }
@@ -325,7 +339,7 @@ namespace discord {
         m_self.clear();
       }
       auto users = m_userDirectory.consume(type, data);
-      if (users.reset || !users.users.empty()) {
+      if (users.reset || !users.users.empty() || !users.mutedChannels.empty()) {
         Event event{.operation = Operation::UserState, .session = session};
         event.users = std::move(users);
         publish(std::move(event));
@@ -472,6 +486,10 @@ namespace discord {
         Event event{.operation = Operation::PrivateChannelDelete, .session = session};
         event.resource = data.at("id");
         publish(std::move(event));
+      } else if (auto reaction = parseReactionUpdate(type, data)) {
+        Event event{.operation = Operation::Reaction, .session = session, .resource = reaction->channel};
+        event.reaction = std::move(reaction);
+        publish(std::move(event));
       } else if (type == "MESSAGE_CREATE") {
         m_readState.message(data, m_self);
         publishReads();
@@ -572,7 +590,16 @@ namespace discord {
         std::string path;
         Json body;
         const char* method = nullptr;
+        std::optional<InteractionRequest> interaction;
         switch (command.operation) {
+        case Operation::Interaction:
+          if (!command.interaction || !(interaction = interactionRequest(*command.interaction)))
+            continue;
+          event.interaction = command.interaction;
+          path = interaction->path;
+          body = interaction->body;
+          method = interaction->method.c_str();
+          break;
         case Operation::Acknowledge:
           path = "/channels/" + command.resource + "/messages/" + command.content + "/ack";
           body = {{"token", nullptr}, {"manual", false}};
@@ -632,7 +659,7 @@ namespace discord {
           break;
         case Operation::Send:
           path = "/channels/" + command.resource + "/messages";
-          body = {{"content", command.content}, {"allowed_mentions", {{"parse", Json::array()}}}};
+          body = messageBody(command.content, command.reply);
           if (!command.uploads.empty()) {
             body["attachments"] = Json::array();
             for (std::size_t i = 0; i < command.uploads.size(); ++i)
@@ -643,8 +670,9 @@ namespace discord {
           continue;
         }
         auto response = request(
-            token, path, (command.operation == Operation::Send || method) ? &body : nullptr, transfer, cooldown,
-            command.uploads, method
+            token, path,
+            (interaction ? !body.is_null() : command.operation == Operation::Send || method) ? &body : nullptr,
+            transfer, cooldown, command.uploads, method
         );
         if (!response) {
           event.error = response.error().message;
@@ -692,6 +720,24 @@ namespace discord {
             }
             break;
           }
+          case Operation::Interaction:
+            if (command.interaction->kind == InteractionKind::ListReactions)
+              event.reactors = parseReactors(*response);
+            else if (command.interaction->kind == InteractionKind::EditMessage)
+              event.messages = parseMessages(Json::array({*response}));
+            else if (command.interaction->kind == InteractionKind::OpenDm)
+              event.channels = parsePrivateChannels(Json::array({*response}));
+            else if (command.interaction->kind == InteractionKind::UserProfile) {
+              event.account = parseAccount(response->at("user"));
+              if (response->contains("user_profile") && (*response)["user_profile"].is_object()) {
+                const auto& profile = (*response)["user_profile"];
+                if (profile.contains("bio") && profile["bio"].is_string())
+                  event.account.bio = profile["bio"];
+                if (profile.contains("pronouns") && profile["pronouns"].is_string())
+                  event.account.pronouns = profile["pronouns"];
+              }
+            }
+            break;
           case Operation::AccountSettings:
           case Operation::SaveAccountSettings:
             if (response->value("out_of_date", false))

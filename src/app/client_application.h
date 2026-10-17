@@ -6,12 +6,14 @@
 #include "app/window.h"
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
+#include "core/timer_manager.h"
 #include "discord/assets.h"
 #include "discord/client.h"
 #include "render/core/color.h"
 #include "render/core/texture_handle.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
+#include "ui/controls/context_menu.h"
 #include "ui/controls/input.h"
 
 #include <chrono>
@@ -74,7 +76,34 @@ namespace app {
       OpenUrl,
       RevealSpoiler,
       SelectMessage,
-      SignOut
+      SignOut,
+      MessageMenu,
+      UserMenu,
+      ConversationMenu,
+      UserProfile,
+      Reply,
+      CancelReply,
+      ToggleReplyMention,
+      AddReaction,
+      ToggleReaction,
+      EditMessage,
+      DeleteMessage,
+      CopyLink,
+      CopyId,
+      MentionUser,
+      OpenDm,
+      BlockUser,
+      UnblockUser,
+      AddFriend,
+      RemoveFriend,
+      SetNickname,
+      MuteConversation,
+      UnmuteConversation,
+      SubmitDialog,
+      CloseDialog,
+      JumpReply,
+      RevealBlocked,
+      QuickReaction
     };
     struct Hit {
       float x, y, width, height;
@@ -141,6 +170,31 @@ namespace app {
     std::string channelName(const discord::Channel& channel) const;
     void updateDmMembers();
     void statusBadge(Node& parent, float x, float y, const std::string& status, Color backdrop);
+    void openContext(float x, float y);
+    void closeContext();
+    void drawContext(Node& root, float w, float h);
+    void contextAction(Action action);
+    bool overlayKey(const Key& key);
+    bool overlayClick(float x, float y);
+    discord::Account lookupUser(const std::string& id) const;
+    bool startInteraction(discord::Interaction action);
+    void interactionResult(const discord::Event& event);
+    void showProfile(const std::string& user);
+    void drawDialog(Node& root, float w, float h);
+    void submitDialog();
+    void closeDialog();
+    float reactionStrip(Node* parent, const discord::Message& message, float x, float y, float width);
+    bool blockedMessage(const discord::Message& message) const;
+    bool interactionAction(const Hit& hit);
+    void clearInteractions();
+    void contextMotion(float x, float y);
+    void scrollContext(float delta);
+    void chooseReaction(const std::string& emoji);
+    void openReactionSubmenu(float rowCenter);
+    void hoverReaction(const discord::Message& message, const discord::Reaction& reaction, const Hit& chip);
+    void requestReactors(discord::Interaction action);
+    void invalidateReactors(const std::string& channel, const std::string& message);
+    void demoInteractionStep();
 
     Window m_window;
     discord::Client m_client;
@@ -169,8 +223,47 @@ namespace app {
     std::string m_focusedInput, m_pasteInput;
     bool m_buildingScene = false, m_emojiMenu = false;
     std::string m_tooltip;
+    std::vector<Hit> m_contextTargets;
+    std::vector<ContextMenuControlEntry> m_contextEntries;
+    ContextMenuControl* m_contextControl = nullptr;
+    ContextMenuControl* m_reactionControl = nullptr;
+    std::vector<std::string> m_frequentReactions{"❤️", "👍", "😂", "🔥"};
+    std::vector<std::pair<std::string, std::string>> m_reactionChoices;
+    bool m_reactionSubmenu = false, m_reactionSubmenuDirty = false, m_reactionSubmenuFocus = false;
+    float m_reactionSubmenuAnchor = 0, m_reactionSubmenuScroll = 0, m_reactionSubmenuHeight = 0;
+    Hit m_reactionSubmenuBounds{};
+    bool m_contextOpen = false, m_contextDirty = false;
+    int m_contextQuickIndex = -1;
+    float m_contextX = 0, m_contextY = 0;
+    Hit m_contextBounds{}, m_dialogBounds{};
+    std::string m_contextMessage, m_contextUser, m_contextChannel;
+    std::string m_dialogKind, m_dialogTitle, m_dialogText, m_dialogError;
+    std::optional<discord::Interaction> m_dialogAction;
+    discord::Account m_dialogAccount;
+    bool m_dialogPending = false;
+    std::uint64_t m_dialogGeneration = 0, m_pasteDialogGeneration = 0;
+    std::set<std::string> m_pendingInteractions, m_revealedBlocked;
+    std::map<std::string, discord::MessageReference> m_replies;
+    std::optional<discord::MessageReference> m_pendingReply;
+    std::string m_reactionMessage, m_reactionChannel;
+    struct ReactorPage {
+      std::vector<discord::Account> users;
+      std::string error;
+      bool pending = false, loaded = false;
+      std::uint64_t revision = 0;
+      std::chrono::steady_clock::time_point touched{};
+    };
+    std::map<std::string, ReactorPage> m_reactorPages;
+    std::uint64_t m_reactorSerial = 0;
+    std::string m_hoverReactionKey;
+    Timer m_reactorHoverTimer;
+    bool m_reactionHoveredThisFrame = false;
+    std::map<std::string, float> m_messageTops;
     float m_tooltipX = 0, m_tooltipY = 0, m_composerTop = 0;
     bool m_demo = false, m_demoPrepared = false;
+    std::string m_demoOverlay;
+    bool m_demoOverlayApplied = false;
+    unsigned m_demoInteractionStep = 0;
     bool m_connected = false;
     bool m_connecting = false;
     bool m_showTokenEntry = false;

@@ -15,6 +15,8 @@ namespace discord {
     if (update.reset) {
       m_names.clear();
       m_statuses.clear();
+      m_relationships.clear();
+      m_mutedChannels.clear();
     }
     for (const auto& [id, user] : update.users) {
       if (!validSnowflake(id))
@@ -27,7 +29,12 @@ namespace discord {
       }
       if (user.status && (m_statuses.contains(id) || m_statuses.size() < maxUsers))
         m_statuses[id] = *user.status;
+      if (user.relationship && (m_relationships.contains(id) || m_relationships.size() < maxUsers))
+        m_relationships[id] = *user.relationship;
     }
+    for (const auto& [id, muted] : update.mutedChannels)
+      if (validSnowflake(id) && (m_mutedChannels.contains(id) || m_mutedChannels.size() < maxUsers))
+        m_mutedChannels[id] = muted;
   }
 
   std::string UserDirectory::name(const std::string& user, const std::string& fallback) const {
@@ -37,6 +44,14 @@ namespace discord {
   std::string UserDirectory::status(const std::string& user, const std::string& fallback) const {
     const auto found = m_statuses.find(user);
     return found == m_statuses.end() ? fallback : found->second;
+  }
+  int UserDirectory::relationship(const std::string& user) const {
+    const auto found = m_relationships.find(user);
+    return found == m_relationships.end() ? 0 : found->second;
+  }
+  bool UserDirectory::muted(const std::string& channel) const {
+    const auto found = m_mutedChannels.find(channel);
+    return found != m_mutedChannels.end() && found->second;
   }
 
   UserUpdates UserDirectory::consume(std::string_view type, const nlohmann::json& data) {
@@ -54,6 +69,10 @@ namespace discord {
       auto id = text(item, "id");
       if (!validSnowflake(id) || changes.users.size() >= maxUsers)
         return;
+      if (removed)
+        changes.users[id].relationship = 0;
+      else if (item.contains("type") && item["type"].is_number_integer())
+        changes.users[id].relationship = item["type"].get<int>();
       const auto nickname = item.find("nickname");
       if (removed || (nickname != item.end() && nickname->is_null()))
         changes.users[id].nickname = "";
@@ -106,7 +125,31 @@ namespace discord {
       if (changes.users.size() < maxUsers || changes.users.contains(id))
         changes.users[id].status = status;
     };
+    auto notificationSettings = [&](const nlohmann::json& settings) {
+      if (!settings.is_object() || !settings.contains("channel_overrides") || !settings["channel_overrides"].is_array())
+        return;
+      for (const auto& channel : settings["channel_overrides"]) {
+        const auto id = text(channel, "channel_id");
+        if (validSnowflake(id)
+            && channel.contains("muted")
+            && channel["muted"].is_boolean()
+            && changes.mutedChannels.size() < maxUsers) {
+          bool muted = channel["muted"].get<bool>();
+          // Expiring mutes are reconciled by subsequent settings updates; an
+          // indefinite mute from this client uses end_time=null.
+          changes.mutedChannels[id] = muted;
+        }
+      }
+    };
     if (type == "READY" || type == "READY_SUPPLEMENTAL") {
+      if (const auto settings = data.find("user_guild_settings"); settings != data.end()) {
+        const auto* entries = &*settings;
+        if (entries->is_object() && entries->contains("entries"))
+          entries = &(*entries)["entries"];
+        if (entries->is_array())
+          for (const auto& item : *entries)
+            notificationSettings(item);
+      }
       if (const auto relationships = data.find("relationships"); relationships != data.end()) {
         const auto* entries = &*relationships;
         if (entries->is_object() && entries->contains("entries"))
@@ -141,6 +184,8 @@ namespace discord {
       relationship(data, type == "RELATIONSHIP_REMOVE");
     else if (type == "PRESENCE_UPDATE")
       presence(data);
+    else if (type == "USER_GUILD_SETTINGS_UPDATE")
+      notificationSettings(data);
     apply(changes);
     return changes;
   }

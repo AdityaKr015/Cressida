@@ -89,7 +89,7 @@ if meson.can_run_host_binaries()
   endif
 endif
 backend = static_library('cressida-backend', 'src/discord/models.cpp', 'src/discord/client.cpp',
-  'src/discord/settings.cpp', 'src/discord/read_state.cpp', 'src/discord/user_directory.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp',
+  'src/discord/settings.cpp', 'src/discord/read_state.cpp', 'src/discord/user_directory.cpp', 'src/discord/actions.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp',
   include_directories: include_directories('src'),
   dependencies: backend_deps,
 )
@@ -117,7 +117,7 @@ markdown_dep = dependency('md4c')
 message_layout = static_library('message-layout', 'src/app/message_layout.cpp', dependencies: [render_dep, backend_dep, markdown_dep])
 message_layout_dep = declare_dependency(link_with: message_layout, dependencies: [render_dep, backend_dep, markdown_dep])
 client = executable('cressida',
-  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
+  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
   dependencies: [render_dep, backend_dep, browser_dep, markdown_dep],
   link_with: message_layout,
   cpp_args: client_args,
@@ -127,7 +127,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: render_source_paths + control_source_paths + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp'],
+  exclude_files: render_source_paths + control_source_paths + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -181,3 +181,9 @@ test('native_controls', control_test)
 
 directory_test = executable('user_directory_test', 'tests/user_directory_test.cpp', dependencies: backend_dep)
 test('user_directory', directory_test)
+
+interactions_test = executable('interactions_test', 'tests/interactions_test.cpp', dependencies: backend_dep)
+test('interactions', interactions_test)
+
+context_menu_test = executable('context_menu_test', 'tests/context_menu_test.cpp', dependencies: render_dep)
+test('context_menu', context_menu_test)

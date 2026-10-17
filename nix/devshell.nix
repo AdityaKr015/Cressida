@@ -27,6 +27,7 @@ mkShell {
     just
     nixfmt
     llvmPackages_22.clang-tools
+    llvmPackages_22.llvm
   ];
   shellHook = ''
     export CRESSIDA_ASSETS_DIR="$PWD/assets"

@@ -64,6 +64,7 @@ control_source_paths = [
   'ui/controls/virtual_list_view.cpp',
   'ui/controls/virtual_grid_view.cpp',
   'ui/controls/color_swatch_preview.cpp',
+  'ui/controls/context_menu.cpp',
   'ui/controls/screen_corner.cpp',
   'ui/controls/countdown_ring.cpp',
 
@@ -88,6 +89,7 @@ control_source_paths = [
   'ui/controls/scroll_view.cpp',
   'ui/controls/roving_list_nav.cpp',
   'ui/palette.cpp',
+  'ui/builders.cpp',
   'ui/style.cpp',
   'core/deferred_call.cpp',
   'core/timer_manager.cpp',

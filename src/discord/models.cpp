@@ -222,6 +222,51 @@ namespace discord {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
+    if (value.contains("message_reference")) {
+      patch.reply.emplace();
+      if (value["message_reference"].is_object()) {
+        const auto& reference = value["message_reference"];
+        MessageReference reply{text(reference, "message_id"), text(reference, "channel_id", text(value, "channel_id"))};
+        if (validSnowflake(reply.message)) {
+          if (const auto original = value.find("referenced_message"); original != value.end()) {
+            reply.deleted = original->is_null();
+            if (original->is_object()) {
+              reply.content = text(*original, "content");
+              if (original->contains("author") && (*original)["author"].is_object()) {
+                const auto author = parseAccount((*original)["author"]);
+                reply.authorId = author.id;
+                reply.author = author.name;
+              }
+            }
+          }
+          *patch.reply = std::move(reply);
+        }
+      }
+    }
+    if (value.contains("reactions") && value["reactions"].is_array()) {
+      patch.reactions.emplace();
+      for (const auto& item : value["reactions"]) {
+        if (patch.reactions->size() >= 100)
+          break;
+        if (!item.is_object() || !item.contains("emoji") || !item["emoji"].is_object())
+          continue;
+        Reaction reaction{text(item["emoji"], "id"), text(item["emoji"], "name")};
+        if ((!reaction.id.empty() && !validSnowflake(reaction.id)) || reaction.name.empty())
+          continue;
+        if (item.contains("count") && item["count"].is_number_integer())
+          reaction.count = static_cast<int>(std::clamp<std::int64_t>(item["count"].get<std::int64_t>(), 0, 100000000));
+        reaction.me = item.contains("me") && item["me"].is_boolean() && item["me"].get<bool>();
+        reaction.meBurst = item.contains("me_burst") && item["me_burst"].is_boolean() && item["me_burst"].get<bool>();
+        if (item.contains("count_details") && item["count_details"].is_object()) {
+          const auto& counts = item["count_details"];
+          if (counts.contains("burst") && counts["burst"].is_number_integer())
+            reaction.burstCount =
+                static_cast<int>(std::clamp<std::int64_t>(counts["burst"].get<std::int64_t>(), 0, reaction.count));
+        }
+        if (reaction.count > 0)
+          patch.reactions->push_back(std::move(reaction));
+      }
+    }
     if (value.contains("mentions") && value["mentions"].is_array()) {
       patch.mentions.emplace();
       for (const auto& user : value["mentions"]) {
@@ -286,6 +331,10 @@ namespace discord {
     return patch;
   }
   void MessagePatch::apply(Message& message) const {
+    if (reply)
+      message.reply = *reply;
+    if (reactions)
+      message.reactions = *reactions;
     if (content)
       message.content = *content;
     if (mentions)
@@ -294,6 +343,68 @@ namespace discord {
       message.attachments = *attachments;
     if (embeds)
       message.embeds = *embeds;
+  }
+
+  std::optional<ReactionUpdate> parseReactionUpdate(std::string_view type, const nlohmann::json& data) {
+    ReactionUpdate update;
+    if (type == "MESSAGE_REACTION_ADD")
+      update.kind = ReactionUpdate::Kind::Add;
+    else if (type == "MESSAGE_REACTION_REMOVE")
+      update.kind = ReactionUpdate::Kind::Remove;
+    else if (type == "MESSAGE_REACTION_REMOVE_EMOJI")
+      update.kind = ReactionUpdate::Kind::RemoveEmoji;
+    else if (type == "MESSAGE_REACTION_REMOVE_ALL")
+      update.kind = ReactionUpdate::Kind::RemoveAll;
+    else
+      return {};
+    update.channel = text(data, "channel_id");
+    update.message = text(data, "message_id");
+    update.user = text(data, "user_id");
+    update.burst = data.contains("burst") && data["burst"].is_boolean() && data["burst"].get<bool>();
+    if (data.contains("type") && data["type"].is_number_integer())
+      update.burst = update.burst || data["type"] == 1;
+    if (!validSnowflake(update.channel) || !validSnowflake(update.message))
+      return {};
+    if (update.kind != ReactionUpdate::Kind::RemoveAll) {
+      if (!data.contains("emoji") || !data["emoji"].is_object())
+        return {};
+      update.emoji.id = text(data["emoji"], "id");
+      update.emoji.name = text(data["emoji"], "name");
+      if ((!update.emoji.id.empty() && !validSnowflake(update.emoji.id))
+          || (update.emoji.id.empty() && update.emoji.name.empty()))
+        return {};
+    }
+    return update;
+  }
+  void applyReaction(Message& message, const ReactionUpdate& update, const std::string& self) {
+    if (message.id != update.message || message.channelId != update.channel)
+      return;
+    if (update.kind == ReactionUpdate::Kind::RemoveAll) {
+      message.reactions.clear();
+      return;
+    }
+    auto found = std::ranges::find_if(message.reactions, [&](const auto& emoji) {
+      return emoji.id == update.emoji.id && (!emoji.id.empty() || emoji.name == update.emoji.name);
+    });
+    if (update.kind == ReactionUpdate::Kind::RemoveEmoji) {
+      if (found != message.reactions.end())
+        message.reactions.erase(found);
+      return;
+    }
+    if (found == message.reactions.end()) {
+      if (update.kind != ReactionUpdate::Kind::Add || message.reactions.size() >= 100)
+        return;
+      message.reactions.push_back(update.emoji);
+      found = std::prev(message.reactions.end());
+    }
+    const bool add = update.kind == ReactionUpdate::Kind::Add;
+    found->count = std::clamp(found->count + (add ? 1 : -1), 0, 100000000);
+    if (update.burst)
+      found->burstCount = std::clamp(found->burstCount + (add ? 1 : -1), 0, found->count);
+    if (!self.empty() && update.user == self)
+      (update.burst ? found->meBurst : found->me) = add;
+    if (found->count == 0)
+      message.reactions.erase(found);
   }
 
   std::vector<Message> parseMessages(const nlohmann::json& value) {

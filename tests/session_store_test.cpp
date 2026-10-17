@@ -49,6 +49,22 @@ int main() {
       store.savePreferences("789", {"light", 16});
     }
     app::SessionStore restored(path);
+    require(
+        restored.frequentReactions("123") == std::vector<std::string>{"❤️", "👍", "😂", "🔥"},
+        "New accounts get familiar quick reaction defaults"
+    );
+    restored.recordReaction("123", "🎉");
+    restored.recordReaction("123", "🎉");
+    restored.recordReaction("123", "wave:123");
+    restored.recordReaction("123", "../invalid");
+    require(restored.frequentReactions("123").front() == "🎉", "Quick reactions rank successful local usage");
+    require(restored.frequentReactions("456").front() == "❤️", "Reaction history stays account-scoped");
+    restored.savePreferences("123", {"midnight", 18, true, false, true});
+    restored.save("123", {"10", "20", 1.2F});
+    require(
+        app::SessionStore(path).frequentReactions("123").front() == "🎉",
+        "Channel and preference saves preserve reaction usage across restarts"
+    );
     const auto first = restored.load("123"), second = restored.load("456");
     require(
         first && first->guild == "10" && first->channel == "20" && std::abs(first->scale - 1.2F) < 0.01F,
@@ -77,6 +93,15 @@ int main() {
         "DM history and account histories do not leak across servers"
     );
     struct stat state{};
+    for (int i = 1; i <= 75; ++i)
+      restored.recordReaction("123", "sample:" + std::to_string(i));
+    require(
+        restored.frequentReactions("123").size() <= 68, "Reaction usage is bounded to 64 records plus missing defaults"
+    );
+    require(
+        restored.load("456")->channel == "30" && restored.preferences("123").theme == "midnight",
+        "Pruning emoji history preserves other account data"
+    );
     require(
         stat(path.c_str(), &state) == 0 && (state.st_mode & 0777) == 0600,
         "Private UI state must be owner-readable only"

@@ -1,3 +1,4 @@
+#include "discord/actions.h"
 #include "discord/uploads.h"
 
 #include <iostream>
@@ -13,10 +14,15 @@ int main(int argc, char** argv) {
     const std::vector<discord::Upload> uploads{
         {"plant.png", "image/png", {0x89, 'P', 'N', 'G', 0, 10, 255}}, {"second.jpg", "image/jpeg", {255, 216, 255}}
     };
-    const auto payload = json{
-        {"content", "first\nsecond 🌿"},
-        {"attachments", json::array({{{"id", 0}, {"filename", "plant.png"}}, {{"id", 1}, {"filename", "second.jpg"}}})}
-    }.dump();
+    auto body = discord::messageBody("first\nsecond 🌿", discord::MessageReference{"20", "10"});
+    body.update(
+        json{
+            {"content", "first\nsecond 🌿"},
+            {"attachments",
+             json::array({{{"id", 0}, {"filename", "plant.png"}}, {{"id", 1}, {"filename", "second.jpg"}}})}
+        }
+    );
+    const auto payload = body.dump();
     auto mime = discord::makeMessageMime(curl.get(), payload, uploads);
     curl_easy_setopt(curl.get(), CURLOPT_URL, argv[1]);
     curl_easy_setopt(curl.get(), CURLOPT_MIMEPOST, mime.get());

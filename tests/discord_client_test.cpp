@@ -19,6 +19,12 @@ int main() {
     require(!client.channels("123"), "Channels require an authenticated session");
     require(!client.send("123", "hello"), "Sending requires an authenticated session");
     require(
+        !client.interact({.kind = discord::InteractionKind::Block, .user = "7"})
+            && !client.interact({.kind = discord::InteractionKind::DeleteMessage, .channel = "10", .message = "20"})
+            && !client.send("10", "reply", {}, discord::MessageReference{"20", "99"}),
+        "Disconnected actions and cross-channel reply references never perform requests"
+    );
+    require(
         !client.profile() && !client.saveProfile({"123", "Alex"}), "Account settings require an authenticated session"
     );
     require(

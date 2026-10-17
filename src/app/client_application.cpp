@@ -44,12 +44,15 @@ namespace app {
     m_window.draw = [this] {
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "interaction-cycle")
+        demoInteractionStep();
     };
     m_window.motion = [this](float x, float y) {
       m_pointerX = x;
       y += 36 - m_window.titlebarHeight();
       m_pointerY = y;
       m_controlInput.pointerMotion(x, y + m_window.titlebarHeight() - 36, 0);
+      contextMotion(x, y);
       if (m_dragImage) {
         m_viewPanX += x - m_imageDragX;
         m_viewPanY += y - m_imageDragY;
@@ -76,6 +79,8 @@ namespace app {
       y += 36 - m_window.titlebarHeight();
       m_pointerX = x;
       m_pointerY = y;
+      if (overlayClick(x, y))
+        return;
       if (m_viewImage.empty()
           && !m_presenceMenu
           && !m_emojiMenu
@@ -96,6 +101,13 @@ namespace app {
       m_selectAll = false;
       m_window.invalidate();
     };
+    m_window.contextClick = [this](float x, float y) {
+      y += 36 - m_window.titlebarHeight();
+      m_pointerX = x;
+      m_pointerY = y;
+      m_dragDraft = m_dragMessage = false;
+      openContext(x, y);
+    };
     m_window.key = [this](const Key& key) { onKey(key); };
     m_window.zoom = [this](float delta) {
       if (!m_viewImage.empty()) {
@@ -111,6 +123,8 @@ namespace app {
         return;
       if (!m_pasteInput.empty()) {
         auto id = std::exchange(m_pasteInput, {});
+        if (id == "dialog" && m_pasteDialogGeneration != m_dialogGeneration)
+          return;
         if (id == m_focusedInput && mime.starts_with("text/plain")) {
           pasteControl(id, std::move(bytes));
           return;
@@ -158,6 +172,12 @@ namespace app {
       m_window.invalidate();
     };
     m_window.scroll = [this](float delta) {
+      if (m_contextOpen) {
+        scrollContext(delta);
+        return;
+      }
+      if (!m_dialogKind.empty())
+        return;
       if (m_settingsOpen) {
         auto& scroll = m_pointerX < m_settingsNavRight ? m_settingsNavScroll : m_settingsScroll;
         scroll = std::max(0.0F, scroll + delta * 3);
@@ -202,10 +222,18 @@ namespace app {
   }
 
   int ClientApplication::run(bool smokeTest) {
+    if (ContextMenuControl::compiledEntrySize() != sizeof(ContextMenuControlEntry))
+      throw std::runtime_error(
+          "The renderer library is stale: its menu layout differs from the client. Run just rebuild."
+      );
     m_window.initialize();
     if (!m_demo && !m_token.empty())
       connect();
-    m_window.run(m_client.eventFd(), [this] { tick(); }, smokeTest ? 1 : 0, m_assets.eventFd());
+    const auto* view = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW");
+    const bool interactionCycle = m_demo && view && std::string_view(view) == "interaction-cycle";
+    m_window.run(
+        m_client.eventFd(), [this] { tick(); }, smokeTest ? (interactionCycle ? 64 : 1) : 0, m_assets.eventFd()
+    );
     m_client.disconnect();
     return 0;
   }
@@ -240,6 +268,35 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view == "message-menu"
+            || view == "interaction-cycle"
+            || view == "reaction-submenu"
+            || view == "reaction-people"
+            || view == "reaction-loading"
+            || view == "user-menu"
+            || view == "reply"
+            || view == "edit-message"
+            || view == "block-user"
+            || view == "user-profile"
+            || view == "reactions"
+            || view == "tooltip-long"
+            || view == "blocked") {
+          m_demoOverlay = view;
+          // Keep interaction previews focused on the conversation, rather than
+          // scrolling it above the large media fixture used by the regular demo.
+          m_messages.resize(5);
+          m_messages.back().embeds.clear();
+          const std::vector<std::string> authors{"11", "12", "1", "11", "12", "1"};
+          for (std::size_t i = 0; i < m_messages.size() && i < authors.size(); ++i)
+            m_messages[i].authorId = authors[i];
+          m_messages[2].reactions = {{"", "👍", 3, true}, {"", "🎉", 2}, {"", "❤️", 5}};
+          m_messages[1].reply = discord::MessageReference{"1", m_channelId, "11", "Maya", m_messages.front().content};
+          discord::UserUpdates users;
+          users.users["11"].relationship = view == "blocked" ? 2 : 1;
+          m_userDirectory.apply(users);
+          if (view == "reply")
+            m_replies[m_channelId] = {"1", m_channelId, "11", "Maya", m_messages.front().content};
+        }
         if (view == "composer") {
           m_drafts[m_channelId] = "A centered message";
         } else if (view == "emoji-picker")
@@ -420,6 +477,9 @@ namespace app {
     theme::select(m_preferences.theme);
     const float w = m_window.width(), h = m_window.height() + 36 - m_window.titlebarHeight();
     m_tooltip.clear();
+    m_reactionHoveredThisFrame = false;
+    m_contextTargets.clear();
+    m_messageTops.clear();
     m_textAreas.clear();
     m_messageText.clear();
     if (m_viewImage.empty())
@@ -510,7 +570,7 @@ namespace app {
       };
       std::vector<RailRow> rail;
       for (const auto& dm : m_privateChannels)
-        if (m_unreadDMs.contains(dm.id))
+        if (m_unreadDMs.contains(dm.id) && !m_userDirectory.muted(dm.id))
           rail.push_back({nullptr, nullptr, &dm});
       const auto unreadDMRows = rail.size();
       for (const auto& folder : m_folders) {
@@ -567,7 +627,9 @@ namespace app {
         if (!image(root, 14, y, 48, guild.icon, selected || over ? 16 : 23))
           label(root, 30, y + 12, 24, initial(guild.name), 19, selected ? ink : foreground, FontWeight::SemiBold);
         const bool unread = std::ranges::any_of(m_unreadGuilds, [&](const auto& state) {
-          return state.second == guild.id && m_unreadChannels.contains(state.first);
+          return state.second == guild.id
+              && m_unreadChannels.contains(state.first)
+              && !m_userDirectory.muted(state.first);
         });
         if (selected || over || unread)
           rectangle(
@@ -596,7 +658,8 @@ namespace app {
           continue;
         }
         const bool selected = channel.id == m_channelId;
-        const bool unread = m_unreadChannels.contains(channel.id) || m_unreadDMs.contains(channel.id);
+        const bool unread = (m_unreadChannels.contains(channel.id) || m_unreadDMs.contains(channel.id))
+            && !m_userDirectory.muted(channel.id);
         const bool over = hovered(90, y, 224, 34);
         if (selected || over)
           rectangle(root, 90, y, 224, 34, selected ? raised : panel, 8);
@@ -619,6 +682,8 @@ namespace app {
             selected || unread ? FontWeight::SemiBold : FontWeight::Normal
         );
         m_hits.push_back({90, y, 224, 34, Action::Channel, channel.id});
+        if (m_dmMode)
+          m_contextTargets.push_back({90, y, 224, 34, Action::ConversationMenu, channel.id});
       }
       if (m_channels.empty())
         label(
@@ -673,7 +738,8 @@ namespace app {
           m_draftStops.empty() ? 22 : m_draftStops.back().y + std::max(22.0F, m_draftStops.back().height);
       m_draftHeight = std::clamp(fullDraftHeight, 22.0F, std::min(160.0F, h * 0.3F));
       const float attachmentHeight = m_attachments[m_channelId].empty() ? 0 : 106;
-      const float composerHeight = m_draftHeight + 24 + attachmentHeight;
+      const float replyHeight = m_replies.contains(m_channelId) ? 34 : 0;
+      const float composerHeight = m_draftHeight + 24 + attachmentHeight + replyHeight;
       const float composerY = h - 30 - composerHeight;
       const float top = 122, bottom = composerY - 16, textWidth = std::max(32.0F, bodyWidth - 104);
       const MessageMeasure measure = [&](std::string_view text, const MessageStyle& style) {
@@ -717,7 +783,11 @@ namespace app {
           cached.scale = renderer.renderScale();
           cached.fonts = renderer.textMetricsGeneration();
         }
-        const float height = std::max(22.0F, cached.layout.height) + (m_preferences.compact ? 26 : 34);
+        const float height = blockedMessage(message) ? 36
+                                                     : std::max(22.0F, cached.layout.height)
+                + (m_preferences.compact ? 26 : 34)
+                + (message.reply ? 24 : 0)
+                + reactionStrip(nullptr, message, 0, 0, textWidth);
         layouts.push_back(&cached.layout);
         heights.push_back(height);
         totalHeight += height;
@@ -727,15 +797,63 @@ namespace app {
       float y = std::min(0.0F, bottom - top - totalHeight) + m_messageScroll + 12;
       for (std::size_t i = 0; i < m_messages.size(); ++i) {
         const auto& message = m_messages[i];
+        const float originalY = y;
+        m_messageTops[message.id] = top + y;
         if (y + heights[i] >= 0 && y <= bottom - top) {
           const auto firstHit = m_hits.size();
+          const auto rowTop = std::max(top, top + y), rowBottom = std::min(bottom, top + y + heights[i]);
+          m_contextTargets.push_back(
+              {left + 24, rowTop, bodyWidth - 48, std::max(0.0F, rowBottom - rowTop), Action::MessageMenu, message.id}
+          );
+          if (blockedMessage(message)) {
+            label(*content, 50, y + 7, textWidth, "Blocked message — click to show", 12, muted);
+            m_hits.push_back(
+                {left + 24, rowTop, bodyWidth - 48, std::max(0.0F, rowBottom - rowTop), Action::RevealBlocked,
+                 message.id}
+            );
+            y += heights[i];
+            continue;
+          }
+          if (message.reply) {
+            const auto& reply = *message.reply;
+            const auto name = userName(reply.authorId, reply.author.empty() ? "message" : reply.author);
+            label(
+                *content, 50, y, textWidth,
+                "↳ "
+                    + name
+                    + ": "
+                    + (reply.deleted               ? "Original message deleted"
+                           : reply.content.empty() ? "Original message"
+                                                   : reply.content),
+                12, muted
+            );
+            m_hits.push_back({left + 74, top + y, textWidth, 22, Action::JumpReply, reply.message});
+            y += 24;
+          }
           const auto author = userName(message.authorId, message.author);
           avatar(*content, 0, y + 1, 34, message.avatar, author);
           label(*content, 50, y, std::max(24.0F, textWidth - 64), author, 13, foreground, FontWeight::SemiBold);
+          if (!message.authorId.empty()) {
+            const auto avatarY = std::max(top, top + y);
+            const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 35) - avatarY);
+            const auto nameWidth = std::min(
+                std::max(24.0F, textWidth - 64),
+                m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4
+            );
+            m_contextTargets.push_back({left + 24, avatarY, 35, avatarH, Action::UserMenu, message.authorId});
+            m_contextTargets.push_back(
+                {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
+            );
+            m_hits.push_back({left + 24, avatarY, 35, avatarH, Action::UserProfile, message.authorId});
+            m_hits.push_back(
+                {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserProfile, message.authorId}
+            );
+          }
           const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
           label(*content, bodyWidth - 132, y + 1, 56, timestamp, 10, muted);
           const auto& layout = *layouts[i];
           const float bodyY = y + 18;
+          reactionStrip(content.get(), message, 50, bodyY + layout.height + 6, textWidth);
           m_messageText[message.id] = layout.plainText;
           m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
           // Card backgrounds precede nested code/quote decoration.
@@ -751,7 +869,7 @@ namespace app {
               rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
             if (!box.code.empty()) {
               const float bx = left + 74 + box.x + box.width - 54, by = top + bodyY + box.y + 4;
-              if (m_pointerX >= left && m_pointerY >= top + y && m_pointerY < top + y + heights[i]) {
+              if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
                 button(
                     *content, {50 + box.x + box.width - 54, bodyY + box.y + 4, 50, 24, Action::CopyCode, box.code},
                     "Copy"
@@ -812,8 +930,21 @@ namespace app {
               m_hits.push_back({px, py, pic.width, pic.height, Action::ViewImage, pic.media.url});
             }
           }
-          if (m_pointerX >= left && m_pointerY >= top + y && m_pointerY < top + y + heights[i]) {
-            button(*content, {bodyWidth - 182, y - 4, 52, 24, Action::CopyMessage, message.id}, "Copy");
+          if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
+            rectangle(*content, bodyWidth - 190, y - 8, 124, 34, panel, 7);
+            iconButton(
+                *content, {bodyWidth - 186, y - 4, 28, 26, Action::CopyMessage, message.id}, "copy", "Copy text"
+            );
+            iconButton(
+                *content, {bodyWidth - 156, y - 4, 28, 26, Action::Reply, message.id}, "corner-up-left", "Reply"
+            );
+            iconButton(
+                *content, {bodyWidth - 126, y - 4, 28, 26, Action::AddReaction, message.id}, "mood-smile",
+                "Add reaction"
+            );
+            iconButton(
+                *content, {bodyWidth - 96, y - 4, 28, 26, Action::MessageMenu, message.id}, "dots", "More actions"
+            );
           }
           for (auto index = firstHit; index < m_hits.size(); ++index) {
             auto& hit = m_hits[index];
@@ -822,7 +953,7 @@ namespace app {
             hit.height = std::max(0.0F, end - hit.y);
           }
         }
-        y += heights[i];
+        y = originalY + heights[i];
       }
       if (m_messages.empty()) {
         label(
@@ -840,8 +971,20 @@ namespace app {
       }
       root.addChild(std::move(content));
       rectangle(root, left + 22, composerY, bodyWidth - 44, composerHeight, m_fieldFocused ? raised : panel, 14);
+      if (replyHeight) {
+        const auto& reply = m_replies.at(m_channelId);
+        label(
+            root, left + 38, composerY + 9, bodyWidth - 220, "Replying to " + userName(reply.authorId, reply.author),
+            12, foreground
+        );
+        button(
+            root, {left + bodyWidth - 174, composerY + 3, 94, 28, Action::ToggleReplyMention, {}},
+            reply.mention ? "@ ON" : "@ OFF"
+        );
+        iconButton(root, {left + bodyWidth - 70, composerY + 3, 28, 28, Action::CancelReply, {}}, "x", "Cancel reply");
+      }
       m_attachmentX = left + 36;
-      m_attachmentY = composerY + 10;
+      m_attachmentY = composerY + replyHeight + 10;
       m_attachmentWidth = bodyWidth - 72;
       m_attachmentScroll = std::clamp(
           m_attachmentScroll, 0.0F, std::max(0.0F, m_attachments[m_channelId].size() * 96.0F - m_attachmentWidth)
@@ -869,10 +1012,10 @@ namespace app {
       root.addChild(std::move(previews));
       m_draftX = left + 74;
       m_composerTop = composerY;
-      m_draftY = composerY + attachmentHeight + 4;
+      m_draftY = composerY + replyHeight + attachmentHeight + 4;
       inputControl(
-          root, left + 68, m_draftY, m_draftWidth + 12, composerHeight - attachmentHeight - 8, "composer", draft,
-          m_demo ? "Demo mode is read-only" : "Message this channel…", true
+          root, left + 68, m_draftY, m_draftWidth + 12, composerHeight - attachmentHeight - replyHeight - 8, "composer",
+          draft, m_demo ? "Demo mode is read-only" : "Message this channel…", true
       );
       const auto actionY = composerY + composerHeight - 39;
       iconButton(
@@ -913,6 +1056,15 @@ namespace app {
             avatar(*members, 16, rowY + 5, 32, member.user.avatar, name);
             statusBadge(*members, 38, rowY + 27, status, sidebar);
             label(*members, 60, rowY + 12, memberWidth - 78, name, 13, status == "offline" ? muted : foreground);
+            const auto rowTop = std::max(148.0F, 148 + rowY), rowBottom = std::min(h - 10, 148 + rowY + 42);
+            m_contextTargets.push_back(
+                {memberX + 8, rowTop, memberWidth - 16, std::max(0.0F, rowBottom - rowTop), Action::UserMenu,
+                 member.user.id}
+            );
+            m_hits.push_back(
+                {memberX + 8, rowTop, memberWidth - 16, std::max(0.0F, rowBottom - rowTop), Action::UserProfile,
+                 member.user.id}
+            );
           }
         }
         if (m_members.empty())
@@ -928,6 +1080,71 @@ namespace app {
       drawEmojiPicker(root, w, h);
     if (!m_viewImage.empty())
       drawImageViewer(root, w, h);
+    if (m_demo && !m_demoOverlayApplied && !m_demoOverlay.empty()) {
+      m_demoOverlayApplied = true;
+      if (m_demoOverlay == "message-menu" || m_demoOverlay == "reaction-submenu" || m_demoOverlay == "user-menu") {
+        const auto target = std::ranges::find_if(m_contextTargets, [&](const auto& hit) {
+          return m_demoOverlay != "user-menu" ? hit.action == Action::MessageMenu && hit.id == "3"
+                                              : hit.action == Action::UserMenu && hit.id == "11";
+        });
+        if (target != m_contextTargets.end()) {
+          openContext(target->x + (m_demoOverlay == "user-menu" ? 8 : 110), target->y + 8);
+          if (m_demoOverlay == "reaction-submenu")
+            openReactionSubmenu(22);
+        }
+      } else if (m_demoOverlay == "edit-message" || m_demoOverlay == "block-user") {
+        m_contextMessage = "3";
+        m_contextUser = "11";
+        m_contextChannel = m_channelId;
+        contextAction(m_demoOverlay == "edit-message" ? Action::EditMessage : Action::BlockUser);
+      } else if (m_demoOverlay == "user-profile")
+        showProfile("11");
+    }
+    if (m_demoOverlay == "tooltip-long") {
+      m_tooltip = "A tooltip sizes itself to its text, wraps long descriptions, and stays inside the window.\nA second "
+                  "line is measured too.";
+      m_tooltipX = w - 40;
+      m_tooltipY = 58;
+    }
+    if (m_demoOverlay == "reaction-people" || m_demoOverlay == "reaction-loading") {
+      const auto chip = std::ranges::find_if(m_hits, [](const auto& hit) {
+        return hit.action == Action::ToggleReaction && hit.id.starts_with("3\n");
+      });
+      if (chip != m_hits.end()) {
+        m_pointerX = chip->x + 10;
+        m_pointerY = chip->y + 12;
+        auto message = std::ranges::find(m_messages, "3", &discord::Message::id);
+        if (message != m_messages.end()) {
+          if (m_demoOverlay == "reaction-people") {
+            // Synthetic users only; demo never contacts the network.
+            discord::Interaction request{
+                .kind = discord::InteractionKind::ListReactions,
+                .channel = m_channelId,
+                .message = "3",
+                .emoji = "👍",
+                .revision = 1
+            };
+            const auto key = std::to_string(static_cast<int>(request.kind)) + ":" + m_channelId + ":3::👍:normal";
+            auto& page = m_reactorPages[key];
+            page.revision = 1;
+            discord::Event result;
+            result.interaction = request;
+            result.reactors = {{"1", "Alex"}, {"11", "Maya"}, {"12", "Noah"}};
+            interactionResult(result);
+            discord::UserUpdates alias;
+            alias.users["11"].nickname = "May";
+            m_userDirectory.apply(alias);
+          }
+          hoverReaction(*message, message->reactions.front(), *chip);
+        }
+      }
+    }
+    if (!m_reactionHoveredThisFrame) {
+      m_hoverReactionKey.clear();
+      m_reactorHoverTimer.stop();
+    }
+    drawDialog(root, w, h);
+    drawContext(root, w, h);
     drawTooltip(root, w, h);
     finishControls();
     if (!m_demo && readingChannel(m_channelId) && !m_messages.empty()) {
@@ -1020,12 +1237,15 @@ namespace app {
   }
 
   void ClientApplication::demo() {
+    clearInteractions();
     m_login.cancel();
     m_client.disconnect();
     m_demo = true;
     m_userDirectory = {};
     m_preferences = {};
     m_demoPrepared = false;
+    m_demoOverlay.clear();
+    m_demoOverlayApplied = false;
     m_connected = true;
     m_connecting = false;
     m_token.clear();
@@ -1043,6 +1263,7 @@ namespace app {
         && channel == m_channelId
         && m_window.active()
         && !m_settingsOpen
+        && m_dialogKind.empty()
         && m_viewImage.empty()
         && m_messageScroll <= 1;
   }
@@ -1131,6 +1352,10 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(const std::string& id) {
+    closeContext();
+    closeDialog();
+    m_reactionMessage.clear();
+    m_reactionChannel.clear();
     m_emojiMenu = false;
     if (m_channelId == id)
       return;
@@ -1233,10 +1458,12 @@ namespace app {
       uploads.push_back(attachment.upload);
     if (draft.empty() && uploads.empty())
       return;
-    if (!m_client.send(m_channelId, draft, std::move(uploads))) {
+    const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
+    if (!m_client.send(m_channelId, draft, std::move(uploads), reply)) {
       m_status = "Messages can contain up to 2,000 characters. Please try again.";
     } else {
       m_pendingDraft = draft;
+      m_pendingReply = reply;
       m_pendingAttachments.clear();
       for (const auto& image : m_attachments[m_channelId])
         m_pendingAttachments.push_back(image.key);
@@ -1306,6 +1533,7 @@ namespace app {
               || (event.operation == discord::Operation::Messages && event.resource != m_channelId)))
         continue;
       if (event.unauthorized) {
+        clearInteractions();
         m_userDirectory = {};
         clearAccountSettings();
         m_emojiMenu = false;
@@ -1350,6 +1578,7 @@ namespace app {
           m_savingProfile = m_loadingProfile = false;
           m_desiredPresence.clear();
           m_preferences = m_sessionStore.preferences(m_account.id);
+          m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_presence = event.presence.value_or(discord::Presence{});
           m_guilds = std::move(event.guilds);
           m_folders = discord::arrangeGuilds(m_guilds, event.layout);
@@ -1371,6 +1600,20 @@ namespace app {
           } else
             showDirectMessages();
         }
+      } else if (event.operation == discord::Operation::Interaction) {
+        interactionResult(event);
+      } else if (event.operation == discord::Operation::Reaction && event.reaction) {
+        const auto& change = *event.reaction;
+        invalidateReactors(change.channel, change.message);
+        if (const auto cached = m_channelMessages.find(change.channel); cached != m_channelMessages.end())
+          for (auto& message : cached->second)
+            discord::applyReaction(message, change, m_account.id);
+        if (change.channel == m_channelId)
+          for (auto& message : m_messages)
+            if (message.id == change.message) {
+              discord::applyReaction(message, change, m_account.id);
+              m_liveChanges[message.id] = message;
+            }
       } else if (event.operation == discord::Operation::UserState) {
         m_userDirectory.apply(event.users);
         if (event.users.reset || std::ranges::any_of(event.users.users, [](const auto& item) {
@@ -1578,6 +1821,8 @@ namespace app {
             upsertMessage(std::move(message));
           }
       } else if (event.operation == discord::Operation::MessageUpdate) {
+        if (event.patch.reactions)
+          invalidateReactors(event.resource, event.messageId);
         if (auto cached = m_channelMessages.find(event.resource); cached != m_channelMessages.end())
           for (auto& message : cached->second)
             if (message.id == event.messageId)
@@ -1591,6 +1836,8 @@ namespace app {
             m_liveChanges[message.id] = message;
           }
       } else if (event.operation == discord::Operation::MessageDelete) {
+        for (const auto& id : event.removed)
+          invalidateReactors(event.resource, id);
         if (auto cached = m_channelMessages.find(event.resource); cached != m_channelMessages.end())
           std::erase_if(cached->second, [&](const auto& message) {
             return std::ranges::find(event.removed, message.id) != event.removed.end();
@@ -1605,8 +1852,13 @@ namespace app {
       } else if (event.operation == discord::Operation::Send) {
         m_sending = false;
         if (event.error.empty()) {
-          if (m_drafts[event.resource] == m_pendingDraft)
+          if (m_drafts[event.resource] == m_pendingDraft) {
             m_drafts[event.resource].clear();
+            if (m_pendingReply
+                && m_replies.contains(event.resource)
+                && m_replies[event.resource].message == m_pendingReply->message)
+              m_replies.erase(event.resource);
+          }
           if (event.resource == m_channelId)
             m_edit.clamp(m_drafts[event.resource]);
           std::erase_if(m_attachments[event.resource], [&](auto& image) {
@@ -1625,6 +1877,7 @@ namespace app {
           m_status.clear();
         }
         m_pendingDraft.clear();
+        m_pendingReply.reset();
         m_pendingAttachments.clear();
       }
       if (!event.error.empty())
@@ -1746,6 +1999,8 @@ namespace app {
   }
 
   void ClientApplication::onKey(const Key& key) {
+    if (overlayKey(key))
+      return;
     if (!m_viewImage.empty()) {
       if (key.control && (key.symbol == XKB_KEY_q || key.symbol == XKB_KEY_Q)) {
         m_window.close();
@@ -1916,6 +2171,8 @@ namespace app {
   }
 
   void ClientApplication::activate(const Hit& hit) {
+    if (interactionAction(hit))
+      return;
     switch (hit.action) {
     case Action::Settings:
       openSettings();
@@ -2176,6 +2433,7 @@ namespace app {
         });
       break;
     case Action::SignOut:
+      clearInteractions();
       clearAccountSettings();
       m_controlInput.setFocus(nullptr);
       m_focusedInput.clear();
@@ -2232,6 +2490,9 @@ namespace app {
       m_status.clear();
       m_fieldFocused = true;
       m_showTokenEntry = false;
+      break;
+    default:
+      // Interaction actions are handled before this switch.
       break;
     }
     m_window.invalidate();

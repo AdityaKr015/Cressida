@@ -86,6 +86,27 @@ int main() {
     );
     dispatch("PRESENCE_UPDATE", json{{"user_id", "9"}, {"status", "invisible"}});
     require(view.status("9") == "offline", "Invisible remote presence is displayed as offline");
+    dispatch(
+        "READY",
+        json{
+            {"relationships", json::array({{{"id", "7"}, {"type", 2}, {"nickname", nullptr}}})},
+            {"user_guild_settings",
+             {{"entries",
+               json::array(
+                   {{{"guild_id", nullptr},
+                     {"channel_overrides", json::array({{{"channel_id", "10"}, {"muted", true}}})}}}
+               )}}}
+        }
+    );
+    require(
+        view.relationship("7") == 2 && view.muted("10"), "Import account block state and private conversation mutes"
+    );
+    dispatch(
+        "USER_GUILD_SETTINGS_UPDATE",
+        json{{"channel_overrides", json::array({{{"channel_id", "10"}, {"muted", false}}})}}
+    );
+    dispatch("RELATIONSHIP_REMOVE", json{{"id", "7"}});
+    require(!view.muted("10") && view.relationship("7") == 0, "Live unblock and unmute updates clear menu state");
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

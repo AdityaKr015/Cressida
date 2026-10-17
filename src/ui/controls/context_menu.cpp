@@ -40,13 +40,15 @@ namespace {
   // Horizontal space the entry's leading indicator dot / swatch strip occupies, including its
   // trailing gap. The strip's metrics are font-derived, so this is layout-independent.
   float leadingVisualSlot(const ContextMenuControlEntry& entry, float scale) {
+    if (!entry.emoji.empty())
+      return 28.0F * scale;
     if (!entry.swatchPreview.empty()) {
       ColorSwatchPreviewStrip strip;
       strip.setMetricsFromFontSize(kMenuFontSize * scale);
       strip.setPreview(entry.swatchPreview);
       return strip.preferredWidth() + Style::spaceSm * scale;
     }
-    if (entry.indicatorColor.has_value()) {
+    if (entry.indicatorColor.has_value() || !entry.icon.empty()) {
       return std::round(kMenuFontSize * scale) + Style::spaceSm * scale;
     }
     return 0.0F;
@@ -65,6 +67,8 @@ namespace {
 } // namespace
 
 ContextMenuControl::ContextMenuControl() : Node(NodeType::Base) {}
+
+std::size_t ContextMenuControl::compiledEntrySize() noexcept { return sizeof(ContextMenuControlEntry); }
 
 void ContextMenuControl::setEntries(std::vector<ContextMenuControlEntry> entries) {
   m_entries = std::move(entries);
@@ -297,6 +301,7 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
     Box* rowBgPtr = nullptr;
     Label* labelPtr = nullptr;
     Glyph* togglePtr = nullptr;
+    Glyph* iconPtr = nullptr;
     Glyph* chevronPtr = nullptr;
 
     const float rowCenterY = currentY + rowHeight * 0.5F;
@@ -343,7 +348,18 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
       }
 
       const float leadingSlot = leadingVisualSlot(entry, scale);
-      if (!entry.swatchPreview.empty()) {
+      if (!entry.emoji.empty()) {
+        auto emoji = ui::label({
+            .text = entry.emoji,
+            .fontSize = 20.0F * scale,
+            .color = enabledItemColor(),
+            .maxWidth = 26.0F * scale,
+            .maxLines = 1,
+        });
+        emoji->measure(renderer);
+        emoji->setPosition(8.0F * scale + indent + toggleSlot, (rowHeight - emoji->height()) * 0.5F);
+        row->addChild(std::move(emoji));
+      } else if (!entry.swatchPreview.empty()) {
         auto strip = std::make_unique<ColorSwatchPreviewStrip>();
         strip->setMetricsFromFontSize(kMenuFontSize * scale);
         strip->setPreview(entry.swatchPreview);
@@ -351,6 +367,16 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
             8.0F * scale + indent + toggleSlot, std::round((rowHeight - strip->preferredHeight()) * 0.5F)
         );
         row->addChild(std::move(strip));
+      } else if (!entry.icon.empty()) {
+        auto glyph = ui::glyph({
+            .out = &iconPtr,
+            .glyph = entry.icon,
+            .glyphSize = kMenuFontSize * scale,
+            .color = colorSpecFromRole(entry.danger ? ColorRole::Error : ColorRole::OnSurfaceVariant),
+        });
+        glyph->measure(renderer);
+        glyph->setPosition(8.0F * scale + indent + toggleSlot, (rowHeight - glyph->height()) * 0.5F);
+        row->addChild(std::move(glyph));
       } else if (entry.indicatorColor.has_value()) {
         const float dotSize = std::round(kMenuFontSize * scale);
         auto dot = std::make_unique<Box>();
@@ -431,17 +457,24 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
         .interactive = interactive,
     };
     if (rowBgPtr != nullptr && labelPtr != nullptr) {
-      visual.apply = [rowBgPtr, labelPtr, togglePtr, chevronPtr, interactive, separator,
+      visual.apply = [rowBgPtr, labelPtr, togglePtr, chevronPtr, iconPtr, danger = entry.danger, interactive, separator,
                       header = entry.header](bool highlighted) {
         rowBgPtr->setFill(highlighted ? colorSpecFromRole(ColorRole::Hover) : clearColorSpec());
         if (separator || header) {
           labelPtr->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
         } else {
           labelPtr->setColor(
-              highlighted ? colorSpecFromRole(ColorRole::OnHover)
-                          : (interactive ? enabledItemColor() : disabledItemColor())
+              danger            ? colorSpecFromRole(ColorRole::Error)
+                  : highlighted ? colorSpecFromRole(ColorRole::OnHover)
+                                : (interactive ? enabledItemColor() : disabledItemColor())
           );
         }
+        if (iconPtr != nullptr)
+          iconPtr->setColor(colorSpecFromRole(
+              danger            ? ColorRole::Error
+                  : highlighted ? ColorRole::OnHover
+                                : ColorRole::OnSurfaceVariant
+          ));
         if (togglePtr != nullptr) {
           togglePtr->setColor(
               highlighted ? colorSpecFromRole(ColorRole::OnHover)
@@ -456,7 +489,11 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
         }
       };
 
-      row->setOnEnter([this, i](const InputArea::PointerData& /*data*/) { setHighlightedIndex(i); });
+      row->setOnEnter([this, i, entry, rowCenterY](const InputArea::PointerData& /*data*/) {
+        setHighlightedIndex(i);
+        if (isInteractive(entry) && entry.hasSubmenu && m_onSubmenuOpen)
+          m_onSubmenuOpen(entry, rowCenterY);
+      });
       row->setOnLeave([this]() {
         applyHighlightVisuals();
         if (m_redrawCallback) {

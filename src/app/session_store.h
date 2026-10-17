@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace app {
   struct Preferences {
@@ -22,6 +23,8 @@ namespace app {
     std::string channelForGuild(const std::string& account, const std::string& guild) const;
     Preferences preferences(const std::string& account) const;
     void savePreferences(const std::string& account, const Preferences& preferences) const;
+    std::vector<std::string> frequentReactions(const std::string& account) const;
+    void recordReaction(const std::string& account, const std::string& emoji) const;
 
   private:
     std::filesystem::path m_path, m_legacyPath;

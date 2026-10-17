@@ -310,6 +310,13 @@ namespace app {
             [](void* data, wl_pointer*, std::uint32_t serial, std::uint32_t, std::uint32_t button,
                std::uint32_t state) {
               auto& self = *static_cast<Impl*>(data);
+              if (button == 0x111) {
+                if (state == WL_POINTER_BUTTON_STATE_PRESSED && self.owner.contextClick) {
+                  self.inputSerial = serial;
+                  self.owner.contextClick(self.pointerX / self.uiScale, self.pointerY / self.uiScale);
+                }
+                return;
+              }
               if (button != 0x110)
                 return;
               self.inputSerial = serial;

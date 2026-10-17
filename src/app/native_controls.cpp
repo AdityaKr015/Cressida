@@ -55,14 +55,21 @@ namespace app {
     }
   }
   void ClientApplication::drawTooltip(Node& root, float w, float h) {
-    if (m_tooltip.empty())
+    if (m_tooltip.empty() || m_contextOpen || !m_dialogKind.empty())
       return;
-    const auto metrics = m_window.target().renderer().measureText(m_tooltip, 12, FontWeight::Normal, 0, 1);
-    const float width = std::min(w - 16, metrics.width + 20);
+    auto& renderer = m_window.target().renderer();
+    const auto natural =
+        renderer.measureText(m_tooltip, 12, FontWeight::Normal, 0, 0, TextAlign::Start, {}, TextEllipsize::End);
+    const float width = std::min(std::min(480.0F, w - 16), std::ceil(natural.width) + 20);
+    const auto metrics = renderer.measureText(
+        m_tooltip, 12, FontWeight::Normal, width - 20, 0, TextAlign::Start, {}, TextEllipsize::End
+    );
+    const float height = std::ceil(metrics.bottom - metrics.top) + 16;
     const float x = std::clamp(m_tooltipX - width / 2, 8.0F, std::max(8.0F, w - width - 8));
-    const float y = std::clamp(m_tooltipY - 38, 40.0F, h - 38);
-    rectangle(root, x, y, width, 30, theme::raised, 6);
-    label(root, x + 10, y + 8, width - 20, m_tooltip, 12, theme::foreground);
+    const float preferredY = m_tooltipY - height - 8 >= 40 ? m_tooltipY - height - 8 : m_tooltipY + 38;
+    const float y = std::clamp(preferredY, 40.0F, std::max(40.0F, h - height - 8));
+    rectangle(root, x, y, width, height, theme::raised, 6);
+    label(root, x + 10, y + 8, width - 20, m_tooltip, 12, theme::foreground, FontWeight::Normal, 0);
   }
   void ClientApplication::drawEmojiPicker(Node& root, float w, float h) {
     const float width = std::min(344.0F, w - 32),
@@ -73,7 +80,10 @@ namespace app {
     m_hits.push_back({0, 36, w, h - 36, Action::ToggleEmoji, {}});
     rectangle(root, x, y, width, 256, theme::sidebar, 12);
     m_hits.push_back({x, y, width, 256, Action::None, {}});
-    label(root, x + 16, y + 16, width - 56, "Emoji", 16, theme::foreground, FontWeight::SemiBold);
+    label(
+        root, x + 16, y + 16, width - 56, m_reactionMessage.empty() ? "Emoji" : "Add reaction", 16, theme::foreground,
+        FontWeight::SemiBold
+    );
     iconButton(root, {x + width - 42, y + 8, 32, 32, Action::ToggleEmoji, {}}, "x", "Close emoji picker");
     int index = 0;
     for (const auto* emoji :
@@ -88,6 +98,7 @@ namespace app {
     }
   }
   ClientApplication::~ClientApplication() {
+    m_reactorHoverTimer.stop();
     // Destroy tracked input areas while their dispatcher and callback state live.
     m_buildingScene = true;
     m_controlInput.setSceneRoot(nullptr);
@@ -163,7 +174,7 @@ namespace app {
     auto input = m_inputs.find(id);
     if (input == m_inputs.end() || !input->second->parent() || !g_utf8_validate(text.data(), text.size(), nullptr))
       return;
-    const bool multiline = id == "composer" || id == "settings:bio";
+    const bool multiline = id == "composer" || id == "settings:bio" || (id == "dialog" && m_dialogKind == "edit");
     std::erase_if(text, [&](unsigned char c) {
       return (c < 32 && !(multiline && (c == '\n' || c == '\t'))) || c == 127;
     });
@@ -199,6 +210,7 @@ namespace app {
         if (((modifiers & KeyMod::Ctrl) && (key == XKB_KEY_v || key == XKB_KEY_V))
             || ((modifiers & KeyMod::Shift) && key == XKB_KEY_Insert)) {
           m_pasteInput = id;
+          m_pasteDialogGeneration = m_dialogGeneration;
           m_pasteConnected = m_connected;
           m_pasteSession = m_session;
           m_pasteChannel = m_channelId;
@@ -213,6 +225,8 @@ namespace app {
             m_drafts[m_channelId] = text;
             m_edit.end(text);
           }
+        } else if (id == "dialog") {
+          m_dialogText = text;
         } else if (id == "token") {
           if (text.size() <= 4096)
             m_token = text;
@@ -232,6 +246,8 @@ namespace app {
       field->setOnSubmit([this, id](const std::string&) {
         if (id == "composer")
           send();
+        else if (id == "dialog")
+          submitDialog();
         else if (id == "token")
           connect();
         else if (id == "settings:custom_status")
@@ -243,11 +259,19 @@ namespace app {
       node = std::move(field);
     }
     auto& input = *static_cast<Input*>(node.get());
+    input.setMultiline(multiline);
+    input.setSubmitOnEnter(id == "composer" || id == "dialog");
     if (input.value() != value)
       input.setValue(value);
     input.setPlaceholder(placeholder);
     input.setFrameVisible(id != "composer");
-    input.setEnabled(id == "token" ? !m_connecting : id == "composer" ? !m_demo : !m_savingProfile);
+    input.setEnabled(
+        (m_dialogKind.empty() || id == "dialog")
+        && (id == "dialog"         ? !m_dialogPending
+                : id == "token"    ? !m_connecting
+                : id == "composer" ? !m_demo
+                                   : !m_savingProfile)
+    );
     input.setControlHeight(height);
     input.setPosition(x, y);
     input.setFrameSize(width, height);

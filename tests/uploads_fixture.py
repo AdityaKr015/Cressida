@@ -26,6 +26,8 @@ class Handler(BaseHTTPRequestHandler):
             assert set(parts) == {"payload_json", "files[0]", "files[1]"}
             payload = json.loads(parts["payload_json"].get_payload(decode=True))
             assert payload["content"] == "first\nsecond 🌿"
+            assert payload["message_reference"] == {"message_id": "20", "channel_id": "10", "fail_if_not_exists": True}
+            assert payload["allowed_mentions"]["replied_user"] is False
             assert payload["attachments"] == [{"id": 0, "filename": "plant.png"}, {"id": 1, "filename": "second.jpg"}]
             assert parts["files[0]"].get_filename() == "plant.png"
             assert parts["files[0]"].get_content_type() == "image/png"

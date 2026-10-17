@@ -34,11 +34,17 @@ struct ContextMenuControlEntry {
   std::optional<ColorSpec> indicatorColor;
   ColorSwatchPreview swatchPreview;
   TextEllipsize ellipsize = TextEllipsize::End;
+  std::string icon;
+  bool danger = false;
+  std::string emoji;
 };
 
 class ContextMenuControl : public Node {
 public:
   ContextMenuControl();
+  // The host and shared control library exchange vectors of these records.
+  // Detect stale objects after an interrupted or overlapping header rebuild.
+  [[nodiscard]] static std::size_t compiledEntrySize() noexcept;
 
   void setEntries(std::vector<ContextMenuControlEntry> entries);
   void setMaxVisible(std::size_t maxVisible);

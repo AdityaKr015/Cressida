@@ -1,5 +1,6 @@
 #include "app/session_store.h"
 
+#include "discord/actions.h"
 #include "discord/models.h"
 
 #include <algorithm>
@@ -146,6 +147,62 @@ namespace app {
           {"embeds", preferences.showEmbeds},
           {"images", preferences.showImages}
       };
+      writeState(m_path, all);
+    } catch (...) {
+    }
+  }
+  std::vector<std::string> SessionStore::frequentReactions(const std::string& account) const {
+    std::vector<std::pair<int, std::string>> ranked;
+    try {
+      const auto all = readState(m_path, m_legacyPath);
+      if (all.contains(account) && all[account].contains("reaction_usage")) {
+        const auto& usage = all[account]["reaction_usage"];
+        if (usage.is_object())
+          for (const auto& [emoji, count] : usage.items()) {
+            if (ranked.size() == 64)
+              break;
+            if (count.is_number_integer()
+                && count > 0
+                && count <= 1000000
+                && discord::interactionRequest({.channel = "1", .message = "1", .emoji = emoji}))
+              ranked.emplace_back(count.get<int>(), emoji);
+          }
+      }
+    } catch (...) {
+    }
+    std::ranges::sort(ranked, [](const auto& a, const auto& b) {
+      return a.first > b.first || (a.first == b.first && a.second < b.second);
+    });
+    std::vector<std::string> result;
+    for (const auto& [_, emoji] : ranked)
+      result.push_back(emoji);
+    for (const auto* emoji : {"❤️", "👍", "😂", "🔥"})
+      if (std::ranges::find(result, emoji) == result.end())
+        result.emplace_back(emoji);
+    return result;
+  }
+  void SessionStore::recordReaction(const std::string& account, const std::string& emoji) const {
+    if (m_path.empty()
+        || !discord::validSnowflake(account)
+        || !discord::interactionRequest({.channel = "1", .message = "1", .emoji = emoji}))
+      return;
+    try {
+      auto all = readState(m_path, m_legacyPath);
+      auto& usage = all[account]["reaction_usage"];
+      if (!usage.is_object())
+        usage = nlohmann::json::object();
+      if (!usage.contains(emoji) && usage.size() >= 64) {
+        // Retain popular entries when a new reaction joins the bounded history.
+        auto lowest = usage.begin();
+        for (auto it = usage.begin(); it != usage.end(); ++it)
+          if (!it.value().is_number_integer() || (lowest.value().is_number_integer() && it.value() < lowest.value()))
+            lowest = it;
+        usage.erase(lowest);
+      }
+      const auto previous = usage.contains(emoji) && usage[emoji].is_number_integer()
+          ? std::clamp(usage[emoji].get<int>(), 0, 999999)
+          : 0;
+      usage[emoji] = previous + 1;
       writeState(m_path, all);
     } catch (...) {
     }

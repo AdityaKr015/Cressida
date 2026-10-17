@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/process/wake_event.h"
+#include "discord/actions.h"
 #include "discord/gateway.h"
 #include "discord/models.h"
 #include "discord/read_state.h"
@@ -31,6 +32,8 @@ namespace discord {
     SavePresence,
     PresenceChanged,
     UserState,
+    Interaction,
+    Reaction,
     AccountUpdate,
     Channels,
     Messages,
@@ -69,6 +72,9 @@ namespace discord {
     std::vector<SettingsEntry> settingsEntries;
     std::map<std::string, std::string> unread;
     UserUpdates users;
+    std::optional<discord::Interaction> interaction;
+    std::optional<ReactionUpdate> reaction;
+    std::vector<Account> reactors;
   };
 
   // One cancellable network worker. No rendering or window-system dependency.
@@ -86,7 +92,11 @@ namespace discord {
     bool privateChannels();
     bool acknowledge(const std::string& channel, const std::string& message);
     bool messages(const std::string& channelId);
-    bool send(const std::string& channelId, std::string content, std::vector<Upload> uploads = {});
+    bool send(
+        const std::string& channelId, std::string content, std::vector<Upload> uploads = {},
+        std::optional<MessageReference> reply = {}
+    );
+    bool interact(discord::Interaction action);
     bool profile();
     bool accountSettings();
     bool saveAccountSettings(SettingValues changes);
@@ -107,6 +117,8 @@ namespace discord {
       std::vector<Upload> uploads;
       std::optional<std::string> customStatus;
       std::uint64_t presenceRevision = 0;
+      std::optional<MessageReference> reply;
+      std::optional<discord::Interaction> interaction;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);
