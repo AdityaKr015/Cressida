@@ -17,6 +17,53 @@ namespace media {
     constexpr std::size_t maxBytes = 64 * 1024 * 1024;
     constexpr int maxFrames = 1200;
     bool dimensions(int w, int h) { return w > 0 && h > 0 && w <= 4096 && h <= 4096 && std::int64_t(w) * h <= 8388608; }
+    // swscale's vectorized paths need aligned strides and plane padding. Public
+    // animation frames stay tightly packed; only these reusable working buffers
+    // are passed to the converter, including when its source is packed RGBA.
+    class RgbaBuffer {
+      AVFrame* m_frame = av_frame_alloc();
+
+    public:
+      RgbaBuffer() {
+        if (!m_frame)
+          throw std::bad_alloc();
+      }
+      ~RgbaBuffer() { av_frame_free(&m_frame); }
+      RgbaBuffer(const RgbaBuffer&) = delete;
+      RgbaBuffer& operator=(const RgbaBuffer&) = delete;
+      void resize(int width, int height) {
+        if (m_frame->width == width && m_frame->height == height && m_frame->data[0])
+          return;
+        if (!dimensions(width, height))
+          throw std::runtime_error("Invalid conversion canvas");
+        av_frame_unref(m_frame);
+        m_frame->format = AV_PIX_FMT_RGBA;
+        m_frame->width = width;
+        m_frame->height = height;
+        if (av_frame_get_buffer(m_frame, 0) < 0)
+          throw std::bad_alloc();
+        for (auto* buffer : m_frame->buf)
+          if (buffer)
+            std::memset(buffer->data, 0, buffer->size);
+      }
+      void copyFrom(std::span<const std::uint8_t> pixels) {
+        const auto rowBytes = std::size_t(m_frame->width) * 4;
+        if (pixels.size() != rowBytes * m_frame->height)
+          throw std::runtime_error("Invalid conversion pixels");
+        for (int row = 0; row < m_frame->height; ++row)
+          std::memcpy(m_frame->data[0] + row * m_frame->linesize[0], pixels.data() + row * rowBytes, rowBytes);
+      }
+      AVFrame* frame() const { return m_frame; }
+      void convert(SwsContext* scale, const AVFrame* source, std::vector<std::uint8_t>& pixels) {
+        if (sws_scale(scale, source->data, source->linesize, 0, source->height, m_frame->data, m_frame->linesize)
+            != m_frame->height)
+          throw std::runtime_error("Could not convert animation");
+        const auto rowBytes = std::size_t(m_frame->width) * 4;
+        pixels.resize(rowBytes * m_frame->height);
+        for (int row = 0; row < m_frame->height; ++row)
+          std::memcpy(pixels.data() + row * rowBytes, m_frame->data[0] + row * m_frame->linesize[0], rowBytes);
+      }
+    };
     bool shrink(Animation& animation) {
       if (animation.width <= 64 && animation.height <= 64)
         return false;
@@ -30,15 +77,12 @@ namespace media {
       );
       if (!scale)
         return false;
+      RgbaBuffer source, dest;
+      source.resize(animation.width, animation.height);
+      dest.resize(width, height);
       for (auto& frame : animation.frames) {
-        std::vector<std::uint8_t> resized(std::size_t(width) * height * 4);
-        const std::uint8_t* source[4] = {frame.rgba.data()};
-        int sourceStride[4] = {animation.width * 4};
-        std::uint8_t* dest[4] = {resized.data()};
-        int destStride[4] = {width * 4};
-        if (sws_scale(scale.get(), source, sourceStride, 0, animation.height, dest, destStride) != height)
-          throw std::runtime_error("Could not resize animation");
-        frame.rgba = std::move(resized);
+        source.copyFrom(frame.rgba);
+        dest.convert(scale.get(), source.frame(), frame.rgba);
       }
       animation.width = width;
       animation.height = height;
@@ -167,6 +211,9 @@ namespace media {
         );
         if (!scale)
           return {};
+        RgbaBuffer source, dest;
+        source.resize(info.canvas_width, info.canvas_height);
+        dest.resize(result->width, result->height);
         bool truncated = false;
         int previous = 0;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -185,13 +232,8 @@ namespace media {
             return {};
           const auto duration = std::chrono::milliseconds(std::clamp(timestamp - previous, 20, 10000));
           Frame frame{{}, duration};
-          frame.rgba.resize(frameBytes);
-          const std::uint8_t* source[4] = {rgba};
-          int sourceStride[4] = {int(info.canvas_width) * 4};
-          std::uint8_t* dest[4] = {frame.rgba.data()};
-          int destStride[4] = {result->width * 4};
-          if (sws_scale(scale.get(), source, sourceStride, 0, info.canvas_height, dest, destStride) != result->height)
-            return {};
+          source.copyFrom({rgba, std::size_t(info.canvas_width) * info.canvas_height * 4});
+          dest.convert(scale.get(), source.frame(), frame.rgba);
           result->frames.push_back(std::move(frame));
           previous = timestamp;
         }
@@ -258,6 +300,7 @@ namespace media {
       result->width = std::max(1, int(decoder.codec->width * ratio));
       result->height = std::max(1, int(decoder.codec->height * ratio));
       auto frameBytes = std::size_t(result->width) * result->height * 4;
+      RgbaBuffer dest;
       bool truncated = false, flushing = false;
       std::int64_t previousPts = AV_NOPTS_VALUE;
       int packets = 0;
@@ -297,7 +340,6 @@ namespace media {
           );
         const auto fallback = av_rescale_q(decoder.frame->duration, stream->time_base, {1, 1000});
         Frame frame{{}, std::chrono::milliseconds(fallback > 0 ? std::clamp<std::int64_t>(fallback, 20, 10000) : 100)};
-        frame.rgba.resize(frameBytes);
         decoder.scale = sws_getCachedContext(
             decoder.scale, decoder.frame->width, decoder.frame->height,
             static_cast<AVPixelFormat>(decoder.frame->format), result->width, result->height, AV_PIX_FMT_RGBA,
@@ -305,13 +347,8 @@ namespace media {
         );
         if (!decoder.scale)
           return {};
-        std::uint8_t* dest[4] = {frame.rgba.data()};
-        int stride[4] = {result->width * 4};
-        if (sws_scale(
-                decoder.scale, decoder.frame->data, decoder.frame->linesize, 0, decoder.frame->height, dest, stride
-            )
-            != result->height)
-          return {};
+        dest.resize(result->width, result->height);
+        dest.convert(decoder.scale, decoder.frame, frame.rgba);
         result->frames.push_back(std::move(frame));
         previousPts = pts;
         av_frame_unref(decoder.frame);

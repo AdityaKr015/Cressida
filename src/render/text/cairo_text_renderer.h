@@ -84,7 +84,7 @@ public:
       float contentScale, float surfaceWidth, float surfaceHeight, float x, float baselineY, std::string_view text,
       float fontSize, const Color& color, const Mat3& transform, FontWeight fontWeight = FontWeight::Normal,
       float maxWidth = 0.0F, int maxLines = 0, TextAlign align = TextAlign::Start, std::string_view fontFamily = {},
-      TextEllipsize ellipsize = TextEllipsize::End, bool useMarkup = false
+      TextEllipsize ellipsize = TextEllipsize::End, bool useMarkup = false, bool pixelSnap = true
   );
 
 private:

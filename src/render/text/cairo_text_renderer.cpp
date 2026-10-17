@@ -5,6 +5,7 @@
 #include "render/core/texture_manager.h"
 #include "render/text/font_registry.h"
 #include "render/text/font_weight_catalog.h"
+#include "render/text/text_position.h"
 
 #include <algorithm>
 #include <bit>
@@ -24,20 +25,9 @@ namespace {
 
   constexpr Logger kLog("text");
 
-  constexpr float kAxisAlignedEpsilon = 0.0001F;
-
   inline std::uint32_t sizeKey(float value) { return std::bit_cast<std::uint32_t>(std::max(0.0F, value)); }
 
   inline std::uint32_t scaleKey(float value) { return std::bit_cast<std::uint32_t>(std::max(0.0F, value)); }
-
-  bool isAxisAligned(const Mat3& transform) {
-    return std::abs(transform.m[1]) <= kAxisAlignedEpsilon && std::abs(transform.m[3]) <= kAxisAlignedEpsilon;
-  }
-
-  float snapToBufferPixel(float value, float scale) {
-    const float safeScale = std::max(1.0F, scale);
-    return std::round(value * safeScale) / safeScale;
-  }
 
   void hashCombine(std::size_t& seed, std::size_t v) { seed ^= v + 0x9E3779B97F4A7C15ULL + (seed << 12) + (seed >> 4); }
 
@@ -1016,7 +1006,7 @@ CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
 void CairoTextRenderer::draw(
     float contentScale, float surfaceWidth, float surfaceHeight, float x, float baselineY, std::string_view text,
     float fontSize, const Color& color, const Mat3& transform, FontWeight fontWeight, float maxWidth, int maxLines,
-    TextAlign align, std::string_view fontFamily, TextEllipsize ellipsize, bool useMarkup
+    TextAlign align, std::string_view fontFamily, TextEllipsize ellipsize, bool useMarkup, bool pixelSnap
 ) {
   maybeSyncFontConfig();
   if (m_pangoContext == nullptr || m_backend == nullptr || text.empty()) {
@@ -1046,21 +1036,10 @@ void CairoTextRenderer::draw(
   // Shift left by inkOffsetX so the logical text origin stays at `x`.
   const float inkOffX = entry->inkOffsetX * invScale;
   const Mat3 localTranslation = Mat3::translation(x - inkOffX, baselineY - baselineLocal);
-  Mat3 baseWorld = transform * localTranslation;
+  const Mat3 baseWorld = textQuadTransform(transform * localTranslation, contentScale, pixelSnap);
 
-  // Snap the glyph quad's origin to the nearest buffer pixel. Without this,
-  // fractional layout positions place the quad at sub-pixel offsets and
-  // linear filtering samples across texel boundaries -> noticeable blur even at 1x.
-  // Snap in buffer-pixel space so HiDPI outputs still benefit.
-  //
-  // Only snap when the transform is axis-aligned (no rotation/skew). During
-  // a rotation animation, snapping causes the translation to jump by whole
-  // buffer pixels between frames, which looks jittery.
-  if (isAxisAligned(baseWorld)) {
-    baseWorld.m[6] = snapToBufferPixel(baseWorld.m[6], contentScale);
-    baseWorld.m[7] = snapToBufferPixel(baseWorld.m[7], contentScale);
-  }
-
+  // Static quads align to buffer pixels; a moving ancestor opts out so text
+  // advances with image/selection geometry instead of stepping by whole pixels.
   // Emit one quad per tile. Tiles share the same X/width and abut on exact
   // buffer-pixel boundaries (pixelYOffset is an integer number of raster
   // pixels), so there is no seam between adjacent tiles even at fractional

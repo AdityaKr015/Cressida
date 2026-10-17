@@ -224,20 +224,24 @@ namespace app {
                         const discord::Guild* guild = nullptr) {
       const float ry = railY - m_emojiRailScroll;
       railY += 44;
-      if (ry < 0 || ry + 36 > available)
+      if (ry + 36 <= 0 || ry >= available)
         return;
+      const float clippedTop = std::max(0.0F, ry), clippedBottom = std::min(available, ry + 36);
       if (guild) {
         if (m_emojiSection == id || hovered(x + 8, top + ry, 36, 36))
           rectangle(*rail, 0, ry, 36, 36, raised, 9);
         avatar(*rail, 4, ry + 4, 28, guild->icon, guild->name);
-        m_hits.push_back({x + 8, top + ry, 36, 36, Action::EmojiSection, id});
-        if (hovered(x + 8, top + ry, 36, 36)) {
+        m_hits.push_back({x + 8, top + clippedTop, 36, clippedBottom - clippedTop, Action::EmojiSection, id});
+        if (hovered(x + 8, top + clippedTop, 36, clippedBottom - clippedTop)) {
           m_tooltip = title;
           m_tooltipX = x + 24;
           m_tooltipY = top + ry;
         }
-      } else
+      } else {
         iconButton(*rail, {0, ry, 36, 36, Action::EmojiSection, id}, icon, title, m_emojiSection == id);
+        m_hits.back().y = top + clippedTop;
+        m_hits.back().height = clippedBottom - clippedTop;
+      }
     };
     railItem("favorites", "star", "Favorites");
     railItem("recent", "clock", "Frequently used");
@@ -266,6 +270,7 @@ namespace app {
     for (const auto& [category, icon] : categories)
       railItem("unicode:" + category, icon, category);
     m_scrolling.limit(m_emojiRailScroll, std::max(0.0F, railY - available));
+    rail->setTextPixelSnap(false);
     root.addChild(std::move(rail));
     struct Group {
       std::string id, title;
@@ -333,6 +338,7 @@ namespace app {
     grid->setPosition(gridX, top);
     grid->setSize(gridWidth, available);
     grid->setClipChildren(true);
+    grid->setTextPixelSnap(false);
     std::map<std::string, std::string> favorites;
     for (const auto& key : m_emojiPreferences.favorites)
       if (const auto* emoji = m_emojiCatalog.find(key))
@@ -342,7 +348,7 @@ namespace app {
       if (!offsets.contains(group.id))
         continue;
       const float gy = offsets[group.id] - m_emojiScroll;
-      if (gy >= -28 && gy < available)
+      if (gy + 32 > 0 && gy < available)
         label(*grid, 0, gy + 6, gridWidth, group.title, 12, muted, FontWeight::SemiBold);
       if (group.items.empty() && gy + 32 >= 0 && gy + 32 < available) {
         const bool loading =
@@ -364,9 +370,10 @@ namespace app {
       for (std::size_t i = 0; i < group.items.size(); ++i) {
         const auto& emoji = *group.items[i];
         const float ex = (i % columns) * cell, ey = gy + 32 + (i / columns) * 48;
-        if (ey < 0 || ey + 44 > available)
+        if (ey + 44 <= 0 || ey >= available)
           continue;
-        const bool over = hovered(gridX + ex, top + ey, cell, 44);
+        const float clippedTop = std::max(0.0F, ey), clippedBottom = std::min(available, ey + 44);
+        const bool over = hovered(gridX + ex, top + clippedTop, cell, clippedBottom - clippedTop);
         if (over) {
           rectangle(*grid, ex, ey, cell, 44, raised, 7);
           m_emojiHovered = emoji.key();
@@ -379,7 +386,9 @@ namespace app {
                 || !discord::emojiNeedsImage(emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0))
                                                           : emoji.available;
         if (selectable)
-          m_hits.push_back({gridX + ex, top + ey, cell, 44, Action::PickEmoji, emoji.key()});
+          m_hits.push_back(
+              {gridX + ex, top + clippedTop, cell, clippedBottom - clippedTop, Action::PickEmoji, emoji.key()}
+          );
         else
           glyph(*grid, ex + 3, ey + 25, 14, "lock", muted);
         const auto foundFavorite = favorites.find(emoji.key());
@@ -391,8 +400,9 @@ namespace app {
           glyph(
               *grid, sx + 1, sy + 1, 14, favorite.empty() ? "star" : "star-filled", favorite.empty() ? muted : accent
           );
-          if (!m_pendingEmojiFavorites.contains(favorite.empty() ? emoji.key() : favorite))
-            m_hits.push_back({gridX + sx, top + sy, 17, 17, Action::FavoriteEmoji, emoji.key()});
+          const float starTop = std::max(0.0F, sy), starBottom = std::min(available, sy + 17);
+          if (starBottom > starTop && !m_pendingEmojiFavorites.contains(favorite.empty() ? emoji.key() : favorite))
+            m_hits.push_back({gridX + sx, top + starTop, 17, starBottom - starTop, Action::FavoriteEmoji, emoji.key()});
         }
       }
     }

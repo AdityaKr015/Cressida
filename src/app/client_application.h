@@ -1,10 +1,12 @@
 #pragma once
 
 #include "app/emoji_catalog.h"
+#include "app/message_history.h"
 #include "app/message_layout.h"
 #include "app/scroll_motion.h"
 #include "app/session_store.h"
 #include "app/text_edit.h"
+#include "app/timeline_anchor.h"
 #include "app/unread_timeline.h"
 #include "app/window.h"
 #include "auth/browser_login.h"
@@ -44,6 +46,8 @@ namespace app {
       Preference,
       JumpUnread,
       MarkRead,
+      RetryHistory,
+      JumpLatest,
       SetPresence,
       TogglePresence,
       SaveCustomStatus,
@@ -142,6 +146,9 @@ namespace app {
     void showDirectMessages();
     void selectChannel(const std::string& id);
     void refresh();
+    void loadHistory(discord::HistoryDirection direction, bool retry = false);
+    void applyHistory(discord::Event& event);
+    void demoHistoryStep();
     void send();
     void rectangle(Node& parent, float x, float y, float w, float h, Color fill, float radius = 0);
     float label(
@@ -316,15 +323,23 @@ namespace app {
     std::map<std::string, float> m_messageTops;
     float m_tooltipX = 0, m_tooltipY = 0, m_composerTop = 0;
     bool m_demo = false, m_demoPrepared = false;
+    bool m_traceScroll = false, m_animateWheel = true;
     std::string m_demoOverlay;
     bool m_demoOverlayApplied = false;
     unsigned m_demoInteractionStep = 0;
+    std::optional<discord::HistoryQuery> m_demoHistoryQuery;
+    std::optional<TimelineAnchor::Row> m_demoHistoryAnchor;
+    std::optional<TimelineAnchor::Row> m_demoMotionAnchor;
+    unsigned m_demoHistoryPages = 0, m_demoHistoryPhase = 0, m_demoHistoryMotion = 0;
     bool m_connected = false;
     bool m_connecting = false, m_restoringLogin = false, m_retrySavedLogin = false;
     std::string m_loginStorageStatus;
     bool m_showTokenEntry = false;
     bool m_loadingChannels = false;
     bool m_loadingMessages = false;
+    MessageHistory m_history;
+    TimelineAnchor m_timelineAnchor;
+    bool m_keepHistoryAnchor = false;
     bool m_sending = false;
     bool m_live = false;
     bool m_showMembers = true;

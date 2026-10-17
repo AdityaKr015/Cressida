@@ -1,5 +1,6 @@
 #include "app/emoji_catalog.h"
 #include "app/message_layout.h"
+#include "app/reply_preview.h"
 #include "app/text_edit.h"
 
 #include <algorithm>
@@ -12,6 +13,26 @@ int main(int argc, char** argv) {
       throw std::runtime_error(message);
   };
   try {
+    discord::MessageReference reference{
+        "1", "2", "3", "Maya",
+        "First line\r\nSecond\tline\xE2\x80\xA8"
+        "Third\xE2\x80\xA9"
+        "Fourth"
+    };
+    require(
+        app::replyPreview(reference, "Maya\nname") == "↳ Maya name: First line Second line Third Fourth",
+        "Reply previews flatten body and author paragraph breaks into a single line"
+    );
+    reference.content = std::string(4095, 'a') + "🙂";
+    require(
+        app::replyPreview(reference, "Maya").ends_with(std::string(4095, 'a')),
+        "Bounding long reply previews never splits a UTF-8 character"
+    );
+    reference.deleted = true;
+    require(
+        app::replyPreview(reference, "Maya") == "↳ Maya: Original message deleted",
+        "Deleted reply previews retain a readable fallback"
+    );
     require(argc == 2, "Emoji assets directory required");
     app::EmojiCatalog catalog;
     catalog.load(std::filesystem::path(argv[1]) / "emoji.json", std::filesystem::path(argv[1]) / "emoji-aliases.json");

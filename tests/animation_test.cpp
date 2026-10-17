@@ -1,5 +1,7 @@
 #include "media/animation.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -57,6 +59,39 @@ int main(int argc, char** argv) {
       std::stop_source cancelled;
       cancelled.request_stop();
       require(!media::decodeAnimation(bytes, cancelled.get_token()), "Cancelled jobs do not publish media");
+    }
+    for (const auto& [width, height] :
+         {std::pair{10, 2}, {26, 2}, {18, 30}, {34, 50}, {17, 23}, {31, 47}, {174, 512}}) {
+      for (const auto* extension : {"gif", "webp", "mp4", "webm"}) {
+        const auto bytes = read(
+            std::filesystem::path(argv[1])
+            / ("unaligned-" + std::to_string(width) + "x" + std::to_string(height) + "." + extension)
+        );
+        for (int repeat = 0; repeat < 12; ++repeat) {
+          const auto animation = media::decodeAnimation(bytes);
+          const auto ratio =
+              std::min(1.0, (std::string_view(extension) == "webp" ? 512.0 : 384.0) / std::max(width, height));
+          require(
+              animation
+                  && animation->width == int(width * ratio)
+                  && animation->height == int(height * ratio)
+                  && animation->frames.size() == 6,
+              "Decode non-aligned and scaled portrait media repeatedly without corrupting memory"
+          );
+          const auto frameBytes = std::size_t(animation->width) * animation->height * 4;
+          require(animation->byteSize() == frameBytes * 6, "Export packed pixels without conversion padding");
+          for (const auto& frame : animation->frames) {
+            require(frame.rgba.size() == frameBytes, "Every portrait frame has exactly one packed canvas");
+            require(frame.rgba[3] == 255 && frame.rgba.back() == 255, "Preserve alpha through the last pixel");
+            const auto last = frameBytes - 4;
+            for (int component = 0; component < 3; ++component)
+              require(
+                  std::abs(int(frame.rgba[component]) - int(frame.rgba[last + component])) <= 8,
+                  "Converted portrait rows preserve their solid color through the last pixel"
+              );
+          }
+        }
+      }
     }
     const auto capped = media::decodeAnimation(read(std::filesystem::path(argv[1]) / "long.gif"));
     const auto resized = media::decodeAnimation(read(std::filesystem::path(argv[1]) / "large.gif"));

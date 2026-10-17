@@ -6,6 +6,7 @@
 #include "discord/emoji.h"
 #include "discord/gateway.h"
 #include "discord/gifs.h"
+#include "discord/history.h"
 #include "discord/models.h"
 #include "discord/read_state.h"
 #include "discord/user_directory.h"
@@ -69,6 +70,7 @@ namespace discord {
     std::vector<Guild> guilds;
     std::vector<Channel> channels;
     std::vector<Message> messages;
+    std::optional<HistoryQuery> history;
     GuildLayout layout;
     std::vector<MemberRow> members;
     int memberCount = 0;
@@ -111,7 +113,7 @@ namespace discord {
     bool channels(const std::string& guildId);
     bool privateChannels();
     bool acknowledge(const std::string& channel, const std::string& message);
-    bool messages(const std::string& channelId);
+    bool messages(const std::string& channelId, HistoryQuery query = {});
     bool send(
         const std::string& channelId, std::string content, std::vector<Upload> uploads = {},
         std::optional<MessageReference> reply = {}
@@ -146,6 +148,7 @@ namespace discord {
       std::optional<MessageReference> reply;
       std::optional<discord::Interaction> interaction;
       bool restoredLogin = false;
+      std::optional<HistoryQuery> history;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);

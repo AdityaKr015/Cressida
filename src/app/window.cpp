@@ -15,6 +15,7 @@
 #include <chrono>
 #include <clocale>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
@@ -95,6 +96,8 @@ namespace app {
     double axisValue = 0;
     std::int32_t axisDiscrete = 0, axisValue120 = 0;
     std::uint32_t axisSource = WL_POINTER_AXIS_SOURCE_WHEEL;
+    std::uint32_t axisTime = 0;
+    bool traceScroll = false;
     int width = 1120;
     int height = 760;
     int scale = 1;
@@ -106,7 +109,10 @@ namespace app {
     RenderContext context;
     RenderTarget target;
 
-    explicit Impl(Window& window) : owner(window) {}
+    explicit Impl(Window& window) : owner(window) {
+      const auto* trace = std::getenv("CRESSIDA_TRACE_SCROLL");
+      traceScroll = trace && std::strcmp(trace, "1") == 0;
+    }
     ~Impl() {
       // EGL resources must be destroyed before their wl_surface and display.
       target.destroy();
@@ -181,6 +187,11 @@ namespace app {
     void dispatchAxis() {
       if (axisValue == 0 && axisDiscrete == 0 && axisValue120 == 0)
         return;
+      if (traceScroll)
+        std::fprintf(
+            stderr, "scroll wayland time=%u source=%u value=%.4f discrete=%d value120=%d\n", axisTime, axisSource,
+            axisValue, axisDiscrete, axisValue120
+        );
       InputArea::PointerData event;
       event.axisSource = axisSource;
       event.axisValue = axisValue;
@@ -382,9 +393,10 @@ namespace app {
                 self.owner.click(self.pointerX / self.uiScale, self.pointerY / self.uiScale, serial);
             },
         .axis =
-            [](void* data, wl_pointer* pointer, std::uint32_t, std::uint32_t axis, wl_fixed_t value) {
+            [](void* data, wl_pointer* pointer, std::uint32_t time, std::uint32_t axis, wl_fixed_t value) {
               auto& self = *static_cast<Impl*>(data);
               if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL) {
+                self.axisTime = time;
                 self.axisValue += wl_fixed_to_double(value);
                 if (wl_proxy_get_version(reinterpret_cast<wl_proxy*>(pointer)) < WL_POINTER_FRAME_SINCE_VERSION)
                   self.dispatchAxis();

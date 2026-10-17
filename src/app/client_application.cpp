@@ -1,6 +1,7 @@
 #include "app/client_application.h"
 
 #include "app/message_layout.h"
+#include "app/reply_preview.h"
 #include "app/theme.h"
 #include "core/deferred_call.h"
 #include "core/environment.h"
@@ -41,13 +42,20 @@ namespace app {
   } // namespace
 
   ClientApplication::ClientApplication(bool demoMode, std::string token) : m_token(std::move(token)) {
+    const auto* trace = std::getenv("CRESSIDA_TRACE_SCROLL");
+    m_traceScroll = trace && std::string_view(trace) == "1";
+    const auto* animation = std::getenv("CRESSIDA_SCROLL_ANIMATION");
+    m_animateWheel = !animation || std::string_view(animation) != "0";
     m_emojiCatalog.load(paths::assetPath("emoji.json"), paths::assetPath("emoji-aliases.json"));
     m_edit.end(m_token);
     m_showTokenEntry = !m_token.empty();
     m_fieldFocused = m_showTokenEntry;
     m_window.draw = [this] {
+      const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "history-cycle")
+        demoHistoryStep();
       if (m_demo && m_demoOverlay == "interaction-cycle")
         demoInteractionStep();
       if (m_demo && m_demoOverlay == "gif-cycle")
@@ -133,15 +141,39 @@ namespace app {
         std::clog << "Offline unread replay step " << step + 1 << " passed\n";
         m_window.invalidate();
       }
-      if (m_demo && m_demoOverlay == "scroll-cycle") {
+      if (m_demo
+          && (m_demoOverlay == "scroll-cycle"
+              || m_demoOverlay == "emoji-scroll-cycle"
+              || m_demoOverlay == "gif-scroll-cycle")) {
         const auto step = m_demoInteractionStep++ % 16;
+        const bool emoji = m_demoOverlay == "emoji-scroll-cycle", gif = m_demoOverlay == "gif-scroll-cycle";
+        auto& offset = emoji ? m_emojiScroll : gif ? m_gifScroll : m_messageScroll;
         if (step == 0 || step == 4 || step == 8 || step == 12) {
-          m_window.motion(450, 200 + m_window.titlebarHeight() - 36);
-          m_window.scroll(step == 8 ? 48 : -120);
-          if (step == 8 && m_scrolling.target(m_messageScroll) >= m_messageScroll)
+          const float x = emoji ? m_emojiBounds.x + 100 : gif ? m_gifBounds.x + 100 : 450;
+          const float y = emoji ? m_emojiBounds.y + 200 : gif ? m_gifBounds.y + 200 : 200;
+          m_window.motion(x, y + m_window.titlebarHeight() - 36);
+          const float amount = step == 8 ? -48 : 120;
+          m_window.scroll(emoji || gif ? amount : -amount);
+          if (step == 8 && m_scrolling.target(offset) >= offset)
             throw std::runtime_error("Scroll reversal must change direction immediately");
         }
-        std::clog << "Offline scroll frame " << m_demoInteractionStep << " offset " << m_messageScroll << '\n';
+        if (emoji) {
+          const float top = m_emojiBounds.y + 104, bottom = m_emojiBounds.y + m_emojiBounds.height - 54;
+          for (const auto& hit : m_hits)
+            if ((hit.action == Action::PickEmoji || hit.action == Action::FavoriteEmoji)
+                && (hit.y < top || hit.y + hit.height > bottom + 0.01F))
+              throw std::runtime_error("Emoji hit regions must be clipped to the scrolling grid");
+        }
+        std::clog
+            << "Offline "
+            << m_demoOverlay
+            << " frame "
+            << m_demoInteractionStep
+            << " offset "
+            << offset
+            << " draw_ms "
+            << std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - drawStarted).count()
+            << '\n';
         m_window.invalidate();
       }
     };
@@ -298,7 +330,28 @@ namespace app {
       m_window.invalidate();
     };
     m_window.scroll = [this](float delta) {
-      auto scroll = [&](float& offset, float amount) { m_scrolling.scroll(offset, amount, m_window.preciseScroll()); };
+      auto scroll = [&](float& offset, float amount) {
+        const bool precise = m_window.preciseScroll();
+        m_scrolling.scroll(offset, ScrollMotion::distance(amount, precise), precise || !m_animateWheel);
+        if (m_traceScroll)
+          std::clog
+              << "scroll input surface="
+              << (&offset == &m_messageScroll     ? "chat"
+                      : &offset == &m_gifScroll   ? "gif"
+                      : &offset == &m_emojiScroll ? "emoji"
+                                                  : "other")
+              << " delta="
+              << amount
+              << " offset="
+              << offset
+              << " target="
+              << m_scrolling.target(offset)
+              << " precise="
+              << precise
+              << " animation="
+              << m_animateWheel
+              << '\n';
+      };
       if (m_emojiMenu) {
         if (m_emojiBounds.contains(m_pointerX, m_pointerY))
           scroll(m_pointerX < m_emojiBounds.x + 56 ? m_emojiRailScroll : m_emojiScroll, delta);
@@ -367,7 +420,10 @@ namespace app {
         && (std::string_view(view) == "interaction-cycle"
             || std::string_view(view) == "animation-cycle"
             || std::string_view(view) == "gif-cycle"
-            || std::string_view(view) == "scroll-cycle");
+            || std::string_view(view) == "scroll-cycle"
+            || std::string_view(view) == "emoji-scroll-cycle"
+            || std::string_view(view) == "gif-scroll-cycle"
+            || std::string_view(view) == "history-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest ? (m_demo && view && std::string_view(view) == "unread-cycle" ? 10
@@ -451,6 +507,7 @@ namespace app {
             || view == "animated-media"
             || view == "animation-cycle"
             || view == "gif-cycle"
+            || view == "gif-scroll-cycle"
             || view == "animated-image"
         ) {
           for (int i = 0; i < 8; ++i) {
@@ -489,7 +546,7 @@ namespace app {
               m_gifFavorites.push_back(gif);
           }
           m_gifFavoritesLoaded = true;
-          if (view == "gif-cycle")
+          if (view == "gif-cycle" || view == "gif-scroll-cycle")
             m_demoOverlay = view;
           if (view == "animated-media" || view == "animation-cycle" || view == "animated-image") {
             m_messages.resize(1);
@@ -575,6 +632,28 @@ namespace app {
             m_channels.clear();
             m_loadingChannels = true;
           }
+        } else if (view == "reply-overlap") {
+          m_messages.clear();
+          for (int i = 0; i < 6; ++i) {
+            discord::Message message{
+                std::to_string(4000 + i), m_channelId, "Maya", "This reply body stays below its preview.",
+                "2026-10-17T09:41:00Z"
+            };
+            message.reply = discord::MessageReference{
+                "1", m_channelId, "11", "Alex",
+                "The Linux kernel got open-sourced btw\nLike, the entire thing is just open to download on GitHub "
+                "now\nhttps://github.com/torvalds/linux"
+            };
+            m_messages.push_back(std::move(message));
+          }
+          m_messageLayouts.clear();
+        } else if (view == "history-cycle") {
+          m_demoOverlay = view;
+          m_messages.clear();
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          loadHistory(discord::HistoryDirection::Latest);
         } else if (view == "scroll-cycle") {
           m_demoOverlay = view;
           m_messages.clear();
@@ -616,9 +695,13 @@ namespace app {
           }
         } else if (view == "composer") {
           m_drafts[m_channelId] = "A centered message";
-        } else if (view == "emoji-picker")
+        } else if (view == "emoji-picker" || view == "emoji-scrolled" || view == "emoji-scroll-cycle") {
           m_emojiMenu = true;
-        else if (view == "unread") {
+          if (view == "emoji-scrolled")
+            m_emojiScroll = 59;
+          if (view == "emoji-scroll-cycle")
+            m_demoOverlay = view;
+        } else if (view == "unread") {
           m_privateChannels = {{"900", "Maya", 1}, {"901", "Studio", 3}};
           m_unreadDMs = {"900", "901"};
           m_unreadChannels = {"102", "104", "900", "901"};
@@ -1219,7 +1302,27 @@ namespace app {
         totalHeight += height;
       }
       m_messageMaxScroll = std::max(0.0F, totalHeight - (bottom - top));
+      if ((m_messageScroll > 1
+           || m_scrolling.target(m_messageScroll) > 1
+           || !m_history.atLatest()
+           || m_keepHistoryAnchor)
+          && !m_unreadTimeline.positionPending()) {
+        std::vector<TimelineAnchor::Row> positions;
+        float rowY = bottom - totalHeight + m_messageScroll + 12;
+        for (std::size_t i = 0; i < m_messages.size(); ++i) {
+          if (unreadIndex && i == *unreadIndex)
+            rowY += unreadHeight;
+          positions.push_back({m_messages[i].id, rowY});
+          rowY += heights[i];
+        }
+        if (const auto correction = m_timelineAnchor.correction(positions, m_messageScroll)) {
+          if (m_traceScroll && *correction != 0)
+            std::clog << "scroll geometry correction=" << *correction << " rows=" << m_messages.size() << '\n';
+          m_scrolling.rebase(m_messageScroll, *correction);
+        }
+      }
       m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
+      m_keepHistoryAnchor = false;
       if (m_unreadTimeline.positionPending() && !m_unreadTimeline.waiting() && !m_loadingMessages) {
         if (unreadIndex) {
           float preceding = 12;
@@ -1249,6 +1352,20 @@ namespace app {
         m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
       }
       m_messageViewportTop = top;
+      // Keep the same transform at rest: switching snapping back on can move
+      // glyphs against the scroll direction in the final frame.
+      content->setTextPixelSnap(false);
+      if (m_traceScroll)
+        std::clog
+            << "scroll frame surface=chat offset="
+            << m_messageScroll
+            << " target="
+            << m_scrolling.target(m_messageScroll)
+            << " maximum="
+            << m_messageMaxScroll
+            << " active="
+            << m_scrolling.active(m_messageScroll)
+            << '\n';
       content->setPosition(left + 24, top);
       content->setSize(bodyWidth - 48, std::max(0.0F, bottom - top));
       float y = std::min(0.0F, bottom - top - totalHeight) + m_messageScroll + 12;
@@ -1294,17 +1411,18 @@ namespace app {
           if (message.reply) {
             const auto& reply = *message.reply;
             const auto name = userName(reply.authorId, reply.author.empty() ? "message" : reply.author);
-            label(
-                *content, 50, y, textWidth,
-                "↳ "
-                    + name
-                    + ": "
-                    + (reply.deleted               ? "Original message deleted"
-                           : reply.content.empty() ? "Original message"
-                                                   : reply.content),
-                12, muted
-            );
-            m_hits.push_back({left + 74, top + y, textWidth, 22, Action::JumpReply, reply.message});
+            auto preview = std::make_unique<Node>();
+            preview->setPosition(50, y);
+            preview->setSize(textWidth, 20);
+            preview->setClipChildren(true);
+            label(*preview, 0, 0, textWidth, replyPreview(reply, name), 12, muted, FontWeight::Normal, 1);
+            content->addChild(std::move(preview));
+            const float previewTop = std::max(top, top + y);
+            const float previewBottom = std::min(bottom, top + y + 20);
+            if (previewBottom > previewTop)
+              m_hits.push_back(
+                  {left + 74, previewTop, textWidth, previewBottom - previewTop, Action::JumpReply, reply.message}
+              );
             y += 24;
           }
           const auto author = userName(message.authorId, message.author);
@@ -1505,13 +1623,59 @@ namespace app {
             muted, FontWeight::Normal, 2
         );
       }
+      std::vector<TimelineAnchor::Row> visibleAnchors;
+      for (std::size_t i = 0; i < m_messages.size(); ++i) {
+        const float rowY = m_messageTops.at(m_messages[i].id);
+        if (rowY + heights[i] > top && rowY < bottom)
+          visibleAnchors.push_back({m_messages[i].id, rowY});
+      }
+      m_timelineAnchor.remember(std::move(visibleAnchors), m_messageScroll);
       root.addChild(std::move(content));
+      if ((!m_demo || m_demoOverlay == "history-cycle")
+          && !m_loadingMessages
+          && m_history.initialized()
+          && !m_history.busy()
+          && !m_settingsOpen
+          && m_viewImage.empty()
+          && m_dialogKind.empty()) {
+        const float threshold = std::max(240.0F, (bottom - top) * 0.6F);
+        if (!m_history.olderEnd() && m_messageMaxScroll - m_messageScroll < threshold)
+          loadHistory(discord::HistoryDirection::Older);
+        else if (!m_history.atLatest() && m_messageScroll < threshold)
+          loadHistory(discord::HistoryDirection::Newer);
+      }
+      const auto pendingHistory = m_history.pending();
+      if ((pendingHistory && pendingHistory->direction != discord::HistoryDirection::Latest)
+          || !m_history.error().empty()) {
+        const auto direction = pendingHistory ? pendingHistory->direction : m_history.failedDirection();
+        const bool older = direction == discord::HistoryDirection::Older;
+        const float statusY = older ? top + 4 : bottom - 32;
+        const float width = std::min(360.0F, bodyWidth - 48), statusX = left + (bodyWidth - width) / 2;
+        rectangle(root, statusX, statusY, width, 28, sidebar, 8);
+        label(
+            root, statusX + 12, statusY + 7, width - 92,
+            m_history.error().empty() ? (older ? "Loading earlier messages…" : "Loading newer messages…")
+                                      : "Could not load message history.",
+            11, muted
+        );
+        if (!m_history.error().empty()) {
+          button(root, {statusX + width - 76, statusY, 76, 28, Action::RetryHistory, {}}, "Retry");
+          if (hovered(statusX, statusY, width, 28)) {
+            m_tooltip = m_history.error();
+            m_tooltipX = statusX + width / 2;
+            m_tooltipY = statusY;
+          }
+        }
+      }
+      if (!m_history.atLatest()) {
+        button(root, {left + (bodyWidth - 160) / 2, bottom - 66, 160, 30, Action::JumpLatest, {}}, "Jump to latest");
+      }
       if (m_unreadTimeline.unread()) {
         std::string caption = "New messages";
         if (unreadIndex) {
           const auto count = m_messages.size() - *unreadIndex;
           caption = std::to_string(count)
-              + (m_unreadTimeline.estimated(m_messages) ? "+" : "")
+              + ((!m_history.atLatest() || m_unreadTimeline.estimated(m_messages)) ? "+" : "")
               + (count == 1 ? " new message" : " new messages");
           const auto& timestamp = m_messages[*unreadIndex].timestamp;
           if (timestamp.size() >= 16)
@@ -1872,10 +2036,13 @@ namespace app {
         && !m_settingsOpen
         && m_dialogKind.empty()
         && m_viewImage.empty()
+        && m_history.atLatest()
+        && (m_demo || m_history.initialized())
+        && !m_loadingMessages
         && m_messageScroll <= 1;
   }
   bool ClientApplication::markChannelRead(bool explicitAction) {
-    if (m_channelId.empty() || m_messages.empty())
+    if (m_channelId.empty() || m_messages.empty() || !m_history.atLatest() || (!m_demo && !m_history.initialized()))
       return false;
     const auto& latest = m_messages.back().id;
     if (!explicitAction && m_localRead[m_channelId] == latest)
@@ -1892,7 +2059,11 @@ namespace app {
   void ClientApplication::cacheChannel() {
     if (m_channelId.empty())
       return;
-    m_channelMessages[m_channelId] = m_messages;
+    if (m_history.atLatest()) {
+      const auto first = m_messages.size() > 200 ? m_messages.size() - 200 : 0;
+      m_channelMessages[m_channelId] = {m_messages.begin() + first, m_messages.end()};
+    } else
+      m_channelMessages.erase(m_channelId);
     if (!m_members.empty())
       m_channelMembers[m_channelId] = {m_members, m_memberCount};
     std::erase(m_channelCacheOrder, m_channelId);
@@ -1925,6 +2096,8 @@ namespace app {
     m_liveChanges.clear();
     m_channelScroll = 0;
     m_messageScroll = 0;
+    m_history.reset();
+    m_timelineAnchor.reset();
     m_loadingMessages = false;
     m_status.clear();
     if (m_demo) {
@@ -2008,6 +2181,8 @@ namespace app {
     m_memberPage = 0;
     m_liveChanges.clear();
     m_messageScroll = 0;
+    m_history.reset();
+    m_timelineAnchor.reset();
     m_selectAll = false;
     m_fieldFocused = true;
     m_status.clear();
@@ -2072,9 +2247,164 @@ namespace app {
   }
 
   void ClientApplication::refresh() {
-    if (m_demo || !m_connected || m_channelId.empty() || m_loadingMessages || m_sending)
+    if (m_demo || !m_connected || m_channelId.empty() || m_loadingMessages || m_sending || !m_history.atLatest())
       return;
-    m_loadingMessages = m_client.messages(m_channelId);
+    loadHistory(discord::HistoryDirection::Latest);
+  }
+
+  void ClientApplication::loadHistory(discord::HistoryDirection direction, bool retry) {
+    if ((m_demo && m_demoOverlay != "history-cycle") || !m_connected || m_channelId.empty())
+      return;
+    const auto query = m_history.begin(direction, m_messages, retry);
+    if (!query)
+      return;
+    if (m_demo || m_client.messages(m_channelId, *query)) {
+      if (m_demo)
+        m_demoHistoryQuery = *query;
+      m_liveChanges.clear();
+      if (direction == discord::HistoryDirection::Latest)
+        m_loadingMessages = true;
+    } else
+      m_history.fail(*query, "Could not load message history. Try again.");
+    m_window.invalidate();
+  }
+
+  void ClientApplication::applyHistory(discord::Event& event) {
+    if (!event.history || event.resource != m_channelId || !m_history.accepts(*event.history))
+      return;
+    if (event.history->direction == discord::HistoryDirection::Latest)
+      m_loadingMessages = false;
+    if (!event.error.empty()) {
+      m_history.fail(*event.history, event.error);
+      return;
+    }
+    for (const auto& message : event.messages)
+      m_messageLayouts.erase(message.id);
+    if (m_history.apply(*event.history, m_messages, std::move(event.messages), m_liveChanges)) {
+      m_keepHistoryAnchor = event.history->direction == discord::HistoryDirection::Newer;
+      std::set<std::string> retained;
+      for (const auto& message : m_messages)
+        retained.insert(message.id);
+      std::erase_if(m_messageLayouts, [&](const auto& item) { return !retained.contains(item.first); });
+    }
+  }
+
+  void ClientApplication::demoHistoryStep() {
+    const auto step = ++m_demoInteractionStep;
+    auto require = [](bool value, const char* error) {
+      if (!value)
+        throw std::runtime_error(error);
+    };
+    require(
+        std::ranges::any_of(
+            m_scene->children(),
+            [&](const auto& node) {
+              return node->clipChildren()
+                  && node->x() == 350
+                  && node->y() == m_messageViewportTop
+                  && !node->textPixelSnap();
+            }
+        ),
+        "Scrollable text must keep fractional positioning even when animation has stopped"
+    );
+    auto visibleRow = [&]() -> TimelineAnchor::Row {
+      for (const auto& message : m_messages) {
+        const float y = m_messageTops.at(message.id);
+        if (y >= m_messageViewportTop && y < m_messageViewportTop + 120)
+          return {message.id, y};
+      }
+      throw std::runtime_error("History replay needs a visible message anchor");
+    };
+    if (m_demoHistoryAnchor) {
+      const auto at = m_messageTops.find(m_demoHistoryAnchor->id);
+      require(
+          at != m_messageTops.end() && std::abs(at->second - m_demoHistoryAnchor->y) < 0.1F,
+          "A page or live message arrival moved the visible message"
+      );
+      m_demoHistoryAnchor.reset();
+    }
+    if (m_demoHistoryQuery) {
+      const auto query = *std::exchange(m_demoHistoryQuery, {});
+      if (query.direction != discord::HistoryDirection::Latest)
+        m_demoHistoryAnchor = visibleRow();
+      const int cursor = query.cursor.empty() ? 12000 : std::stoi(query.cursor);
+      const int first = query.direction == discord::HistoryDirection::Newer ? cursor + 1 : std::max(2000, cursor - 100);
+      const int count = query.direction == discord::HistoryDirection::Newer ? std::clamp(12000 - first, 0, 100)
+          : cursor <= 2000                                                  ? 0
+                                                                            : cursor - first;
+      discord::Event event;
+      event.operation = discord::Operation::Messages;
+      event.resource = m_channelId;
+      event.history = query;
+      for (int i = 0; i < count; ++i)
+        event.messages.push_back(
+            {std::to_string(first + i), m_channelId, "Maya",
+             "A paginated conversation.\nVisible messages keep their place as history arrives.", "2026-10-17T09:41:00Z"}
+        );
+      applyHistory(event);
+      if (query.direction == discord::HistoryDirection::Older)
+        ++m_demoHistoryPages;
+      require(m_messages.size() <= MessageHistory::windowLimit, "History memory window must remain bounded");
+    } else if (m_demoHistoryPhase < 2) {
+      if (m_demoHistoryPages >= 12)
+        m_demoHistoryPhase = 1;
+      if (m_demoHistoryPhase == 1 && m_history.atLatest())
+        m_demoHistoryPhase = 2;
+      if (m_demoHistoryPhase < 2) {
+        const auto* bar = static_cast<Scrollbar*>(m_widgets.at("chat-scrollbar"));
+        require(bar->visible(), "History replay needs the native chat scrollbar");
+        const auto* thumb = bar->children()[1].get();
+        const float x = bar->x() + bar->width() / 2;
+        const float chrome = m_window.titlebarHeight() - 36;
+        const float y = bar->y() + thumb->y() + thumb->height() / 2 + chrome;
+        m_window.motion(x, y);
+        m_window.click(x, y, 272);
+        m_window.motion(x, m_demoHistoryPhase == 0 ? bar->y() - 100 + chrome : m_window.height() * 2);
+        m_window.released();
+      } else {
+        m_scrolling.stop(m_messageScroll);
+        m_messageScroll = m_messageMaxScroll / 2;
+        m_timelineAnchor.reset();
+      }
+    } else if (m_demoHistoryPhase == 2) {
+      m_demoHistoryAnchor = visibleRow();
+      upsertMessage({"12000", m_channelId, "Alex", "A live message while reading history.", "2026-10-17T09:42:00Z"});
+      m_demoHistoryPhase = 3;
+    } else if (m_demoHistoryPhase == 3) {
+      // Exercise both directions through the actual wheel callback, checking
+      // a stable reference row rather than an offset that reflow can rebase.
+      const bool down = m_demoHistoryMotion >= 8;
+      if (m_demoHistoryMotion % 8 == 0) {
+        m_demoMotionAnchor = visibleRow();
+        m_window.motion(450, m_messageViewportTop + 100 + m_window.titlebarHeight() - 36);
+        m_window.scroll(down ? 120 : -120);
+      } else if (m_demoMotionAnchor) {
+        const float y = m_messageTops.at(m_demoMotionAnchor->id);
+        require(
+            down ? y <= m_demoMotionAnchor->y + 0.05F : y >= m_demoMotionAnchor->y - 0.05F,
+            "Visible chat rows moved against the requested wheel direction"
+        );
+        m_demoMotionAnchor->y = y;
+      }
+      ++m_demoHistoryMotion;
+      if (m_demoHistoryMotion >= 16)
+        m_demoHistoryPhase = 4;
+    }
+    if (step == 64)
+      require(
+          m_demoHistoryPhase == 4 && m_demoHistoryPages >= 12,
+          "History replay did not finish older/newer paging and wheel motion"
+      );
+    std::clog
+        << "Offline history frame "
+        << step
+        << " older_pages "
+        << m_demoHistoryPages
+        << " rows "
+        << m_messages.size()
+        << " phase "
+        << m_demoHistoryPhase
+        << '\n';
     m_window.invalidate();
   }
 
@@ -2214,6 +2544,8 @@ namespace app {
         m_unreadGuilds.clear();
         m_localRead.clear();
         m_unreadTimeline.reset();
+        m_history.reset();
+        m_timelineAnchor.reset();
         m_guilds.clear();
         m_channels.clear();
         m_messages.clear();
@@ -2410,17 +2742,7 @@ namespace app {
             selectChannel(first->id);
         }
       } else if (event.operation == discord::Operation::Messages && event.resource == m_channelId) {
-        m_loadingMessages = false;
-        if (event.error.empty()) {
-          m_messageLayouts.clear();
-          m_messages = std::move(event.messages);
-          for (const auto& [id, change] : m_liveChanges) {
-            if (change)
-              upsertMessage(*change);
-            else
-              std::erase_if(m_messages, [&](const auto& message) { return message.id == id; });
-          }
-        }
+        applyHistory(event);
       } else if (
           event.operation == discord::Operation::PrivateChannels
           || event.operation == discord::Operation::PrivateChannelUpsert
@@ -2506,9 +2828,15 @@ namespace app {
         if (event.resource == m_channelId)
           for (auto& message : event.messages) {
             m_liveChanges[message.id] = message;
-            upsertMessage(std::move(message));
+            if (m_history.atLatest())
+              upsertMessage(std::move(message));
           }
       } else if (event.operation == discord::Operation::MessageUpdate) {
+        if (event.resource == m_channelId) {
+          m_history.changed(event.messageId, event.patch);
+          if (!m_history.busy())
+            m_loadingMessages = false;
+        }
         if (event.patch.reactions)
           invalidateReactors(event.resource, event.messageId);
         if (auto cached = m_channelMessages.find(event.resource); cached != m_channelMessages.end())
@@ -2561,7 +2889,15 @@ namespace app {
             return true;
           });
           if (event.resource == m_channelId) {
+            m_scrolling.stop(m_messageScroll);
             m_messageScroll = 0;
+            m_timelineAnchor.reset();
+            if (!m_history.atLatest()) {
+              m_history.reset();
+              m_messages.clear();
+              m_messageLayouts.clear();
+              loadHistory(discord::HistoryDirection::Latest);
+            }
             for (auto& message : event.messages) {
               m_liveChanges[message.id] = message;
               upsertMessage(std::move(message));
@@ -2584,7 +2920,7 @@ namespace app {
       }
       if (!event.error.empty())
         m_status = event.error;
-      while (m_liveChanges.size() > 256)
+      while (m_liveChanges.size() > (m_history.busy() ? 4096U : 256U))
         m_liveChanges.erase(m_liveChanges.begin());
       m_window.invalidate();
     }
@@ -2600,11 +2936,11 @@ namespace app {
     std::ranges::sort(m_messages, [](const auto& a, const auto& b) {
       return a.id.size() != b.id.size() ? a.id.size() < b.id.size() : a.id < b.id;
     });
-    if (m_messages.size() > 200) {
-      for (auto it = m_messages.begin(); it != m_messages.end() - 200; ++it)
-        m_messageLayouts.erase(it->id);
-      m_messages.erase(m_messages.begin(), m_messages.end() - 200);
-    }
+    m_history.trim(m_messages);
+    std::set<std::string> retained;
+    for (const auto& item : m_messages)
+      retained.insert(item.id);
+    std::erase_if(m_messageLayouts, [&](const auto& item) { return !retained.contains(item.first); });
   }
 
   void ClientApplication::saveSelection() {
@@ -2988,6 +3324,20 @@ namespace app {
         }
       }
       break;
+    case Action::RetryHistory:
+      loadHistory(m_history.failedDirection(), true);
+      break;
+    case Action::JumpLatest:
+      m_scrolling.stop(m_messageScroll);
+      m_messageScroll = 0;
+      m_timelineAnchor.reset();
+      m_unreadTimeline.positioned();
+      m_history.reset();
+      m_messages.clear();
+      m_messageLayouts.clear();
+      if (!m_demo)
+        loadHistory(discord::HistoryDirection::Latest);
+      break;
     case Action::MarkRead:
       markChannelRead(true);
       break;
@@ -3290,6 +3640,8 @@ namespace app {
       m_unreadGuilds.clear();
       m_localRead.clear();
       m_unreadTimeline.reset();
+      m_history.reset();
+      m_timelineAnchor.reset();
       m_guildChannels.clear();
       m_channelCacheOrder.clear();
       m_channelMessages.clear();

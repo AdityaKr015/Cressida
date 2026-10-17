@@ -16,6 +16,8 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   Markdown, code blocks, mentions, Unicode/custom emoji and embed cards.
   Muted message placeholders appear while a conversation first loads; cached
   messages stay visible during refreshes.
+- **Conversation history:** older messages load as you scroll up, with a bounded
+  sliding window, newer-page catch-up, retry controls and a jump to the present.
 - **Message actions:** native context menus with icons, replies, editing/deleting
   your own messages, copy text/link/ID, and a hover emoji submenu. Four quick
   reactions adapt to successful local usage; hover a reaction to see who reacted.
@@ -137,7 +139,9 @@ its top shows the unread count and time; click it to jump to the first loaded
 unread message, or choose **Mark as Read**. Both indicators disappear when you
 catch up, mark the conversation read, or read it on another device. Counts use
 **+** when older unread history falls outside the loaded messages. A draggable
-scrollbar on the right lets you move through the chat.
+scrollbar on the right lets you move through the chat. Mousewheel movement eases
+continuously across chat and the GIF/emoji pickers, with a faster wheel response
+and fractional text positioning; touchpad scrolling stays direct.
 
 The composer grows with your draft. Its clipboard glyph pastes text or an image;
 the smile glyph opens the emoji picker, and **GIF** opens the GIF picker.
@@ -236,11 +240,15 @@ yet deliver desktop notifications or play notification sounds.
 
 ## Current limits
 
-Initial history loads the latest 50 messages; the live timeline retains up to 200.
+Initial history loads the latest 100 messages. Scrolling near the top fetches
+older pages automatically; returning toward the bottom fetches newer pages when
+needed. A 1,000-message sliding window bounds memory while allowing continued
+browsing. Loading keeps your visible messages in place, and failed pages offer
+**Retry**. **Jump to latest** returns directly to the current conversation.
 Recently visited conversations and member lists use a bounded session cache.
 REST/CDN connections are reused, and media completion wakes the UI immediately.
 
-Voice/video calls, older-history pagination, arbitrary file uploads, drag-and-drop
+Voice/video calls, arbitrary file uploads, drag-and-drop
 and syntax highlighting remain future work. Animation decoding has bounded size,
 frame count, memory and time; longer clips may use a smaller resolution, and
 clips exceeding those bounds show a still frame. Message forwarding, threads,
@@ -287,6 +295,12 @@ are omitted. A desktop-only offline replay is available with
 `CRESSIDA_DEMO_VIEW=interaction-cycle just run debug --smoke-test`; this exercises
 picker/menu transitions over 64 frames without account access.
 
+For scrolling diagnostics, run
+`CRESSIDA_TRACE_SCROLL=1 just run 2>&1 | tee /tmp/cressida-scroll.log`.
+The trace contains raw Wayland wheel values and layout offsets, without message
+text, IDs or credentials. `CRESSIDA_SCROLL_ANIMATION=0 just run` compares direct
+wheel steps with the animated path.
+
 If startup reports a stale renderer library, run `just rebuild` to compile the
 client and shared controls together, then `just run`.
 
@@ -298,7 +312,7 @@ are regular project files with no dependency on another checkout.
 Tests use synthetic data and loopback peers, with no Discord credentials or real
 account mutations. GPU smoke checks use the offline demo. Live account testing
 is still needed for newly added settings, uploads, context actions, reaction
-lookups and read acknowledgements.
+lookups, history pagination and read acknowledgements.
 
 [`AGENTS.md`](AGENTS.md) documents architecture, development rules, protocol
 research and remaining implementation work.

@@ -165,6 +165,7 @@ namespace app {
     }
     m_gifMaxScroll = std::max(0.0F, std::max(columnY[0], columnY[1]) - available);
     m_scrolling.limit(m_gifScroll, m_gifMaxScroll);
+    body->setTextPixelSnap(false);
     if (!count)
       label(
           *body, 6, 20, width - 36,

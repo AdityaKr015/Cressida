@@ -294,6 +294,13 @@ void Node::setClipChildren(bool clipChildren) {
 
 void Node::setPaintContained(bool paintContained) { m_paintContained = paintContained; }
 
+void Node::setTextPixelSnap(bool enabled) {
+  if (m_textPixelSnap == enabled)
+    return;
+  m_textPixelSnap = enabled;
+  markPaintDirty();
+}
+
 void Node::setHitTestVisible(bool hitTestVisible) { m_hitTestVisible = hitTestVisible; }
 
 void Node::setHitTestOutset(const HitTestOutset& outset) {

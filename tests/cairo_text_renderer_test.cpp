@@ -1,4 +1,5 @@
 #include "render/text/cairo_text_renderer.h"
+#include "render/text/text_position.h"
 
 #include <array>
 #include <cmath>
@@ -89,6 +90,28 @@ namespace {
 } // namespace
 
 int main() {
+  for (const float scale : {1.0F, 1.25F, 2.0F}) {
+    const auto first = Mat3::translation(10.1F, 20.1F);
+    const auto next = Mat3::translation(10.1F, 20.3F);
+    const auto movingFirst = textQuadTransform(first, scale, false);
+    const auto movingNext = textQuadTransform(next, scale, false);
+    const auto resting = textQuadTransform(next, scale, true);
+    if (movingFirst.m != first.m
+        || movingNext.m != next.m
+        || std::abs((movingNext.m[7] - movingFirst.m[7]) - 0.2F) > 0.0001F
+        || std::abs(resting.m[7] * scale - std::round(resting.m[7] * scale)) > 0.0001F) {
+      std::println(
+          stderr, "cairo_text_renderer_test: FAIL: moving text must retain fractional travel at scale {}", scale
+      );
+      return 1;
+    }
+  }
+  const auto rotated = Mat3::translation(10.2F, 20.3F) * Mat3::rotation(0.2F);
+  if (textQuadTransform(rotated, 1, true).m != rotated.m) {
+    std::println(stderr, "cairo_text_renderer_test: FAIL: snapping must preserve rotated text transforms");
+    return 1;
+  }
+
   CairoTextRenderer renderer;
   renderer.initialize(nullptr, nullptr);
 

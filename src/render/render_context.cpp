@@ -337,11 +337,12 @@ void RenderContext::handleGraphicsReset(RenderGraphicsResetStatus status) {
 void RenderContext::renderNode(
     float renderScale, const Node* node, const Mat3& parentTransform, float parentOpacity, float sw, float sh, float bw,
     float bh, float clipLeft, float clipTop, float clipRight, float clipBottom, bool hasClip, bool ignoreNodeOpacity,
-    bool parentPaintContained
+    bool parentPaintContained, bool snapText
 ) {
   if (!node->visible()) {
     return;
   }
+  snapText = snapText && node->textPixelSnap();
 
   const Mat3 worldTransform = parentTransform * nodeLocalTransform(node);
   const float effectiveOpacity = ignoreNodeOpacity ? parentOpacity : parentOpacity * node->opacity();
@@ -393,14 +394,14 @@ void RenderContext::renderNode(
         m_textRenderer.draw(
             renderScale, sw, sh, 0.0F, 0.0F, text->text(), text->fontSize(), shadowColor, shadowTransform,
             text->fontWeight(), text->maxWidth(), text->maxLines(), text->textAlign(), font, text->ellipsize(),
-            text->useMarkup()
+            text->useMarkup(), snapText
         );
       }
       auto color = text->color();
       color.a *= effectiveOpacity;
       m_textRenderer.draw(
           renderScale, sw, sh, 0.0F, 0.0F, text->text(), text->fontSize(), color, worldTransform, text->fontWeight(),
-          text->maxWidth(), text->maxLines(), text->textAlign(), font, text->ellipsize(), text->useMarkup()
+          text->maxWidth(), text->maxLines(), text->textAlign(), font, text->ellipsize(), text->useMarkup(), snapText
       );
     }
     break;
@@ -575,7 +576,7 @@ void RenderContext::renderNode(
       const Mat3 sourceParent = worldTransform * Mat3::translation(-source->x(), -source->y());
       renderNode(
           renderScale, source, sourceParent, effectiveOpacity, sw, sh, bw, bh, clipLeft, clipTop, clipRight, clipBottom,
-          hasClip, true, false
+          hasClip, true, false, snapText
       );
     }
     return;
@@ -629,14 +630,14 @@ void RenderContext::renderNode(
     for (const auto& child : children) {
       renderNode(
           renderScale, child.get(), worldTransform, effectiveOpacity, sw, sh, bw, bh, childClipLeft, childClipTop,
-          childClipRight, childClipBottom, childHasClip, false, paintContained
+          childClipRight, childClipBottom, childHasClip, false, paintContained, snapText
       );
     }
   } else {
     for (const auto* child : orderedChildren) {
       renderNode(
           renderScale, child, worldTransform, effectiveOpacity, sw, sh, bw, bh, childClipLeft, childClipTop,
-          childClipRight, childClipBottom, childHasClip, false, paintContained
+          childClipRight, childClipBottom, childHasClip, false, paintContained, snapText
       );
     }
   }

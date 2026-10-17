@@ -305,7 +305,9 @@ namespace discord {
         && command.operation != Operation::SaveGifFavorite
         && command.operation != Operation::SaveEmojiFavorite
         && std::ranges::any_of(m_commands, [&](const auto& pending) {
-             return pending.operation == command.operation && pending.resource == command.resource;
+             return pending.operation == command.operation
+                 && pending.resource == command.resource
+                 && (command.operation != Operation::Messages || pending.history == command.history);
            }))
       return true;
     m_commands.push_back(std::move(command));
@@ -315,7 +317,13 @@ namespace discord {
 
   bool Client::channels(const std::string& id) { return enqueue({Operation::Channels, m_session, id, {}}); }
   bool Client::privateChannels() { return enqueue({Operation::PrivateChannels, m_session, {}, {}}); }
-  bool Client::messages(const std::string& id) { return enqueue({Operation::Messages, m_session, id, {}}); }
+  bool Client::messages(const std::string& id, HistoryQuery query) {
+    if (messageHistoryPath(id, query).empty())
+      return false;
+    Command command{Operation::Messages, m_session, id, {}};
+    command.history = std::move(query);
+    return enqueue(std::move(command));
+  }
   bool Client::send(
       const std::string& id, std::string content, std::vector<Upload> uploads, std::optional<MessageReference> reply
   ) {
@@ -675,6 +683,7 @@ namespace discord {
           || (command.operation == Operation::SavePresence && command.presenceRevision != m_presenceRevision))
         continue;
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
+      event.history = command.history;
       if (command.operation == Operation::Acknowledge)
         event.messageId = command.content;
       Transfer transfer{{}, stop, &m_session, command.session, connection.get()};
@@ -807,7 +816,7 @@ namespace discord {
           path = "/users/@me/channels";
           break;
         case Operation::Messages:
-          path = "/channels/" + command.resource + "/messages?limit=50";
+          path = messageHistoryPath(command.resource, command.history.value_or(HistoryQuery{}));
           break;
         case Operation::Send:
           path = "/channels/" + command.resource + "/messages";

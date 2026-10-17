@@ -16,6 +16,11 @@ int main() {
   try {
     discord::Client client;
     require(!client.messages("123"), "Disconnected clients must not issue HTTP requests");
+    require(
+        !client.messages("123", {discord::HistoryDirection::Older, "456", 1})
+            && !client.messages("123", {discord::HistoryDirection::Newer, "../invalid", 2}),
+        "History pages require authentication and validated cursors"
+    );
     require(!client.channels("123"), "Channels require an authenticated session");
     require(!client.send("123", "hello"), "Sending requires an authenticated session");
     require(

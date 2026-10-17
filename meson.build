@@ -216,3 +216,5 @@ emoji_test = executable('emoji_catalog_test', 'tests/emoji_catalog_test.cpp', li
 test('emoji_catalog', emoji_test, args: [meson.project_source_root() / 'assets'])
 unread_timeline_test = executable('unread_timeline_test', 'tests/unread_timeline_test.cpp', dependencies: backend_dep)
 test('unread_timeline', unread_timeline_test)
+message_history_test = executable('message_history_test', 'tests/message_history_test.cpp', dependencies: backend_dep)
+test('message_history', message_history_test)
