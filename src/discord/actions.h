@@ -21,13 +21,21 @@ namespace discord {
     Unmute,
     ListReactions,
     GuildProfile,
-    JoinGuild
+    JoinGuild,
+    CreateThread,
+    CreateForumPost,
+    JoinThread,
+    LeaveThread,
+    UnarchiveThread
   };
   struct Interaction {
     InteractionKind kind = InteractionKind::AddReaction;
     std::string channel, message, user, emoji, text, guild;
     bool burst = false;
-    std::uint64_t revision = 0; // UI request identity, never sent to Discord.
+    std::uint64_t revision = 0;      // UI request identity, never sent to Discord.
+    std::uint64_t stateRevision = 0; // Thread directory version, never sent to Discord.
+    std::string content;
+    std::vector<std::string> tags;
   };
   struct InteractionRequest {
     std::string path, method;

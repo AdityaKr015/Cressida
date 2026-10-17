@@ -151,7 +151,8 @@ namespace app {
     auto input = m_inputs.find(id);
     if (input == m_inputs.end() || !input->second->parent() || !g_utf8_validate(text.data(), text.size(), nullptr))
       return;
-    const bool multiline = id == "composer" || id == "settings:bio" || (id == "dialog" && m_dialogKind == "edit");
+    const bool multiline =
+        id == "composer" || id == "forum-body" || id == "settings:bio" || (id == "dialog" && m_dialogKind == "edit");
     std::erase_if(text, [&](unsigned char c) {
       return (c < 32 && !(multiline && (c == '\n' || c == '\t'))) || c == 127;
     });
@@ -209,6 +210,14 @@ namespace app {
             m_scrolling.stop(m_emojiScroll);
             m_emojiScroll = 0;
           }
+        } else if (id == "forum-search") {
+          if (text.size() <= 400 && discord::utf8Length(text) <= 100) {
+            m_forumSearch = text;
+            updateForumSearch();
+          }
+        } else if (id == "forum-body") {
+          if (text.size() <= 8000)
+            m_drafts[m_channelId] = text;
         } else if (id == "gif-search") {
           if (text.size() <= 256) {
             m_gifQuery = text;
@@ -242,7 +251,10 @@ namespace app {
           // Selection is explicit; Enter must not submit account settings.
         } else if (id == "gif-search")
           searchGifs();
-        else if (id == "dialog")
+        else if (id == "forum-search") {
+          m_forumSearchTimer.stop();
+          loadThreads(true);
+        } else if (id == "forum-body" || id == "dialog")
           submitDialog();
         else if (id == "token")
           connect();

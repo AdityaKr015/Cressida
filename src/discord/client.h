@@ -8,9 +8,10 @@
 #include "discord/gifs.h"
 #include "discord/history.h"
 #include "discord/models.h"
+#include "discord/profile.h"
 #include "discord/read_state.h"
 #include "discord/role_styles.h"
-#include "discord/profile.h"
+#include "discord/threads.h"
 #include "discord/user_directory.h"
 
 #include <atomic>
@@ -60,7 +61,9 @@ namespace discord {
     GuildEmojis,
     EmojiPreferences,
     SaveEmojiFavorite,
-    RoleStyles
+    RoleStyles,
+    Threads,
+    ThreadUpdate
   };
 
   struct Event {
@@ -77,6 +80,9 @@ namespace discord {
     GuildLayout layout;
     std::vector<MemberRow> members;
     RoleUpdates roleUpdates;
+    ThreadUpdates threadUpdates;
+    std::optional<ThreadQuery> threadQuery;
+    std::optional<ThreadPage> threadPage;
     int memberCount = 0;
     std::vector<std::string> removed;
     std::string messageId;
@@ -119,6 +125,7 @@ namespace discord {
     std::uint64_t disconnect();
     bool channels(const std::string& guildId);
     bool privateChannels();
+    bool threads(ThreadQuery query);
     bool acknowledge(const std::string& channel, const std::string& message);
     bool messages(const std::string& channelId, HistoryQuery query = {});
     bool send(
@@ -156,6 +163,7 @@ namespace discord {
       std::optional<discord::Interaction> interaction;
       bool restoredLogin = false;
       std::optional<HistoryQuery> history;
+      std::optional<ThreadQuery> threadQuery;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);

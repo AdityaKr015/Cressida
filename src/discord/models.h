@@ -83,6 +83,9 @@ namespace discord {
     std::map<std::string, int> m_groupCounts;
   };
 
+  struct ForumTag {
+    std::string id, name, emojiId, emojiName;
+  };
   struct Channel {
     std::string id;
     std::string name;
@@ -93,6 +96,15 @@ namespace discord {
     std::vector<Account> recipients;
     std::string lastMessageId;
     bool named = false;
+    // Optional fields preserve thread metadata across partial Gateway updates.
+    std::optional<bool> archived, locked, joined;
+    std::string archiveTimestamp;
+    std::optional<int> messageCount, threadMemberCount;
+    std::vector<ForumTag> availableTags;
+    std::optional<std::vector<std::string>> appliedTags;
+    bool requireTag = false;
+    bool isThread() const { return type == 10 || type == 11 || type == 12; }
+    bool isForum() const { return type == 15 || type == 16; }
   };
 
   struct Media {
@@ -157,6 +169,8 @@ namespace discord {
     std::vector<Reaction> reactions;
     std::optional<std::vector<std::string>> memberRoles;
     std::optional<GuildTag> authorTag;
+    std::optional<Channel> thread;
+    bool hasThread = false;
   };
 
   struct MessagePatch {
@@ -168,6 +182,8 @@ namespace discord {
     std::optional<std::vector<Reaction>> reactions;
     std::optional<std::vector<std::string>> memberRoles;
     std::optional<std::optional<GuildTag>> authorTag;
+    std::optional<std::optional<Channel>> thread;
+    std::optional<bool> hasThread;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

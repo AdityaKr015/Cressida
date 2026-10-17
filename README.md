@@ -34,6 +34,14 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **Direct messages:** personal/group conversations, avatars, unread styling and
   incoming DM shortcuts with unread counts above the server list. Presence badges update live in
   DM rows, conversation headers and the participant list.
+- **Threads:** open conversations beneath their parent channel or use the header's
+  **Threads** button to browse active and archived threads, including joined private
+  threads. Create a public thread from a message's context menu or the browser,
+  join/leave threads, and reopen archived threads before replying.
+- **Forums:** post cards in the main channel area, with thumbnails, previews,
+  reaction counts, search, sorting and tag filters. **New Post** creates a named
+  post with text and a tag; opening a post enters its thread, and Back returns to
+  the forum. New-post attachments and private-thread creation are still pending.
 - **Personal nicknames:** names you assigned to friends appear in conversations,
   message authors, mentions and member lists, including live nickname changes.
 - **Role colors:** server role colors, gradients and holographic palettes on names,
@@ -283,8 +291,7 @@ REST/CDN connections are reused, and media completion wakes the UI immediately.
 Voice/video calls, arbitrary file uploads, drag-and-drop
 and syntax highlighting remain future work. GIF animation decoding has bounded size,
 frame count, memory and time; longer clips may use a smaller resolution, and
-clips exceeding those bounds show a still frame. Message forwarding, threads,
-pins/bookmarks,
+clips exceeding those bounds show a still frame. Message forwarding, pins/bookmarks,
 reminders, apps, speech and moderation menus are not implemented. Reactions can
 be sent normally; sending super reactions and sticker selection remain pending.
 Quick-reaction usage is local and does not import Discord's

@@ -148,7 +148,24 @@ namespace app {
       GuildProfile,
       GuildProfileRetry,
       JoinGuild,
-      OpenPreviewGuild
+      OpenPreviewGuild,
+      BrowseThreads,
+      OpenThread,
+      ThreadTab,
+      ThreadMore,
+      ThreadRetry,
+      CreateThread,
+      JoinThread,
+      LeaveThread,
+      ReopenThread,
+      ThreadParent,
+      ForumSearch,
+      ForumSort,
+      ForumTag,
+      ForumRetry,
+      ForumMore,
+      NewForumPost,
+      ForumPostTag
     };
     struct Hit {
       float x, y, width, height;
@@ -182,7 +199,7 @@ namespace app {
     void prepareDemo();
     void selectGuild(const std::string& id);
     void showDirectMessages();
-    void selectChannel(const std::string& id);
+    void selectChannel(std::string id);
     void refresh();
     void loadHistory(discord::HistoryDirection direction, bool retry = false);
     void applyHistory(discord::Event& event);
@@ -192,11 +209,37 @@ namespace app {
     bool profileAction(const Hit& hit);
     void demoProfileStep();
     void prepareProfileDemo();
-    float drawGuildTag(Node& parent, float x, float y, float width, const std::optional<discord::GuildTag>& tag, bool clickable = true);
-    float drawRoleIcon(Node& parent, float x, float y, const std::string& guild, const std::string& user,
-                       const std::optional<std::vector<std::string>>& roles = {});
+    float drawGuildTag(
+        Node& parent, float x, float y, float width, const std::optional<discord::GuildTag>& tag, bool clickable = true
+    );
+    float drawRoleIcon(
+        Node& parent, float x, float y, const std::string& guild, const std::string& user,
+        const std::optional<std::vector<std::string>>& roles = {}
+    );
     void showGuildProfile(const std::string& guild);
     void drawGuildProfile(Node& root, float width, float height);
+    void clearThreads();
+    void loadThreads(bool retry = false, bool more = false);
+    void rebuildThreadChannels();
+    void threadEvent(const discord::Event& event);
+    void showThreads(const std::string& parent);
+    void loadArchivedThreads(bool more = false);
+    void drawThreads(Node& root, float width, float height);
+    bool forumView() const;
+    void drawForum(Node& root, float x, float y, float width, float height);
+    void updateForumSearch();
+    void newForumPost();
+    void prepareForumDemo(const std::string& view);
+    void demoForumStep();
+    void drawForumPostDialog(Node& root, float width, float height);
+    bool threadAction(const Hit& hit);
+    bool threadInteraction(const discord::Event& event, bool dialog);
+    void openThread(const std::string& id);
+    void createThread(const std::string& parent, const std::string& message = {});
+    float threadStrip(Node* root, const discord::Message& message, float x, float y, float width);
+    void prepareThreadDemo(const std::string& view);
+    void demoThreadStep();
+    bool canSendToThread();
     bool guildProfileAction(const Hit& hit);
     void prepareGuildTagDemo();
     void demoGuildTagStep();
@@ -212,9 +255,10 @@ namespace app {
         Node& parent, float x, float y, float width, std::string text, float size, Color color,
         FontWeight weight = FontWeight::Normal, int lines = 1, bool markup = false
     );
-    void
-    button(Node& parent, Hit hit, std::string text, bool primary = false, bool selected = false, bool fill = false,
-           bool centered = false);
+    void button(
+        Node& parent, Hit hit, std::string text, bool primary = false, bool selected = false, bool fill = false,
+        bool centered = false
+    );
     bool image(Node& parent, float x, float y, float size, const std::string& path, float radius);
     bool emojiImage(Node& parent, float x, float y, float size, const std::string& path);
     void avatar(Node& parent, float x, float y, float size, const std::string& path, const std::string& name);
@@ -438,6 +482,22 @@ namespace app {
     std::map<std::string, std::string> m_unreadGuilds, m_localRead;
     UnreadTimeline m_unreadTimeline;
     std::map<std::string, std::vector<discord::Channel>> m_guildChannels;
+    discord::ThreadDirectory m_threads;
+    std::map<std::string, discord::ThreadQuery> m_threadRequests;
+    std::map<std::string, discord::ThreadPage> m_threadPages;
+    std::map<std::string, discord::Message> m_forumFirstMessages;
+    std::string m_forumSearch, m_forumTag, m_forumPostTag;
+    bool m_forumNewest = false;
+    float m_forumScroll = 0;
+    Timer m_forumSearchTimer;
+    std::set<std::string> m_threadsLoaded, m_threadPending;
+    std::map<std::string, std::string> m_threadErrors;
+    std::optional<discord::ThreadQuery> m_archiveQuery, m_openThreadQuery;
+    std::string m_threadParent, m_threadBefore, m_threadError;
+    discord::ThreadList m_threadTab = discord::ThreadList::Active;
+    bool m_threadMore = false;
+    float m_threadScroll = 0;
+    std::uint64_t m_threadSerial = 0;
     std::map<std::string, std::vector<discord::Message>> m_channelMessages;
     std::vector<std::string> m_channelCacheOrder;
     struct MemberSnapshot {

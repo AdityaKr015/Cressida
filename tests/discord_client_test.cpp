@@ -21,6 +21,10 @@ int main() {
             && !client.messages("123", {discord::HistoryDirection::Newer, "../invalid", 2}),
         "History pages require authentication and validated cursors"
     );
+    require(
+        !client.threads({discord::ThreadList::Active, "1", "10"}),
+        "Disconnected thread browsing never performs requests"
+    );
     require(!client.channels("123"), "Channels require an authenticated session");
     require(!client.send("123", "hello"), "Sending requires an authenticated session");
     require(

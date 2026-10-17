@@ -24,8 +24,11 @@ namespace app {
           + ":"
           + action.emoji
           + (action.burst ? ":burst" : ":normal");
-      if (action.kind == discord::InteractionKind::UserProfile || action.kind == discord::InteractionKind::GuildProfile
-          || action.kind == discord::InteractionKind::JoinGuild)
+      if (action.kind == discord::InteractionKind::UserProfile
+          || action.kind == discord::InteractionKind::GuildProfile
+          || action.kind == discord::InteractionKind::JoinGuild
+          || action.kind == discord::InteractionKind::CreateThread
+          || action.kind == discord::InteractionKind::CreateForumPost)
         key += ":" + action.guild + ":" + std::to_string(action.revision);
       return key;
     }
@@ -78,6 +81,9 @@ namespace app {
       case Action::AddReaction:
         entry.icon = "mood-smile";
         entry.hasSubmenu = true;
+        break;
+      case Action::CreateThread:
+        entry.icon = "messages";
         break;
       case Action::Reply:
         entry.icon = "corner-up-left";
@@ -149,6 +155,11 @@ namespace app {
       if (message->authorId == m_account.id)
         add(Action::EditMessage, "Edit Message");
       add(Action::Reply, "Reply");
+      const auto selected = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+      if (!m_dmMode && selected != m_channels.end() && (selected->type == 0 || selected->type == 5))
+        add(Action::CreateThread,
+            message->hasThread || message->thread || m_threads.find(m_guildId, message->id) ? "Open Thread"
+                                                                                            : "Create Thread");
       add(Action::UserProfile, "View Author Profile");
       separator();
       add(Action::CopyMessage, "Copy Text");
@@ -449,9 +460,12 @@ namespace app {
       // Only this overlay's retained scrollbar may receive native input here.
       // The conversation's scrollbar/composer can be directly behind the card.
       const auto bar = m_widgets.find("profile-scrollbar");
-      if (bar != m_widgets.end() && bar->second->parent()
-          && x >= bar->second->x() && x < bar->second->x() + bar->second->width()
-          && y >= bar->second->y() && y < bar->second->y() + bar->second->height()) {
+      if (bar != m_widgets.end()
+          && bar->second->parent()
+          && x >= bar->second->x()
+          && x < bar->second->x() + bar->second->width()
+          && y >= bar->second->y()
+          && y < bar->second->y() + bar->second->height()) {
         m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
       } else {
         for (auto it = m_hits.rbegin(); it != m_hits.rend(); ++it)
@@ -544,7 +558,9 @@ namespace app {
         return false;
       if (key.control && key.symbol == XKB_KEY_comma)
         return true;
-      if (m_focusedInput != "dialog" && key.symbol != XKB_KEY_Tab)
+      if (m_focusedInput != "dialog"
+          && !(m_dialogKind == "forum-create" && m_focusedInput == "forum-body")
+          && key.symbol != XKB_KEY_Tab)
         return true;
     }
     return false;
@@ -574,6 +590,14 @@ namespace app {
     request.channel = m_contextChannel;
     request.message = m_contextMessage;
     switch (action) {
+    case Action::CreateThread:
+      if (found != m_messages.end()) {
+        if (found->hasThread || found->thread || m_threads.find(m_guildId, found->id))
+          openThread(found->thread ? found->thread->id : found->id);
+        else
+          createThread(m_contextChannel, found->id);
+      }
+      break;
     case Action::Reply:
       if (found != m_messages.end() && m_contextChannel == m_channelId) {
         m_replies[m_channelId] = {found->id, m_channelId, found->authorId, found->author, found->content};
@@ -695,8 +719,12 @@ namespace app {
     m_profileAnchorY = m_pointerY;
     m_dialogText.clear();
     m_dialogError.clear();
-    m_dialogAction = discord::Interaction{.kind = discord::InteractionKind::UserProfile, .user = user,
-                                        .guild = m_profileCard.guild, .revision = m_dialogGeneration};
+    m_dialogAction = discord::Interaction{
+        .kind = discord::InteractionKind::UserProfile,
+        .user = user,
+        .guild = m_profileCard.guild,
+        .revision = m_dialogGeneration
+    };
     m_dialogPending = !m_demo && startInteraction(*m_dialogAction);
     if (m_demo)
       prepareProfileDemo();
@@ -705,6 +733,9 @@ namespace app {
   }
   void ClientApplication::closeDialog() {
     ++m_dialogGeneration;
+    m_archiveQuery.reset();
+    m_scrolling.stop(m_threadScroll);
+    m_threadScroll = 0;
     m_dialogKind.clear();
     m_dialogAction.reset();
     m_dialogPending = false;
@@ -739,6 +770,14 @@ namespace app {
   void ClientApplication::drawDialog(Node& root, float w, float h) {
     if (m_dialogKind.empty())
       return;
+    if (m_dialogKind == "forum-create") {
+      drawForumPostDialog(root, w, h);
+      return;
+    }
+    if (m_dialogKind == "threads") {
+      drawThreads(root, w, h);
+      return;
+    }
     if (m_dialogKind == "guild-profile") {
       drawGuildProfile(root, w, h);
       return;
@@ -766,10 +805,13 @@ namespace app {
         "x", "Close"
     );
     {
-      if (m_dialogKind == "edit" || m_dialogKind == "nickname")
+      if (m_dialogKind == "edit" || m_dialogKind == "nickname" || m_dialogKind == "thread-create")
         inputControl(
             root, x + 24, y + 70, width - 48, m_dialogKind == "edit" ? 142 : 44, "dialog", m_dialogText,
-            m_dialogKind == "nickname" ? "Nickname (leave empty to clear)" : "Message", m_dialogKind == "edit"
+            m_dialogKind == "nickname"            ? "Nickname (leave empty to clear)"
+                : m_dialogKind == "thread-create" ? "Thread name"
+                                                  : "Message",
+            m_dialogKind == "edit"
         );
       else
         label(
@@ -785,9 +827,10 @@ namespace app {
       );
       button(
           root, {x + width - 130, y + height - 52, 106, 32, m_dialogPending ? Action::None : Action::SubmitDialog, {}},
-          m_dialogPending                 ? "Saving…"
-              : m_dialogKind == "confirm" ? "Confirm"
-                                          : "Save",
+          m_dialogPending                       ? "Saving…"
+              : m_dialogKind == "thread-create" ? "Create Thread"
+              : m_dialogKind == "confirm"       ? "Confirm"
+                                                : "Save",
           true
       );
     }
@@ -798,6 +841,23 @@ namespace app {
       return;
     auto action = *m_dialogAction;
     action.text = m_dialogText;
+    if (action.kind == discord::InteractionKind::CreateThread
+        || action.kind == discord::InteractionKind::CreateForumPost)
+      action.stateRevision = m_threads.revision();
+    if (action.kind == discord::InteractionKind::CreateForumPost) {
+      const auto channel = std::ranges::find(m_channels, action.channel, &discord::Channel::id);
+      if (channel == m_channels.end())
+        return;
+      if (channel->requireTag && m_forumPostTag.empty()) {
+        m_dialogError = "Choose a tag for this post.";
+        m_window.invalidate();
+        return;
+      }
+      action.content = m_emojiCatalog.messageContent(
+          m_drafts[action.channel], action.guild, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
+      );
+      action.tags = m_forumPostTag.empty() ? std::vector<std::string>{} : std::vector{m_forumPostTag};
+    }
     if (action.kind == discord::InteractionKind::EditMessage)
       action.text = m_emojiCatalog.messageContent(
           action.text, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
@@ -829,6 +889,7 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
+    m_threadPending.erase(action.channel);
     const bool dialog = m_dialogAction && interactionKey(*m_dialogAction) == key;
     if (!event.error.empty()) {
       if (dialog) {
@@ -838,6 +899,8 @@ namespace app {
       m_status = event.error;
       return;
     }
+    if (threadInteraction(event, dialog))
+      return;
     using Kind = discord::InteractionKind;
     if (action.kind == Kind::JoinGuild && !event.guildVerificationRequired)
       for (const auto& guild : event.guilds)
@@ -896,7 +959,8 @@ namespace app {
     } else if (action.kind == Kind::JoinGuild && dialog) {
       m_guildPreviewJoined = true;
       m_guildPreviewVerification = event.guildVerificationRequired || m_guildProfile.recruitment;
-      if (!m_guildPreviewVerification && std::ranges::find(m_guilds, action.guild, &discord::Guild::id) == m_guilds.end()) {
+      if (!m_guildPreviewVerification
+          && std::ranges::find(m_guilds, action.guild, &discord::Guild::id) == m_guilds.end()) {
         m_guilds.push_back({m_guildProfile.id, m_guildProfile.name, m_guildProfile.icon});
         m_folders.push_back({{}, {}, 0, {action.guild}});
       }
@@ -1052,28 +1116,36 @@ namespace app {
         auto frame = std::make_unique<RectNode>();
         frame->setPosition(ax, ay);
         frame->setSize(chip, 28);
-        frame->setStyle(RoundedRectStyle{
-            .fill = mine ? lerpColor(background, accent, over ? 0.19F : 0.10F) : over ? raised : panel,
-            .border = mine || over ? withAlpha(accent, mine ? 0.8F : 0.45F) : withAlpha(muted, 0.16F),
-            .radius = 8,
-            .borderWidth = 1
-        });
+        frame->setStyle(
+            RoundedRectStyle{
+                .fill = mine ? lerpColor(background, accent, over ? 0.19F : 0.10F)
+                    : over   ? raised
+                             : panel,
+                .border = mine || over ? withAlpha(accent, mine ? 0.8F : 0.45F) : withAlpha(muted, 0.16F),
+                .radius = 8,
+                .borderWidth = 1
+            }
+        );
         parent->addChild(std::move(frame));
         if (reaction.id.empty()) {
           // Color-emoji fallback fonts can have a wider em than the requested
           // point size. Fit the actual metrics, so Pango cannot ellipsize the
           // reaction into a row of dots inside its reserved square.
           const auto natural = m_window.target().renderer().measureText(reaction.name, 20);
-          const float size = 20 * std::min({1.0F, 20 / std::max(1.0F, natural.width),
-                                         20 / std::max(1.0F, natural.bottom - natural.top)});
+          const float size = 20
+              * std::min({1.0F, 20 / std::max(1.0F, natural.width), 20 / std::max(1.0F, natural.bottom - natural.top)});
           const auto emoji = m_window.target().renderer().measureText(reaction.name, size);
-          label(*parent, ax + 7 + (20 - emoji.width) / 2, ay + (28 - (emoji.bottom - emoji.top)) / 2,
-                std::ceil(emoji.width) + 2, reaction.name, size, foreground);
+          label(
+              *parent, ax + 7 + (20 - emoji.width) / 2, ay + (28 - (emoji.bottom - emoji.top)) / 2,
+              std::ceil(emoji.width) + 2, reaction.name, size, foreground
+          );
         } else
           emojiImage(*parent, ax + 7, ay + 4, 20, discord::emojiPath(reaction.id));
         const auto metrics = m_window.target().renderer().measureText(count, 13, FontWeight::Medium);
-        label(*parent, ax + 34, ay + (28 - (metrics.bottom - metrics.top)) / 2, chip - 39,
-              count, 13, mine ? accent : foreground, FontWeight::Medium);
+        label(
+            *parent, ax + 34, ay + (28 - (metrics.bottom - metrics.top)) / 2, chip - 39, count, 13,
+            mine ? accent : foreground, FontWeight::Medium
+        );
         m_hits.push_back(hit);
         hoverReaction(message, reaction, hit);
       }
@@ -1082,6 +1154,8 @@ namespace app {
     return ry + 32;
   }
   bool ClientApplication::interactionAction(const Hit& hit) {
+    if (threadAction(hit))
+      return true;
     if (guildProfileAction(hit))
       return true;
     if (profileAction(hit))

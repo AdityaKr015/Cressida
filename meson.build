@@ -101,7 +101,7 @@ credentials = static_library('credentials', 'src/auth/credentials.cpp', 'src/aut
 credential_dep = declare_dependency(link_with: credentials,
   include_directories: include_directories('src'), dependencies: credential_deps)
 backend = static_library('cressida-backend', 'src/discord/models.cpp', 'src/discord/client.cpp',
-  'src/discord/settings.cpp', 'src/discord/gifs.cpp', 'src/discord/emoji.cpp', 'src/discord/read_state.cpp', 'src/discord/role_styles.cpp', 'src/discord/profile.cpp', 'src/discord/user_directory.cpp', 'src/discord/actions.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp', 'src/discord/video_source.cpp',
+  'src/discord/settings.cpp', 'src/discord/gifs.cpp', 'src/discord/emoji.cpp', 'src/discord/read_state.cpp', 'src/discord/role_styles.cpp', 'src/discord/profile.cpp', 'src/discord/threads.cpp', 'src/discord/user_directory.cpp', 'src/discord/actions.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp', 'src/discord/video_source.cpp',
   include_directories: include_directories('src'),
   dependencies: backend_deps + [credential_dep, media_dep],
 )
@@ -130,7 +130,7 @@ message_layout = static_library('message-layout', 'src/app/message_layout.cpp', 
 message_layout_dep = declare_dependency(link_with: message_layout, dependencies: [render_dep, backend_dep, markdown_dep])
 emoji_catalog = static_library('emoji-catalog', 'src/app/emoji_catalog.cpp', dependencies: [backend_dep, markdown_dep])
 client = executable('cressida',
-  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
+  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
   dependencies: [render_dep, backend_dep, browser_dep, markdown_dep, video_dep],
   link_with: [message_layout, emoji_catalog],
   cpp_args: client_args,
@@ -140,7 +140,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'discord/emoji.cpp', 'discord/role_styles.cpp', 'discord/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/role_view.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'discord/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/gifs.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
+  exclude_files: ['discord/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'discord/emoji.cpp', 'discord/role_styles.cpp', 'discord/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/role_view.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'discord/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/gifs.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -196,6 +196,8 @@ role_style_test = executable('role_style_test', 'tests/role_style_test.cpp', dep
 test('role_style', role_style_test)
 profile_test = executable('profile_test', 'tests/profile_test.cpp', dependencies: backend_dep)
 test('profile', profile_test)
+thread_test = executable('threads_test', 'tests/threads_test.cpp', dependencies: backend_dep)
+test('threads', thread_test)
 control_test = executable('native_controls_test', 'tests/native_controls_test.cpp', dependencies: render_dep)
 test('native_controls', control_test)
 

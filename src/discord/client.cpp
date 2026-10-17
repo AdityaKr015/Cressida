@@ -302,6 +302,7 @@ namespace discord {
       std::erase_if(m_commands, [](const auto& pending) { return pending.operation == Operation::GifSearch; });
     if (command.operation != Operation::Send
         && command.operation != Operation::Interaction
+        && command.operation != Operation::Threads
         && command.operation != Operation::SaveGifFavorite
         && command.operation != Operation::SaveEmojiFavorite
         && std::ranges::any_of(m_commands, [&](const auto& pending) {
@@ -316,6 +317,13 @@ namespace discord {
   }
 
   bool Client::channels(const std::string& id) { return enqueue({Operation::Channels, m_session, id, {}}); }
+  bool Client::threads(ThreadQuery query) {
+    if (threadListPath(query).empty())
+      return false;
+    Command command{Operation::Threads, m_session, query.guild, {}};
+    command.threadQuery = std::move(query);
+    return enqueue(std::move(command));
+  }
   bool Client::privateChannels() { return enqueue({Operation::PrivateChannels, m_session, {}, {}}); }
   bool Client::messages(const std::string& id, HistoryQuery query) {
     if (messageHistoryPath(id, query).empty())
@@ -430,6 +438,14 @@ namespace discord {
         m_userDirectory = {};
         m_self.clear();
       }
+      if (type == "READY" && data.contains("user"))
+        m_self = data["user"].value("id", "");
+      auto threads = parseThreadUpdates(type, data, m_self);
+      if (threads.reset || !threads.changes.empty()) {
+        Event event{.operation = Operation::ThreadUpdate, .session = session};
+        event.threadUpdates = std::move(threads);
+        publish(std::move(event));
+      }
       auto styles = parseRoleUpdates(type, data);
       if (styles.reset || !styles.guilds.empty()) {
         Event event{.operation = Operation::RoleStyles, .session = session};
@@ -451,7 +467,15 @@ namespace discord {
         state.unreadCursors = m_readState.unreadCursors();
         publish(std::move(state));
       };
-      if (type == "CHANNEL_DELETE" || type == "GUILD_DELETE")
+      if (type == "THREAD_CREATE" || type == "THREAD_UPDATE")
+        m_readState.channels(Json::array({data}), data.value("guild_id", ""));
+      if (type == "THREAD_LIST_SYNC" && data.contains("threads"))
+        m_readState.channels(data["threads"], data.value("guild_id", ""));
+      if (type == "CHANNEL_DELETE"
+          || type == "GUILD_DELETE"
+          || type == "THREAD_DELETE"
+          || type == "THREAD_CREATE"
+          || type == "THREAD_LIST_SYNC")
         publishReads();
       if (type == "CHANNEL_UNREAD_UPDATE") {
         if (data.contains("channel_unread_updates"))
@@ -699,6 +723,7 @@ namespace discord {
         continue;
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
       event.history = command.history;
+      event.threadQuery = command.threadQuery;
       if (command.operation == Operation::Acknowledge)
         event.messageId = command.content;
       Transfer transfer{{}, stop, &m_session, command.session, connection.get()};
@@ -824,6 +849,9 @@ namespace discord {
           method = "PATCH";
           break;
         }
+        case Operation::Threads:
+          path = threadListPath(*command.threadQuery);
+          break;
         case Operation::Channels:
           path = "/guilds/" + command.resource + "/channels";
           break;
@@ -919,13 +947,31 @@ namespace discord {
             break;
           }
           case Operation::Interaction:
-            if (command.interaction->kind == InteractionKind::GuildProfile) {
+            if (command.interaction->kind == InteractionKind::CreateThread
+                || command.interaction->kind == InteractionKind::CreateForumPost
+                || command.interaction->kind == InteractionKind::UnarchiveThread) {
+              auto thread = parseThread(*response);
+              if (!thread
+                  || (command.interaction->kind == InteractionKind::UnarchiveThread
+                      && thread->id != command.interaction->channel)
+                  || ((command.interaction->kind == InteractionKind::CreateThread
+                       || command.interaction->kind == InteractionKind::CreateForumPost)
+                      && thread->parentId != command.interaction->channel))
+                throw std::runtime_error("Unexpected thread identity");
+              if (command.interaction->kind == InteractionKind::CreateThread
+                  || command.interaction->kind == InteractionKind::CreateForumPost)
+                thread->joined = true;
+              event.channels.push_back(*thread);
+            } else if (command.interaction->kind == InteractionKind::GuildProfile) {
               event.guildProfile = parseGuildProfile(*response);
               if (event.guildProfile->id != command.interaction->guild)
                 throw std::runtime_error("Unexpected server profile identity");
             } else if (command.interaction->kind == InteractionKind::JoinGuild) {
-              event.guildVerificationRequired = response->contains("show_verification_form") && (*response)["show_verification_form"] == true;
-              if (response->contains("id") && (*response)["id"].is_string() && (*response)["id"] == command.interaction->guild)
+              event.guildVerificationRequired =
+                  response->contains("show_verification_form") && (*response)["show_verification_form"] == true;
+              if (response->contains("id")
+                  && (*response)["id"].is_string()
+                  && (*response)["id"] == command.interaction->guild)
                 event.guilds = parseGuilds(Json::array({*response}));
             } else if (command.interaction->kind == InteractionKind::ListReactions)
               event.reactors = parseReactors(*response);
@@ -969,6 +1015,12 @@ namespace discord {
               event.error = "Status changed on another device. Please try again.";
             else
               event.presence = parsePresenceSettings(*response);
+            break;
+          case Operation::Threads:
+            if (response->contains("code") && (*response)["code"] == 110000)
+              event.error = "Search is being indexed. Please try again shortly.";
+            else
+              event.threadPage = parseThreadPage(*response, *command.threadQuery);
             break;
           case Operation::Channels:
             event.channels = parseChannels(*response);

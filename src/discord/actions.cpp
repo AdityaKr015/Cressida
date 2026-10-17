@@ -81,6 +81,48 @@ namespace discord {
     using Kind = InteractionKind;
     InteractionRequest request;
     switch (action.kind) {
+    case Kind::CreateThread:
+    case Kind::CreateForumPost:
+      if (!validSnowflake(action.channel)
+          || (!action.message.empty() && !validSnowflake(action.message))
+          || action.text.empty()
+          || utf8Length(action.text) > 100
+          || action.text.size() > 400
+          || std::ranges::all_of(action.text, [](unsigned char c) { return c <= 32; })
+          || std::ranges::any_of(action.text, [](unsigned char c) { return c < 32 || c == 127; }))
+        return {};
+      request.path =
+          "/channels/" + action.channel + (action.message.empty() ? "" : "/messages/" + action.message) + "/threads";
+      request.method = "POST";
+      request.body = {{"name", action.text}, {"auto_archive_duration", 1440}};
+      if (action.message.empty())
+        request.body["type"] = 11;
+      if (action.kind == Kind::CreateForumPost) {
+        if (!action.message.empty()
+            || action.content.empty()
+            || action.content.size() > 8000
+            || utf8Length(action.content) > 2000
+            || action.tags.size() > 5
+            || std::ranges::any_of(action.tags, [](const auto& tag) { return !validSnowflake(tag); }))
+          return {};
+        request.body["message"] = messageBody(action.content);
+        request.body["applied_tags"] = action.tags;
+      }
+      break;
+    case Kind::JoinThread:
+    case Kind::LeaveThread:
+    case Kind::UnarchiveThread:
+      if (!validSnowflake(action.channel))
+        return {};
+      request.path = "/channels/" + action.channel;
+      if (action.kind == Kind::UnarchiveThread) {
+        request.method = "PATCH";
+        request.body = {{"archived", false}};
+      } else {
+        request.path += "/thread-members/@me";
+        request.method = action.kind == Kind::JoinThread ? "PUT" : "DELETE";
+      }
+      break;
     case Kind::GuildProfile:
     case Kind::JoinGuild:
       if (!validSnowflake(action.guild))
@@ -133,7 +175,9 @@ namespace discord {
       } else if (action.kind == Kind::UserProfile) {
         if (!action.guild.empty() && !validSnowflake(action.guild))
           return {};
-        request.path = "/users/" + action.user + "/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=true&type=popout";
+        request.path = "/users/"
+            + action.user
+            + "/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=true&type=popout";
         if (!action.guild.empty())
           request.path += "&guild_id=" + action.guild;
         request.method = "GET";

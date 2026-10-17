@@ -1,5 +1,7 @@
 #include "discord/models.h"
+
 #include "discord/role_styles.h"
+#include "discord/threads.h"
 
 #include <algorithm>
 #include <charconv>
@@ -50,18 +52,22 @@ namespace discord {
   bool validAssetHash(std::string_view value) {
     if (value.starts_with("a_"))
       value.remove_prefix(2);
-    return !value.empty() && value.size() <= 64 && std::ranges::all_of(value, [](unsigned char c) {
-      return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-    });
+    return !value.empty()
+        && value.size() <= 64
+        && std::ranges::all_of(value, [](unsigned char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
   }
   std::optional<GuildTag> parseGuildTag(const nlohmann::json& user) {
     const auto at = user.find(user.contains("primary_guild") ? "primary_guild" : "clan");
     if (at == user.end() || !at->is_object() || !at->contains("identity_enabled") || (*at)["identity_enabled"] != true)
       return {};
     const auto guild = text(*at, "identity_guild_id"), tag = text(*at, "tag"), badge = text(*at, "badge");
-    if (!validSnowflake(guild) || tag.empty() || tag.size() > 32 || std::ranges::any_of(tag, [](unsigned char c) { return c < 32 || c == 127; }))
+    if (!validSnowflake(guild) || tag.empty() || tag.size() > 32 || std::ranges::any_of(tag, [](unsigned char c) {
+          return c < 32 || c == 127;
+        }))
       return {};
-    return GuildTag{guild, tag, validAssetHash(badge) ? "/guild-tag-badges/" + guild + "/" + badge + ".png?size=32" : ""};
+    return GuildTag{
+        guild, tag, validAssetHash(badge) ? "/guild-tag-badges/" + guild + "/" + badge + ".png?size=32" : ""
+    };
   }
 
   std::vector<Guild> parseGuilds(const nlohmann::json& value) {
@@ -87,11 +93,24 @@ namespace discord {
     std::vector<Channel> result;
     for (const auto& item : value) {
       const int type = item.value("type", 0);
-      if (type != 0 && type != 5 && type != 4)
-        continue; // Text and announcement channels in this first slice.
+      if (type != 0 && type != 5 && type != 4 && type != 15 && type != 16)
+        continue; // Threads have their own directory and lifecycle.
       result.push_back(
           {id(item), text(item, "name", "unnamed"), type, item.value("position", 0), text(item, "parent_id")}
       );
+      auto& channel = result.back();
+      if (channel.isForum()) {
+        if (item.contains("flags") && item["flags"].is_number_integer())
+          channel.requireTag = (item["flags"].get<std::uint64_t>() & 16) != 0;
+        if (item.contains("available_tags") && item["available_tags"].is_array())
+          for (const auto& tag : item["available_tags"]) {
+            const auto key = text(tag, "id");
+            if (validSnowflake(key) && channel.availableTags.size() < 20)
+              channel.availableTags.push_back(
+                  {key, text(tag, "name").substr(0, 80), text(tag, "emoji_id"), text(tag, "emoji_name").substr(0, 64)}
+              );
+          }
+      }
     }
     std::ranges::stable_sort(result, {}, &Channel::position);
     std::vector<Channel> ordered;
@@ -254,7 +273,18 @@ namespace discord {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
-    if (value.contains("author") && value["author"].is_object()
+    if (value.contains("thread")) {
+      if (value["thread"].is_null())
+        patch.thread.emplace();
+      else if (auto thread = parseThread(value["thread"]))
+        patch.thread.emplace(*thread);
+    }
+    if (value.contains("flags") && value["flags"].is_number_unsigned())
+      patch.hasThread = (value["flags"].get<std::uint64_t>() & (1ULL << 5)) != 0;
+    else if (value.contains("flags") && value["flags"].is_number_integer() && value["flags"].get<std::int64_t>() >= 0)
+      patch.hasThread = (value["flags"].get<std::int64_t>() & (1LL << 5)) != 0;
+    if (value.contains("author")
+        && value["author"].is_object()
         && (value["author"].contains("primary_guild") || value["author"].contains("clan")))
       patch.authorTag.emplace(parseGuildTag(value["author"]));
     if (value.contains("member"))
@@ -370,6 +400,10 @@ namespace discord {
     return patch;
   }
   void MessagePatch::apply(Message& message) const {
+    if (thread)
+      message.thread = *thread;
+    if (hasThread)
+      message.hasThread = *hasThread;
     if (authorTag)
       message.authorTag = *authorTag;
     if (memberRoles)

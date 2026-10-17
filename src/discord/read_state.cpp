@@ -115,7 +115,7 @@ namespace discord {
       std::erase_if(m_channels, [&](const auto& entry) { return entry.second.guild == guild; });
       m_guilds.erase(guild);
       std::erase_if(m_mentions, [&](const auto& entry) { return !m_channels.contains(entry.second); });
-    } else if (type == "CHANNEL_DELETE") {
+    } else if (type == "CHANNEL_DELETE" || type == "THREAD_DELETE") {
       const auto channel = string(value, "id");
       m_channels.erase(channel);
       std::erase_if(m_mentions, [&](const auto& entry) { return entry.second == channel; });
@@ -130,9 +130,12 @@ namespace discord {
     if (value.contains("private_channels"))
       channels(value["private_channels"]);
     if (value.contains("guilds") && value["guilds"].is_array())
-      for (const auto& guild : value["guilds"])
+      for (const auto& guild : value["guilds"]) {
         if (guild.contains("channels"))
           channels(guild["channels"], string(guild, "id"));
+        if (guild.contains("threads"))
+          channels(guild["threads"], string(guild, "id"));
+      }
     for (auto& [id, entry] : m_channels)
       entry.processed = entry.latest;
     if (!value.contains("read_state"))

@@ -42,7 +42,8 @@ namespace app {
         {"activity", "Activity Privacy", "ACTIVITY SETTINGS", 480},
         {"games", "Registered Games", "ACTIVITY SETTINGS", 350},
         {"overlay", "Game Overlay", "ACTIVITY SETTINGS", 350},
-        {"cressida", "General", "CRESSIDA", 610, "expressions emoji fake nitro name badges server tags role colors gradients animation"}
+        {"cressida", "General", "CRESSIDA", 610,
+         "expressions emoji fake nitro name badges server tags role colors gradients animation"}
     };
     std::string folded(std::string text) {
       for (auto& c : text)
@@ -111,6 +112,7 @@ namespace app {
     m_profileDirty = false;
   }
   void ClientApplication::openSettings() {
+    m_forumSearchTimer.stop();
     closeVideo();
     m_scrolling.stopAll();
     closeGifPicker();
@@ -505,20 +507,33 @@ namespace app {
       );
     } else if (m_settingsPage == "cressida") {
       label(p, 0, 0, width, "Names & Roles", 17, foreground, FontWeight::SemiBold);
-      toggle(32, "Show server tags in chat", m_preferences.showGuildTags, "guild_tags", false,
-             "Show clickable server badges beside message authors. Profile tags stay visible.");
-      toggle(126, "Show role colors", m_preferences.roleColors, "role_colors", false,
-             "Use server role colors and gradients for member names.");
-      toggle(220, "Animate gradients on hover", m_preferences.animateRoleColors, "animate_role_colors", false,
-             "Animate while hovering a name, member row or message.");
+      toggle(
+          32, "Show server tags in chat", m_preferences.showGuildTags, "guild_tags", false,
+          "Show clickable server badges beside message authors. Profile tags stay visible."
+      );
+      toggle(
+          126, "Show role colors", m_preferences.roleColors, "role_colors", false,
+          "Use server role colors and gradients for member names."
+      );
+      toggle(
+          220, "Animate gradients on hover", m_preferences.animateRoleColors, "animate_role_colors", false,
+          "Animate while hovering a name, member row or message."
+      );
       label(p, 0, 332, width, "Expressions", 17, foreground, FontWeight::SemiBold);
-      toggle(364, "FakeNitro emoji", m_preferences.fakeNitroEmojis, "fake_nitro_emojis", false,
-             "Send unsupported server emoji as image links.");
-      label(p, 0, 466, width,
-            "Other clients may show an image or a link; channel embed permissions still apply. "
-            "Reactions use Discord's normal rules.", 12, muted, FontWeight::Normal, 3);
-      label(p, 0, 548, width, "These preferences apply immediately and are saved for this account on this device.",
-            12, muted, FontWeight::Normal, 2);
+      toggle(
+          364, "FakeNitro emoji", m_preferences.fakeNitroEmojis, "fake_nitro_emojis", false,
+          "Send unsupported server emoji as image links."
+      );
+      label(
+          p, 0, 466, width,
+          "Other clients may show an image or a link; channel embed permissions still apply. "
+          "Reactions use Discord's normal rules.",
+          12, muted, FontWeight::Normal, 3
+      );
+      label(
+          p, 0, 548, width, "These preferences apply immediately and are saved for this account on this device.", 12,
+          muted, FontWeight::Normal, 2
+      );
     } else if (m_settingsPage == "text") {
       toggle(0, "Show link previews and embeds", m_preferences.showEmbeds, "embeds");
       toggle(76, "Show image attachments", m_preferences.showImages, "images");
