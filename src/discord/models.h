@@ -187,6 +187,9 @@ namespace discord {
     std::uint64_t flags = 0;
     int type = 0;
     std::string webhookId;
+    std::vector<std::string> mentionRoles;
+    bool mentionEveryone = false;
+    std::string editedTimestamp;
   };
 
   struct MessagePatch {
@@ -205,6 +208,9 @@ namespace discord {
     std::optional<std::uint64_t> flags;
     std::optional<int> type;
     std::optional<std::string> webhookId;
+    std::optional<std::vector<std::string>> mentionRoles;
+    std::optional<bool> mentionEveryone;
+    std::optional<std::string> editedTimestamp;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

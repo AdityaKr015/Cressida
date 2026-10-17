@@ -8,54 +8,81 @@
 
 namespace app {
   inline float messageRowPadding(bool continuation, bool nextContinuation, bool compact) {
-    return (continuation ? 0.0F : 18.0F) + (nextContinuation ? (compact ? 4.0F : 6.0F) : (compact ? 8.0F : 16.0F));
+    // Rich text already reserves a full line height. A second row gap would
+    // make separate messages looser than wrapping/newlines within one message.
+    return (continuation ? 0.0F : 18.0F) + (nextContinuation ? 0.0F : (compact ? 8.0F : 16.0F));
   }
   inline std::optional<std::chrono::sys_time<std::chrono::milliseconds>> messageTime(std::string_view value) {
     using namespace std::chrono;
-    if (value.size() < 20 || value.size() > 40 || value[4] != '-' || value[7] != '-' || value[10] != 'T'
-        || value[13] != ':' || value[16] != ':') return {};
+    if (value.size() < 20
+        || value.size() > 40
+        || value[4] != '-'
+        || value[7] != '-'
+        || value[10] != 'T'
+        || value[13] != ':'
+        || value[16] != ':')
+      return {};
     const auto number = [&](std::size_t at, std::size_t count) {
       int result = 0;
       for (std::size_t i = at; i < at + count; ++i) {
-        if (value[i] < '0' || value[i] > '9') return -1;
+        if (value[i] < '0' || value[i] > '9')
+          return -1;
         result = result * 10 + value[i] - '0';
       }
       return result;
     };
-    const int y = number(0, 4), m = number(5, 2), d = number(8, 2), h = number(11, 2),
-      minute = number(14, 2), second = number(17, 2);
+    const int y = number(0, 4), m = number(5, 2), d = number(8, 2), h = number(11, 2), minute = number(14, 2),
+              second = number(17, 2);
     const year_month_day date{year{y}, month{static_cast<unsigned>(m)}, day{static_cast<unsigned>(d)}};
-    if (y < 1 || !date.ok() || h < 0 || h > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return {};
+    if (y < 1 || !date.ok() || h < 0 || h > 23 || minute < 0 || minute > 59 || second < 0 || second > 59)
+      return {};
     std::size_t at = 19;
     int fraction = 0, digits = 0;
     if (value[at] == '.') {
       ++at;
       while (at < value.size() && value[at] >= '0' && value[at] <= '9') {
-        if (digits < 3) fraction = fraction * 10 + value[at] - '0';
-        ++digits; ++at;
+        if (digits < 3)
+          fraction = fraction * 10 + value[at] - '0';
+        ++digits;
+        ++at;
       }
-      if (!digits || digits > 9) return {};
-      for (int i = digits; i < 3; ++i) fraction *= 10;
+      if (!digits || digits > 9)
+        return {};
+      for (int i = digits; i < 3; ++i)
+        fraction *= 10;
     }
     int zone = 0;
-    if (at + 1 == value.size() && value[at] == 'Z') {}
-    else if (at + 6 == value.size() && (value[at] == '+' || value[at] == '-') && value[at + 3] == ':') {
+    if (at + 1 == value.size() && value[at] == 'Z') {
+    } else if (at + 6 == value.size() && (value[at] == '+' || value[at] == '-') && value[at + 3] == ':') {
       const int zh = number(at + 1, 2), zm = number(at + 4, 2);
-      if (zh < 0 || zh > 23 || zm < 0 || zm > 59) return {};
+      if (zh < 0 || zh > 23 || zm < 0 || zm > 59)
+        return {};
       zone = (zh * 60 + zm) * (value[at] == '+' ? 1 : -1);
-    } else return {};
+    } else
+      return {};
     return sys_days{date} + hours{h} + minutes{minute - zone} + seconds{second} + milliseconds{fraction};
   }
   // Each message retains its own content, actions and selection. Only the author
   // header and inter-message spacing are shared by a short consecutive run.
   inline bool continuesMessageGroup(const discord::Message& previous, const discord::Message& current) {
-    if (previous.authorId.empty() || previous.authorId != current.authorId || previous.channelId != current.channelId
-        || previous.author != current.author || previous.avatar != current.avatar
-        || previous.webhookId != current.webhookId || previous.applicationId != current.applicationId
-        || previous.type != 0 || current.type != 0 || previous.reply || current.reply
-        || ((previous.flags | current.flags) & 64)) return false;
+    if (previous.authorId.empty()
+        || previous.authorId != current.authorId
+        || previous.channelId != current.channelId
+        || previous.author != current.author
+        || previous.avatar != current.avatar
+        || previous.webhookId != current.webhookId
+        || previous.applicationId != current.applicationId
+        || previous.type != 0
+        || current.type != 0
+        || previous.reply
+        || current.reply
+        || ((previous.flags | current.flags) & 64))
+      return false;
     const auto before = messageTime(previous.timestamp), after = messageTime(current.timestamp);
-    return before && after && *after >= *before && *after - *before < std::chrono::minutes{7}
-      && std::chrono::floor<std::chrono::days>(*before) == std::chrono::floor<std::chrono::days>(*after);
+    return before
+        && after
+        && *after >= *before
+        && *after - *before < std::chrono::minutes{7}
+    && std::chrono::floor<std::chrono::days>(*before) == std::chrono::floor<std::chrono::days>(*after);
   }
 } // namespace app

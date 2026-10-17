@@ -3,6 +3,7 @@
 #include "discord/models.h"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -37,11 +38,15 @@ namespace app {
     std::string videoSource;
   };
   struct MessageLayout {
+    struct EditedMarker {
+      float x, y, width, height, size;
+    };
     std::vector<MessageRun> runs;
     std::vector<MessageBox> boxes;
     std::vector<MessagePicture> pictures;
     std::string plainText;
     float height = 0;
+    std::optional<EditedMarker> edited;
   };
   struct MessageOptions {
     bool fakeNitroEmojis = false, compact = false;

@@ -81,6 +81,7 @@ namespace app {
           target = source;
       };
       merge(combined.content, patch.content);
+      merge(combined.editedTimestamp, patch.editedTimestamp);
       merge(combined.buttons, patch.buttons);
       merge(combined.applicationId, patch.applicationId);
       merge(combined.flags, patch.flags);
@@ -91,6 +92,8 @@ namespace app {
       merge(combined.attachments, patch.attachments);
       merge(combined.embeds, patch.embeds);
       merge(combined.mentions, patch.mentions);
+      merge(combined.mentionRoles, patch.mentionRoles);
+      merge(combined.mentionEveryone, patch.mentionEveryone);
       merge(combined.reply, patch.reply);
       merge(combined.reactions, patch.reactions);
     }

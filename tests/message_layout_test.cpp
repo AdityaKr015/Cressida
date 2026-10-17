@@ -1,5 +1,5 @@
-#include "app/emoji_catalog.h"
 #include "app/discord_timestamp.h"
+#include "app/emoji_catalog.h"
 #include "app/message_layout.h"
 #include "app/reply_preview.h"
 #include "app/text_edit.h"
@@ -15,6 +15,52 @@ int main(int argc, char** argv) {
       throw std::runtime_error(message);
   };
   try {
+    const app::MessageMeasure editMeasure = [](std::string_view text, const app::MessageStyle& style) {
+      return static_cast<float>(text.size()) * style.size * .5F;
+    };
+    discord::Message editedMessage{"900", "10", "Maya", "Hello", "2026-10-17T09:00:00Z"};
+    const auto originalLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
+    require(!originalLayout.edited, "Unedited messages have no marker");
+    editedMessage.editedTimestamp = "2026-10-17T09:01:00Z";
+    auto editedLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
+    require(
+        editedLayout.edited
+            && editedLayout.edited->x > 0
+            && editedLayout.edited->y < 22
+            && editedLayout.plainText == originalLayout.plainText,
+        "Edited markers follow the last text line without becoming copied message text"
+    );
+    editedLayout = app::layoutRichMessage(editedMessage, 42, editMeasure);
+    require(
+        editedLayout.edited
+            && editedLayout.edited->x == 0
+            && editedLayout.height >= editedLayout.edited->y + editedLayout.edited->height,
+        "Narrow messages reserve a new line for the marker without overflowing"
+    );
+    editedMessage.content = "```cpp\nint x = 1;\n```";
+    editedLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
+    require(
+        editedLayout.edited
+            && editedLayout.edited->x == 0
+            && !editedLayout.boxes.empty()
+            && editedLayout.edited->y >= editedLayout.boxes.back().y + editedLayout.boxes.back().height,
+        "Edited labels sit outside fenced code blocks"
+    );
+    editedMessage.content.clear();
+    editedMessage.attachments.push_back(
+        {"1",
+         "image.png",
+         "https://cdn.discordapp.com/attachments/1/2/image.png",
+         "image/png",
+         {"https://cdn.discordapp.com/attachments/1/2/image.png", 200, 100}}
+    );
+    editedLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
+    require(
+        editedLayout.edited
+            && !editedLayout.pictures.empty()
+            && editedLayout.edited->y >= editedLayout.pictures.back().y + editedLayout.pictures.back().height,
+        "Media-only edited messages keep their marker clear of the image"
+    );
     discord::MessageReference reference{
         "1", "2", "3", "Maya",
         "First line\r\nSecond\tline\xE2\x80\xA8"
@@ -47,17 +93,27 @@ int main(int argc, char** argv) {
     auto profileOptions = emojiOptions;
     profileOptions.compact = true;
     profileOptions.discordTimestamps = true;
-    auto profileBio = app::layoutMessage("**My midnight** is <t:1754172000:t> <:wave:123>", 900, emojiMeasure, 13, {}, profileOptions);
-    require(profileBio.plainText.find(*app::discordTimestamp("t:1754172000:t")) != std::string::npos
-                && profileBio.plainText.find("<t:") == std::string::npos
-                && std::ranges::any_of(profileBio.runs, [](const auto& run) { return run.style.bold; })
-                && std::ranges::any_of(profileBio.runs, [](const auto& run) { return !run.image.empty(); }),
-            "Profile bios format Discord timestamps alongside escaped Markdown and custom emoji");
-    profileBio = app::layoutMessage("`<t:1754172000:t>` <t:invalid:t> <span color='red'>bio</span>", 900, emojiMeasure, 13, {}, profileOptions);
-    require(std::ranges::any_of(profileBio.runs, [](const auto& run) { return run.style.code && run.text == "<t:1754172000:t>"; })
-                && profileBio.plainText.find("<t:invalid:t>") != std::string::npos
-                && profileBio.plainText.find("<span color='red'>bio</span>") != std::string::npos,
-            "Timestamps in code, malformed tokens and raw HTML stay literal in profiles");
+    auto profileBio = app::layoutMessage(
+        "**My midnight** is <t:1754172000:t> <:wave:123>", 900, emojiMeasure, 13, {}, profileOptions
+    );
+    require(
+        profileBio.plainText.find(*app::discordTimestamp("t:1754172000:t")) != std::string::npos
+            && profileBio.plainText.find("<t:") == std::string::npos
+            && std::ranges::any_of(profileBio.runs, [](const auto& run) { return run.style.bold; })
+            && std::ranges::any_of(profileBio.runs, [](const auto& run) { return !run.image.empty(); }),
+        "Profile bios format Discord timestamps alongside escaped Markdown and custom emoji"
+    );
+    profileBio = app::layoutMessage(
+        "`<t:1754172000:t>` <t:invalid:t> <span color='red'>bio</span>", 900, emojiMeasure, 13, {}, profileOptions
+    );
+    require(
+        std::ranges::any_of(
+            profileBio.runs, [](const auto& run) { return run.style.code && run.text == "<t:1754172000:t>"; }
+        )
+            && profileBio.plainText.find("<t:invalid:t>") != std::string::npos
+            && profileBio.plainText.find("<span color='red'>bio</span>") != std::string::npos,
+        "Timestamps in code, malformed tokens and raw HTML stay literal in profiles"
+    );
     reference.deleted = false;
     reference.content = "my beautiful pink role <:woe:1407464763293831269> <a:dance:123> 🙂";
     auto reply = app::layoutReplyPreview(reference, "Yocraft", 1000, emojiMeasure, emojiOptions);

@@ -50,6 +50,12 @@ int main() {
         "Attachment-only messages retain typed attachments instead of placeholder text"
     );
     require(messages.back().author == "maya", "Optional client fields must not prevent message decoding");
+    auto edited = messages.back();
+    discord::parseMessagePatch({{"edited_timestamp", "2026-10-17T22:00:00Z"}}).apply(edited);
+    discord::parseMessagePatch({{"content", "Edited text"}}).apply(edited);
+    require(edited.editedTimestamp == "2026-10-17T22:00:00Z", "Partial edits retain the server's edited timestamp");
+    discord::parseMessagePatch({{"edited_timestamp", nullptr}}).apply(edited);
+    require(edited.editedTimestamp.empty(), "Explicit null clears an edited timestamp");
     const auto guildMessages = discord::parseMessages(
         json::array(
             {{{"id", "101"}, {"author", {{"id", "7"}, {"global_name", "Maya"}}}, {"member", {{"nick", "Server Maya"}}}},

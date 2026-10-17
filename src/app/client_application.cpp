@@ -1,7 +1,8 @@
 #include "app/client_application.h"
-#include "app/message_group.h"
 
+#include "app/message_group.h"
 #include "app/message_layout.h"
+#include "app/message_mentions.h"
 #include "app/reply_preview.h"
 #include "app/theme.h"
 #include "core/deferred_call.h"
@@ -56,6 +57,60 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "mentions-cycle") {
+        int highlights = 0;
+        const auto inspect = [&](auto&& self, const Node& node) -> void {
+          if (node.type() == NodeType::Rect) {
+            const auto& rect = static_cast<const RectNode&>(node);
+            if (node.width() == 3 && rect.style().fill == theme::accent) {
+              if (node.x() + node.width() >= 350)
+                throw std::runtime_error("Mention bars must sit clear of the avatar column");
+              ++highlights;
+            }
+          }
+          if (node.type() == NodeType::Text && static_cast<const TextNode&>(node).text() == "09:41" && node.x() > 300)
+            throw std::runtime_error("Message timestamps must follow the author header instead of the right edge");
+          for (const auto& child : node.children())
+            self(self, *child);
+        };
+        inspect(inspect, *m_scene);
+        const auto step = m_demoInteractionStep++;
+        if (highlights != 3 - static_cast<int>(step))
+          throw std::runtime_error("Mention highlights must follow direct, role and everyone updates independently");
+        if (step == 0) {
+          if (m_unreadTimeline.unread())
+            throw std::runtime_error("Mention previews must remain highlighted after reading");
+          const auto a = std::ranges::find(m_textAreas.rbegin(), m_textAreas.rend(), "9101", &TextArea::message);
+          const auto b = std::ranges::find(m_textAreas, "9102", &TextArea::message);
+          const auto c = std::ranges::find(m_textAreas, "9103", &TextArea::message);
+          if (a == m_textAreas.rend()
+              || b == m_textAreas.end()
+              || c == m_textAreas.end()
+              || std::abs((b->y - a->y) - (c->y - b->y)) > .1F
+              || std::abs((c->y - b->y) - a->run.height) > .1F)
+            throw std::runtime_error("Wrapped lines and consecutive messages must use the same line spacing");
+          discord::parseMessagePatch({{"mentions", nlohmann::json::array()},
+                                      {"edited_timestamp", "2026-10-17T09:42:00Z"}})
+              .apply(m_messages[1]);
+          m_messageLayouts.erase(m_messages[1].id);
+        } else if (step == 1) {
+          if (!m_messageLayouts.at("9102").layout.edited)
+            throw std::runtime_error("Live edits must show an edited marker on the next frame");
+          discord::GuildRoleUpdate roles;
+          roles.guild = m_guildId;
+          roles.members[m_account.id] = {};
+          m_roleDirectory.apply({false, {roles}});
+        } else if (step == 2) {
+          discord::parseMessagePatch({{"mention_everyone", false}}).apply(m_messages[3]);
+          discord::parseMessagePatch({{"edited_timestamp", nullptr}}).apply(m_messages[4]);
+          m_messageLayouts.erase(m_messages[4].id);
+        } else {
+          if (m_messageLayouts.at("9105").layout.edited)
+            throw std::runtime_error("An explicit cleared edit timestamp removes the marker");
+          std::clog << "Offline mention highlighting and grouping spacing replay passed\n";
+        }
+        m_window.invalidate();
+      }
       if (m_demo && m_demoOverlay == "video-cycle")
         demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
@@ -526,7 +581,8 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "channel-cycle"            ? 18
+        smokeTest ? (m_demo && view && std::string_view(view) == "mentions-cycle"           ? 4
+                         : m_demo && view && std::string_view(view) == "channel-cycle"      ? 18
                          : m_demo && view && std::string_view(view) == "forum-cycle"        ? 12
                          : m_demo && view && std::string_view(view) == "thread-cycle"       ? 10
                          : m_demo && view && std::string_view(view) == "guild-tag-cycle"    ? 10
@@ -541,6 +597,8 @@ namespace app {
     );
     if (m_demoOverlay == "channel-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Channel feature replay did not complete");
+    if (m_demoOverlay == "mentions-cycle" && m_demoInteractionStep != 4)
+      throw std::runtime_error("Mention highlighting replay did not complete");
     if (m_demoOverlay == "forum-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Forum replay did not complete");
     if (m_demoOverlay == "thread-cycle" && m_demoInteractionStep != 10)
@@ -581,6 +639,29 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view == "mentions" || view == "mentions-light" || view == "mentions-compact" || view == "mentions-cycle") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view == "mentions-compact";
+          if (view == "mentions-light")
+            m_preferences.theme = "light";
+          m_messages = discord::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9101","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:00Z","content":"A normal message starts the group.\nThis second line belongs to that same message."},
+            {"id":"9102","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:10Z","content":"<@1> could you take a look?","mentions":[{"id":"1","username":"Alex"}]},
+            {"id":"9103","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:20Z","content":"The Moonwarden role was mentioned.","mention_roles":["50"]},
+            {"id":"9104","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:30Z","content":"@everyone the update is ready!","mention_everyone":true},
+            {"id":"9105","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:40Z","edited_timestamp":"2026-10-17T09:42:00Z","content":"Literal code: `<@1> @everyone`"}
+          ])JSON"));
+          for (auto& message : m_messages)
+            message.channelId = m_channelId;
+          discord::GuildRoleUpdate roles;
+          roles.guild = m_guildId;
+          roles.members[m_account.id] = {"50"};
+          m_roleDirectory.apply({false, {roles}});
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+        }
         if (view == "channel"
             || view == "channel-cycle"
             || view == "channel-search"
@@ -1641,13 +1722,17 @@ namespace app {
         std::vector<float> heights;
         std::vector<bool> continuations(m_messages.size(), false);
         std::vector<const MessageLayout*> layouts;
+        const auto ownRoles =
+            m_dmMode ? std::optional<std::vector<std::string>>{} : m_roleDirectory.memberships(m_guildId, m_account.id);
         auto unreadIndex = m_unreadTimeline.first(m_messages);
         constexpr float unreadHeight = 36;
         const float introHeight = channelIntro(nullptr, 0, 0, textWidth);
         float totalHeight = 24 + introHeight + (unreadIndex ? unreadHeight : 0);
         const auto continues = [&](std::size_t i) {
-          return i > 0 && !blockedMessage(m_messages[i - 1]) && !blockedMessage(m_messages[i])
-            && continuesMessageGroup(m_messages[i - 1], m_messages[i]);
+          return i > 0
+              && !blockedMessage(m_messages[i - 1])
+              && !blockedMessage(m_messages[i])
+              && continuesMessageGroup(m_messages[i - 1], m_messages[i]);
         };
         for (std::size_t i = 0; i < m_messages.size(); ++i)
           continuations[i] = (!unreadIndex || i != *unreadIndex) && continues(i);
@@ -1696,7 +1781,8 @@ namespace app {
           }
           const float height = blockedMessage(message) ? 36
                                                        : std::max(22.0F, cached.layout.height)
-                  + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact)
+                  + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
+                                      m_preferences.compact)
                   + (message.reply ? 24 : 0)
                   + reactionStrip(nullptr, message, 0, 0, textWidth)
                   + threadStrip(nullptr, message, 0, 0, textWidth)
@@ -1768,7 +1854,7 @@ namespace app {
             totalHeight -= unreadHeight;
             const auto i = *unreadIndex;
             if (continues(i) && !continuations[i]) {
-              const float savedGap = m_preferences.compact ? 4 : 10;
+              const float savedGap = m_preferences.compact ? 8 : 16;
               continuations[i] = true;
               heights[i] -= 18;
               heights[i - 1] -= savedGap;
@@ -1847,6 +1933,24 @@ namespace app {
               rectangle(*content, 0, y - 3, bodyWidth - 48, heights[i] - 4, lerpColor(background, accent, .06F), 6);
               rectangle(*content, 0, y - 3, 3, heights[i] - 4, lerpColor(background, accent, .6F), 2);
             }
+            if (messageMentions(
+                    message, m_account.id,
+                    ownRoles ? std::span<const std::string>{*ownRoles} : std::span<const std::string>{}
+                )) {
+              const bool over = hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop);
+              const float tint = (m_preferences.theme == "light" ? .10F : .07F) + (over ? .03F : 0.0F);
+              const float bottomGap =
+                  messageRowPadding(true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact);
+              const float inkHeight = std::max(continuations[i] ? 0.0F : 41.0F, heights[i] - bottomGap);
+              const float bandTop = std::max(top, top + y - 2);
+              const float bandBottom = std::min({bottom, top + y + inkHeight + 2, top + y + heights[i]});
+              if (bandBottom > bandTop) {
+                rectangle(
+                    root, left + 10, bandTop, bodyWidth - 34, bandBottom - bandTop, lerpColor(background, accent, tint)
+                );
+                rectangle(root, left + 10, bandTop, 3, bandBottom - bandTop, accent);
+              }
+            }
             if (message.reply) {
               const auto& reply = *message.reply;
               auto preview = std::make_unique<Node>();
@@ -1882,57 +1986,70 @@ namespace app {
             }
             const bool continuation = continuations[i];
             if (!continuation) {
-            const auto author = userName(message.authorId, message.author);
-            const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
-            const float headerWidth = std::max(24.0F, textWidth - 64);
-            const float roleSpace =
-                !m_dmMode && m_roleDirectory.icon(m_guildId, message.authorId, message.memberRoles) ? 22 : 0;
-            const float tagSpace = m_preferences.showGuildTags && authorTag
-                ? std::min(
-                      104.0F,
-                      std::ceil(m_window.target().renderer().measureText(authorTag->tag, 11, FontWeight::Medium).width)
-                          + 32
-                  ) + 6
-                : 0;
-            const bool tagFits = headerWidth >= tagSpace + roleSpace + 38;
-            const float nameMax = std::max(24.0F, headerWidth - (tagFits ? tagSpace : 0) - roleSpace - 6);
-            const float authorWidth =
-                std::min(nameMax, m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4);
-            avatar(*content, 0, y + 1, 40, message.avatar, author);
-            float groupBottom = originalY + heights[i];
-            for (std::size_t next = i + 1; next < m_messages.size() && continuations[next]; ++next)
-              groupBottom += heights[next];
-            roleLabel(
-                *content, 50, y, nameMax, author, 13, foreground, FontWeight::SemiBold, message.authorId,
-                "message:" + message.id,
-                y + 18 >= 0 && y < bottom - top
-                  && hovered(left + 24, rowTop, bodyWidth - 48, std::max(0.0F, std::min(bottom, top + groupBottom) - rowTop)),
-                message.memberRoles
-            );
-            const float tagUsed = m_preferences.showGuildTags && tagFits
-                ? drawGuildTag(
-                      *content, 50 + authorWidth + 4, y - 2, headerWidth - authorWidth - roleSpace - 4, authorTag
-                  )
-                : 0;
-            if (!m_dmMode && headerWidth - authorWidth - tagUsed >= 22)
-              drawRoleIcon(
-                  *content, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId, message.memberRoles
+              const auto author = userName(message.authorId, message.author);
+              const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
+              const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
+              const float timestampWidth = m_window.target().renderer().measureText(timestamp, 10).width;
+              const float headerWidth = std::max(24.0F, textWidth - (timestamp.empty() ? 0 : timestampWidth + 10));
+              const float roleSpace =
+                  !m_dmMode && m_roleDirectory.icon(m_guildId, message.authorId, message.memberRoles) ? 22 : 0;
+              const float tagSpace = m_preferences.showGuildTags && authorTag
+                  ? std::min(
+                        104.0F,
+                        std::ceil(
+                            m_window.target().renderer().measureText(authorTag->tag, 11, FontWeight::Medium).width
+                        ) + 32
+                    ) + 6
+                  : 0;
+              const bool tagFits = headerWidth >= tagSpace + roleSpace + 38;
+              const float nameMax = std::max(24.0F, headerWidth - (tagFits ? tagSpace : 0) - roleSpace - 6);
+              const float authorWidth = std::min(
+                  nameMax, m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4
               );
-            if (!message.authorId.empty()) {
-              const auto avatarY = std::max(top, top + y);
-              const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 41) - avatarY);
-              const auto nameWidth = authorWidth;
-              m_contextTargets.push_back({left + 24, avatarY, 40, avatarH, Action::UserMenu, message.authorId});
-              m_contextTargets.push_back(
-                  {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
+              avatar(*content, 0, y + 1, 40, message.avatar, author);
+              float groupBottom = originalY + heights[i];
+              for (std::size_t next = i + 1; next < m_messages.size() && continuations[next]; ++next)
+                groupBottom += heights[next];
+              roleLabel(
+                  *content, 50, y, nameMax, author, 13, foreground, FontWeight::SemiBold, message.authorId,
+                  "message:" + message.id,
+                  y + 18 >= 0
+                      && y < bottom - top
+                      && hovered(
+                          left + 24, rowTop, bodyWidth - 48,
+                          std::max(0.0F, std::min(bottom, top + groupBottom) - rowTop)
+                      ),
+                  message.memberRoles
               );
-              m_hits.push_back({left + 24, avatarY, 40, avatarH, Action::UserProfile, message.authorId});
-              m_hits.push_back(
-                  {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserProfile, message.authorId}
-              );
-            }
-            const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
-            label(*content, bodyWidth - 132, y + 1, 56, timestamp, 10, muted);
+              const float tagUsed = m_preferences.showGuildTags && tagFits
+                  ? drawGuildTag(
+                        *content, 50 + authorWidth + 4, y - 2, headerWidth - authorWidth - roleSpace - 4, authorTag
+                    )
+                  : 0;
+              const float roleUsed = !m_dmMode && headerWidth - authorWidth - tagUsed >= 22
+                  ? drawRoleIcon(
+                        *content, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId, message.memberRoles
+                    )
+                  : 0;
+              if (!message.authorId.empty()) {
+                const auto avatarY = std::max(top, top + y);
+                const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 41) - avatarY);
+                const auto nameWidth = authorWidth;
+                m_contextTargets.push_back({left + 24, avatarY, 40, avatarH, Action::UserMenu, message.authorId});
+                m_contextTargets.push_back(
+                    {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
+                );
+                m_hits.push_back({left + 24, avatarY, 40, avatarH, Action::UserProfile, message.authorId});
+                m_hits.push_back(
+                    {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserProfile, message.authorId}
+                );
+              }
+              const float timestampX = 50 + authorWidth + tagUsed + roleUsed + 6;
+              const float timestampAvailable = 50 + textWidth - timestampX;
+              if (!timestamp.empty() && timestampAvailable > 0)
+                label(
+                    *content, timestampX, y + 3, std::min(timestampWidth + 2, timestampAvailable), timestamp, 10, muted
+                );
             } else if (hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop)) {
               const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
               label(*content, 0, y + 4, 42, timestamp, 9, muted);
@@ -2003,6 +2120,10 @@ namespace app {
               m_textAreas.push_back({run, message.id, left + 24 + rx, top + ry});
               if (!run.style.link.empty())
                 m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link});
+            }
+            if (layout.edited) {
+              const auto& marker = *layout.edited;
+              label(*content, 50 + marker.x, bodyY + marker.y, marker.width + 2, "(edited)", marker.size, muted);
             }
             for (const auto& pic : layout.pictures) {
               if (!pic.videoSource.empty()) {

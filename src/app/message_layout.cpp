@@ -1,7 +1,7 @@
 #include "app/message_layout.h"
 
-#include "app/reply_preview.h"
 #include "app/discord_timestamp.h"
+#include "app/reply_preview.h"
 #include "discord/emoji.h"
 #include "discord/models.h"
 
@@ -78,7 +78,8 @@ namespace app {
           const auto colon = token.rfind(':');
           if (((token.starts_with(':') || token.starts_with("a:")) && colon != std::string_view::npos && colon > 1)
               || token.starts_with('@')
-              || token.starts_with('#') || (timestamps && token.starts_with("t:"))) {
+              || token.starts_with('#')
+              || (timestamps && token.starts_with("t:"))) {
             result += "\uE002";
             result += token;
             result += "\uE003";
@@ -678,6 +679,22 @@ namespace app {
              return run.style.emoji && !run.style.code && !run.style.spoiler && run.style.link.empty();
            }))
       result = parseMessage(content, width, measure, fontSize, message.mentions, options, 48 * fontSize / 14);
+    const MessageStyle editedStyle{.size = std::clamp(fontSize * .75F, 9.0F, 12.0F)};
+    const float editedWidth = message.editedTimestamp.empty() ? 0 : std::min(width, measure("(edited)", editedStyle));
+    const float editedHeight = editedStyle.size + 8;
+    if (!message.editedTimestamp.empty() && !result.runs.empty()) {
+      const auto& last = result.runs.back();
+      float x = last.x + last.width + 6, atY = last.y + std::max(0.0F, last.height - editedHeight);
+      const bool codeBlock = std::ranges::any_of(result.boxes, [&](const auto& box) {
+        return !box.code.empty() && last.y >= box.y && last.y < box.y + box.height;
+      });
+      if (x + editedWidth > width || codeBlock) {
+        x = 0;
+        atY = result.height + 2;
+      }
+      result.edited = MessageLayout::EditedMarker{x, atY, editedWidth, editedHeight, editedStyle.size};
+      result.height = std::max(result.height, atY + editedHeight);
+    }
     float y = result.height;
     auto append = [&](std::string_view text, float x, float atY, float available, MessageStyle style = {}) {
       auto block = layoutMessage(
@@ -797,6 +814,10 @@ namespace app {
       }
       y += 12;
       result.boxes[box].height = y - start;
+    }
+    if (!message.editedTimestamp.empty() && !result.edited) {
+      result.edited = MessageLayout::EditedMarker{0, y + 2, editedWidth, editedHeight, editedStyle.size};
+      y += 2 + editedHeight;
     }
     result.height = y;
     return result;

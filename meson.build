@@ -234,5 +234,7 @@ message_history_test = executable('message_history_test', 'tests/message_history
 test('message_history', message_history_test)
 message_group_test = executable('message_group_test', 'tests/message_group_test.cpp', dependencies: backend_dep)
 test('message_group', message_group_test)
+message_mentions_test = executable('message_mentions_test', 'tests/message_mentions_test.cpp', dependencies: backend_dep)
+test('message_mentions', message_mentions_test)
 video_test = executable('video_player_test', 'tests/video_player_test.cpp', dependencies: [video_dep, dependency('egl'), dependency('glesv2')])
 test('video_player', find_program('python3'), args: [files('tests/video_fixture.py'), find_program('ffmpeg'), video_test], timeout: 40)

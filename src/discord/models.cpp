@@ -275,11 +275,27 @@ namespace discord {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
-    if (value.contains("type") && value["type"].is_number_integer()
-        && value["type"] >= 0 && value["type"] <= 255)
+    if (value.contains("edited_timestamp")) {
+      if (value["edited_timestamp"].is_null())
+        patch.editedTimestamp = "";
+      else if (
+          value["edited_timestamp"].is_string() && value["edited_timestamp"].get_ref<const std::string&>().size() <= 64
+      )
+        patch.editedTimestamp = value["edited_timestamp"].get<std::string>();
+    }
+    if (value.contains("mention_everyone") && value["mention_everyone"].is_boolean())
+      patch.mentionEveryone = value["mention_everyone"].get<bool>();
+    if (value.contains("mention_roles") && value["mention_roles"].is_array()) {
+      patch.mentionRoles.emplace();
+      for (const auto& role : value["mention_roles"])
+        if (role.is_string() && validSnowflake(role.get_ref<const std::string&>()) && patch.mentionRoles->size() < 250)
+          patch.mentionRoles->push_back(role.get<std::string>());
+    }
+    if (value.contains("type") && value["type"].is_number_integer() && value["type"] >= 0 && value["type"] <= 255)
       patch.type = value["type"].get<int>();
     if (value.contains("webhook_id")) {
-      if (value["webhook_id"].is_null()) patch.webhookId = "";
+      if (value["webhook_id"].is_null())
+        patch.webhookId = "";
       else if (value["webhook_id"].is_string() && validSnowflake(value["webhook_id"].get<std::string>()))
         patch.webhookId = value["webhook_id"].get<std::string>();
     }
@@ -422,8 +438,16 @@ namespace discord {
     return patch;
   }
   void MessagePatch::apply(Message& message) const {
-    if (type) message.type = *type;
-    if (webhookId) message.webhookId = *webhookId;
+    if (editedTimestamp)
+      message.editedTimestamp = *editedTimestamp;
+    if (mentionRoles)
+      message.mentionRoles = *mentionRoles;
+    if (mentionEveryone)
+      message.mentionEveryone = *mentionEveryone;
+    if (type)
+      message.type = *type;
+    if (webhookId)
+      message.webhookId = *webhookId;
     if (buttons)
       message.buttons = *buttons;
     if (applicationId)

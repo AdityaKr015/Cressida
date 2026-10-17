@@ -14,6 +14,11 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 
 - **Real-time chat:** new messages, edits and deletions through Discord's Gateway;
   Markdown, code blocks, mentions, Unicode/custom emoji and embed cards.
+  Consecutive messages share an author header with consistent spacing and
+  individual actions. Messages mentioning you, one of your roles, or everyone
+  have a subtle theme-colored background and left accent bar, including after they
+  are read. The highlight fits the message content and keeps clear of avatars.
+  Edited messages display a small **(edited)** marker beside their content.
   Muted message placeholders appear while a conversation first loads; cached
   messages stay visible during refreshes.
 - **Conversation history:** older messages load as you scroll up, with a bounded
