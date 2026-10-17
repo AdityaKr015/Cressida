@@ -44,6 +44,16 @@ int main() {
         "Attachment-only messages retain typed attachments instead of placeholder text"
     );
     require(messages.back().author == "maya", "Optional client fields must not prevent message decoding");
+    const auto guildMessages = discord::parseMessages(
+        json::array(
+            {{{"id", "101"}, {"author", {{"id", "7"}, {"global_name", "Maya"}}}, {"member", {{"nick", "Server Maya"}}}},
+             {{"id", "102"}, {"author", {{"id", "7"}, {"global_name", "Maya"}}}, {"member", {{"nick", nullptr}}}}}
+        )
+    );
+    require(
+        guildMessages[0].author == "Server Maya" && guildMessages[1].author == "Maya",
+        "Message names honor guild nicknames and null fallbacks"
+    );
     const auto categorized = discord::parseChannels(
         json::array(
             {{{"id", "10"}, {"type", 4}, {"name", "Chat"}, {"position", 2}},
@@ -85,6 +95,9 @@ int main() {
         {{"7", {"7", "Maya", "/embed/avatars/0.png"}}}
     );
     require(deduped.front().name == "Maya", "Resolve normalized Gateway DM recipient IDs");
+    require(
+        conversations[0].named && !conversations[1].named, "Distinguish named groups from recipient-generated titles"
+    );
     require(
         discord::validSnowflake("18446744073709551615") && !discord::validSnowflake("1/../../users/@me"),
         "Resource IDs must not become arbitrary REST paths"

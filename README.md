@@ -15,9 +15,12 @@ Uranus's moons, Cressida builds and installs as `cressida`.
 - **Real-time chat:** new messages, edits and deletions through Discord's Gateway;
   Markdown, code blocks, mentions, Unicode/custom emoji and embed cards.
 - **Your servers:** saved server order and folders, icons, channel categories,
-  collapsible sections and a member sidebar.
+  collapsible sections and a member sidebar with role group counts.
 - **Direct messages:** personal/group conversations, avatars, unread styling and
-  incoming DM shortcuts above the server list.
+  incoming DM shortcuts above the server list. Presence badges update live in
+  DM rows, conversation headers and the participant list.
+- **Personal nicknames:** names you assigned to friends appear in conversations,
+  message authors, mentions and member lists, including live nickname changes.
 - **Native editing:** multiline drafts, mouse/keyboard selection, word navigation,
   copy/cut/paste and undo/redo. Enter sends; Shift+Enter inserts a line.
 - **Images:** paste PNG/JPEG/WebP attachments, review before sending, and expand

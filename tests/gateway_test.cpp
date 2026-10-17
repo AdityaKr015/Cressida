@@ -17,12 +17,20 @@ int main(int argc, char** argv) {
   std::condition_variable changed;
   std::set<std::string> events;
   bool valid = true;
+  discord::UserDirectory users;
   {
     discord::Gateway gateway(
         generation,
         [&](auto session, const auto& type, const auto& data) {
           std::lock_guard lock(mutex);
           if (session != 1)
+            valid = false;
+          users.consume(type, data);
+          if (type == "READY_SUPPLEMENTAL" && users.status("7") != "online")
+            valid = false;
+          if (type == "MESSAGE_CREATE" && (users.status("7") != "idle" || users.name("7", "Original") != "My friend"))
+            valid = false;
+          if (type == "MESSAGE_DELETE" && (users.status("7") != "idle" || users.name("7", "Original") != "Original"))
             valid = false;
           if (type == "MESSAGE_CREATE" && data.value("content", "") != "synthetic 🌿")
             valid = false;
@@ -42,6 +50,8 @@ int main(int argc, char** argv) {
               && events.contains("MESSAGE_CREATE")
               && events.contains("MESSAGE_UPDATE")
               && events.contains("MESSAGE_DELETE")
+              && events.contains("RELATIONSHIP_REMOVE")
+              && events.contains("PRESENCE_UPDATE")
               && events.contains("GUILD_MEMBER_LIST_UPDATE");
         })) {
       std::cerr << "Gateway did not complete identify, fragmented dispatch and resume\n";

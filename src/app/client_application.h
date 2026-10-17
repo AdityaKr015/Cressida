@@ -136,6 +136,11 @@ namespace app {
     void positionChatSelection(float x, float y);
     void upsertMessage(discord::Message message);
     void saveSelection();
+    std::string userName(const std::string& id, const std::string& fallback) const;
+    std::string userStatus(const std::string& id, const std::string& fallback = "offline") const;
+    std::string channelName(const discord::Channel& channel) const;
+    void updateDmMembers();
+    void statusBadge(Node& parent, float x, float y, const std::string& status, Color backdrop);
 
     Window m_window;
     discord::Client m_client;
@@ -184,6 +189,7 @@ namespace app {
     std::string m_pasteChannel;
     std::uint64_t m_session = 0;
     discord::Account m_account;
+    discord::UserDirectory m_userDirectory;
     std::vector<discord::Guild> m_guilds;
     std::vector<discord::Channel> m_channels;
     std::vector<discord::Channel> m_privateChannels;

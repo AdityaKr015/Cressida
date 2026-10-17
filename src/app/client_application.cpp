@@ -251,6 +251,31 @@ namespace app {
           m_unreadGuilds = {{"102", "1"}, {"104", "1"}, {"900", ""}, {"901", ""}};
           m_messages.back().content = "Hi <@11>, check <#102>. `literal <@11>`";
           m_messages.back().mentions = {{"11", "Maya"}};
+        } else if (view == "dm-presence") {
+          m_privateChannels.clear();
+          for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
+                   {"11", "Maya"}, {"12", "Noah"}, {"13", "Robin"}, {"14", "Sam"}
+               }) {
+            discord::Channel channel;
+            channel.id = "90" + id;
+            channel.type = 1;
+            channel.name = name;
+            channel.recipients.push_back({id, name});
+            m_privateChannels.push_back(std::move(channel));
+          }
+          discord::UserUpdates users;
+          users.users["11"] = {"My friend 🌿", "online"};
+          users.users["12"] = {{}, "idle"};
+          users.users["13"] = {{}, "dnd"};
+          users.users["14"] = {{}, "offline"};
+          m_userDirectory.apply(users);
+          showDirectMessages();
+          selectChannel("9011");
+          updateDmMembers();
+          m_messages.front().authorId = "11";
+          m_messages.front().content = "Hi <@11>! This uses your personal nickname.";
+          m_messages.front().mentions = {{"11", "Maya"}};
+          m_messageLayouts.clear();
         } else if (view == "image") {
           m_viewImage = "demo-preview";
           m_viewUrl = "https://example.com/preview.png";
@@ -508,10 +533,12 @@ namespace app {
         if (row.dm) {
           const auto& channel = *row.dm;
           const bool over = hovered(14, y, 48, 48);
-          avatar(root, 14, y, 48, channel.icon, channel.name);
+          avatar(root, 14, y, 48, channel.icon, channelName(channel));
+          if (channel.type == 1 && !channel.recipients.empty())
+            statusBadge(root, 48, y + 34, userStatus(channel.recipients.front().id), rgbHex(0x14151A));
           rectangle(root, 0, y + 16, 4, 16, foreground, 2);
-          rectangle(root, 48, y + 32, 18, 18, rgbHex(0xED4245), 9);
-          label(root, 54, y + 34, 12, "•", 12, rgbHex(0xFFFFFF), FontWeight::Bold);
+          rectangle(root, 48, y - 2, 18, 18, rgbHex(0xED4245), 9);
+          label(root, 54, y, 12, "•", 12, rgbHex(0xFFFFFF), FontWeight::Bold);
           if (over)
             rectangle(root, 70, y + 14, 4, 20, accent, 2);
           m_hits.push_back({14, y, 48, 48, Action::DirectMessage, channel.id});
@@ -575,12 +602,20 @@ namespace app {
           rectangle(root, 90, y, 224, 34, selected ? raised : panel, 8);
         if (unread && !selected)
           rectangle(root, 80, y + 14, 4, 6, foreground, 2);
-        if (m_dmMode)
-          avatar(root, 99, y + 3, 28, channel.icon, channel.name);
-        else
+        if (m_dmMode) {
+          avatar(root, 99, y + 3, 28, channel.icon, channelName(channel));
+          if (channel.type == 1 && !channel.recipients.empty())
+            statusBadge(
+                root, 119, y + 21, userStatus(channel.recipients.front().id),
+                selected   ? raised
+                    : over ? panel
+                           : sidebar
+            );
+        } else
           label(root, 102, y + 7, 20, "#", 17, selected ? accent : muted);
         label(
-            root, 128, y + 8, 173, channel.name, 14, selected || over || unread ? foreground : muted,
+            root, m_dmMode ? 136 : 128, y + 8, m_dmMode ? 165 : 173, m_dmMode ? channelName(channel) : channel.name, 14,
+            selected || over || unread ? foreground : muted,
             selected || unread ? FontWeight::SemiBold : FontWeight::Normal
         );
         m_hits.push_back({90, y, 224, 34, Action::Channel, channel.id});
@@ -613,11 +648,20 @@ namespace app {
       const float memberWidth = m_showMembers && w >= 1000 ? 240 : 0;
       const float left = 326, bodyWidth = w - left - memberWidth;
       rectangle(root, left, 36, bodyWidth, 66, background);
-      std::string channelName = "Choose a channel";
+      std::string heading = "Choose a channel";
+      float headingOffset = 24;
       for (const auto& channel : m_channels)
-        if (channel.id == m_channelId)
-          channelName = (m_dmMode ? "" : "#  ") + channel.name;
-      label(root, left + 24, 57, bodyWidth - 160, channelName, 19, foreground, FontWeight::SemiBold);
+        if (channel.id == m_channelId) {
+          heading = (m_dmMode ? "" : "#  ") + channelName(channel);
+          if (m_dmMode && channel.type == 1 && !channel.recipients.empty()) {
+            statusBadge(root, left + 24, 64, userStatus(channel.recipients.front().id), background);
+            headingOffset = 44;
+          }
+        }
+      label(
+          root, left + headingOffset, 57, bodyWidth - 160 - (headingOffset - 24), heading, 19, foreground,
+          FontWeight::SemiBold
+      );
       iconButton(root, {w - 64, 50, 36, 36, Action::ToggleMembers, {}}, "users", "Member list", m_showMembers);
       rectangle(root, left, 101, bodyWidth, 1, raised);
       const auto& draft = m_drafts[m_channelId];
@@ -661,6 +705,8 @@ namespace app {
           for (const auto& channel : m_channels)
             displayed.mentions.try_emplace(channel.id, channel.name);
           displayed.mentions.try_emplace(m_account.id, m_account.name);
+          for (auto& [id, name] : displayed.mentions)
+            name = userName(id, name);
           if (!m_preferences.showEmbeds)
             displayed.embeds.clear();
           if (!m_preferences.showImages)
@@ -683,8 +729,9 @@ namespace app {
         const auto& message = m_messages[i];
         if (y + heights[i] >= 0 && y <= bottom - top) {
           const auto firstHit = m_hits.size();
-          avatar(*content, 0, y + 1, 34, message.avatar, message.author);
-          label(*content, 50, y, std::max(24.0F, textWidth - 64), message.author, 13, foreground, FontWeight::SemiBold);
+          const auto author = userName(message.authorId, message.author);
+          avatar(*content, 0, y + 1, 34, message.avatar, author);
+          label(*content, 50, y, std::max(24.0F, textWidth - 64), author, 13, foreground, FontWeight::SemiBold);
           const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
           label(*content, bodyWidth - 132, y + 1, 56, timestamp, 10, muted);
           const auto& layout = *layouts[i];
@@ -854,23 +901,18 @@ namespace app {
             continue;
           if (!member.group.empty())
             label(
-                *members, 18, rowY + 12, memberWidth - 36, member.group + " — " + std::to_string(member.count), 11,
-                muted, FontWeight::SemiBold
+                *members, 18, rowY + 12, memberWidth - 36,
+                member.group + (member.count >= 0 ? " — " + std::to_string(member.count) : ""), 11, muted,
+                FontWeight::SemiBold
             );
           else if (!member.user.id.empty()) {
             if (hovered(memberX + 8, 148 + rowY, memberWidth - 16, 42))
               rectangle(*members, 8, rowY, memberWidth - 16, 42, panel, 6);
-            avatar(*members, 16, rowY + 5, 32, member.user.avatar, member.user.name);
-            const auto status = member.status == "online" ? rgbHex(0x43B581)
-                : member.status == "idle"                 ? rgbHex(0xFAA61A)
-                : member.status == "dnd"                  ? rgbHex(0xED4245)
-                                                          : muted;
-            rectangle(*members, 39, rowY + 28, 10, 10, sidebar, 5);
-            rectangle(*members, 41, rowY + 30, 6, 6, status, 3);
-            label(
-                *members, 60, rowY + 12, memberWidth - 78, member.user.name, 13,
-                member.status == "offline" ? muted : foreground
-            );
+            const auto name = userName(member.user.id, member.user.name);
+            const auto status = m_dmMode ? userStatus(member.user.id) : member.status;
+            avatar(*members, 16, rowY + 5, 32, member.user.avatar, name);
+            statusBadge(*members, 38, rowY + 27, status, sidebar);
+            label(*members, 60, rowY + 12, memberWidth - 78, name, 13, status == "offline" ? muted : foreground);
           }
         }
         if (m_members.empty())
@@ -898,6 +940,55 @@ namespace app {
     }
     updateCursor();
     m_window.context().renderScene(m_window.target(), m_scene.get());
+  }
+
+  std::string ClientApplication::userName(const std::string& id, const std::string& fallback) const {
+    return m_userDirectory.name(id, fallback);
+  }
+
+  std::string ClientApplication::userStatus(const std::string& id, const std::string& fallback) const {
+    if (id == m_account.id)
+      return m_presence.status == "invisible" ? "offline" : m_presence.status;
+    return m_userDirectory.status(id, fallback);
+  }
+
+  std::string ClientApplication::channelName(const discord::Channel& channel) const {
+    if ((channel.type != 1 && channel.type != 3) || (channel.type == 3 && channel.named) || channel.recipients.empty())
+      return channel.name;
+    std::string name;
+    for (const auto& recipient : channel.recipients) {
+      if (!name.empty())
+        name += ", ";
+      name += userName(recipient.id, recipient.name);
+    }
+    return name;
+  }
+
+  void ClientApplication::updateDmMembers() {
+    if (!m_dmMode)
+      return;
+    m_members.clear();
+    const auto channel = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+    if (channel != m_channels.end()) {
+      int index = 0;
+      for (const auto& user : channel->recipients)
+        if (user.id != m_account.id)
+          m_members.push_back({index++, user, userStatus(user.id)});
+      if (!m_account.id.empty())
+        m_members.push_back({index, m_account, userStatus(m_account.id)});
+    }
+    m_memberCount = m_members.size();
+  }
+
+  void ClientApplication::statusBadge(Node& parent, float x, float y, const std::string& status, Color backdrop) {
+    rectangle(parent, x, y, 12, 12, backdrop, 6);
+    rectangle(parent, x + 2, y + 2, 8, 8, presenceColor(status), 4);
+    if (status == "offline" || status == "unknown" || status == "invisible")
+      rectangle(parent, x + 4, y + 4, 4, 4, backdrop, 2);
+    else if (status == "dnd")
+      rectangle(parent, x + 3, y + 5, 6, 2, backdrop, 1);
+    else if (status == "idle")
+      rectangle(parent, x + 1, y + 1, 6, 6, backdrop, 3);
   }
 
   void ClientApplication::connect() {
@@ -932,6 +1023,7 @@ namespace app {
     m_login.cancel();
     m_client.disconnect();
     m_demo = true;
+    m_userDirectory = {};
     m_preferences = {};
     m_demoPrepared = false;
     m_connected = true;
@@ -1081,16 +1173,7 @@ namespace app {
       }
       row += 38;
     }
-    if (m_dmMode) {
-      auto channel = std::ranges::find(m_channels, id, &discord::Channel::id);
-      if (channel != m_channels.end()) {
-        int index = 0;
-        for (const auto& user : channel->recipients)
-          m_members.push_back({index++, user, "unknown"});
-        m_members.push_back({index, m_account, "online"});
-        m_memberCount = m_members.size();
-      }
-    }
+    updateDmMembers();
     if (m_demo) {
       m_messages = {
           {"1", id, "Maya", "Made a little space for our ideas. Welcome in! 🌿 ✨", "2026-10-17T09:41:00Z"},
@@ -1223,6 +1306,7 @@ namespace app {
               || (event.operation == discord::Operation::Messages && event.resource != m_channelId)))
         continue;
       if (event.unauthorized) {
+        m_userDirectory = {};
         clearAccountSettings();
         m_emojiMenu = false;
         m_settingsOpen = m_presenceMenu = m_savingProfile = m_loadingProfile = false;
@@ -1287,6 +1371,12 @@ namespace app {
           } else
             showDirectMessages();
         }
+      } else if (event.operation == discord::Operation::UserState) {
+        m_userDirectory.apply(event.users);
+        if (event.users.reset || std::ranges::any_of(event.users.users, [](const auto& item) {
+              return item.second.nickname.has_value();
+            }))
+          m_messageLayouts.clear();
       } else if (event.operation == discord::Operation::ChannelSnapshot) {
         m_guildChannels[event.resource] = event.channels;
         if (!m_dmMode && event.resource == m_guildId && m_channels.empty()) {
@@ -1426,6 +1516,7 @@ namespace app {
               selectChannel(selected == m_channels.end() ? m_channels.front().id : selected->id);
               m_restoreChannel.clear();
             }
+            updateDmMembers();
           }
         }
       } else if (event.operation == discord::Operation::PrivateChannelDelete) {
@@ -2105,6 +2196,7 @@ namespace app {
       m_live = false;
       m_dmMode = false;
       m_privateChannels.clear();
+      m_userDirectory = {};
       m_unreadDMs.clear();
       m_unreadChannels.clear();
       m_unreadGuilds.clear();

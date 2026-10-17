@@ -75,28 +75,32 @@ def serve(listener, errors):
             identify = wait_for(connection, 2)
             assert identify["d"]["token"] == "synthetic-token"
             assert identify["d"]["compress"] is False
-            packet(connection, 0, {"session_id": "synthetic-session"}, "READY", 1)
+            packet(connection, 0, {"session_id": "synthetic-session", "relationships": [{"id": "7", "nickname": "Initial"}]}, "READY", 1)
             presence = wait_for(connection, 3)
             assert presence["d"]["status"] == "dnd"
             assert presence["d"]["activities"] == [{"name": "Custom Status", "type": 4, "state": "working", "emoji": {"id": "77", "name": "wave"}}]
             subscription = wait_for(connection, 37)
             assert subscription["d"]["subscriptions"]["1"]["channels"]["2"] == [[100, 199], [200, 299]]
+            packet(connection, 0, {"merged_presences": {"friends": [{"user_id": "7", "status": "online"}]}}, "READY_SUPPLEMENTAL", 2)
+            packet(connection, 0, {"user": {"id": "7"}, "status": "idle"}, "PRESENCE_UPDATE", 3)
+            packet(connection, 0, {"id": "7", "nickname": "My friend"}, "RELATIONSHIP_UPDATE", 4)
             # Control frames may occur between fragments of a text message.
-            data = json.dumps({"op": 0, "d": {"content": "synthetic 🌿"}, "t": "MESSAGE_CREATE", "s": 2}, ensure_ascii=False).encode()
+            data = json.dumps({"op": 0, "d": {"content": "synthetic 🌿"}, "t": "MESSAGE_CREATE", "s": 5}, ensure_ascii=False).encode()
             frame(connection, data[:17], final=False)
             frame(connection, b"ping", opcode=9)
             frame(connection, data[17:], opcode=0)
-            packet(connection, 0, {}, "MESSAGE_UPDATE", 3)
-            packet(connection, 0, {}, "GUILD_MEMBER_LIST_UPDATE", 4)
+            packet(connection, 0, {}, "MESSAGE_UPDATE", 6)
+            packet(connection, 0, {}, "GUILD_MEMBER_LIST_UPDATE", 7)
             packet(connection, 7, None)
         with upgrade(listener) as connection:
             resume = wait_for(connection, 6)
-            assert resume["d"] == {"token": "synthetic-token", "session_id": "synthetic-session", "seq": 4}
-            packet(connection, 0, {}, "RESUMED", 5)
+            assert resume["d"] == {"token": "synthetic-token", "session_id": "synthetic-session", "seq": 7}
+            packet(connection, 0, {}, "RESUMED", 8)
             presence = wait_for(connection, 3)
             assert presence["d"]["status"] == "dnd" and presence["d"]["activities"][0]["state"] == "working"
             wait_for(connection, 37)
-            packet(connection, 0, {}, "MESSAGE_DELETE", 6)
+            packet(connection, 0, {"id": "7"}, "RELATIONSHIP_REMOVE", 9)
+            packet(connection, 0, {}, "MESSAGE_DELETE", 10)
             try:
                 wait_for(connection, 1)
             except EOFError:

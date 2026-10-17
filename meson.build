@@ -89,7 +89,7 @@ if meson.can_run_host_binaries()
   endif
 endif
 backend = static_library('cressida-backend', 'src/discord/models.cpp', 'src/discord/client.cpp',
-  'src/discord/settings.cpp', 'src/discord/read_state.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp',
+  'src/discord/settings.cpp', 'src/discord/read_state.cpp', 'src/discord/user_directory.cpp', 'src/discord/assets.cpp', 'src/discord/gateway.cpp', 'src/discord/uploads.cpp',
   include_directories: include_directories('src'),
   dependencies: backend_deps,
 )
@@ -127,7 +127,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: render_source_paths + control_source_paths + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/read_state.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp'],
+  exclude_files: render_source_paths + control_source_paths + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -178,3 +178,6 @@ read_state_test = executable('read_state_test', 'tests/read_state_test.cpp', dep
 test('read_state', read_state_test)
 control_test = executable('native_controls_test', 'tests/native_controls_test.cpp', dependencies: render_dep)
 test('native_controls', control_test)
+
+directory_test = executable('user_directory_test', 'tests/user_directory_test.cpp', dependencies: backend_dep)
+test('user_directory', directory_test)

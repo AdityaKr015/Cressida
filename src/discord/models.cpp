@@ -104,6 +104,7 @@ namespace discord {
       if (type != 1 && type != 3)
         continue;
       Channel channel{id(item), text(item, "name"), type};
+      channel.named = !channel.name.empty();
       channel.lastMessageId = text(item, "last_message_id");
       if (item.contains("recipients"))
         for (const auto& user : item["recipients"])
@@ -303,6 +304,11 @@ namespace discord {
       std::string author = "Unknown user";
       if (const auto it = item.find("author"); it != item.end() && it->is_object())
         author = text(*it, "global_name", text(*it, "username", author));
+      if (const auto member = item.find("member"); member != item.end() && member->is_object()) {
+        const auto nick = text(*member, "nick");
+        if (!nick.empty())
+          author = nick;
+      }
       auto content = text(item, "content");
       result.push_back(
           {id(item), text(item, "channel_id"), std::move(author), std::move(content), text(item, "timestamp")}
@@ -374,30 +380,43 @@ namespace discord {
       const nlohmann::json& update, const std::map<std::string, std::string>& roles,
       const std::map<std::string, Account>& users
   ) {
-    if (update.contains("groups") && update["groups"].is_array()) {
+    const bool groupSnapshot = update.contains("groups") && update["groups"].is_array();
+    if (groupSnapshot) {
       // member_count includes offline users omitted from large-guild lists.
       // The visible group's counts describe the actual scrollable row space.
       std::int64_t rows = 0;
+      m_groupCounts.clear();
       for (const auto& group : update["groups"]) {
         const auto count = group.find("count");
-        if (count != group.end() && count->is_number_integer())
-          rows += std::max(0, count->get<int>()) + 1;
+        if (count != group.end() && count->is_number_integer()) {
+          const auto size = static_cast<int>(std::clamp<std::int64_t>(count->get<std::int64_t>(), 0, 10000000));
+          rows += size + 1;
+          m_groupCounts[text(group, "id")] = size;
+        }
       }
       total = static_cast<int>(std::clamp<std::int64_t>(rows, 0, 10000000));
     } else if (update.contains("member_count") && update["member_count"].is_number_integer())
       total = std::clamp(update["member_count"].get<int>(), 0, 10000000);
+    // Counts are sent in the top-level groups snapshot. Row group objects may
+    // contain only an ID, and counts can change without any row operations.
+    for (auto& [index, row] : m_rows)
+      if (!row.groupId.empty())
+        row.count = m_groupCounts.contains(row.groupId) ? m_groupCounts.at(row.groupId) : -1;
     auto parse = [&](const nlohmann::json& item, int index) {
       MemberRow row;
       row.index = index;
       if (item.contains("group")) {
         const auto& group = item["group"];
         const auto groupId = text(group, "id");
+        row.groupId = groupId;
         row.group = groupId == "online" ? "Online"
             : groupId == "offline"      ? "Offline"
             : roles.contains(groupId)   ? roles.at(groupId)
                                         : "Members";
         const auto count = group.find("count");
-        row.count = count != group.end() && count->is_number_integer() ? count->get<int>() : 0;
+        if (count != group.end() && count->is_number_integer() && (!groupSnapshot || !m_groupCounts.contains(groupId)))
+          m_groupCounts[groupId] = static_cast<int>(std::clamp<std::int64_t>(count->get<std::int64_t>(), 0, 10000000));
+        row.count = m_groupCounts.contains(groupId) ? m_groupCounts.at(groupId) : -1;
       } else if (item.contains("member") && item["member"].is_object()) {
         const auto& member = item["member"];
         if (member.contains("user"))

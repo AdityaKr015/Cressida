@@ -88,15 +88,19 @@ int main() {
              json::array(
                  {{{"op", "SYNC"},
                    {"range", json::array({0, 99})},
-                   {"items", json::array({{{"group", {{"id", "9"}, {"count", 2}}}}, alice, bob})}}}
+                   {"items", json::array({{{"group", {{"id", "9"}}}}, alice, bob})}}}
              )}
         },
         {{"9", "Team"}}, {{"2", {"2", "Bob", ""}}}
     );
     auto rows = members.rows();
     require(
-        rows.size() == 3 && rows[0].group == "Team" && rows[1].user.name == "Alice" && rows[2].user.name == "Bob",
-        "Resolve role headers, nicknames and deduplicated users"
+        rows.size() == 3
+            && rows[0].group == "Team"
+            && rows[0].count == 2
+            && rows[1].user.name == "Alice"
+            && rows[2].user.name == "Bob",
+        "Resolve role counts from the group snapshot, nicknames and deduplicated users"
     );
     require(
         rows[1].status == "online" && rows[2].status == "idle" && members.total == 3,
@@ -112,6 +116,29 @@ int main() {
     require(rows[1].user.name == "Bob" && rows[2].user.name == "Alice", "Apply member list insert/delete index shifts");
     members.apply(json{{"ops", json::array({{{"op", "INVALIDATE"}, {"range", json::array({1, 2})}}})}}, {});
     require(members.rows().size() == 1, "Invalidate stale subscribed ranges");
+    members.apply(json{{"groups", json::array({{{"id", "9"}, {"count", 17}}})}}, {});
+    require(
+        members.rows()[0].count == 17 && members.total == 18, "Group-only updates refresh existing counts and scrolling"
+    );
+    members.apply(
+        json{{"ops", json::array({{{"op", "UPDATE"}, {"index", 0}, {"item", {{"group", {{"id", "9"}}}}}}})}},
+        {{"9", "Team"}}
+    );
+    require(members.rows()[0].count == 17, "Header updates without counts retain the latest group snapshot");
+    members.apply(
+        json{
+            {"ops",
+             json::array({{{"op", "UPDATE"}, {"index", 0}, {"item", {{"group", {{"id", "9"}, {"count", 19}}}}}}})}
+        },
+        {{"9", "Team"}}
+    );
+    require(members.rows()[0].count == 19, "An inline count in a later row-only update supersedes the cached count");
+    members.apply(json{{"groups", json::array({{{"id", "9"}, {"count", 0}}})}}, {});
+    require(members.rows()[0].count == 0, "An explicit empty group is different from an unknown count");
+    members.apply(
+        json{{"ops", json::array({{{"op", "UPDATE"}, {"index", 0}, {"item", {{"group", {{"id", "8"}}}}}}})}}, {}
+    );
+    require(members.rows()[0].count < 0, "Missing count data must not be displayed as zero");
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

@@ -57,7 +57,8 @@ namespace discord {
     Account user;
     std::string status = "offline";
     std::string group;
-    int count = 0;
+    int count = -1;
+    std::string groupId;
   };
   class MemberList {
   public:
@@ -70,6 +71,7 @@ namespace discord {
 
   private:
     std::map<int, MemberRow> m_rows;
+    std::map<std::string, int> m_groupCounts;
   };
 
   struct Channel {
@@ -81,6 +83,7 @@ namespace discord {
     std::string icon;
     std::vector<Account> recipients;
     std::string lastMessageId;
+    bool named = false;
   };
 
   struct Media {

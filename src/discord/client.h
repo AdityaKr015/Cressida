@@ -4,6 +4,7 @@
 #include "discord/gateway.h"
 #include "discord/models.h"
 #include "discord/read_state.h"
+#include "discord/user_directory.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -29,6 +30,7 @@ namespace discord {
     SaveProfile,
     SavePresence,
     PresenceChanged,
+    UserState,
     AccountUpdate,
     Channels,
     Messages,
@@ -66,6 +68,7 @@ namespace discord {
     std::optional<SettingValues> settings;
     std::vector<SettingsEntry> settingsEntries;
     std::map<std::string, std::string> unread;
+    UserUpdates users;
   };
 
   // One cancellable network worker. No rendering or window-system dependency.
@@ -127,6 +130,7 @@ namespace discord {
     std::string m_memberChannel;
     MemberList m_memberList;
     discord::ReadState m_readState;
+    UserDirectory m_userDirectory;
     std::string m_self;
     std::map<std::string, std::string> m_roleNames;
     std::map<std::string, Account> m_users;

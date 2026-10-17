@@ -321,7 +321,14 @@ namespace discord {
         m_roleNames.clear();
         m_users.clear();
         m_readState = {};
+        m_userDirectory = {};
         m_self.clear();
+      }
+      auto users = m_userDirectory.consume(type, data);
+      if (users.reset || !users.users.empty()) {
+        Event event{.operation = Operation::UserState, .session = session};
+        event.users = std::move(users);
+        publish(std::move(event));
       }
       auto publishReads = [&] {
         Event state{.operation = Operation::ReadState, .session = session};
@@ -384,6 +391,12 @@ namespace discord {
           event.layout = parseGuildLayout(data["user_settings"]);
           if (!event.layout.folders.empty() || !event.layout.positions.empty())
             publish(std::move(event));
+        }
+      } else if (type == "READY_SUPPLEMENTAL") {
+        if (data.contains("lazy_private_channels") && data["lazy_private_channels"].is_array()) {
+          Event event{.operation = Operation::PrivateChannelUpsert, .session = session};
+          event.channels = parsePrivateChannels(data["lazy_private_channels"], m_users);
+          publish(std::move(event));
         }
       } else if (type == "USER_SETTINGS_PROTO_UPDATE") {
         if (data.at("settings").value("type", 0) == 1) {
