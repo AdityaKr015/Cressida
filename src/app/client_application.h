@@ -349,6 +349,13 @@ namespace app {
     void changeImage(int direction);
     bool hovered(float x, float y, float width, float height) const;
     void updateCursor();
+    float channelSidebarWidth() const;
+    float chatLeft() const;
+    float channelPanelWidth() const;
+    bool sidebarResizeAvailable() const;
+    bool sidebarResizeAt(float x, float y) const;
+    void finishSidebarResize();
+    void sidebarDemoFrame();
     void positionCaret(float x, float y, bool extend);
     void positionChatSelection(float x, float y);
     void upsertMessage(discord::Message message);
@@ -627,6 +634,9 @@ namespace app {
     std::string m_viewUrl;
     float m_viewZoom = 1, m_viewPanX = 0, m_viewPanY = 0, m_imageDragX = 0, m_imageDragY = 0;
     bool m_dragImage = false;
+    bool m_resizingSidebar = false;
+    float m_sidebarDragOffset = 0, m_sidebarDragStart = 248;
+    std::uint32_t m_controlCursor = 1;
     TextEdit m_edit, m_chatEdit;
     bool m_dragDraft = false, m_dragMessage = false;
     std::string m_selectedMessage, m_selectedText;

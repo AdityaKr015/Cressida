@@ -156,6 +156,7 @@ namespace discord {
     bool saveProfile(const Account& profile);
     bool setPresence(std::string status, std::optional<std::string> customText = {});
     void subscribe(const std::string& guild, const std::string& channel, int first = 0);
+    void requestMembers(const std::string& guild, const std::vector<std::string>& users);
     std::vector<Event> drain();
     int eventFd() const noexcept { return m_wake.fd(); }
 

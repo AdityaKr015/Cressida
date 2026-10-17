@@ -1,5 +1,6 @@
 #include "discord/client.h"
 #include "discord/gateway.h"
+#include "discord/role_styles.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -18,6 +19,7 @@ int main(int argc, char** argv) {
   std::set<std::string> events;
   bool valid = true;
   discord::UserDirectory users;
+  discord::RoleDirectory roles;
   {
     discord::Gateway gateway(
         generation,
@@ -26,6 +28,9 @@ int main(int argc, char** argv) {
           if (session != 1)
             valid = false;
           users.consume(type, data);
+          roles.apply(discord::parseRoleUpdates(type, data));
+          if (type == "GUILD_MEMBERS_CHUNK" && roles.memberships("1", "7") != std::vector<std::string>{"50"})
+            valid = false;
           if (type == "READY_SUPPLEMENTAL" && users.status("7") != "online")
             valid = false;
           if (type == "MESSAGE_CREATE" && (users.status("7") != "idle" || users.name("7", "Original") != "My friend"))
@@ -45,6 +50,10 @@ int main(int argc, char** argv) {
     if (!gateway.setPresence(1, "dnd") || gateway.setPresence(2, "online") || gateway.setPresence(1, "busy"))
       valid = false;
     gateway.subscribe("1", "2", 100);
+    gateway.requestMembers(2, "1", {"9"});
+    gateway.requestMembers(1, "../invalid", {"9"});
+    gateway.requestMembers(1, "1", {"7", "7", "bad", "8"});
+    gateway.requestMembers(1, "1", {"7", "8"});
     std::unique_lock lock(mutex);
     if (!changed.wait_for(lock, std::chrono::seconds(7), [&] {
           return events.contains("READY")
@@ -55,7 +64,8 @@ int main(int argc, char** argv) {
               && events.contains("CONNECTION_FAILED")
               && events.contains("RELATIONSHIP_REMOVE")
               && events.contains("PRESENCE_UPDATE")
-              && events.contains("GUILD_MEMBER_LIST_UPDATE");
+              && events.contains("GUILD_MEMBER_LIST_UPDATE")
+              && events.contains("GUILD_MEMBERS_CHUNK");
         })) {
       std::cerr << "Gateway did not complete identify, fragmented dispatch and resume\n";
       for (const auto& event : events)

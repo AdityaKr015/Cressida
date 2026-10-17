@@ -50,7 +50,7 @@ namespace app {
     bool maximized = false, fullscreen = false;
     std::uint32_t pointerSerial = 0;
     Clock::time_point titleClick{};
-    bool interactiveCursor = false;
+    std::uint32_t cursorShape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
     wl_seat* seat = nullptr;
     wl_keyboard* keyboard = nullptr;
     wl_pointer* pointer = nullptr;
@@ -329,11 +329,9 @@ namespace app {
               self.pointerY = wl_fixed_to_double(y);
               self.pointerSerial = serial;
               if (self.cursorDevice)
-                wp_cursor_shape_device_v1_set_shape(
-                    self.cursorDevice, serial,
-                    self.interactiveCursor ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER
-                                           : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT
-                );
+                wp_cursor_shape_device_v1_set_shape(self.cursorDevice, serial, self.cursorShape);
+              if (self.owner.motion)
+                self.owner.motion(self.pointerX / self.uiScale, self.pointerY / self.uiScale);
             },
         .leave =
             [](void* data, wl_pointer*, std::uint32_t, wl_surface*) {
@@ -842,16 +840,14 @@ namespace app {
   float Window::titlebarHeight() const {
     return m->fullscreen || m->decorationMode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE ? 0 : 36;
   }
-  void Window::setPointerCursor(bool interactive) {
-    if (m->interactiveCursor == interactive)
+  void Window::setCursorShape(std::uint32_t shape) {
+    if (m->cursorShape == shape)
       return;
-    m->interactiveCursor = interactive;
+    m->cursorShape = shape;
     if (m->cursorDevice && m->pointerSerial)
-      wp_cursor_shape_device_v1_set_shape(
-          m->cursorDevice, m->pointerSerial,
-          interactive ? WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT
-      );
+      wp_cursor_shape_device_v1_set_shape(m->cursorDevice, m->pointerSerial, shape);
   }
+  std::uint32_t Window::cursorShape() const { return m->cursorShape; }
   void Window::close() { m->running = false; }
   void Window::invalidate() { m->dirty = true; }
   void Window::setUiScale(float scale) {

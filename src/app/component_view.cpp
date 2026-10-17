@@ -40,7 +40,7 @@ namespace app {
         }
         if (root) {
           const bool disabled = item.disabled || pending || (item.style != 5 && message.applicationId.empty());
-          const float px = 350 + x + bx, py = m_messageViewportTop + y + rowY;
+          const float px = chatLeft() + 24 + x + bx, py = m_messageViewportTop + y + rowY;
           const bool over = !disabled && hovered(px, py, bw, 32);
           auto color = item.style == 1 ? accent
               : item.style == 3        ? rgbHex(0x248046)
@@ -95,7 +95,7 @@ namespace app {
         const float dismissWidth = m_window.target().renderer().measureText("Dismiss message", 11).width;
         label(*root, x + 20 + captionWidth, y + rowY + 5, dismissWidth + 2, "Dismiss message", 11, accent);
         m_hits.push_back(
-            {350 + x + 20 + captionWidth, m_messageViewportTop + y + rowY, dismissWidth + 2, 25,
+            {chatLeft() + 24 + x + 20 + captionWidth, m_messageViewportTop + y + rowY, dismissWidth + 2, 25,
              Action::DismissEphemeral, message.id}
         );
       }

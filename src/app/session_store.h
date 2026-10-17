@@ -13,6 +13,7 @@ namespace app {
     bool fakeNitroEmojis = false;
     bool roleColors = true, animateRoleColors = true;
     bool showGuildTags = true;
+    float channelSidebarWidth = 248;
   };
   struct LastChannel {
     std::string guild, channel;

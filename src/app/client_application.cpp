@@ -30,6 +30,28 @@
 namespace app {
   using namespace theme;
   namespace {
+    struct ChannelListRow {
+      const discord::Channel* channel;
+      float top, height, advance;
+    };
+    template <class MentionCount>
+    std::vector<ChannelListRow> channelListRows(
+        const std::vector<discord::Channel>& channels, const std::set<std::string>& collapsed,
+        const std::string& selected, MentionCount mentions
+    ) {
+      std::vector<ChannelListRow> rows;
+      float top = 0;
+      for (const auto& channel : channels) {
+        const auto parent = std::ranges::find(channels, channel.parentId, &discord::Channel::id);
+        const auto category = channel.isThread() && parent != channels.end() ? parent->parentId : channel.parentId;
+        if (channel.type != 4 && collapsed.contains(category) && channel.id != selected && mentions(channel.id) == 0)
+          continue;
+        const float height = channel.type == 4 ? 24 : 34, advance = channel.type == 4 ? 24 : 38;
+        rows.push_back({&channel, top, height, advance});
+        top += advance;
+      }
+      return rows;
+    }
     std::string initial(const std::string& name) {
       if (name.empty())
         return "?";
@@ -57,13 +79,15 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "sidebar-cycle")
+        sidebarDemoFrame();
       if (m_demo && m_demoOverlay == "mentions-cycle") {
         int highlights = 0;
         const auto inspect = [&](auto&& self, const Node& node) -> void {
           if (node.type() == NodeType::Rect) {
             const auto& rect = static_cast<const RectNode&>(node);
             if (node.width() == 3 && rect.style().fill == theme::accent) {
-              if (node.x() + node.width() >= 350)
+              if (node.x() + node.width() >= chatLeft() + 24)
                 throw std::runtime_error("Mention bars must sit clear of the avatar column");
               ++highlights;
             }
@@ -115,7 +139,7 @@ namespace app {
         demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
         demoHistoryStep();
-      if (m_demo && m_demoOverlay == "role-style-cycle")
+      if (m_demo && (m_demoOverlay == "role-style-cycle" || m_demoOverlay == "role-members-cycle"))
         demoRoleStep();
       if (m_demo && m_demoOverlay == "profile-card-cycle")
         demoProfileStep();
@@ -292,10 +316,23 @@ namespace app {
         m_window.invalidate();
       }
     };
+    m_controlInput.setCursorShapeCallback([this](std::uint32_t, std::uint32_t shape) { m_controlCursor = shape; });
     m_window.motion = [this](float x, float y) {
       m_pointerX = x;
       y += 36 - m_window.titlebarHeight();
       m_pointerY = y;
+      if (m_resizingSidebar) {
+        if (!sidebarResizeAvailable())
+          finishSidebarResize();
+        else {
+          m_preferences.channelSidebarWidth = std::clamp(
+              x - 78 - m_sidebarDragOffset, 200.0F, std::max(200.0F, std::min(480.0F, m_window.width() - 438.0F))
+          );
+          updateCursor();
+          m_window.invalidate();
+          return;
+        }
+      }
       videoMotion(x, y);
       m_controlInput.pointerMotion(x, y + m_window.titlebarHeight() - 36, 0);
       contextMotion(x, y);
@@ -313,19 +350,34 @@ namespace app {
         positionChatSelection(x, y);
     };
     m_window.released = [this] {
+      finishSidebarResize();
       videoRelease();
       m_controlInput.pointerButton(m_pointerX, m_pointerY + m_window.titlebarHeight() - 36, 272, false, 0, 0, false);
       m_dragDraft = m_dragMessage = m_dragImage = false;
+      updateCursor();
     };
     m_window.pointerLeft = [this] {
+      finishSidebarResize();
       m_controlInput.pointerLeave();
       m_pointerX = m_pointerY = -1000;
+      updateCursor();
       m_window.invalidate();
     };
     m_window.click = [this](float x, float y, std::uint32_t) {
       y += 36 - m_window.titlebarHeight();
       m_pointerX = x;
       m_pointerY = y;
+      if (sidebarResizeAt(x, y)) {
+        m_controlInput.cancelPointerCapture();
+        m_dragDraft = m_dragMessage = m_dragImage = false;
+        m_scrolling.stopAll();
+        m_resizingSidebar = true;
+        m_sidebarDragStart = m_preferences.channelSidebarWidth;
+        m_sidebarDragOffset = x - chatLeft();
+        updateCursor();
+        m_window.invalidate();
+        return;
+      }
       if (overlayClick(x, y)) {
         return;
       }
@@ -373,6 +425,7 @@ namespace app {
       y += 36 - m_window.titlebarHeight();
       m_pointerX = x;
       m_pointerY = y;
+      finishSidebarResize();
       m_dragDraft = m_dragMessage = false;
       openContext(x, y);
     };
@@ -389,6 +442,7 @@ namespace app {
       return active || (m_window.active() && m_roleMotion.active());
     };
     m_window.zoom = [this](float delta) {
+      finishSidebarResize();
       if (!m_viewImage.empty()) {
         m_viewZoom = std::clamp(m_viewZoom * (delta < 0 ? 1.1F : 1 / 1.1F), 0.25F, 4.0F);
         m_window.invalidate();
@@ -537,16 +591,18 @@ namespace app {
         scroll(m_attachmentScroll, delta);
       else if (m_pointerX < 78)
         scroll(m_guildScroll, delta);
-      else if (m_pointerX < 326)
+      else if (m_pointerX < chatLeft())
         scroll(m_channelScroll, delta);
-      else if (
-          !m_channelPanel.empty()
-          && m_pointerX >= m_window.width() - std::min(380.0F, std::max(250.0F, m_window.width() - 576.0F))
-      )
+      else if (!m_channelPanel.empty() && m_pointerX >= m_window.width() - channelPanelWidth())
         scroll(m_channelPanelScroll, delta);
       else if (forumView())
         scroll(m_forumScroll, delta);
-      else if (m_showMembers && m_window.width() >= 1000 && m_pointerX >= m_window.width() - 240) {
+      else if (
+          m_showMembers
+          && m_window.width() >= 1000
+          && m_window.width() - chatLeft() >= 600
+          && m_pointerX >= m_window.width() - 240
+      ) {
         scroll(m_memberScroll, delta);
       } else
         scroll(m_messageScroll, -delta);
@@ -581,7 +637,9 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "mentions-cycle"           ? 4
+        smokeTest ? (m_demo && view && std::string_view(view) == "sidebar-cycle"            ? 10
+                         : m_demo && view && std::string_view(view) == "role-members-cycle" ? 2
+                         : m_demo && view && std::string_view(view) == "mentions-cycle"     ? 4
                          : m_demo && view && std::string_view(view) == "channel-cycle"      ? 18
                          : m_demo && view && std::string_view(view) == "forum-cycle"        ? 12
                          : m_demo && view && std::string_view(view) == "thread-cycle"       ? 10
@@ -595,6 +653,10 @@ namespace app {
                   : 0,
         m_assets.eventFd(), m_video.eventFd()
     );
+    if (m_demoOverlay == "role-members-cycle" && m_demoInteractionStep != 2)
+      throw std::runtime_error("Member role replay did not complete");
+    if (m_demoOverlay == "sidebar-cycle" && m_demoInteractionStep != 10)
+      throw std::runtime_error("Cursor/sidebar replay did not complete");
     if (m_demoOverlay == "channel-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Channel feature replay did not complete");
     if (m_demoOverlay == "mentions-cycle" && m_demoInteractionStep != 4)
@@ -639,6 +701,20 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view == "sidebar-cycle")
+          m_demoOverlay = view;
+        if (view == "sidebar-wide")
+          m_preferences.channelSidebarWidth = 420;
+        if (view == "categories") {
+          for (auto& channel : m_channels)
+            channel.parentId = "100";
+          m_channels.insert(m_channels.begin(), {"100", "PRIVATE", 4});
+          m_channels.push_back({"200", "COMMUNITY", 4});
+          discord::Channel channel{"201", "showcase"};
+          channel.parentId = "200";
+          m_channels.push_back(std::move(channel));
+          m_guildChannels[m_guildId] = m_channels;
+        }
         if (view == "mentions" || view == "mentions-light" || view == "mentions-compact" || view == "mentions-cycle") {
           m_demoOverlay = view;
           m_showMembers = false;
@@ -676,6 +752,7 @@ namespace app {
         if (view == "role-styles"
             || view == "role-styles-light"
             || view == "role-style-cycle"
+            || view == "role-members-cycle"
             || view == "role-style-settings") {
           m_demoOverlay = view;
           if (view == "role-styles-light")
@@ -705,6 +782,8 @@ namespace app {
             m_members.push_back(std::move(member));
             roles.members[user] = i < 3 ? std::vector<std::string>{std::to_string(50 + i)} : std::vector<std::string>{};
           }
+          if (view == "role-members-cycle")
+            roles.members.clear();
           m_roleDirectory.apply({true, {std::move(roles)}});
           m_memberCount = static_cast<int>(m_members.size());
           m_showMembers = true;
@@ -1470,14 +1549,15 @@ namespace app {
       }
     } else if (!m_settingsOpen) {
       rectangle(root, 0, 36, 78, h - 36, rgbHex(0x14151A));
-      rectangle(root, 78, 36, 248, h - 36, sidebar);
-      rectangle(root, 78, 36, 248, 66, sidebar);
+      const float sidebarWidth = channelSidebarWidth();
+      rectangle(root, 78, 36, sidebarWidth, h - 36, sidebar);
+      rectangle(root, 78, 36, sidebarWidth, 66, sidebar);
       std::string guildName = m_dmMode ? "Direct messages" : "Your servers";
       for (const auto& guild : m_guilds)
         if (guild.id == m_guildId)
           guildName = guild.name;
-      label(root, 98, 57, 208, guildName, 17, foreground, FontWeight::SemiBold);
-      label(root, 98, 113, 200, m_dmMode ? "CONVERSATIONS" : "CHANNELS", 10, muted, FontWeight::SemiBold);
+      label(root, 98, 57, sidebarWidth - 40, guildName, 17, foreground, FontWeight::SemiBold);
+      label(root, 98, 113, sidebarWidth - 48, m_dmMode ? "CONVERSATIONS" : "CHANNELS", 10, muted, FontWeight::SemiBold);
       iconButton(root, {14, 48, 48, 48, Action::Home, {}}, "message-circle", "Direct messages", m_dmMode);
 
       // Derive rail totals from the same filtered cursors as the channel badges,
@@ -1568,46 +1648,41 @@ namespace app {
         countBadge(root, 67, y + 33, guildMentions[guild.id], true);
         m_hits.push_back({14, y, 48, 48, Action::Guild, guild.id});
       }
-      std::vector<const discord::Channel*> visibleChannels;
-      for (const auto& channel : m_channels) {
-        auto parent = std::ranges::find(m_channels, channel.parentId, &discord::Channel::id);
-        const auto category = channel.isThread() && parent != m_channels.end() ? parent->parentId : channel.parentId;
-        if (channel.type == 4
-            || !m_collapsedCategories.contains(category)
-            || channel.id == m_channelId
-            || m_unreadTimeline.mentions(channel.id) > 0)
-          visibleChannels.push_back(&channel);
-      }
-      m_scrolling.limit(m_channelScroll, std::max(0.0F, visibleChannels.size() * 38.0F - (h - 228)));
+      const auto visibleChannels = channelListRows(m_channels, m_collapsedCategories, m_channelId, [&](const auto& id) {
+        return m_unreadTimeline.mentions(id);
+      });
+      const float channelListHeight =
+          visibleChannels.empty() ? 0 : visibleChannels.back().top + visibleChannels.back().advance;
+      m_scrolling.limit(m_channelScroll, std::max(0.0F, channelListHeight - (h - 228)));
       int mentionsBelow = 0;
       std::string nextMention;
-      for (std::size_t i = 0; i < visibleChannels.size(); ++i) {
-        const float y = 142 + i * 38 - m_channelScroll;
-        const auto& channel = *visibleChannels[i];
+      for (const auto& row : visibleChannels) {
+        const float y = 142 + row.top - m_channelScroll;
+        const auto& channel = *row.channel;
         if (channel.type != 4 && y + 34 > h - 76 && m_unreadTimeline.mentions(channel.id) > 0) {
           mentionsBelow = std::min(1000000, mentionsBelow + m_unreadTimeline.mentions(channel.id));
           if (nextMention.empty())
             nextMention = channel.id;
         }
-        if (y < 138 || y + 34 > h - 76)
+        if (y < 138 || y + row.height > h - 76)
           continue;
         if (channel.type == 4) {
-          if (hovered(90, y, 224, 34))
-            rectangle(root, 90, y, 224, 34, panel, 8);
+          if (hovered(90, y, sidebarWidth - 24, row.height))
+            rectangle(root, 90, y, sidebarWidth - 24, row.height, panel, 6);
           glyph(
-              root, 98, y + 8, 16, m_collapsedCategories.contains(channel.id) ? "chevron-right" : "chevron-down", muted
+              root, 98, y + 4, 16, m_collapsedCategories.contains(channel.id) ? "chevron-right" : "chevron-down", muted
           );
-          label(root, 119, y + 9, 186, channel.name, 11, muted, FontWeight::SemiBold);
-          m_hits.push_back({90, y, 224, 34, Action::Category, channel.id});
+          label(root, 119, y + 5, sidebarWidth - 62, channel.name, 11, muted, FontWeight::SemiBold);
+          m_hits.push_back({90, y, sidebarWidth - 24, row.height, Action::Category, channel.id});
           continue;
         }
         const bool selected = channel.id == m_channelId;
         const int mentions = m_unreadTimeline.mentions(channel.id);
         const bool unread = (m_unreadChannels.contains(channel.id) || m_unreadDMs.contains(channel.id))
             && (!m_userDirectory.muted(channel.id) || mentions > 0);
-        const bool over = hovered(90, y, 224, 34);
+        const bool over = hovered(90, y, sidebarWidth - 24, 34);
         if (selected || over)
-          rectangle(root, 90, y, 224, 34, selected ? raised : panel, 8);
+          rectangle(root, 90, y, sidebarWidth - 24, 34, selected ? raised : panel, 8);
         if (unread && !selected)
           rectangle(root, 80, y + 14, 4, 6, foreground, 2);
         if (m_dmMode) {
@@ -1625,29 +1700,29 @@ namespace app {
           glyph(root, 102, y + 8, 20, "messages", selected ? accent : muted);
         else
           label(root, 102, y + 7, 20, "#", 17, selected ? accent : muted);
-        const float badgeWidth = countBadge(root, 304, y + 8, mentions);
+        const float badgeWidth = countBadge(root, chatLeft() - 22, y + 8, mentions);
         label(
             root,
             m_dmMode                 ? 136
                 : channel.isThread() ? 142
                                      : 128,
             y + 8,
-            (m_dmMode                 ? 165
-                 : channel.isThread() ? 159
-                                      : 173)
+            (m_dmMode                 ? sidebarWidth - 83
+                 : channel.isThread() ? sidebarWidth - 89
+                                      : sidebarWidth - 75)
                 - (badgeWidth ? badgeWidth + 8 : 0),
             m_dmMode ? channelName(channel) : channel.name, 14, selected || over || unread ? foreground : muted,
             selected || unread ? FontWeight::SemiBold : FontWeight::Normal
         );
-        m_hits.push_back({90, y, 224, 34, Action::Channel, channel.id});
+        m_hits.push_back({90, y, sidebarWidth - 24, 34, Action::Channel, channel.id});
         if (m_dmMode)
-          m_contextTargets.push_back({90, y, 224, 34, Action::ConversationMenu, channel.id});
+          m_contextTargets.push_back({90, y, sidebarWidth - 24, 34, Action::ConversationMenu, channel.id});
       }
       if (mentionsBelow > 0) {
         const auto text = (mentionsBelow > 99 ? "99+" : std::to_string(mentionsBelow))
             + std::string(mentionsBelow == 1 ? " NEW MENTION" : " NEW MENTIONS");
         const auto metrics = m_window.target().renderer().measureText(text, 11, FontWeight::Bold);
-        const float width = std::ceil(metrics.width) + 24, x = 202 - width / 2, y = h - 110;
+        const float width = std::ceil(metrics.width) + 24, x = 78 + sidebarWidth / 2 - width / 2, y = h - 110;
         rectangle(root, x - 3, y - 3, width + 6, 34, sidebar, 17);
         rectangle(root, x, y, width, 28, rgbHex(hovered(x, y, width, 28) ? 0xB72735 : 0xD6303E), 14);
         label(
@@ -1658,33 +1733,34 @@ namespace app {
       }
       if (m_channels.empty())
         label(
-            root, 100, 151, 200,
+            root, 100, 151, sidebarWidth - 48,
             (m_dmMode ? m_loadingPrivate : m_loadingChannels) ? "Loading…"
                 : m_dmMode                                    ? "No conversations yet."
                                                               : "No text channels to show.",
             13, muted, FontWeight::Normal, 2
         );
-      rectangle(root, 78, h - 72, 248, 72, rgbHex(0x1A1B22));
-      if (hovered(88, h - 65, 180, 58))
-        rectangle(root, 88, h - 65, 180, 58, panel, 8);
+      rectangle(root, 78, h - 72, sidebarWidth, 72, rgbHex(0x1A1B22));
+      if (hovered(88, h - 65, sidebarWidth - 68, 58))
+        rectangle(root, 88, h - 65, sidebarWidth - 68, 58, panel, 8);
       // Redraw the account chip above its hover background.
       avatar(root, 94, h - 54, 34, m_account.avatar, m_account.name);
       rectangle(root, 118, h - 30, 11, 11, presenceColor(m_presence.status), 6);
-      label(root, 140, h - 55, 128, m_account.name, 13, foreground, FontWeight::Medium);
+      label(root, 140, h - 55, sidebarWidth - 120, m_account.name, 13, foreground, FontWeight::Medium);
       label(
-          root, 140, h - 33, 128,
+          root, 140, h - 33, sidebarWidth - 120,
           !m_live && !m_demo             ? m_gatewayStatus
               : !m_presence.text.empty() ? m_presence.text
                                          : std::string(presenceName(m_presence.status)),
           10, muted
       );
-      m_hits.push_back({88, h - 65, 180, 58, Action::TogglePresence, {}});
-      iconButton(root, {276, h - 57, 36, 36, Action::Settings, {}}, "settings", "User settings");
+      m_hits.push_back({88, h - 65, sidebarWidth - 68, 58, Action::TogglePresence, {}});
+      iconButton(root, {chatLeft() - 50, h - 57, 36, 36, Action::Settings, {}}, "settings", "User settings");
 
       const bool forum = forumView();
-      const float panelWidth = m_channelPanel.empty() ? 0 : std::min(380.0F, std::max(250.0F, w - 576));
-      const float memberWidth = !forum && m_channelPanel.empty() && m_showMembers && w >= 1000 ? 240 : 0;
-      const float left = 326, bodyWidth = w - left - memberWidth - panelWidth;
+      const float panelWidth = m_channelPanel.empty() ? 0 : channelPanelWidth();
+      const float memberWidth =
+          !forum && m_channelPanel.empty() && m_showMembers && w >= 1000 && w - chatLeft() >= 600 ? 240 : 0;
+      const float left = chatLeft(), bodyWidth = w - left - memberWidth - panelWidth;
       drawChannelHeader(root, w);
       rectangle(root, left, 101, bodyWidth, 1, raised);
       if (forum)
@@ -1885,6 +1961,7 @@ namespace app {
               << '\n';
         content->setPosition(left + 24, top);
         content->setSize(bodyWidth - 48, std::max(0.0F, bottom - top));
+        std::vector<std::string> missingAuthors;
         float y = std::min(0.0F, bottom - top - totalHeight) + m_messageScroll + 12;
         if (introHeight > 0) {
           channelIntro(content.get(), 50, y, textWidth);
@@ -1929,6 +2006,14 @@ namespace app {
               y += heights[i];
               continue;
             }
+            if (!m_dmMode
+                && message.webhookId.empty()
+                && !message.memberRoles
+                && !m_roleDirectory.memberships(m_guildId, message.authorId)
+                && discord::validSnowflake(message.authorId)
+                && missingAuthors.size() < 100
+                && std::ranges::find(missingAuthors, message.authorId) == missingAuthors.end())
+              missingAuthors.push_back(message.authorId);
             if (message.flags & 64) {
               rectangle(*content, 0, y - 3, bodyWidth - 48, heights[i] - 4, lerpColor(background, accent, .06F), 6);
               rectangle(*content, 0, y - 3, 3, heights[i] - 4, lerpColor(background, accent, .6F), 2);
@@ -2256,6 +2341,8 @@ namespace app {
             visibleAnchors.push_back({m_messages[i].id, rowY});
         }
         m_timelineAnchor.remember(std::move(visibleAnchors), m_messageScroll);
+        if (!m_demo && !m_dmMode)
+          m_client.requestMembers(m_guildId, missingAuthors);
         root.addChild(std::move(content));
         if ((!m_demo || m_demoOverlay == "history-cycle")
             && !m_loadingMessages
@@ -2465,8 +2552,15 @@ namespace app {
         }
       }
     }
+    if (sidebarResizeAvailable())
+      rectangle(
+          root, chatLeft() - 1, 36, 2, h - 36,
+          m_resizingSidebar || sidebarResizeAt(m_pointerX, m_pointerY) ? accent : raised
+      );
+    if (m_resizingSidebar && !sidebarResizeAvailable())
+      finishSidebarResize();
     if (m_connected && !m_channelPanel.empty() && !m_settingsOpen) {
-      const float panel = std::min(380.0F, std::max(250.0F, w - 576));
+      const float panel = channelPanelWidth();
       drawChannelPanel(root, w - panel, 102, panel, h - 102);
     }
     if (m_settingsOpen)
@@ -2663,6 +2757,7 @@ namespace app {
   }
 
   void ClientApplication::demo() {
+    finishSidebarResize();
     closeVideo();
     clearEmojiState();
     m_scrolling.stopAll();
@@ -2744,6 +2839,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    finishSidebarResize();
     closeChannelPanel();
     m_roleMotion.clear();
     closeVideo();
@@ -2804,6 +2900,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    finishSidebarResize();
     closeChannelPanel();
     m_roleMotion.clear();
     closeVideo();
@@ -2838,6 +2935,7 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(std::string id) {
+    finishSidebarResize();
     closeChannelPanel();
     m_seekMessage.clear();
     m_pendingMessageJump.reset();
@@ -2890,16 +2988,14 @@ namespace app {
       m_unreadDMs.erase(id);
       m_unreadChannels.erase(id);
     }
-    float row = 0;
-    for (const auto& channel : m_channels) {
-      if (channel.type != 4 && m_collapsedCategories.contains(channel.parentId) && channel.id != id)
-        continue;
-      if (channel.id == id) {
+    for (const auto& row : channelListRows(m_channels, m_collapsedCategories, m_channelId, [&](const auto& channel) {
+           return m_unreadTimeline.mentions(channel);
+         })) {
+      if (row.channel->id == id) {
         const auto view = std::max(38.0F, m_window.height() - 228.0F);
-        m_channelScroll = std::clamp(m_channelScroll, std::max(0.0F, row - view + 38), row);
+        m_channelScroll = std::clamp(m_channelScroll, std::max(0.0F, row.top - view + row.advance), row.top);
         break;
       }
-      row += 38;
     }
     updateDmMembers();
     if (id.empty()) {
@@ -3040,7 +3136,7 @@ namespace app {
             m_scene->children(),
             [&](const auto& node) {
               return node->clipChildren()
-                  && node->x() == 350
+                  && node->x() == chatLeft() + 24
                   && node->y() == m_messageViewportTop
                   && !node->textPixelSnap();
             }
@@ -3849,6 +3945,7 @@ namespace app {
   }
 
   void ClientApplication::onKey(const Key& key) {
+    finishSidebarResize();
     if (m_connected
         && !m_settingsOpen
         && m_dialogKind.empty()
@@ -4291,21 +4388,16 @@ namespace app {
       selectChannel(hit.id);
       break;
     case Action::JumpChannelMention: {
-      std::size_t index = 0;
-      for (const auto& channel : m_channels) {
-        if (channel.type != 4
-            && m_collapsedCategories.contains(channel.parentId)
-            && channel.id != m_channelId
-            && m_unreadTimeline.mentions(channel.id) == 0)
-          continue;
-        if (channel.id == hit.id) {
+      for (const auto& row : channelListRows(m_channels, m_collapsedCategories, m_channelId, [&](const auto& channel) {
+             return m_unreadTimeline.mentions(channel);
+           })) {
+        if (row.channel->id == hit.id) {
           m_scrolling.stop(m_channelScroll);
           // Reveal the row above the floating badge, without selecting or ACKing it.
           const float h = m_window.height() + 36 - m_window.titlebarHeight();
-          m_channelScroll = std::max(0.0F, 142 + index * 38.0F - (h - 160));
+          m_channelScroll = std::max(0.0F, 142 + row.top - (h - 160));
           break;
         }
-        ++index;
       }
       break;
     }

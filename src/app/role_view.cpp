@@ -1,8 +1,10 @@
 #include "app/client_application.h"
 #include "app/theme.h"
 #include "render/scene/text_node.h"
+
 #include <algorithm>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 
 namespace app {
@@ -11,25 +13,37 @@ namespace app {
       FontWeight weight, const std::string& user, const std::string& key, bool over,
       const std::optional<std::vector<std::string>>& roles
   ) {
-    const auto colors = m_preferences.roleColors && !m_dmMode ? m_roleDirectory.colors(m_guildId, user, roles) : std::nullopt;
+    const auto colors =
+        m_preferences.roleColors && !m_dmMode ? m_roleDirectory.colors(m_guildId, user, roles) : std::nullopt;
     const float height = label(parent, x, y, width, text, size, colors ? rgbHex(colors->primary) : fallback, weight);
     if (colors && colors->secondary) {
       TextGradient gradient;
-      gradient.colors = {rgbHex(colors->primary), rgbHex(*colors->secondary), rgbHex(colors->tertiary.value_or(*colors->secondary))};
+      gradient.colors = {
+          rgbHex(colors->primary), rgbHex(*colors->secondary), rgbHex(colors->tertiary.value_or(*colors->secondary))
+      };
       gradient.count = colors->tertiary ? 3 : 2;
-      const bool animate = over && m_preferences.animateRoleColors && (m_window.active() || m_demo)
-          && !m_settingsOpen && !m_contextOpen && !m_emojiMenu && !m_gifMenu && m_dialogKind.empty()
-          && m_viewImage.empty() && !m_videoExpanded;
+      const bool animate = over
+          && m_preferences.animateRoleColors
+          && (m_window.active() || m_demo)
+          && !m_settingsOpen
+          && !m_contextOpen
+          && !m_emojiMenu
+          && !m_gifMenu
+          && m_dialogKind.empty()
+          && m_viewImage.empty()
+          && !m_videoExpanded;
       gradient.phase = m_roleMotion.phase(key, animate);
       static_cast<TextNode*>(parent.children().back().get())->setGradient(gradient);
     }
     return height;
   }
 
-
   void ClientApplication::demoRoleStep() {
     using namespace theme;
-    auto require = [](bool ok, const char* message) { if (!ok) throw std::runtime_error(message); };
+    auto require = [](bool ok, const char* message) {
+      if (!ok)
+        throw std::runtime_error(message);
+    };
     const auto step = m_demoInteractionStep++;
     int gradients = 0, moving = 0, plainNames = 0;
     auto inspect = [&](auto&& self, const Node& node) -> void {
@@ -47,6 +61,32 @@ namespace app {
         self(self, *child);
     };
     inspect(inspect, *m_scene);
+    if (m_demoOverlay == "role-members-cycle") {
+      if (step == 0) {
+        require(gradients == 0, "Uncached history authors start without invented role colors");
+        m_roleDirectory.apply(
+            discord::parseRoleUpdates(
+                "GUILD_MEMBERS_CHUNK",
+                nlohmann::json{
+                    {"guild_id", "1"},
+                    {"members",
+                     nlohmann::json::array(
+                         {{{"user", {{"id", "11"}}}, {"roles", {"50"}}},
+                          {{"user", {{"id", "12"}}}, {"roles", {"51"}}},
+                          {{"user", {{"id", "13"}}}, {"roles", {"52"}}},
+                          {{"user", {{"id", "14"}}}, {"roles", nlohmann::json::array()}}}
+                     )}
+                }
+            )
+        );
+      } else {
+        require(gradients == 4, "Targeted member data must recolor existing chat and member names on the next frame");
+        require(!m_messages.front().memberRoles, "Resolving colors must not rewrite the original historical message");
+        std::clog << "Offline member role replay passed\n";
+      }
+      m_window.invalidate();
+      return;
+    }
     auto hoverMessage = [&] {
       const auto at = std::ranges::find_if(m_hits, [](const auto& hit) {
         return hit.action == Action::SelectMessage && hit.id == "8200";
@@ -55,7 +95,9 @@ namespace app {
       m_window.motion(at->x + 12, at->y + 5 + m_window.titlebarHeight() - 36);
     };
     if (step == 0) {
-      require(gradients == 4 && moving == 0 && !m_roleMotion.active(), "Idle gradients must be static in chat and members");
+      require(
+          gradients == 4 && moving == 0 && !m_roleMotion.active(), "Idle gradients must be static in chat and members"
+      );
       hoverMessage();
     } else if (step == 1) {
       require(m_roleMotion.active(), "Hovering a message must start compositor-paced role motion");
@@ -67,10 +109,16 @@ namespace app {
       activate({0, 0, 0, 0, Action::Preference, "animate_role_colors"});
       hoverMessage();
     } else if (step == 4) {
-      require(gradients == 4 && moving == 0 && !m_roleMotion.active(), "Disabling animation retains static gradients on hover");
+      require(
+          gradients == 4 && moving == 0 && !m_roleMotion.active(),
+          "Disabling animation retains static gradients on hover"
+      );
       activate({0, 0, 0, 0, Action::Preference, "role_colors"});
     } else if (step == 5) {
-      require(gradients == 0 && plainNames == 2 && !m_roleMotion.active(), "Disabling role colors restores normal text in both views");
+      require(
+          gradients == 0 && plainNames == 2 && !m_roleMotion.active(),
+          "Disabling role colors restores normal text in both views"
+      );
       activate({0, 0, 0, 0, Action::Preference, "role_colors"});
       activate({0, 0, 0, 0, Action::Preference, "animate_role_colors"});
       m_window.motion(-100, -100);

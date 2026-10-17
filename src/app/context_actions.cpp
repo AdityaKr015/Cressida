@@ -1000,6 +1000,13 @@ namespace app {
       m_dialogAccount = event.account;
       if (event.profile) {
         m_profileCard = *event.profile;
+        if (m_profileCard.roles
+            && !m_profileCard.guild.empty()
+            && !m_roleDirectory.memberships(m_profileCard.guild, m_profileCard.user.id)) {
+          discord::GuildRoleUpdate update{.guild = m_profileCard.guild};
+          update.members[m_profileCard.user.id] = *m_profileCard.roles;
+          m_roleDirectory.apply({false, {std::move(update)}});
+        }
       }
       m_dialogPending = false;
       return;

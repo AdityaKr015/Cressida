@@ -530,7 +530,8 @@ namespace app {
     label(*root, x + 38, y + 23, cardWidth - 72, detail, 10, muted);
     glyph(*root, x + cardWidth - 24, y + 13, 14, "chevron-right", muted);
     m_hits.push_back(
-        {350 + x, m_messageViewportTop + y, cardWidth, 40, Action::OpenThread, thread ? thread->id : message.id}
+        {chatLeft() + 24 + x, m_messageViewportTop + y, cardWidth, 40, Action::OpenThread,
+         thread ? thread->id : message.id}
     );
     return 48;
   }

@@ -437,6 +437,11 @@ namespace discord {
     m_gateway->subscribe(guild, channel, first);
   }
 
+  void Client::requestMembers(const std::string& guild, const std::vector<std::string>& users) {
+    if (m_authenticatedSession == m_session && !users.empty())
+      m_gateway->requestMembers(m_session, guild, users);
+  }
+
   void Client::gatewayEvent(std::uint64_t session, const std::string& type, const Json& data) {
     if (session != m_session)
       return;

@@ -5,6 +5,7 @@
 #include "discord/models.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
@@ -136,6 +137,8 @@ namespace app {
       result.roleColors = value.value("role_colors", true);
       result.animateRoleColors = value.value("animate_role_colors", true);
       result.showGuildTags = value.value("guild_tags", true);
+      const float width = value.value("channel_sidebar_width", 248.0F);
+      result.channelSidebarWidth = std::isfinite(width) ? std::clamp(width, 200.0F, 480.0F) : 248.0F;
     } catch (...) {
       return {};
     }
@@ -156,7 +159,10 @@ namespace app {
           {"fake_nitro_emojis", preferences.fakeNitroEmojis},
           {"role_colors", preferences.roleColors},
           {"animate_role_colors", preferences.animateRoleColors},
-          {"guild_tags", preferences.showGuildTags}
+          {"guild_tags", preferences.showGuildTags},
+          {"channel_sidebar_width",
+           std::isfinite(preferences.channelSidebarWidth) ? std::clamp(preferences.channelSidebarWidth, 200.0F, 480.0F)
+                                                          : 248.0F}
       };
       writeState(m_path, all);
     } catch (...) {

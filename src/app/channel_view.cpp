@@ -136,7 +136,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::drawChannelHeader(Node& root, float w) {
-    constexpr float left = 326;
+    const float left = chatLeft();
     const float width = w - left;
     rectangle(root, left, 36, width, 66, background);
     const auto* channel = selectedChannel();
@@ -324,8 +324,8 @@ namespace app {
         );
       if (!run.style.link.empty() && !run.style.spoiler)
         m_hits.push_back(
-            {350 + x + run.x, m_messageViewportTop + y + 142 + run.y, run.width, run.height, Action::OpenUrl,
-             run.style.link}
+            {chatLeft() + 24 + x + run.x, m_messageViewportTop + y + 142 + run.y, run.width, run.height,
+             Action::OpenUrl, run.style.link}
         );
     }
     float controlX = x;

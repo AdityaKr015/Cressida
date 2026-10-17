@@ -1,4 +1,6 @@
 #include "app/client_application.h"
+#include "cursor-shape-v1-client-protocol.h"
+#include "render/scene/input_area.h"
 
 #include <algorithm>
 
@@ -7,20 +9,77 @@ namespace app {
     return m_pointerX >= x && m_pointerY >= y && m_pointerX < x + width && m_pointerY < y + height;
   }
   void ClientApplication::updateCursor() {
-    bool interactive = false;
-    for (auto it = m_hits.rbegin(); it != m_hits.rend(); ++it)
-      if (it->contains(m_pointerX, m_pointerY)) {
-        interactive =
-            it->action != Action::Composer && it->action != Action::SelectMessage && it->action != Action::None;
-        break;
+    std::uint32_t shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
+    if (m_resizingSidebar)
+      shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_COL_RESIZE;
+    else if (m_dragImage)
+      shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRABBING;
+    else if (m_dragDraft || m_dragMessage)
+      shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT;
+    else if (m_controlInput.pointerCaptured())
+      shape = m_controlCursor;
+    else if (sidebarResizeAt(m_pointerX, m_pointerY))
+      shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_COL_RESIZE;
+    else {
+      for (auto it = m_hits.rbegin(); it != m_hits.rend(); ++it)
+        if (it->contains(m_pointerX, m_pointerY)) {
+          switch (it->action) {
+          case Action::None:
+            break;
+          case Action::Composer:
+          case Action::Token:
+          case Action::SelectMessage:
+            shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT;
+            break;
+          case Action::ImagePan:
+            shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRAB;
+            break;
+          default:
+            shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER;
+            break;
+          }
+          break;
+        }
+      auto* area = m_controlInput.inputAreaAt(m_pointerX, m_pointerY + m_window.titlebarHeight() - 36);
+      // Covered native controls remain in the scene. Only the active overlay
+      // may supply a cursor; InputAreas are children of retained controls.
+      const auto allowed = [&](const std::string& id) {
+        if (!m_viewImage.empty() || m_videoExpanded || m_presenceMenu)
+          return false;
+        if (m_contextOpen)
+          return id.starts_with("popup:")
+              && (m_contextBounds.contains(m_pointerX, m_pointerY)
+                  || (m_reactionSubmenu && m_reactionSubmenuBounds.contains(m_pointerX, m_pointerY)));
+        if (!m_dialogKind.empty())
+          return m_dialogBounds.contains(m_pointerX, m_pointerY)
+              && (id == "dialog"
+                  || id == "channel-name"
+                  || id == "channel-topic"
+                  || id == "channel-access-filter"
+                  || id.starts_with("application-")
+                  || id.starts_with("forum-")
+                  || id == "profile-scrollbar");
+        if (m_emojiMenu)
+          return id == "emoji-search" && m_emojiBounds.contains(m_pointerX, m_pointerY);
+        if (m_gifMenu)
+          return id == "gif-search" && m_gifBounds.contains(m_pointerX, m_pointerY);
+        return true;
+      };
+      bool nativeAllowed = false;
+      for (auto* node = static_cast<Node*>(area); node && !nativeAllowed; node = node->parent()) {
+        for (const auto& [id, control] : m_inputs)
+          if (node == control && allowed(id))
+            nativeAllowed = true;
+        for (const auto& [id, control] : m_widgets)
+          if (node == control && allowed(id))
+            nativeAllowed = true;
       }
-    if (m_viewImage.empty()
-        && !m_videoExpanded
-        && !m_presenceMenu
-        && m_controlInput.inputAreaAt(m_pointerX, m_pointerY + m_window.titlebarHeight() - 36))
-      interactive = true;
-    m_window.setPointerCursor(interactive);
+      if (nativeAllowed)
+        shape = area->cursorShape() ? area->cursorShape() : WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
+    }
+    m_window.setCursorShape(shape);
   }
+
   void ClientApplication::changeImage(int direction) {
     if (m_viewerImages.empty())
       return;

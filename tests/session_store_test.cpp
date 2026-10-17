@@ -90,10 +90,24 @@ int main() {
     pausedGifs.animateRoleColors = false;
     require(preferences.showGuildTags, "Chat server tags default on for existing accounts");
     pausedGifs.showGuildTags = false;
+    pausedGifs.channelSidebarWidth = 372;
     restored.savePreferences("123", pausedGifs);
-    require(!app::SessionStore(path).preferences("123").showGuildTags
-                && app::SessionStore(path).preferences("456").showGuildTags,
-            "Chat tag visibility persists independently for each account");
+    restored.save("123", {"10", "20", 1.2F});
+    require(
+        app::SessionStore(path).preferences("123").channelSidebarWidth == 372
+            && app::SessionStore(path).preferences("456").channelSidebarWidth == 248,
+        "Sidebar width survives navigation saves and stays account-scoped"
+    );
+    auto invalidWidth = pausedGifs;
+    invalidWidth.channelSidebarWidth = 900;
+    restored.savePreferences("789", invalidWidth);
+    require(app::SessionStore(path).preferences("789").channelSidebarWidth == 480, "Sidebar width is bounded on disk");
+    restored.savePreferences("789", {"light", 16});
+    require(
+        !app::SessionStore(path).preferences("123").showGuildTags
+            && app::SessionStore(path).preferences("456").showGuildTags,
+        "Chat tag visibility persists independently for each account"
+    );
     require(
         app::SessionStore(path).preferences("123").fakeNitroEmojis
             && !app::SessionStore(path).preferences("456").fakeNitroEmojis,
@@ -104,11 +118,13 @@ int main() {
             && app::SessionStore(path).preferences("456").autoplayGifs,
         "GIF autoplay persists per account"
     );
-    require(!app::SessionStore(path).preferences("123").roleColors
-                && !app::SessionStore(path).preferences("123").animateRoleColors
-                && app::SessionStore(path).preferences("456").roleColors
-                && app::SessionStore(path).preferences("456").animateRoleColors,
-            "Role colors and animation preferences persist independently per account");
+    require(
+        !app::SessionStore(path).preferences("123").roleColors
+            && !app::SessionStore(path).preferences("123").animateRoleColors
+            && app::SessionStore(path).preferences("456").roleColors
+            && app::SessionStore(path).preferences("456").animateRoleColors,
+        "Role colors and animation preferences persist independently per account"
+    );
     require(
         preferences.theme == "midnight"
             && preferences.messageSize == 18

@@ -112,6 +112,7 @@ namespace app {
     m_profileDirty = false;
   }
   void ClientApplication::openSettings() {
+    finishSidebarResize();
     closeChannelPanel();
     m_forumSearchTimer.stop();
     closeVideo();

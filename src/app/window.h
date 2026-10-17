@@ -34,7 +34,8 @@ namespace app {
     bool active() const;
     bool preciseScroll() const;
     float titlebarHeight() const;
-    void setPointerCursor(bool interactive);
+    void setCursorShape(std::uint32_t shape);
+    std::uint32_t cursorShape() const;
     void invalidate();
     void setUiScale(float scale);
     float uiScale() const;

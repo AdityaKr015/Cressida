@@ -306,7 +306,7 @@ namespace app {
         (m_dialogKind.empty() || id == "dialog")
         && (id == "dialog"         ? !m_dialogPending
                 : id == "token"    ? !m_connecting
-                : id == "composer" ? !m_demo
+                : id == "composer" ? !m_demo || m_demoOverlay == "sidebar-cycle"
                                    : !m_savingProfile)
     );
     input.setControlHeight(height);

@@ -30,10 +30,13 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   badges, expandable bios, mutual counts and server role chips. Open DMs, edit
   your profile, manage friend nicknames and relationships, block/unblock people,
   and mute existing conversations.
-  Chat names show server tags and role icons; clicking a tag previews its server
+  Chat names show role colors, server tags and role icons, including authors loaded
+  from older messages as their member data arrives. Clicking a tag previews its server
   and offers Join or Open Server.
 - **Your servers:** saved server order and folders, icons, channel categories,
-  collapsible sections and a member sidebar with role group counts. Mention badges
+  collapsible sections and a member sidebar with role group counts. Drag the right
+  edge of the channel list to resize it; Cressida remembers the width per account.
+  Mention badges
   appear on channels, servers and folders; a floating badge reveals mentioned
   channels further down the list.
 - **Channel details:** topics in the header and at the beginning of the conversation,

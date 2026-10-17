@@ -64,6 +64,11 @@ namespace discord {
     if (session != m_generation)
       return;
     const bool changed = m_session != session;
+    if (changed) {
+      m_memberRequested.clear();
+      m_memberPending.clear();
+      m_memberPendingCount = 0;
+    }
     m_session = session;
     m_token = std::move(token);
     if (changed || m_presenceVersion == 0 || !validStatus(m_presence.status))
@@ -75,6 +80,9 @@ namespace discord {
   void Gateway::reset() {
     std::lock_guard lock(m_mutex);
     m_token.clear();
+    m_memberRequested.clear();
+    m_memberPending.clear();
+    m_memberPendingCount = 0;
     m_presence = {};
     m_presenceVersion = 0;
     m_guild.clear();
@@ -91,6 +99,21 @@ namespace discord {
     m_channel = std::move(channel);
     m_first = first;
     ++m_subscriptionVersion;
+  }
+
+  void Gateway::requestMembers(std::uint64_t session, const std::string& guild, const std::vector<std::string>& users) {
+    if (!validSnowflake(guild))
+      return;
+    std::lock_guard lock(m_mutex);
+    if (session != m_generation || session != m_session || m_token.empty())
+      return;
+    for (std::size_t i = 0; i < users.size() && i < 100; ++i) {
+      const auto& user = users[i];
+      if (m_memberRequested.size() + m_memberPendingCount >= 20000)
+        break;
+      if (validSnowflake(user) && !m_memberRequested.contains({guild, user}))
+        m_memberPendingCount += m_memberPending[guild].insert(user).second;
+    }
   }
 
   bool Gateway::setPresence(std::uint64_t session, std::string status, std::optional<std::string> customText) {
@@ -168,6 +191,7 @@ namespace discord {
         std::uint64_t subscription = 0, presenceVersion = 0;
         std::deque<Clock::time_point> presenceTimes;
         auto subscribedAt = Clock::time_point{};
+        auto memberRequestAt = Clock::time_point{};
         auto heartbeatAt = Clock::now() + 20s;
         std::chrono::milliseconds interval{30000};
         bool hello = false, ready = false, awaitingAck = false;
@@ -260,6 +284,33 @@ namespace discord {
               subscribedChannel = channel;
               subscribedAt = now;
             }
+            if (now >= memberRequestAt) {
+              std::string memberGuild;
+              std::vector<std::string> users;
+              {
+                std::lock_guard lock(m_mutex);
+                if (!m_memberPending.empty()) {
+                  auto pending = m_memberPending.begin();
+                  memberGuild = pending->first;
+                  while (!pending->second.empty() && users.size() < 100) {
+                    const auto id = pending->second.begin();
+                    users.push_back(*id);
+                    m_memberRequested.emplace(memberGuild, *id);
+                    pending->second.erase(id);
+                    --m_memberPendingCount;
+                  }
+                  if (pending->second.empty())
+                    m_memberPending.erase(pending);
+                }
+              }
+              if (!users.empty()) {
+                send(
+                    curl.get(),
+                    Json{{"op", 8}, {"d", {{"guild_id", memberGuild}, {"user_ids", users}, {"limit", 100}}}}, connection
+                );
+                memberRequestAt = now + 1s;
+              }
+            }
           }
           char buffer[65536];
           size_t count = 0;
@@ -350,6 +401,10 @@ namespace discord {
             throw GatewayFailure("Gateway session invalidated");
           } else if (op == 0) {
             const auto type = packet.value("t", std::string{});
+            if (type == "READY" || type == "RESUMED") {
+              std::lock_guard lock(m_mutex);
+              m_memberRequested.clear();
+            }
             if (type == "READY") {
               resumeId = data.value("session_id", std::string{});
               {

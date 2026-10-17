@@ -81,26 +81,29 @@ def serve(listener, errors):
             assert presence["d"]["activities"] == [{"name": "Custom Status", "type": 4, "state": "working", "emoji": {"id": "77", "name": "wave"}}]
             subscription = wait_for(connection, 37)
             assert subscription["d"]["subscriptions"]["1"]["channels"]["2"] == [[100, 199], [200, 299]]
-            packet(connection, 0, {"merged_presences": {"friends": [{"user_id": "7", "status": "online"}]}}, "READY_SUPPLEMENTAL", 2)
-            packet(connection, 0, {"user": {"id": "7"}, "status": "idle"}, "PRESENCE_UPDATE", 3)
-            packet(connection, 0, {"id": "7", "nickname": "My friend"}, "RELATIONSHIP_UPDATE", 4)
+            members = wait_for(connection, 8)
+            assert members["d"] == {"guild_id": "1", "user_ids": ["7", "8"], "limit": 100}
+            packet(connection, 0, {"guild_id": "1", "members": [{"user": {"id": "7"}, "roles": ["50"]}, {"user": {"id": "8"}, "roles": []}], "chunk_index": 0, "chunk_count": 1}, "GUILD_MEMBERS_CHUNK", 2)
+            packet(connection, 0, {"merged_presences": {"friends": [{"user_id": "7", "status": "online"}]}}, "READY_SUPPLEMENTAL", 3)
+            packet(connection, 0, {"user": {"id": "7"}, "status": "idle"}, "PRESENCE_UPDATE", 4)
+            packet(connection, 0, {"id": "7", "nickname": "My friend"}, "RELATIONSHIP_UPDATE", 5)
             # Control frames may occur between fragments of a text message.
-            data = json.dumps({"op": 0, "d": {"content": "synthetic 🌿"}, "t": "MESSAGE_CREATE", "s": 5}, ensure_ascii=False).encode()
+            data = json.dumps({"op": 0, "d": {"content": "synthetic 🌿"}, "t": "MESSAGE_CREATE", "s": 6}, ensure_ascii=False).encode()
             frame(connection, data[:17], final=False)
             frame(connection, b"ping", opcode=9)
             frame(connection, data[17:], opcode=0)
-            packet(connection, 0, {}, "MESSAGE_UPDATE", 6)
-            packet(connection, 0, {}, "GUILD_MEMBER_LIST_UPDATE", 7)
+            packet(connection, 0, {}, "MESSAGE_UPDATE", 7)
+            packet(connection, 0, {}, "GUILD_MEMBER_LIST_UPDATE", 8)
             packet(connection, 7, None)
         with upgrade(listener) as connection:
             resume = wait_for(connection, 6)
-            assert resume["d"] == {"token": "synthetic-token", "session_id": "synthetic-session", "seq": 7}
-            packet(connection, 0, {}, "RESUMED", 8)
+            assert resume["d"] == {"token": "synthetic-token", "session_id": "synthetic-session", "seq": 8}
+            packet(connection, 0, {}, "RESUMED", 9)
             presence = wait_for(connection, 3)
             assert presence["d"]["status"] == "dnd" and presence["d"]["activities"][0]["state"] == "working"
             wait_for(connection, 37)
-            packet(connection, 0, {"id": "7"}, "RELATIONSHIP_REMOVE", 9)
-            packet(connection, 0, {}, "MESSAGE_DELETE", 10)
+            packet(connection, 0, {"id": "7"}, "RELATIONSHIP_REMOVE", 10)
+            packet(connection, 0, {}, "MESSAGE_DELETE", 11)
             frame(connection, struct.pack("!H", 4004), opcode=8)
     except Exception as error:
         errors.append(error)

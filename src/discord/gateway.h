@@ -5,10 +5,13 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
+#include <set>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace discord {
   // One persistent TLS WebSocket worker, independent of REST/media requests.
@@ -22,6 +25,7 @@ namespace discord {
     ~Gateway();
     void authenticate(std::uint64_t session, std::string token, Presence presence = {});
     void reset();
+    void requestMembers(std::uint64_t session, const std::string& guild, const std::vector<std::string>& users);
     bool setPresence(std::uint64_t session, std::string status, std::optional<std::string> customText = {});
     void subscribe(std::string guild, std::string channel, int first, bool force = false);
 
@@ -37,6 +41,9 @@ namespace discord {
     Presence m_presence;
     std::uint64_t m_presenceVersion = 0;
     int m_first = 0;
+    std::set<std::pair<std::string, std::string>> m_memberRequested;
+    std::map<std::string, std::set<std::string>> m_memberPending;
+    std::size_t m_memberPendingCount = 0;
     std::jthread m_worker;
   };
 } // namespace discord
