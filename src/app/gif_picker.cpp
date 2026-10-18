@@ -44,10 +44,10 @@ namespace app {
     m_gifError = m_loadingGifs ? "" : "Could not request GIFs. Try again.";
     m_window.invalidate();
   }
-  void ClientApplication::toggleGifFavorite(const discord::Gif& gif) {
-    if (m_pendingGifFavorites.contains(gif.url) || !discord::validGif(gif))
+  void ClientApplication::toggleGifFavorite(const api::Gif& gif) {
+    if (m_pendingGifFavorites.contains(gif.url) || !api::validGif(gif))
       return;
-    const bool add = std::ranges::find(m_gifFavorites, gif.url, &discord::Gif::url) == m_gifFavorites.end();
+    const bool add = std::ranges::find(m_gifFavorites, gif.url, &api::Gif::url) == m_gifFavorites.end();
     if (m_demo) {
       if (add)
         m_gifFavorites.insert(m_gifFavorites.begin(), gif);
@@ -60,8 +60,8 @@ namespace app {
       m_gifFavoriteError = "Could not update favorites. Try again.";
     m_window.invalidate();
   }
-  void ClientApplication::gifEvent(discord::Event& event) {
-    if (event.operation == discord::Operation::GifSearch) {
+  void ClientApplication::gifEvent(api::Event& event) {
+    if (event.operation == api::Operation::GifSearch) {
       if (!m_gifMenu || m_gifFavoritesTab || event.resource != m_gifQuery || event.resource != m_gifRequestedQuery)
         return;
       m_loadingGifs = false;
@@ -71,7 +71,7 @@ namespace app {
     } else if (event.resource == "changed") {
       m_gifFavoritesDirty = true;
     } else {
-      if (event.operation == discord::Operation::SaveGifFavorite)
+      if (event.operation == api::Operation::SaveGifFavorite)
         m_pendingGifFavorites.erase(event.resource);
       else
         m_loadingGifFavorites = false;
@@ -150,7 +150,7 @@ namespace app {
       m_gifTargets[gif.url] = gif;
       const float clippedTop = std::max(top, gy), clippedBottom = std::min(top + available, gy + tileHeight);
       m_hits.push_back({gx, clippedTop, tileWidth, clippedBottom - clippedTop, Action::SendGif, gif.url});
-      const bool favorite = std::ranges::find(m_gifFavorites, gif.url, &discord::Gif::url) != m_gifFavorites.end();
+      const bool favorite = std::ranges::find(m_gifFavorites, gif.url, &api::Gif::url) != m_gifFavorites.end();
       if ((hovered(gx, clippedTop, tileWidth, clippedBottom - clippedTop) || favorite)
           && ty >= 0
           && ty + 32 <= available) {
@@ -211,7 +211,7 @@ namespace app {
     } else if (step == 3) {
       click(Action::FavoriteGif, m_gifs[1].url);
       require(
-          std::ranges::find(m_gifFavorites, m_gifs[1].url, &discord::Gif::url) != m_gifFavorites.end(),
+          std::ranges::find(m_gifFavorites, m_gifs[1].url, &api::Gif::url) != m_gifFavorites.end(),
           "Star adds a demo favorite without network access"
       );
     } else if (step == 4) {
@@ -220,7 +220,7 @@ namespace app {
     } else if (step == 5) {
       click(Action::FavoriteGif, m_gifs[1].url);
       require(
-          std::ranges::find(m_gifFavorites, m_gifs[1].url, &discord::Gif::url) == m_gifFavorites.end(),
+          std::ranges::find(m_gifFavorites, m_gifs[1].url, &api::Gif::url) == m_gifFavorites.end(),
           "Star removes a demo favorite"
       );
     } else if (step == 6) {

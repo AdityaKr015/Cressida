@@ -1,4 +1,4 @@
-#include "discord/client.h"
+#include "api/client.h"
 
 #include <chrono>
 #include <iostream>
@@ -14,23 +14,23 @@ namespace {
 
 int main() {
   try {
-    discord::Client client;
+    api::Client client;
     require(!client.messages("123"), "Disconnected clients must not issue HTTP requests");
     require(
-        !client.messages("123", {discord::HistoryDirection::Older, "456", 1})
-            && !client.messages("123", {discord::HistoryDirection::Newer, "../invalid", 2}),
+        !client.messages("123", {api::HistoryDirection::Older, "456", 1})
+            && !client.messages("123", {api::HistoryDirection::Newer, "../invalid", 2}),
         "History pages require authentication and validated cursors"
     );
     require(
-        !client.threads({discord::ThreadList::Active, "1", "10"}),
+        !client.threads({api::ThreadList::Active, "1", "10"}),
         "Disconnected thread browsing never performs requests"
     );
     require(!client.channels("123"), "Channels require an authenticated session");
     require(!client.send("123", "hello"), "Sending requires an authenticated session");
     require(
-        !client.interact({.kind = discord::InteractionKind::Block, .user = "7"})
-            && !client.interact({.kind = discord::InteractionKind::DeleteMessage, .channel = "10", .message = "20"})
-            && !client.send("10", "reply", {}, discord::MessageReference{"20", "99"}),
+        !client.interact({.kind = api::InteractionKind::Block, .user = "7"})
+            && !client.interact({.kind = api::InteractionKind::DeleteMessage, .channel = "10", .message = "20"})
+            && !client.send("10", "reply", {}, api::MessageReference{"20", "99"}),
         "Disconnected actions and cross-channel reply references never perform requests"
     );
     require(
@@ -62,7 +62,7 @@ int main() {
       for (const auto& event : client.drain()) {
         require(event.session == current, "Discard late events from disconnected sessions");
         require(
-            event.operation == discord::Operation::Connect && !event.error.empty(),
+            event.operation == api::Operation::Connect && !event.error.empty(),
             "Invalid credentials must produce a connection failure"
         );
         received = true;

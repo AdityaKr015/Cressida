@@ -8,7 +8,7 @@
 
 namespace app {
   using namespace theme;
-  float ClientApplication::messageButtons(Node* root, const discord::Message& message, float x, float y, float width) {
+  float ClientApplication::messageButtons(Node* root, const api::Message& message, float x, float y, float width) {
     const bool ephemeral = (message.flags & 64) != 0;
     if ((message.buttons.empty() && !ephemeral) || blockedMessage(message))
       return 0;
@@ -58,7 +58,7 @@ namespace app {
                                                    : foreground;
           float textX = x + bx + 12;
           if (!item.emojiId.empty()) {
-            emojiImage(*root, textX, y + rowY + 6, 20, discord::emojiPath(item.emojiId, item.animated));
+            emojiImage(*root, textX, y + rowY + 6, 20, api::emojiPath(item.emojiId, item.animated));
             textX += 25;
           } else if (!item.emojiName.empty()) {
             label(*root, textX, y + rowY + 4, 26, item.emojiName, 20, textColor);
@@ -103,10 +103,10 @@ namespace app {
     }
     return rowY;
   }
-  void ClientApplication::componentResult(const discord::Event& event) {
-    if (event.operation == discord::Operation::Interaction && event.interaction) {
+  void ClientApplication::componentResult(const api::Event& event) {
+    if (event.operation == api::Operation::Interaction && event.interaction) {
       const auto& action = *event.interaction;
-      if (action.kind == discord::InteractionKind::SubmitModal) {
+      if (action.kind == api::InteractionKind::SubmitModal) {
         if (m_dialogKind == "application-modal" && m_modalNonce == action.nonce && !event.error.empty()) {
           m_dialogPending = false;
           m_dialogError = event.error;
@@ -140,7 +140,7 @@ namespace app {
           else if (state.status == "Sending…")
             state.status.clear();
           if (event.modal && event.modal->channel == m_channelId && !m_settingsOpen) {
-            const auto source = std::ranges::find(m_messages, key.substr(0, key.find(':')), &discord::Message::id);
+            const auto source = std::ranges::find(m_messages, key.substr(0, key.find(':')), &api::Message::id);
             if (source != m_messages.end() && source->applicationId == event.modal->application) {
               closeDialog();
               closeContext();
@@ -162,7 +162,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::dismissEphemeral(const std::string& id) {
-    const auto message = std::ranges::find(m_messages, id, &discord::Message::id);
+    const auto message = std::ranges::find(m_messages, id, &api::Message::id);
     if (message == m_messages.end() || !(message->flags & 64))
       return;
     m_dismissedEphemeral.insert(id);
@@ -180,7 +180,7 @@ namespace app {
     if (!m_applicationModal || m_dialogPending || m_applicationModal->channel != m_channelId)
       return;
     try {
-      (void)discord::modalSubmission(*m_applicationModal, m_applicationValues);
+      (void)api::modalSubmission(*m_applicationModal, m_applicationValues);
     } catch (const std::exception& error) {
       m_dialogError = error.what();
       m_window.invalidate();
@@ -192,8 +192,8 @@ namespace app {
     const auto nonce = std::to_string(
         (static_cast<std::uint64_t>(milliseconds - 1420070400000LL) << 22) | (++m_channelFeatureSerial & 0x3FFFFF)
     );
-    discord::Interaction action{
-        .kind = discord::InteractionKind::SubmitModal,
+    api::Interaction action{
+        .kind = api::InteractionKind::SubmitModal,
         .channel = m_channelId,
         .guild = m_dmMode ? "" : m_guildId,
         .application = m_applicationModal->application,

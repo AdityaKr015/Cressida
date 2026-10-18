@@ -214,7 +214,7 @@ namespace app {
       if (step == 0) {
         require(gradients == 0, "Uncached history authors start without invented role colors");
         m_roleDirectory.apply(
-            discord::parseRoleUpdates(
+            api::parseRoleUpdates(
                 "GUILD_MEMBERS_CHUNK",
                 nlohmann::json{
                     {"guild_id", "1"},

@@ -1,7 +1,7 @@
 #include "app/discord_timestamp.h"
-#include "discord/profile.h"
-#include "discord/role_styles.h"
-#include "discord/user_directory.h"
+#include "api/profile.h"
+#include "api/role_styles.h"
+#include "api/user_directory.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -19,7 +19,7 @@ int main() {
     auto userTag = json{
         {"primary_guild", {{"identity_enabled", true}, {"identity_guild_id", "99"}, {"tag", "MOON"}, {"badge", hash}}}
     };
-    const auto tag = discord::parseGuildTag(userTag);
+    const auto tag = api::parseGuildTag(userTag);
     require(
         tag && tag->guild == "99" && tag->tag == "MOON" && !tag->badge.empty(),
         "Guild tags retain the server ID, text and CDN badge"
@@ -28,18 +28,18 @@ int main() {
          {json(nullptr), json{{"identity_enabled", false}, {"identity_guild_id", "99"}, {"tag", "MOON"}},
           json{{"identity_enabled", true}, {"identity_guild_id", "99/../1"}, {"tag", "MOON"}}})
       require(
-          !discord::parseGuildTag(json{{"primary_guild", invalid}}), "Hidden/null and malformed tags remain hidden"
+          !api::parseGuildTag(json{{"primary_guild", invalid}}), "Hidden/null and malformed tags remain hidden"
       );
     require(
-        !discord::parseGuildTag(json{{"primary_guild", nullptr}, {"clan", userTag["primary_guild"]}}),
+        !api::parseGuildTag(json{{"primary_guild", nullptr}, {"clan", userTag["primary_guild"]}}),
         "An explicit modern null does not resurrect a legacy tag"
     );
     require(
-        discord::parseGuildTag(json{{"clan", userTag["primary_guild"]}}) == tag,
+        api::parseGuildTag(json{{"clan", userTag["primary_guild"]}}) == tag,
         "Legacy clan metadata retains the same badge"
     );
     auto taggedMessage =
-        discord::parseMessages(
+        api::parseMessages(
             json::array(
                 {{{"id", "100"},
                   {"channel_id", "10"},
@@ -48,11 +48,11 @@ int main() {
             )
         ).front();
     require(taggedMessage.authorTag == tag, "REST and live message authors retain their guild tags");
-    discord::parseMessagePatch(json{{"author", {{"id", "11"}}}, {"content", "edited"}}).apply(taggedMessage);
+    api::parseMessagePatch(json{{"author", {{"id", "11"}}}, {"content", "edited"}}).apply(taggedMessage);
     require(taggedMessage.authorTag == tag, "Partial author/message updates preserve omitted tag metadata");
-    discord::parseMessagePatch(json{{"author", {{"id", "11"}, {"primary_guild", nullptr}}}}).apply(taggedMessage);
+    api::parseMessagePatch(json{{"author", {{"id", "11"}, {"primary_guild", nullptr}}}}).apply(taggedMessage);
     require(!taggedMessage.authorTag, "Explicit null tag updates clear an existing message badge");
-    discord::UserDirectory tags;
+    api::UserDirectory tags;
     auto liveUser = userTag;
     liveUser["id"] = "11";
     tags.consume("READY", json{{"users", json::array({liveUser})}});
@@ -93,7 +93,7 @@ int main() {
         {"token", "synthetic-private-response-field"},
         {"analytics_token", "synthetic-only"}
     };
-    auto global = discord::parseUserProfile(response);
+    auto global = api::parseUserProfile(response);
     require(
         global.user.id == "11"
             && global.user.name == "Maya"
@@ -121,7 +121,7 @@ int main() {
         global.mutualFriendCount == 2 && global.mutualFriends.size() == 1 && global.mutualGuildCount == 2,
         "Mutual counts are real server values and guild IDs are deduplicated"
     );
-    auto server = discord::parseUserProfile(response, "1");
+    auto server = api::parseUserProfile(response, "1");
     require(
         server.guild == "1"
             && server.user.name == "Server Maya"
@@ -138,24 +138,24 @@ int main() {
         "Guild avatar/banner use guild routes; guild accent is not applied"
     );
     require(
-        discord::parseUserProfile(response, "2").guild.empty(),
+        api::parseUserProfile(response, "2").guild.empty(),
         "Mismatched guild metadata cannot leak into another server"
     );
     response["guild_member_profile"]["bio"] = "";
     response["guild_member_profile"]["pronouns"] = nullptr;
     require(
-        discord::parseUserProfile(response, "1").user.bio.empty()
-            && discord::parseUserProfile(response, "1").user.pronouns == "she/her",
+        api::parseUserProfile(response, "1").user.bio.empty()
+            && api::parseUserProfile(response, "1").user.pronouns == "she/her",
         "Explicit empty text clears; null metadata retains the global fallback"
     );
     response["private"] = true;
-    auto hidden = discord::parseUserProfile(response, "1");
+    auto hidden = api::parseUserProfile(response, "1");
     require(
         hidden.privateProfile && hidden.user.bio.empty() && hidden.user.pronouns.empty() && hidden.badges.empty(),
         "Private profiles do not expose cached public biography metadata"
     );
     auto minimal =
-        discord::parseUserProfile(json{{"user", {{"id", "11"}, {"username", "maya"}}}, {"user_profile", nullptr}});
+        api::parseUserProfile(json{{"user", {{"id", "11"}, {"username", "maya"}}}, {"user_profile", nullptr}});
     require(
         !minimal.mutualFriendCount && !minimal.mutualGuildCount && minimal.banner.empty() && !minimal.roles,
         "Omitted profile fields stay unknown instead of fabricating zero counts"
@@ -170,7 +170,7 @@ int main() {
         {"user_profile", {{"theme_colors", {-1, 10}}, {"pronouns", std::string(161, 'x')}}},
         {"badges", json::array({{{"icon", "../evil"}}})}
     };
-    auto sanitized = discord::parseUserProfile(invalid);
+    auto sanitized = api::parseUserProfile(invalid);
     require(
         sanitized.banner.empty()
             && sanitized.decoration.empty()
@@ -188,14 +188,14 @@ int main() {
       response["badges"].push_back({{"icon", hash}, {"description", "Badge"}});
       response["mutual_friends"].push_back({{"id", std::to_string(100 + i)}});
     }
-    auto bounded = discord::parseUserProfile(response, "1");
+    auto bounded = api::parseUserProfile(response, "1");
     require(
         bounded.badges.size() == 16 && bounded.mutualFriends.size() == 3, "Profile thumbnails and badges stay bounded"
     );
 
-    discord::RoleDirectory directory;
+    api::RoleDirectory directory;
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_CREATE",
             json{
                 {"id", "1"},
@@ -215,7 +215,7 @@ int main() {
         "Role chips include colorless roles in hierarchy order; omit everyone, missing roles and duplicates"
     );
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_MEMBER_UPDATE", json{{"guild_id", "1"}, {"user_id", "11"}, {"roles", json::array()}}
         )
     );
@@ -226,7 +226,7 @@ int main() {
     require(directory.roles("2", "11", std::vector<std::string>{"50"}).empty(), "Profile roles cannot cross guilds");
 
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_ROLE_CREATE",
             json{
                 {"guild_id", "1"},
@@ -244,7 +244,7 @@ int main() {
         "A colorless icon role does not replace the name color"
     );
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_ROLE_UPDATE",
             json{
                 {"guild_id", "1"},
@@ -258,10 +258,10 @@ int main() {
         icon && icon->icon.empty() && icon->unicodeEmoji == "🌙",
         "Live role edits can replace a custom icon with a Unicode emoji"
     );
-    directory.apply(discord::parseRoleUpdates("GUILD_ROLE_DELETE", json{{"guild_id", "1"}, {"role_id", "80"}}));
+    directory.apply(api::parseRoleUpdates("GUILD_ROLE_DELETE", json{{"guild_id", "1"}, {"role_id", "80"}}));
     require(!directory.icon("1", "20", std::vector<std::string>{"80"}), "Deleted role icons disappear");
 
-    auto guildPreview = discord::parseGuildProfile(
+    auto guildPreview = api::parseGuildProfile(
         json{
             {"id", "99"},
             {"name", "Moon Cafe"},
@@ -296,7 +296,7 @@ int main() {
             && !guildPreview.tag->badge.empty(),
         "Discovery banners take priority and bounded hexadecimal badge hashes need not be padded"
     );
-    auto restricted = discord::parseGuildProfile(
+    auto restricted = api::parseGuildProfile(
         json{{"id", "99"}, {"visibility", 2}, {"member_count", nullptr}, {"online_count", -1}}
     );
     require(
@@ -304,7 +304,7 @@ int main() {
         "Private servers require invitations and missing counts remain unknown"
     );
     require(
-        discord::parseGuildProfile(json{{"id", "99"}, {"visibility", 3}}).recruitment,
+        api::parseGuildProfile(json{{"id", "99"}, {"visibility", 3}}).recruitment,
         "Recruitment servers are distinguished from immediate public joining"
     );
     for (const auto& path :
@@ -312,10 +312,10 @@ int main() {
           guildPreview.tag->badge, std::string("/role-icons/80/") + hash + ".png?size=32",
           std::string("/guilds/1/users/11/banners/") + hash + ".png?size=512"}) {
       require(
-          !discord::mediaUrl(path).empty(), "Every projected profile/tag/role CDN path must pass the media allowlist"
+          !api::mediaUrl(path).empty(), "Every projected profile/tag/role CDN path must pass the media allowlist"
       );
       require(
-          discord::mediaUrl("https://cdn.discordapp.com.evil.test" + path).empty(),
+          api::mediaUrl("https://cdn.discordapp.com.evil.test" + path).empty(),
           "New asset routes preserve exact origin checks"
       );
     }

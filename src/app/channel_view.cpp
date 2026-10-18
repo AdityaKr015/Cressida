@@ -28,15 +28,15 @@ namespace app {
       return std::to_string((static_cast<std::uint64_t>(milliseconds - 1420070400000LL) << 22) | (serial & 0x3FFFFF));
     }
   } // namespace
-  const discord::Channel* ClientApplication::selectedChannel() const {
-    const auto channel = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+  const api::Channel* ClientApplication::selectedChannel() const {
+    const auto channel = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
     return channel == m_channels.end() ? nullptr : &*channel;
   }
   std::optional<std::uint64_t> ClientApplication::selectedChannelPermissions() const {
     const auto* channel = selectedChannel();
     if (m_dmMode || !channel)
       return {};
-    return discord::channelPermissions(
+    return api::channelPermissions(
         m_guildId, m_account.id, m_roleDirectory.owner(m_guildId), m_roleDirectory.allRoles(m_guildId),
         m_roleDirectory.memberships(m_guildId, m_account.id), *channel
     );
@@ -71,14 +71,14 @@ namespace app {
     m_channelAccessTarget.clear();
     m_channelEditOriginal = {};
   }
-  void ClientApplication::filterDeletedChannels(discord::Event& event) const {
+  void ClientApplication::filterDeletedChannels(api::Event& event) const {
     std::erase_if(event.channels, [&](const auto& channel) {
       return m_deletedChannels.contains(channel.id)
           || (channel.isThread() && m_deletedChannels.contains(channel.parentId));
     });
   }
-  void ClientApplication::removeGuildChannels(const discord::Event& event) {
-    if (!discord::validSnowflake(event.resource))
+  void ClientApplication::removeGuildChannels(const api::Event& event) {
+    if (!api::validSnowflake(event.resource))
       return;
     bool selected = false;
     const auto* thread = m_threads.find(m_guildId, m_channelId);
@@ -87,7 +87,7 @@ namespace app {
       if (std::ranges::find(event.removed, child.parentId) != event.removed.end())
         removed.push_back(child.id);
     for (const auto& id : removed) {
-      if (!discord::validSnowflake(id))
+      if (!api::validSnowflake(id))
         continue;
       m_deletedChannels.insert(id);
       selected |= !m_dmMode && event.resource == m_guildId && (m_channelId == id || (thread && thread->parentId == id));
@@ -255,9 +255,9 @@ namespace app {
         ))
       return 0;
     const auto roles = m_roleDirectory.allRoles(m_guildId);
-    const auto access = discord::channelAccessRoles(m_guildId, roles, *channel);
-    const auto base = discord::channelPermissions(m_guildId, "", "", roles, std::vector<std::string>{}, *channel);
-    const bool privateChannel = base && !(*base & discord::viewChannel);
+    const auto access = api::channelAccessRoles(m_guildId, roles, *channel);
+    const auto base = api::channelPermissions(m_guildId, "", "", roles, std::vector<std::string>{}, *channel);
+    const bool privateChannel = base && !(*base & api::viewChannel);
     const auto permissions = selectedChannelPermissions().value_or(0);
     const auto measure = [&](std::string_view text, const MessageStyle& style) {
       return m_window.target()
@@ -275,11 +275,11 @@ namespace app {
          .discordTimestamps = true}
     );
     const float topicHeight = std::min(180.0F, description.height);
-    const bool controls = permissions & (discord::manageChannel | discord::managePermissions);
+    const bool controls = permissions & (api::manageChannel | api::managePermissions);
     const float controlsY = 142 + (channel->topic && !channel->topic->empty() ? topicHeight + 14 : 0);
     const float chipsY = controlsY + (controls ? 42 : 0);
     struct Chip {
-      const discord::ColoredRole* role;
+      const api::ColoredRole* role;
       float x, y, width;
     };
     std::vector<Chip> chips;
@@ -329,11 +329,11 @@ namespace app {
         );
     }
     float controlX = x;
-    if (permissions & discord::managePermissions) {
+    if (permissions & api::managePermissions) {
       button(*root, {controlX, y + controlsY, 181, 30, Action::AddChannelAccess, {}}, "Add members or roles");
       controlX += 191;
     }
-    if (permissions & discord::manageChannel)
+    if (permissions & api::manageChannel)
       button(*root, {controlX, y + controlsY, 112, 30, Action::EditChannel, {}}, "Edit Channel");
     // button() accepts node-local coordinates; convert only these intro hits.
     for (std::size_t i = hitsBegin; i < m_hits.size(); ++i) {
@@ -353,8 +353,8 @@ namespace app {
     rectangle(*root, x, y + height - 12, width, 1, raised);
     return height;
   }
-  void ClientApplication::channelFeatureEvent(const discord::Event& event) {
-    if (event.operation == discord::Operation::ChannelDetails) {
+  void ClientApplication::channelFeatureEvent(const api::Event& event) {
+    if (event.operation == api::Operation::ChannelDetails) {
       m_channelDetailRequests.erase(event.resource);
       if (!event.error.empty())
         m_channelDetailErrors[event.resource] = event.error;
@@ -388,8 +388,8 @@ namespace app {
   void ClientApplication::requestChannelPage(bool next, bool previous) {
     if (m_demo || m_channelPageRequest || m_channelPanel.empty() || m_channelId.empty())
       return;
-    discord::ChannelPageQuery query;
-    query.kind = m_channelPanel == "pins" ? discord::ChannelPage::Pins : discord::ChannelPage::Search;
+    api::ChannelPageQuery query;
+    query.kind = m_channelPanel == "pins" ? api::ChannelPage::Pins : api::ChannelPage::Search;
     query.guild = m_guildId;
     query.channel = m_channelId;
     query.text = m_channelSearchText;
@@ -397,7 +397,7 @@ namespace app {
     if (m_channelPageShown && m_channelPageShown->kind == query.kind && (next || previous)) {
       query = *m_channelPageShown;
       query.request = m_channelFeatureSerial;
-      if (query.kind == discord::ChannelPage::Search)
+      if (query.kind == api::ChannelPage::Search)
         query.offset = next ? query.offset + 25 : query.offset >= 25 ? query.offset - 25 : 0;
       else if (next) {
         m_pinCursors.push_back(query.before);
@@ -411,7 +411,7 @@ namespace app {
     if (m_client.channelPage(query))
       m_channelPageRequest = query;
     else
-      m_channelPanelError = query.kind == discord::ChannelPage::Search && query.text.empty()
+      m_channelPanelError = query.kind == api::ChannelPage::Search && query.text.empty()
           ? "Enter a search, then press Enter."
           : "Could not load messages. Try again.";
     m_window.invalidate();
@@ -463,7 +463,7 @@ namespace app {
           *content, 12, ry + 13, width - 56, userName(message.authorId, message.author), 13, foreground,
           FontWeight::SemiBold
       );
-      const auto channel = std::ranges::find(m_channels, message.channelId, &discord::Channel::id);
+      const auto channel = std::ranges::find(m_channels, message.channelId, &api::Channel::id);
       label(
           *content, 12, ry + 35, width - 56,
           (channel == m_channels.end() ? "Channel" : "#" + channel->name) + " · " + message.timestamp.substr(0, 10), 10,
@@ -611,7 +611,7 @@ namespace app {
                 || member.user.id == m_channelAccessFilter)
               targets.push_back({member.user.id, name, 0});
           }
-        if (discord::validSnowflake(m_channelAccessFilter)
+        if (api::validSnowflake(m_channelAccessFilter)
             && std::ranges::none_of(targets, [&](const auto& t) { return t.id == m_channelAccessFilter; }))
           targets.push_back({m_channelAccessFilter, "User " + m_channelAccessFilter, 0});
       }
@@ -654,7 +654,7 @@ namespace app {
           {.compact = true, .discordTimestamps = true}
       );
       const auto roles =
-          discord::channelAccessRoles(m_guildId, m_roleDirectory.allRoles(m_guildId), m_channelEditOriginal);
+          api::channelAccessRoles(m_guildId, m_roleDirectory.allRoles(m_guildId), m_channelEditOriginal);
       const float viewport = height - 150, full = std::max(30.0F, description.height) + 48 + roles.size() * 28;
       m_scrolling.limit(m_channelDialogScroll, std::max(0.0F, full - viewport));
       auto content = std::make_unique<Node>();
@@ -684,9 +684,9 @@ namespace app {
       }
       root.addChild(std::move(content));
       const auto permissions = selectedChannelPermissions().value_or(0);
-      if (permissions & discord::manageChannel)
+      if (permissions & api::manageChannel)
         button(root, {x + 24, y + height - 52, 112, 32, Action::EditChannel, {}}, "Edit Channel");
-      if (permissions & discord::managePermissions)
+      if (permissions & api::managePermissions)
         button(root, {x + 146, y + height - 52, 181, 32, Action::AddChannelAccess, {}}, "Add members or roles");
     }
     if (edit || access) {
@@ -726,11 +726,11 @@ namespace app {
       openChannelDialog("channel-info");
       break;
     case Action::EditChannel:
-      if (permissions & discord::manageChannel)
+      if (permissions & api::manageChannel)
         openChannelDialog("channel-edit");
       break;
     case Action::AddChannelAccess:
-      if (permissions & discord::managePermissions)
+      if (permissions & api::managePermissions)
         openChannelDialog("channel-access");
       break;
     case Action::ChannelAccessMode:
@@ -747,15 +747,15 @@ namespace app {
     case Action::SaveChannelAccess: {
       if (m_dialogPending || m_channelEditOriginal.id != m_channelId)
         break;
-      discord::Interaction action{
-          .kind = hit.action == Action::SaveChannelEdit ? discord::InteractionKind::EditChannel
-                                                        : discord::InteractionKind::GrantChannelAccess,
+      api::Interaction action{
+          .kind = hit.action == Action::SaveChannelEdit ? api::InteractionKind::EditChannel
+                                                        : api::InteractionKind::GrantChannelAccess,
           .channel = m_channelId,
           .guild = m_guildId,
           .revision = ++m_channelFeatureSerial
       };
       if (hit.action == Action::SaveChannelEdit) {
-        if (!(permissions & discord::manageChannel))
+        if (!(permissions & api::manageChannel))
           break;
         if (m_channelFormName != m_channelEditOriginal.name)
           action.channelName = m_channelFormName;
@@ -766,14 +766,14 @@ namespace app {
           break;
         }
         const auto* channel = selectedChannel();
-        if (channel && !channel->isForum() && discord::utf8Length(m_channelFormTopic) > 1024) {
+        if (channel && !channel->isForum() && api::utf8Length(m_channelFormTopic) > 1024) {
           m_dialogError = "Channel descriptions can contain up to 1,024 characters.";
           break;
         }
       } else {
-        if (!(permissions & discord::managePermissions))
+        if (!(permissions & api::managePermissions))
           break;
-        if (!discord::validSnowflake(m_channelAccessTarget)) {
+        if (!api::validSnowflake(m_channelAccessTarget)) {
           m_dialogError = "Choose a role or member first.";
           break;
         }
@@ -796,7 +796,7 @@ namespace app {
       if (!m_channelId.empty())
         startInteraction(
             {.kind =
-                 m_userDirectory.muted(m_channelId) ? discord::InteractionKind::Unmute : discord::InteractionKind::Mute,
+                 m_userDirectory.muted(m_channelId) ? api::InteractionKind::Unmute : api::InteractionKind::Mute,
              .channel = m_channelId,
              .guild = m_guildId}
         );
@@ -840,7 +840,7 @@ namespace app {
       const auto newline = hit.id.find('\n'), colon = hit.id.find(':', newline);
       if (newline == std::string::npos || colon == std::string::npos)
         break;
-      const auto found = std::ranges::find(m_messages, hit.id.substr(0, newline), &discord::Message::id);
+      const auto found = std::ranges::find(m_messages, hit.id.substr(0, newline), &api::Message::id);
       std::size_t row = 0, column = 0;
       const auto a = std::from_chars(hit.id.data() + newline + 1, hit.id.data() + colon, row),
                  b = std::from_chars(hit.id.data() + colon + 1, hit.id.data() + hit.id.size(), column);
@@ -854,7 +854,7 @@ namespace app {
       if (button.disabled)
         break;
       if (button.style == 5) {
-        if (discord::externalLink(button.url))
+        if (api::externalLink(button.url))
           auth::openExternalUrl(button.url);
         break;
       }
@@ -862,8 +862,8 @@ namespace app {
       if (m_componentStates.contains(key) && m_componentStates[key].pending)
         break;
       const auto nonce = freshNonce(++m_channelFeatureSerial);
-      discord::Interaction action{
-          .kind = discord::InteractionKind::MessageButton,
+      api::Interaction action{
+          .kind = api::InteractionKind::MessageButton,
           .channel = m_channelId,
           .message = found->id,
           .guild = m_guildId,
@@ -886,10 +886,10 @@ namespace app {
     m_window.invalidate();
     return true;
   }
-  bool ClientApplication::channelFeatureInteraction(const discord::Event& event, bool dialog) {
+  bool ClientApplication::channelFeatureInteraction(const api::Event& event, bool dialog) {
     const auto& action = *event.interaction;
-    if (action.kind != discord::InteractionKind::EditChannel
-        && action.kind != discord::InteractionKind::GrantChannelAccess)
+    if (action.kind != api::InteractionKind::EditChannel
+        && action.kind != api::InteractionKind::GrantChannelAccess)
       return false;
     for (const auto& fresh : event.channels) {
       for (auto& [guild, channels] : m_guildChannels)
@@ -909,10 +909,10 @@ namespace app {
     return true;
   }
   void ClientApplication::jumpToMessage(const std::string& channel, const std::string& message) {
-    if (!discord::validSnowflake(channel) || !discord::validSnowflake(message))
+    if (!api::validSnowflake(channel) || !api::validSnowflake(message))
       return;
     if (m_channelId != channel) {
-      if (std::ranges::find(m_channels, channel, &discord::Channel::id) == m_channels.end()) {
+      if (std::ranges::find(m_channels, channel, &api::Channel::id) == m_channels.end()) {
         if (m_threads.find(m_guildId, channel))
           openThread(channel);
         else {
@@ -928,7 +928,7 @@ namespace app {
     m_unreadTimeline.positioned();
     m_scrolling.stop(m_messageScroll);
     m_timelineAnchor.reset();
-    if (std::ranges::find(m_messages, message, &discord::Message::id) != m_messages.end())
+    if (std::ranges::find(m_messages, message, &api::Message::id) != m_messages.end())
       m_seekMessage = message;
     else if (!m_demo) {
       if (const auto query = m_history.beginAround(message)) {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "discord/models.h"
+#include "api/models.h"
 
 #include <chrono>
 #include <optional>
@@ -64,7 +64,7 @@ namespace app {
   }
   // Each message retains its own content, actions and selection. Only the author
   // header and inter-message spacing are shared by a short consecutive run.
-  inline bool continuesMessageGroup(const discord::Message& previous, const discord::Message& current) {
+  inline bool continuesMessageGroup(const api::Message& previous, const api::Message& current) {
     if (previous.authorId.empty()
         || previous.authorId != current.authorId
         || previous.channelId != current.channelId

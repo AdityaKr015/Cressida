@@ -1,5 +1,5 @@
 #include "app/emoji_catalog.h"
-#include "discord/models.h"
+#include "api/models.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
         catalog.find("thumbsup") && catalog.find("thumbsup")->unicode == "👍",
         "Resolve common aliases for favorites and search"
     );
-    const auto emojis = discord::parseGuildEmojis(
+    const auto emojis = api::parseGuildEmojis(
         nlohmann::json::array(
             {{{"id", "123456789012345678"}, {"name", "umbriel"}, {"animated", true}},
              {{"id", "123456789012345679"}, {"name", "unavailable"}, {"available", false}},
@@ -46,8 +46,8 @@ int main(int argc, char** argv) {
         "Parse custom emoji availability/animation and reject invalid tags"
     );
     catalog.setGuild("456", emojis);
-    const auto tag = emojis[0].token(), image = discord::emojiImageLink(emojis[0]);
-    require(catalog.messageContent(tag, "789", 0, false) == tag, "FakeNitro is opt-in");
+    const auto tag = emojis[0].token(), image = api::emojiImageLink(emojis[0]);
+    require(catalog.messageContent(tag, "789", 0, false) == tag, "Emoji image links are opt-in");
     require(
         catalog.messageContent(tag, "789", 0, true) == image,
         "Unsupported animated external emoji becomes a named CDN image link"
@@ -60,11 +60,11 @@ int main(int argc, char** argv) {
     still.id = "123456789012345680";
     catalog.setGuild("456", {emojis[0], emojis[1], still});
     require(
-        catalog.messageContent(still.token(), "789", 0, true) == discord::emojiImageLink(still),
+        catalog.messageContent(still.token(), "789", 0, true) == api::emojiImageLink(still),
         "Static external emoji uses the same send-time fallback as animated emoji"
     );
     require(
-        catalog.messageContent(still.token(), "", 0, true) == discord::emojiImageLink(still),
+        catalog.messageContent(still.token(), "", 0, true) == api::emojiImageLink(still),
         "Static server emoji falls back in direct messages"
     );
     require(
@@ -72,15 +72,15 @@ int main(int argc, char** argv) {
         "Supported static emoji from this server stays native"
     );
     require(
-        catalog.messageContent(still.token() + tag, "789", 0, true) == discord::emojiImageLink(still) + " " + image,
+        catalog.messageContent(still.token() + tag, "789", 0, true) == api::emojiImageLink(still) + " " + image,
         "Mixed static and animated emoji both convert, including adjacent tags"
     );
     catalog.setGuild("456", emojis);
     require(
-        !discord::emojiNeedsImage(still, "456", 0) && discord::emojiNeedsImage(still, "789", 0),
+        !api::emojiNeedsImage(still, "456", 0) && api::emojiNeedsImage(still, "789", 0),
         "Non-premium accounts can use static emoji from the current server"
     );
-    require(discord::emojiNeedsImage(emojis[1], "456", 2), "Unavailable emoji need image fallback even with premium");
+    require(api::emojiNeedsImage(emojis[1], "456", 2), "Unavailable emoji need image fallback even with premium");
     require(
         catalog.messageContent("hello" + tag + "!", "789", 0, true) == "hello " + image + " !",
         "Fallback links have word boundaries without removing surrounding text"
@@ -114,14 +114,14 @@ int main(int argc, char** argv) {
         "Markdown-like underscores inside valid emoji names do not prevent fallback"
     );
     const auto decoded =
-        discord::emojiFromImageLink(image.substr(image.find("https://"), image.size() - image.find("https://") - 1));
+        api::emojiFromImageLink(image.substr(image.find("https://"), image.size() - image.find("https://") - 1));
     require(
         decoded && decoded->id == emojis[0].id && decoded->animated && decoded->name == emojis[0].name,
-        "Read FakeNitro link metadata without an account or embed response"
+        "Read emoji image-link metadata without an account or embed response"
     );
     require(
-        !discord::emojiFromImageLink("https://cdn.discordapp.com.evil/emojis/123.gif")
-            && !discord::emojiFromImageLink("https://cdn.discordapp.com/emojis/123.gif/other"),
+        !api::emojiFromImageLink("https://cdn.discordapp.com.evil/emojis/123.gif")
+            && !api::emojiFromImageLink("https://cdn.discordapp.com/emojis/123.gif/other"),
         "Only canonical emoji CDN paths are transformed"
     );
     require(

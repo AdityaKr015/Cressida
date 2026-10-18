@@ -1,4 +1,4 @@
-#include "discord/models.h"
+#include "api/models.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -14,15 +14,15 @@ namespace {
 int main() {
   using nlohmann::json;
   try {
-    auto account = discord::parseAccount(json{{"id", "123"}, {"username", "alex"}, {"global_name", nullptr}});
+    auto account = api::parseAccount(json{{"id", "123"}, {"username", "alex"}, {"global_name", nullptr}});
     require(account.name == "alex", "A null global name must fall back to the username");
     require(
         !account.premiumType
-            && discord::parseAccount(json{{"id", "123"}, {"premium_type", 2}}).premiumType == 2
-            && discord::parseAccount(json{{"id", "123"}, {"premium_type", 0}}).premiumType == 0,
+            && api::parseAccount(json{{"id", "123"}, {"premium_type", 2}}).premiumType == 2
+            && api::parseAccount(json{{"id", "123"}, {"premium_type", 0}}).premiumType == 0,
         "Distinguish omitted premium state in partial account updates from explicit non-premium"
     );
-    auto channels = discord::parseChannels(
+    auto channels = api::parseChannels(
         json::array({
             {{"id", "4"}, {"name", "voice"}, {"type", 2}},
             {{"id", "3"}, {"name", "news"}, {"type", 5}, {"position", 2}},
@@ -34,7 +34,7 @@ int main() {
         channels.size() == 3 && channels.front().id == "2" && channels.back().type == 4,
         "Filter unsupported channel types and preserve position order"
     );
-    auto messages = discord::parseMessages(
+    auto messages = api::parseMessages(
         json::array({
             {{"id", "100"},
              {"channel_id", "1"},
@@ -51,12 +51,12 @@ int main() {
     );
     require(messages.back().author == "maya", "Optional client fields must not prevent message decoding");
     auto edited = messages.back();
-    discord::parseMessagePatch({{"edited_timestamp", "2026-10-17T22:00:00Z"}}).apply(edited);
-    discord::parseMessagePatch({{"content", "Edited text"}}).apply(edited);
+    api::parseMessagePatch({{"edited_timestamp", "2026-10-17T22:00:00Z"}}).apply(edited);
+    api::parseMessagePatch({{"content", "Edited text"}}).apply(edited);
     require(edited.editedTimestamp == "2026-10-17T22:00:00Z", "Partial edits retain the server's edited timestamp");
-    discord::parseMessagePatch({{"edited_timestamp", nullptr}}).apply(edited);
+    api::parseMessagePatch({{"edited_timestamp", nullptr}}).apply(edited);
     require(edited.editedTimestamp.empty(), "Explicit null clears an edited timestamp");
-    const auto guildMessages = discord::parseMessages(
+    const auto guildMessages = api::parseMessages(
         json::array(
             {{{"id", "101"}, {"author", {{"id", "7"}, {"global_name", "Maya"}}}, {"member", {{"nick", "Server Maya"}}}},
              {{"id", "102"}, {"author", {{"id", "7"}, {"global_name", "Maya"}}}, {"member", {{"nick", nullptr}}}}}
@@ -66,7 +66,7 @@ int main() {
         guildMessages[0].author == "Server Maya" && guildMessages[1].author == "Maya",
         "Message names honor guild nicknames and null fallbacks"
     );
-    const auto categorized = discord::parseChannels(
+    const auto categorized = api::parseChannels(
         json::array(
             {{{"id", "10"}, {"type", 4}, {"name", "Chat"}, {"position", 2}},
              {{"id", "11"}, {"type", 0}, {"parent_id", "10"}, {"position", 0}},
@@ -82,7 +82,7 @@ int main() {
             && categorized[3].id == "11",
         "Keep channels under their ordered parent categories"
     );
-    const auto conversations = discord::parsePrivateChannels(
+    const auto conversations = api::parsePrivateChannels(
         json::array(
             {{{"id", "30"},
               {"type", 1},
@@ -102,7 +102,7 @@ int main() {
             && !conversations[1].icon.empty(),
         "Name/avatar DMs and sort by the latest message snowflake"
     );
-    const auto deduped = discord::parsePrivateChannels(
+    const auto deduped = api::parsePrivateChannels(
         json::array({{{"id", "32"}, {"type", 1}, {"recipient_ids", json::array({"7"})}}}),
         {{"7", {"7", "Maya", "/embed/avatars/0.png"}}}
     );
@@ -111,12 +111,12 @@ int main() {
         conversations[0].named && !conversations[1].named, "Distinguish named groups from recipient-generated titles"
     );
     require(
-        discord::validSnowflake("18446744073709551615") && !discord::validSnowflake("1/../../users/@me"),
+        api::validSnowflake("18446744073709551615") && !api::validSnowflake("1/../../users/@me"),
         "Resource IDs must not become arbitrary REST paths"
     );
-    require(!discord::validSnowflake("") && !discord::validSnowflake("123x"), "Reject malformed IDs");
-    require(discord::utf8Length("hello 🌿") == 7, "Message lengths must count Unicode characters rather than bytes");
-    const auto rich = discord::parseMessages(
+    require(!api::validSnowflake("") && !api::validSnowflake("123x"), "Reject malformed IDs");
+    require(api::utf8Length("hello 🌿") == 7, "Message lengths must count Unicode characters rather than bytes");
+    const auto rich = api::parseMessages(
         json::array(
             {{{"id", "101"},
               {"content", ""},
@@ -146,17 +146,17 @@ int main() {
         "Decode attachments, signed CDN URLs, and rich embed fields"
     );
     require(
-        !discord::mediaUrl(
+        !api::mediaUrl(
              "https://images-ext-1.discordapp.net/external/hash/https/i.ytimg.com/vi/test/hqdefault.jpg?width=640"
         )
              .empty(),
         "Accept Discord's external image proxy for YouTube thumbnails"
     );
     require(
-        discord::mediaUrl("https://images-ext-1.discordapp.net.attacker.test/external/hash").empty(),
+        api::mediaUrl("https://images-ext-1.discordapp.net.attacker.test/external/hash").empty(),
         "External proxy origins must match exactly"
     );
-    const auto profile = discord::parseAccount(
+    const auto profile = api::parseAccount(
         json{{"id", "123"}, {"username", "alex"}, {"global_name", "Alex"}, {"bio", "hello"}, {"pronouns", "they/them"}}
     );
     require(
@@ -167,35 +167,35 @@ int main() {
         "Load editable account/profile fields separately from display labels"
     );
     auto updated = rich.front();
-    discord::parseMessagePatch(json{{"embeds", json::array()}}).apply(updated);
+    api::parseMessagePatch(json{{"embeds", json::array()}}).apply(updated);
     require(
         updated.embeds.empty() && updated.attachments.size() == 1 && updated.content.empty(),
         "Embed-only Gateway updates preserve unrelated fields and allow clearing previews"
     );
-    discord::parseMessagePatch(json{{"content", "edited"}}).apply(updated);
+    api::parseMessagePatch(json{{"content", "edited"}}).apply(updated);
     require(
         updated.content == "edited" && updated.attachments.size() == 1, "Content-only updates preserve attachments"
     );
     require(
-        discord::mediaUrl("https://cdn.discordapp.com.attacker.test/attachments/a").empty()
-            && discord::mediaUrl("https://cdn.discordapp.com@attacker.test/attachments/a").empty()
-            && discord::mediaUrl("file:///tmp/image.png").empty(),
+        api::mediaUrl("https://cdn.discordapp.com.attacker.test/attachments/a").empty()
+            && api::mediaUrl("https://cdn.discordapp.com@attacker.test/attachments/a").empty()
+            && api::mediaUrl("file:///tmp/image.png").empty(),
         "Automatic media requests stay on fixed credential-free Discord origins"
     );
-    discord::Upload image{"paste.png", "image/png", {1, 2, 3}};
-    require(discord::validUploads({image}), "Accept bounded pasted images");
+    api::Upload image{"paste.png", "image/png", {1, 2, 3}};
+    require(api::validUploads({image}), "Accept bounded pasted images");
     image.filename = "../secret";
-    require(!discord::validUploads({image}), "Reject path-like upload names");
+    require(!api::validUploads({image}), "Reject path-like upload names");
     bool rejected = false;
     try {
-      (void)discord::parseAccount(json{{"id", "bad"}});
+      (void)api::parseAccount(json{{"id", "bad"}});
     } catch (const std::exception&) {
       rejected = true;
     }
     require(rejected, "Reject malformed account identifiers");
     rejected = false;
     try {
-      (void)discord::parseMessages(json::object());
+      (void)api::parseMessages(json::object());
     } catch (const std::exception&) {
       rejected = true;
     }

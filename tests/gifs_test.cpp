@@ -1,6 +1,6 @@
-#include "discord/emoji.h"
-#include "discord/gifs.h"
-#include "discord/models.h"
+#include "api/emoji.h"
+#include "api/gifs.h"
+#include "api/models.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -62,43 +62,43 @@ int main() {
           {"width", 320},
           {"height", 180}}}
     );
-    auto found = discord::parseGifs(response);
+    auto found = api::parseGifs(response);
     require(
         found.size() == 1 && found[0].src.ends_with(".gif") && found[0].width == 320,
         "Use the requested format rather than assuming gif_src is a GIF"
     );
     require(
-        discord::parseGifs({{"gifs", response}}).size() == 1 && discord::parseGifs(Json::array()).empty(),
+        api::parseGifs({{"gifs", response}}).size() == 1 && api::parseGifs(Json::array()).empty(),
         "Read public search/trending envelopes"
     );
     auto invalid = response;
     invalid[0]["src"] = "https://static.klipy.com.attacker.test/clip.gif";
     invalid[0]["gif_src"] = "file:///tmp/private.gif";
-    require(discord::parseGifs(invalid).empty(), "Never fetch unapproved provider origins");
+    require(api::parseGifs(invalid).empty(), "Never fetch unapproved provider origins");
     for (auto url :
          {"https://static.klipy.com@127.0.0.1/clip.gif", "http://media.tenor.com/clip.gif",
           "https://media.giphy.com.attacker.test/a"})
-      require(discord::mediaUrl(url).empty(), "Reject confusing hosts and insecure schemes");
+      require(api::mediaUrl(url).empty(), "Reject confusing hosts and insecure schemes");
     require(
-        discord::mediaUrl(std::string("https://static.klipy.com/a\0.gif", 31)).empty(), "Reject embedded NULs in URLs"
+        api::mediaUrl(std::string("https://static.klipy.com/a\0.gif", 31)).empty(), "Reject embedded NULs in URLs"
     );
     require(
-        discord::gifSearchPath("a &é").ends_with("&q=a%20%26%C3%A9")
-            && discord::gifSearchPath("").starts_with("/gifs/trending-gifs?"),
+        api::gifSearchPath("a &é").ends_with("&q=a%20%26%C3%A9")
+            && api::gifSearchPath("").starts_with("/gifs/trending-gifs?"),
         "Encode entire search input and use trending for an empty query"
     );
-    rejects([] { discord::gifSearchPath(std::string(257, 'a')); }, "Bound search length");
+    rejects([] { api::gifSearchPath(std::string(257, 'a')); }, "Bound search length");
     const auto gif = found[0];
     const auto version = field(1, scalar(3, 17));
     const auto unrelated = field(6, field(1, "unrelated emoji history"));
     const auto unknown = field(42, "future favorite-group field") + scalar(2, 1);
     const Json empty{{"settings", encode(version + field(2, unknown) + unrelated)}};
-    const auto added = discord::gifFavoritePatch(empty, gif, true);
+    const auto added = api::gifFavoritePatch(empty, gif, true);
     require(
         added.at("required_data_version") == 17 && added.at("settings") != empty.at("settings"),
         "Require the freshly fetched snapshot version for mutations"
     );
-    auto favorites = discord::parseGifFavorites(added);
+    auto favorites = api::parseGifFavorites(added);
     require(favorites.size() == 1 && favorites[0].url == gif.url && favorites[0].order == 1, "Favorite GIF round trip");
     const auto favoriteValue = scalar(1, 1) + field(2, gif.src) + scalar(3, 320) + scalar(4, 180) + scalar(5, 1);
     const auto expected = field(2, unknown + field(1, field(1, gif.url) + field(2, favoriteValue)));
@@ -107,41 +107,41 @@ int main() {
         "Preserve every unknown favorite-group field and omit unrelated top-level settings"
     );
     const Json current{{"settings", encode(version + expected + unrelated)}};
-    const auto removed = discord::gifFavoritePatch(current, gif, false);
+    const auto removed = api::gifFavoritePatch(current, gif, false);
     require(
-        removed.at("settings") == encode(field(2, unknown)) && discord::parseGifFavorites(removed).empty(),
+        removed.at("settings") == encode(field(2, unknown)) && api::parseGifFavorites(removed).empty(),
         "Remove the final GIF while retaining tooltip and unknown group settings"
     );
     auto other = gif;
     other.url += "-second";
-    const auto withSecond = discord::gifFavoritePatch(current, other, true);
-    const auto both = discord::parseGifFavorites(withSecond);
+    const auto withSecond = api::gifFavoritePatch(current, other, true);
+    const auto both = api::parseGifFavorites(withSecond);
     require(
         both.size() == 2 && both.front().url == other.url && both.front().order == 2,
         "New favorites precede existing favorites without losing them"
     );
     require(
-        discord::gifFavoritePatch(current, gif, true).at("settings") == encode(expected),
+        api::gifFavoritePatch(current, gif, true).at("settings") == encode(expected),
         "Favoriting an existing GIF preserves its raw record and ordering"
     );
-    rejects([&] { discord::gifFavoritePatch({{"settings", ""}}, gif, true); }, "Refuse unversioned account writes");
-    rejects([] { discord::parseGifFavorites({{"settings", "not base64!"}}); }, "Reject malformed protobuf encodings");
-    rejects([] { discord::parseGifFavorites({{"settings", "EgU="}}); }, "Reject truncated protobuf fields");
+    rejects([&] { api::gifFavoritePatch({{"settings", ""}}, gif, true); }, "Refuse unversioned account writes");
+    rejects([] { api::parseGifFavorites({{"settings", "not base64!"}}); }, "Reject malformed protobuf encodings");
+    rejects([] { api::parseGifFavorites({{"settings", "EgU="}}); }, "Reject truncated protobuf fields");
     const auto unknownEmojiField = field(19, "future emoji option");
     const auto emojiGroup = field(1, "heart") + field(1, "123456789012345678") + unknownEmojiField;
     const auto emojiSnapshot = Json{{"settings", encode(version + field(5, emojiGroup) + expected + unrelated)}};
-    auto emojiPreferences = discord::parseEmojiPreferences(emojiSnapshot);
+    auto emojiPreferences = api::parseEmojiPreferences(emojiSnapshot);
     require(
         emojiPreferences.favorites == std::vector<std::string>{"heart", "123456789012345678"},
         "Read Unicode aliases and custom emoji IDs from account favorites"
     );
-    const auto emojiAdded = discord::emojiFavoritePatch(emojiSnapshot, "fire", true);
+    const auto emojiAdded = api::emojiFavoritePatch(emojiSnapshot, "fire", true);
     require(
         emojiAdded.at("required_data_version") == 17
             && emojiAdded.at("settings") == encode(field(5, emojiGroup + field(1, "fire"))),
         "Emoji stars preserve unknown group fields and omit GIF and frecency data"
     );
-    const auto emojiRemoved = discord::emojiFavoritePatch(emojiSnapshot, "heart", false);
+    const auto emojiRemoved = api::emojiFavoritePatch(emojiSnapshot, "heart", false);
     require(
         emojiRemoved.at("settings") == encode(field(5, field(1, "123456789012345678") + unknownEmojiField)),
         "Removing a favorite preserves all other emoji and unknown settings"
@@ -150,20 +150,20 @@ int main() {
         6, field(1, field(1, "heart") + field(2, scalar(1, 2))) + field(1, field(1, "fire") + field(2, scalar(1, 7)))
     );
     require(
-        discord::parseEmojiPreferences({{"settings", encode(version + usage)}}).frequent
+        api::parseEmojiPreferences({{"settings", encode(version + usage)}}).frequent
             == std::vector<std::string>{"fire", "heart"},
         "Import frequent account emoji by total use count"
     );
     rejects(
-        [&] { discord::emojiFavoritePatch({{"settings", ""}}, "heart", true); },
+        [&] { api::emojiFavoritePatch({{"settings", ""}}, "heart", true); },
         "Do not mutate emoji favorites without the current data version"
     );
     auto video = gif;
     video.format = 2;
     video.src = "https://media.tenor.com/a/clip.mp4";
-    require(discord::gifFromJson(discord::gifJson(video)).format == 2, "Keep video favorites in video format");
-    discord::Message message =
-        discord::parseMessages(
+    require(api::gifFromJson(api::gifJson(video)).format == 2, "Keep video favorites in video format");
+    api::Message message =
+        api::parseMessages(
             Json::array(
                 {{{"id", "1"},
                   {"channel_id", "2"},

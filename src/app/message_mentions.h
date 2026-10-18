@@ -1,6 +1,6 @@
 #pragma once
 
-#include "discord/models.h"
+#include "api/models.h"
 
 #include <algorithm>
 #include <span>
@@ -9,7 +9,7 @@ namespace app {
   // Use Discord's resolved mention metadata, never token-looking message text or
   // the larger name lookup assembled for Markdown rendering.
   inline bool messageMentions(
-      const discord::Message& message, const std::string& account, std::span<const std::string> roles = {}
+      const api::Message& message, const std::string& account, std::span<const std::string> roles = {}
   ) {
     if (account.empty())
       return false;

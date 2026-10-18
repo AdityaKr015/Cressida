@@ -9,7 +9,7 @@
 
 namespace app {
   void ClientApplication::drawJoinNotice(
-      Node& parent, const discord::Message& message, const MessageLayout& layout, float y, float width
+      Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width
   ) {
     using namespace theme;
     const float absoluteX = chatLeft() + 74, absoluteY = m_messageViewportTop + y;
@@ -109,7 +109,7 @@ namespace app {
     } else if (step == 1) {
       require(m_emojiMenu, "Join reaction picker survives the next frame");
       closeEmojiPicker();
-      discord::UserUpdates names;
+      api::UserUpdates names;
       names.users["11"].nickname = "Local nickname <b>literal</b>";
       m_userDirectory.apply(names);
       m_messageLayouts.clear();

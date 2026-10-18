@@ -1,6 +1,6 @@
 #pragma once
 
-#include "discord/history.h"
+#include "api/history.h"
 
 #include <algorithm>
 #include <map>
@@ -29,10 +29,10 @@ namespace app {
     bool olderEnd() const { return m_olderEnd; }
     const auto& pending() const { return m_pending; }
     const std::string& error() const { return m_error; }
-    discord::HistoryDirection failedDirection() const { return m_failed; }
-    std::optional<discord::HistoryQuery>
-    begin(discord::HistoryDirection direction, std::span<const discord::Message> messages, bool retry = false) {
-      using enum discord::HistoryDirection;
+    api::HistoryDirection failedDirection() const { return m_failed; }
+    std::optional<api::HistoryQuery>
+    begin(api::HistoryDirection direction, std::span<const api::Message> messages, bool retry = false) {
+      using enum api::HistoryDirection;
       if (direction == Around)
         return retry ? beginAround(m_failedCursor) : std::nullopt;
       if (direction != Latest
@@ -41,7 +41,7 @@ namespace app {
               || messages.empty()
               || (direction == Older ? m_olderEnd : m_newerEnd)))
         return {};
-      discord::HistoryQuery query{direction, {}, ++m_serial};
+      api::HistoryQuery query{direction, {}, ++m_serial};
       if (direction != Latest)
         query.cursor = direction == Older ? (m_olderCursor.empty() ? messages.front().id : m_olderCursor)
                                           : (m_newerCursor.empty() ? messages.back().id : m_newerCursor);
@@ -50,16 +50,16 @@ namespace app {
       m_patches.clear();
       return query;
     }
-    std::optional<discord::HistoryQuery> beginAround(const std::string& message) {
-      if (!discord::validSnowflake(message))
+    std::optional<api::HistoryQuery> beginAround(const std::string& message) {
+      if (!api::validSnowflake(message))
         return {};
-      m_pending = discord::HistoryQuery{discord::HistoryDirection::Around, message, ++m_serial};
+      m_pending = api::HistoryQuery{api::HistoryDirection::Around, message, ++m_serial};
       m_error.clear();
       m_patches.clear();
       return m_pending;
     }
-    bool accepts(const discord::HistoryQuery& query) const { return m_pending == query; }
-    void fail(const discord::HistoryQuery& query, std::string error) {
+    bool accepts(const api::HistoryQuery& query) const { return m_pending == query; }
+    void fail(const api::HistoryQuery& query, std::string error) {
       if (!accepts(query))
         return;
       m_failed = query.direction;
@@ -68,7 +68,7 @@ namespace app {
       m_error = std::move(error);
       m_patches.clear();
     }
-    void changed(const std::string& id, const discord::MessagePatch& patch) {
+    void changed(const std::string& id, const api::MessagePatch& patch) {
       if (!m_pending)
         return;
       if (!m_patches.contains(id) && m_patches.size() >= 4096) {
@@ -100,15 +100,15 @@ namespace app {
     // Apply only contiguous pages. Existing live patches/tombstones win over
     // REST, including messages changed while the request was in flight.
     bool apply(
-        const discord::HistoryQuery& query, std::vector<discord::Message>& messages, std::vector<discord::Message> page,
-        const std::map<std::string, std::optional<discord::Message>>& live
+        const api::HistoryQuery& query, std::vector<api::Message>& messages, std::vector<api::Message> page,
+        const std::map<std::string, std::optional<api::Message>>& live
     ) {
-      using enum discord::HistoryDirection;
+      using enum api::HistoryDirection;
       if (!accepts(query))
         return false;
       const auto rawCount = page.size();
       std::erase_if(page, [&](const auto& message) {
-        return !discord::validSnowflake(message.id)
+        return !api::validSnowflake(message.id)
             || (query.direction == Older && !less(message.id, query.cursor))
             || (query.direction == Newer && !less(query.cursor, message.id));
       });
@@ -134,26 +134,26 @@ namespace app {
         // Keep a contiguous cached prefix only when the latest page overlaps it.
         bool overlaps = false;
         for (const auto& message : page)
-          if (std::ranges::find(messages, message.id, &discord::Message::id) != messages.end()) {
+          if (std::ranges::find(messages, message.id, &api::Message::id) != messages.end()) {
             overlaps = true;
             break;
           }
         if (!m_initialized || !overlaps) {
           messages.clear();
-          m_olderEnd = rawCount < discord::messagePageSize;
+          m_olderEnd = rawCount < api::messagePageSize;
         }
         m_newerEnd = true;
       } else if (query.direction == Older)
-        m_olderEnd = rawCount < discord::messagePageSize;
+        m_olderEnd = rawCount < api::messagePageSize;
       else
-        m_newerEnd = rawCount < discord::messagePageSize;
+        m_newerEnd = rawCount < api::messagePageSize;
       for (auto& message : page) {
         if (const auto changed = live.find(message.id); changed != live.end()) {
           if (!changed->second)
             continue;
           message = *changed->second;
         }
-        const auto at = std::ranges::find(messages, message.id, &discord::Message::id);
+        const auto at = std::ranges::find(messages, message.id, &api::Message::id);
         if (at == messages.end())
           messages.push_back(std::move(message));
         else
@@ -164,7 +164,7 @@ namespace app {
           if (!changed)
             std::erase_if(messages, [&](const auto& message) { return message.id == id; });
           else if (messages.empty() || !less(id, messages.front().id)) {
-            const auto at = std::ranges::find(messages, id, &discord::Message::id);
+            const auto at = std::ranges::find(messages, id, &api::Message::id);
             if (at == messages.end())
               messages.push_back(*changed);
             else
@@ -186,7 +186,7 @@ namespace app {
       m_error.clear();
       return true;
     }
-    void trim(std::vector<discord::Message>& messages, bool keepOlder = false) {
+    void trim(std::vector<api::Message>& messages, bool keepOlder = false) {
       if (messages.size() <= windowLimit)
         return;
       if (keepOlder) {
@@ -202,17 +202,17 @@ namespace app {
     static bool less(const std::string& a, const std::string& b) {
       return a.size() != b.size() ? a.size() < b.size() : a < b;
     }
-    static void sort(std::vector<discord::Message>& messages) {
+    static void sort(std::vector<api::Message>& messages) {
       std::ranges::sort(messages, [](const auto& a, const auto& b) { return less(a.id, b.id); });
     }
 
   private:
-    std::optional<discord::HistoryQuery> m_pending;
+    std::optional<api::HistoryQuery> m_pending;
     std::uint64_t m_serial = 0;
     bool m_olderEnd = false, m_newerEnd = true, m_initialized = false;
     std::string m_error, m_failedCursor;
     std::string m_olderCursor, m_newerCursor;
-    std::map<std::string, discord::MessagePatch> m_patches;
-    discord::HistoryDirection m_failed = discord::HistoryDirection::Older;
+    std::map<std::string, api::MessagePatch> m_patches;
+    api::HistoryDirection m_failed = api::HistoryDirection::Older;
   };
 } // namespace app

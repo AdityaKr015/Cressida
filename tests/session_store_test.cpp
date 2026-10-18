@@ -82,8 +82,8 @@ int main() {
     const auto preferences = restored.preferences("123");
     require(preferences.autoplayGifs, "GIF autoplay defaults on for existing accounts");
     auto pausedGifs = preferences;
-    require(!preferences.fakeNitroEmojis, "FakeNitro defaults off for existing accounts");
-    pausedGifs.fakeNitroEmojis = true;
+    require(!preferences.emojiImageLinks, "Emoji image links default off for existing accounts");
+    pausedGifs.emojiImageLinks = true;
     pausedGifs.autoplayGifs = false;
     require(preferences.roleColors && preferences.animateRoleColors, "Role colors and hover animation default on");
     pausedGifs.roleColors = false;
@@ -109,9 +109,9 @@ int main() {
         "Chat tag visibility persists independently for each account"
     );
     require(
-        app::SessionStore(path).preferences("123").fakeNitroEmojis
-            && !app::SessionStore(path).preferences("456").fakeNitroEmojis,
-        "FakeNitro persists only for the account that enabled it"
+        app::SessionStore(path).preferences("123").emojiImageLinks
+            && !app::SessionStore(path).preferences("456").emojiImageLinks,
+        "Emoji image links persist only for the account that enabled them"
     );
     require(
         !app::SessionStore(path).preferences("123").autoplayGifs

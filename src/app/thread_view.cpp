@@ -37,13 +37,13 @@ namespace app {
     if (m_demo
         || !m_connected
         || m_dmMode
-        || !discord::validSnowflake(parent)
+        || !api::validSnowflake(parent)
         || m_threadRequests.contains(parent)
         || (!retry && !more && (m_threadsLoaded.contains(parent) || m_threadErrors.contains(parent))))
       return;
-    discord::ThreadQuery query{
-        forumView() && m_threadTab == discord::ThreadList::Archived ? discord::ThreadList::Archived
-                                                                    : discord::ThreadList::Active,
+    api::ThreadQuery query{
+        forumView() && m_threadTab == api::ThreadList::Archived ? api::ThreadList::Archived
+                                                                    : api::ThreadList::Active,
         m_guildId,
         parent,
         more ? m_threadPages[parent].before : "",
@@ -67,7 +67,7 @@ namespace app {
     auto base = m_guildChannels.find(m_guildId);
     if (base == m_guildChannels.end())
       return;
-    std::vector<discord::Channel> result;
+    std::vector<api::Channel> result;
     const auto threads = m_threads.list(m_guildId);
     for (const auto& channel : base->second) {
       result.push_back(channel);
@@ -82,10 +82,10 @@ namespace app {
     }
     m_channels = std::move(result);
   }
-  void ClientApplication::threadEvent(const discord::Event& event) {
+  void ClientApplication::threadEvent(const api::Event& event) {
     const auto selected = m_threads.find(m_guildId, m_channelId);
     const auto oldParent = selected ? selected->parentId : "";
-    if (event.operation == discord::Operation::ThreadUpdate) {
+    if (event.operation == api::Operation::ThreadUpdate) {
       m_threads.apply(event.threadUpdates);
       if (event.threadUpdates.reset) {
         m_threadRequests.clear();
@@ -94,7 +94,7 @@ namespace app {
         m_openThreadQuery.reset();
         m_archiveQuery.reset();
         loadThreads();
-        if (m_dialogKind == "threads" && m_threadTab != discord::ThreadList::Active)
+        if (m_dialogKind == "threads" && m_threadTab != api::ThreadList::Active)
           loadArchivedThreads();
       }
     } else if (event.threadQuery) {
@@ -148,7 +148,7 @@ namespace app {
       const auto removedId = m_channelId;
       m_channelMessages.erase(removedId);
       m_channelMembers.erase(removedId);
-      auto parent = std::ranges::find(m_channels, oldParent, &discord::Channel::id);
+      auto parent = std::ranges::find(m_channels, oldParent, &api::Channel::id);
       if (parent != m_channels.end() && !parent->isForum())
         selectChannel(oldParent);
       else {
@@ -164,9 +164,9 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::showThreads(const std::string& parent) {
-    if (m_dmMode || m_guildId.empty() || !discord::validSnowflake(parent))
+    if (m_dmMode || m_guildId.empty() || !api::validSnowflake(parent))
       return;
-    const auto channel = std::ranges::find(m_channels, parent, &discord::Channel::id);
+    const auto channel = std::ranges::find(m_channels, parent, &api::Channel::id);
     if (channel != m_channels.end() && channel->isForum()) {
       selectChannel(parent);
       return;
@@ -180,7 +180,7 @@ namespace app {
     m_controlInput.setFocus(nullptr);
     m_focusedInput.clear();
     m_threadParent = parent;
-    m_threadTab = discord::ThreadList::Active;
+    m_threadTab = api::ThreadList::Active;
     m_threadScroll = 0;
     m_threadBefore.clear();
     m_threadError.clear();
@@ -190,9 +190,9 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::loadArchivedThreads(bool more) {
-    if (m_threadTab == discord::ThreadList::Active || m_archiveQuery || m_demo)
+    if (m_threadTab == api::ThreadList::Active || m_archiveQuery || m_demo)
       return;
-    discord::ThreadQuery query{m_threadTab,      m_guildId,           m_threadParent, more ? m_threadBefore : "",
+    api::ThreadQuery query{m_threadTab,      m_guildId,           m_threadParent, more ? m_threadBefore : "",
                                ++m_threadSerial, m_threads.revision()};
     m_threadError.clear();
     if (m_client.threads(query))
@@ -211,7 +211,7 @@ namespace app {
     glyph(root, x + 22, y + 24, 24, "messages", accent);
     label(root, x + 58, y + 23, width - 120, "Threads", 23, foreground, FontWeight::SemiBold);
     iconButton(root, {x + width - 46, y + 16, 30, 30, Action::CloseDialog, {}}, "x", "Close threads");
-    const auto parent = std::ranges::find(m_channels, m_threadParent, &discord::Channel::id);
+    const auto parent = std::ranges::find(m_channels, m_threadParent, &api::Channel::id);
     label(
         root, x + 24, y + 59, width - 48, parent == m_channels.end() ? "Channel threads" : "# " + parent->name, 13,
         muted
@@ -220,9 +220,9 @@ namespace app {
     for (const auto& [id, title] :
          {std::pair{"active", "Active"}, {"archived", "Archived"}, {"private", "Private · joined"}}) {
       const bool chosen = m_threadTab
-          == (std::string_view(id) == "active"         ? discord::ThreadList::Active
-                  : std::string_view(id) == "archived" ? discord::ThreadList::Archived
-                                                       : discord::ThreadList::PrivateArchived);
+          == (std::string_view(id) == "active"         ? api::ThreadList::Active
+                  : std::string_view(id) == "archived" ? api::ThreadList::Archived
+                                                       : api::ThreadList::PrivateArchived);
       const float bw = m_window.target().renderer().measureText(title, 13, FontWeight::Medium).width + 28;
       button(root, {tx, y + 90, bw, 32, Action::ThreadTab, id}, title, chosen);
       tx += bw + 8;
@@ -230,10 +230,10 @@ namespace app {
     const float viewport = std::max(30.0F, height - 242), top = y + 138;
     auto threads = m_threads.list(m_guildId, m_threadParent);
     std::erase_if(threads, [&](const auto& thread) {
-      if (m_threadTab == discord::ThreadList::Active)
+      if (m_threadTab == api::ThreadList::Active)
         return thread.archived.value_or(false);
       return !thread.archived.value_or(false)
-          || (m_threadTab == discord::ThreadList::Archived ? thread.type == 12
+          || (m_threadTab == api::ThreadList::Archived ? thread.type == 12
                                                            : thread.type != 12 || !thread.joined.value_or(false));
     });
     const float fullHeight = threads.size() * 68.0F;
@@ -285,9 +285,9 @@ namespace app {
       bar->update(viewport, fullHeight, m_threadScroll);
       root.addChild(std::move(owned));
     }
-    const bool loading = m_threadTab == discord::ThreadList::Active ? m_threadRequests.contains(m_threadParent)
+    const bool loading = m_threadTab == api::ThreadList::Active ? m_threadRequests.contains(m_threadParent)
                                                                     : m_archiveQuery.has_value();
-    const auto error = m_threadTab == discord::ThreadList::Active ? m_threadErrors[m_threadParent] : m_threadError;
+    const auto error = m_threadTab == api::ThreadList::Active ? m_threadErrors[m_threadParent] : m_threadError;
     if (threads.empty())
       label(
           root, x + 30, top + 28, width - 60,
@@ -303,7 +303,7 @@ namespace app {
     else if (loading)
       label(root, x + 24, y + height - 40, width - 48, "Loading…", 12, muted);
     else if (
-        m_threadTab == discord::ThreadList::Active
+        m_threadTab == api::ThreadList::Active
             ? m_threadPages.contains(m_threadParent) && m_threadPages.at(m_threadParent).more
             : m_threadMore
     )
@@ -315,25 +315,25 @@ namespace app {
     m_tooltip.clear();
   }
   void ClientApplication::openThread(const std::string& id) {
-    if (m_dmMode || !discord::validSnowflake(id))
+    if (m_dmMode || !api::validSnowflake(id))
       return;
     if (!m_threads.find(m_guildId, id)) {
       for (const auto& message : m_messages)
         if (message.thread && message.thread->id == id)
-          m_threads.page({discord::ThreadList::Single, m_guildId, message.thread->id, {}, 0, 0}, {{*message.thread}});
+          m_threads.page({api::ThreadList::Single, m_guildId, message.thread->id, {}, 0, 0}, {{*message.thread}});
     }
     if (const auto* thread = m_threads.find(m_guildId, id)) {
       const auto copy = *thread;
-      const auto parent = std::ranges::find(m_channels, copy.parentId, &discord::Channel::id);
+      const auto parent = std::ranges::find(m_channels, copy.parentId, &api::Channel::id);
       if (parent != m_channels.end())
         m_collapsedCategories.erase(parent->parentId);
-      if (std::ranges::find(m_channels, id, &discord::Channel::id) == m_channels.end())
+      if (std::ranges::find(m_channels, id, &api::Channel::id) == m_channels.end())
         m_channels.push_back(copy);
       selectChannel(id);
     } else if (!m_demo) {
       closeContext();
       closeDialog();
-      discord::ThreadQuery query{discord::ThreadList::Single, m_guildId, id, {}, ++m_threadSerial,
+      api::ThreadQuery query{api::ThreadList::Single, m_guildId, id, {}, ++m_threadSerial,
                                  m_threads.revision()};
       if (m_client.threads(query)) {
         m_openThreadQuery = query;
@@ -344,7 +344,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::createThread(const std::string& parent, const std::string& message) {
-    const auto c = std::ranges::find(m_channels, parent, &discord::Channel::id);
+    const auto c = std::ranges::find(m_channels, parent, &api::Channel::id);
     if (m_dmMode || c == m_channels.end() || (c->type != 0 && c->type != 5))
       return;
     const auto parentId = parent, messageId = message;
@@ -353,8 +353,8 @@ namespace app {
     m_dialogKind = "thread-create";
     m_dialogTitle = "Create thread";
     m_dialogText.clear();
-    m_dialogAction = discord::Interaction{
-        .kind = discord::InteractionKind::CreateThread,
+    m_dialogAction = api::Interaction{
+        .kind = api::InteractionKind::CreateThread,
         .channel = parentId,
         .message = messageId,
         .guild = m_guildId,
@@ -393,7 +393,7 @@ namespace app {
       openThread(hit.id);
       break;
     case Action::ThreadParent: {
-      const auto c = std::ranges::find(m_channels, hit.id, &discord::Channel::id);
+      const auto c = std::ranges::find(m_channels, hit.id, &api::Channel::id);
       if (c != m_channels.end() && c->isForum())
         selectChannel(hit.id);
       else
@@ -405,30 +405,30 @@ namespace app {
       break;
     case Action::ThreadTab:
       if (forumView() && hit.id.starts_with("forum-")) {
-        m_threadTab = hit.id == "forum-archived" ? discord::ThreadList::Archived : discord::ThreadList::Active;
+        m_threadTab = hit.id == "forum-archived" ? api::ThreadList::Archived : api::ThreadList::Active;
         updateForumSearch();
         break;
       }
-      m_threadTab = hit.id == "active" ? discord::ThreadList::Active
-          : hit.id == "archived"       ? discord::ThreadList::Archived
-                                       : discord::ThreadList::PrivateArchived;
+      m_threadTab = hit.id == "active" ? api::ThreadList::Active
+          : hit.id == "archived"       ? api::ThreadList::Archived
+                                       : api::ThreadList::PrivateArchived;
       m_archiveQuery.reset();
       m_threadBefore.clear();
       m_threadError.clear();
       m_threadMore = false;
       m_scrolling.stop(m_threadScroll);
       m_threadScroll = 0;
-      if (m_threadTab != discord::ThreadList::Active)
+      if (m_threadTab != api::ThreadList::Active)
         loadArchivedThreads();
       break;
     case Action::ThreadMore:
-      if (m_threadTab == discord::ThreadList::Active)
+      if (m_threadTab == api::ThreadList::Active)
         loadThreads(false, true);
       else
         loadArchivedThreads(true);
       break;
     case Action::ThreadRetry:
-      if (m_threadTab == discord::ThreadList::Active)
+      if (m_threadTab == api::ThreadList::Active)
         loadThreads(true);
       else
         loadArchivedThreads(!m_threadBefore.empty());
@@ -438,9 +438,9 @@ namespace app {
     case Action::ReopenThread: {
       if (!m_threads.find(m_guildId, hit.id) || m_threadPending.contains(hit.id))
         break;
-      const auto kind = hit.action == Action::JoinThread ? discord::InteractionKind::JoinThread
-          : hit.action == Action::LeaveThread            ? discord::InteractionKind::LeaveThread
-                                                         : discord::InteractionKind::UnarchiveThread;
+      const auto kind = hit.action == Action::JoinThread ? api::InteractionKind::JoinThread
+          : hit.action == Action::LeaveThread            ? api::InteractionKind::LeaveThread
+                                                         : api::InteractionKind::UnarchiveThread;
       if (startInteraction(
               {.kind = kind, .channel = hit.id, .guild = m_guildId, .stateRevision = m_threads.revision()}
           ))
@@ -453,16 +453,16 @@ namespace app {
     m_window.invalidate();
     return true;
   }
-  bool ClientApplication::threadInteraction(const discord::Event& event, bool dialog) {
+  bool ClientApplication::threadInteraction(const api::Event& event, bool dialog) {
     const auto& a = *event.interaction;
-    using Kind = discord::InteractionKind;
+    using Kind = api::InteractionKind;
     if (a.kind != Kind::CreateThread
         && a.kind != Kind::CreateForumPost
         && a.kind != Kind::JoinThread
         && a.kind != Kind::LeaveThread
         && a.kind != Kind::UnarchiveThread)
       return false;
-    discord::Channel patch;
+    api::Channel patch;
     std::string previousParent;
     if (const auto* thread = m_threads.find(a.guild, a.channel))
       previousParent = thread->parentId;
@@ -472,12 +472,12 @@ namespace app {
       patch.joined = a.kind == Kind::JoinThread;
     else if (!event.channels.empty())
       patch = event.channels.front();
-    m_threads.page({discord::ThreadList::Single, a.guild, patch.id, {}, 0, a.stateRevision}, {{patch}});
+    m_threads.page({api::ThreadList::Single, a.guild, patch.id, {}, 0, a.stateRevision}, {{patch}});
     rebuildThreadChannels();
     if ((a.kind == Kind::CreateThread || a.kind == Kind::CreateForumPost) && dialog) {
       if (a.kind == Kind::CreateForumPost
           && m_emojiCatalog.messageContent(
-                 m_drafts[a.channel], a.guild, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
+                 m_drafts[a.channel], a.guild, m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
              ) == a.content)
         m_drafts[a.channel].clear();
       closeDialog();
@@ -510,7 +510,7 @@ namespace app {
     }
     return true;
   }
-  float ClientApplication::threadStrip(Node* root, const discord::Message& message, float x, float y, float width) {
+  float ClientApplication::threadStrip(Node* root, const api::Message& message, float x, float y, float width) {
     const auto* thread = m_threads.find(m_guildId, message.id);
     if (!thread && message.thread)
       thread = &*message.thread;
@@ -553,9 +553,9 @@ namespace app {
            {"thread_metadata",
             {{"archived", i >= 10}, {"locked", false}, {"archive_timestamp", "2026-10-17T09:50:00Z"}}}}
       );
-    discord::ThreadQuery query{discord::ThreadList::Active, m_guildId, {}, {}, 0, m_threads.revision()};
+    api::ThreadQuery query{api::ThreadList::Active, m_guildId, {}, {}, 0, m_threads.revision()};
     auto page =
-        discord::parseThreadPage(Json{{"threads", threads}, {"members", Json::array({{{"id", "809"}}})}}, query);
+        api::parseThreadPage(Json{{"threads", threads}, {"members", Json::array({{{"id", "809"}}})}}, query);
     m_threads.page(query, page);
     rebuildThreadChannels();
     if (view == "thread")
@@ -594,9 +594,9 @@ namespace app {
     } else if (step == 3) {
       click(Action::OpenThread, "809");
     } else if (step == 4) {
-      discord::Event event;
-      event.operation = discord::Operation::ThreadUpdate;
-      event.threadUpdates = discord::parseThreadUpdates(
+      api::Event event;
+      event.operation = api::Operation::ThreadUpdate;
+      event.threadUpdates = api::parseThreadUpdates(
           "THREAD_UPDATE", nlohmann::json{{"id", "809"}, {"guild_id", "1"}, {"thread_metadata", {{"archived", true}}}},
           "1"
       );
@@ -610,10 +610,10 @@ namespace app {
           std::ranges::any_of(m_hits, [](const auto& h) { return h.action == Action::ReopenThread; }),
           "Archived threads offer reopening"
       );
-      discord::Event event;
-      event.operation = discord::Operation::ThreadUpdate;
+      api::Event event;
+      event.operation = api::Operation::ThreadUpdate;
       event.threadUpdates =
-          discord::parseThreadUpdates("THREAD_DELETE", nlohmann::json{{"id", "809"}, {"guild_id", "1"}}, "1");
+          api::parseThreadUpdates("THREAD_DELETE", nlohmann::json{{"id", "809"}, {"guild_id", "1"}}, "1");
       threadEvent(event);
     } else if (step == 6) {
       require(m_channelId == "101" && !m_threads.find("1", "809"), "Deleted threads return to their parent");

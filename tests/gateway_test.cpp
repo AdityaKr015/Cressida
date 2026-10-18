@@ -1,6 +1,6 @@
-#include "discord/client.h"
-#include "discord/gateway.h"
-#include "discord/role_styles.h"
+#include "api/client.h"
+#include "api/gateway.h"
+#include "api/role_styles.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -12,23 +12,23 @@ int main(int argc, char** argv) {
   if (argc != 2)
     return 2;
   // Initialize libcurl through the same process runtime as the actual client.
-  discord::Client runtime;
+  api::Client runtime;
   std::atomic<std::uint64_t> generation{1};
   std::mutex mutex;
   std::condition_variable changed;
   std::set<std::string> events;
   bool valid = true;
-  discord::UserDirectory users;
-  discord::RoleDirectory roles;
+  api::UserDirectory users;
+  api::RoleDirectory roles;
   {
-    discord::Gateway gateway(
+    api::Gateway gateway(
         generation,
         [&](auto session, const auto& type, const auto& data) {
           std::lock_guard lock(mutex);
           if (session != 1)
             valid = false;
           users.consume(type, data);
-          roles.apply(discord::parseRoleUpdates(type, data));
+          roles.apply(api::parseRoleUpdates(type, data));
           if (type == "GUILD_MEMBERS_CHUNK" && roles.memberships("1", "7") != std::vector<std::string>{"50"})
             valid = false;
           if (type == "READY_SUPPLEMENTAL" && users.status("7") != "online")

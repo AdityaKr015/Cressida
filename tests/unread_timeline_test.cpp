@@ -10,7 +10,7 @@ int main() {
   };
   try {
     app::UnreadTimeline timeline;
-    std::vector<discord::Message> messages(4);
+    std::vector<api::Message> messages(4);
     for (std::size_t i = 0; i < messages.size(); ++i)
       messages[i].id = std::to_string(98 + i);
     timeline.open("10");

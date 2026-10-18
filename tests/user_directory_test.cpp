@@ -1,4 +1,4 @@
-#include "discord/user_directory.h"
+#include "api/user_directory.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -14,7 +14,7 @@ namespace {
 int main() {
   using nlohmann::json;
   try {
-    discord::UserDirectory gateway, view;
+    api::UserDirectory gateway, view;
     auto dispatch = [&](const auto& type, const auto& data) { view.apply(gateway.consume(type, data)); };
     dispatch(
         "READY",

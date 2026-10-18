@@ -1,6 +1,6 @@
 #pragma once
 
-#include "discord/models.h"
+#include "api/models.h"
 
 #include <algorithm>
 #include <string>
@@ -36,14 +36,14 @@ namespace app {
     }
     return result;
   }
-  inline std::string_view replyContent(const discord::MessageReference& reply) {
+  inline std::string_view replyContent(const api::MessageReference& reply) {
     return reply.deleted        ? "Original message deleted"
         : reply.content.empty() ? "Original message"
                                 : boundedReplyText(reply.content);
   }
   // Plain text counterpart for callers/tests; rendered previews use the bounded
   // single-line runs from layoutReplyPreview, including custom emoji images.
-  inline std::string replyPreview(const discord::MessageReference& reply, std::string_view author) {
+  inline std::string replyPreview(const api::MessageReference& reply, std::string_view author) {
     return "↳ " + oneLineReplyText(author) + ": " + oneLineReplyText(replyContent(reply));
   }
 } // namespace app

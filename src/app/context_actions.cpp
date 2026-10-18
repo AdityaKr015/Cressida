@@ -14,7 +14,7 @@
 namespace app {
   using namespace theme;
   namespace {
-    std::string interactionKey(const discord::Interaction& action) {
+    std::string interactionKey(const api::Interaction& action) {
       auto key = std::to_string(static_cast<int>(action.kind))
           + ":"
           + action.channel
@@ -25,22 +25,22 @@ namespace app {
           + ":"
           + action.emoji
           + (action.burst ? ":burst" : ":normal");
-      if (action.kind == discord::InteractionKind::UserProfile
-          || action.kind == discord::InteractionKind::GuildProfile
-          || action.kind == discord::InteractionKind::JoinGuild
-          || action.kind == discord::InteractionKind::CreateThread
-          || action.kind == discord::InteractionKind::CreateForumPost)
+      if (action.kind == api::InteractionKind::UserProfile
+          || action.kind == api::InteractionKind::GuildProfile
+          || action.kind == api::InteractionKind::JoinGuild
+          || action.kind == api::InteractionKind::CreateThread
+          || action.kind == api::InteractionKind::CreateForumPost)
         key += ":" + action.guild + ":" + std::to_string(action.revision);
-      if (action.kind == discord::InteractionKind::MessageButton
-          || action.kind == discord::InteractionKind::SubmitModal)
+      if (action.kind == api::InteractionKind::MessageButton
+          || action.kind == api::InteractionKind::SubmitModal)
         key += ":" + action.customId + ":" + action.nonce;
-      if (action.kind == discord::InteractionKind::EditChannel
-          || action.kind == discord::InteractionKind::GrantChannelAccess)
+      if (action.kind == api::InteractionKind::EditChannel
+          || action.kind == api::InteractionKind::GrantChannelAccess)
         key += ":" + std::to_string(action.revision);
       return key;
     }
   } // namespace
-  discord::Account ClientApplication::lookupUser(const std::string& id) const {
+  api::Account ClientApplication::lookupUser(const std::string& id) const {
     if (m_account.id == id)
       return m_account;
     for (const auto& member : m_members)
@@ -55,7 +55,7 @@ namespace app {
         return {id, message.author, message.avatar};
     return {id, "Unknown user"};
   }
-  bool ClientApplication::blockedMessage(const discord::Message& message) const {
+  bool ClientApplication::blockedMessage(const api::Message& message) const {
     return m_userDirectory.relationship(message.authorId) == 2 && !m_revealedBlocked.contains(message.id);
   }
   void ClientApplication::closeContext() {
@@ -152,7 +152,7 @@ namespace app {
       m_contextEntries.push_back(entry);
     };
     if (target->action == Action::MessageMenu) {
-      const auto message = std::ranges::find(m_messages, target->id, &discord::Message::id);
+      const auto message = std::ranges::find(m_messages, target->id, &api::Message::id);
       if (message == m_messages.end())
         return;
       m_contextMessage = message->id;
@@ -163,7 +163,7 @@ namespace app {
         add(Action::EditMessage, "Edit Message");
       if (message->type != 7)
         add(Action::Reply, "Reply");
-      const auto selected = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+      const auto selected = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
       if (message->type != 7
           && !m_dmMode
           && selected != m_channels.end()
@@ -184,7 +184,7 @@ namespace app {
     } else {
       if (target->action == Action::ConversationMenu) {
         m_contextChannel = target->id;
-        const auto channel = std::ranges::find(m_privateChannels, target->id, &discord::Channel::id);
+        const auto channel = std::ranges::find(m_privateChannels, target->id, &api::Channel::id);
         if (channel == m_privateChannels.end())
           return;
         if (channel->type == 1 && !channel->recipients.empty())
@@ -289,7 +289,7 @@ namespace app {
         if (colon == std::string::npos)
           label(root, bx + (cell - 30) / 2, by + 7, 32, emoji, 24, foreground);
         else
-          emojiImage(root, bx + (cell - 24) / 2, by + 9, 24, discord::emojiPath(emoji.substr(colon + 1)));
+          emojiImage(root, bx + (cell - 24) / 2, by + 9, 24, api::emojiPath(emoji.substr(colon + 1)));
         m_hits.push_back({bx, by, cell, 42, Action::QuickReaction, emoji});
       }
     }
@@ -436,14 +436,14 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::chooseReaction(const std::string& emoji) {
-    const auto message = std::ranges::find(m_messages, m_contextMessage, &discord::Message::id);
+    const auto message = std::ranges::find(m_messages, m_contextMessage, &api::Message::id);
     if (message == m_messages.end())
       return;
     const bool own = std::ranges::any_of(message->reactions, [&](const auto& reaction) {
-      return discord::reactionKey(reaction) == emoji && reaction.me;
+      return api::reactionKey(reaction) == emoji && reaction.me;
     });
     startInteraction(
-        {.kind = own ? discord::InteractionKind::RemoveReaction : discord::InteractionKind::AddReaction,
+        {.kind = own ? api::InteractionKind::RemoveReaction : api::InteractionKind::AddReaction,
          .channel = m_contextChannel,
          .message = m_contextMessage,
          .emoji = emoji}
@@ -578,7 +578,7 @@ namespace app {
     }
     return false;
   }
-  bool ClientApplication::startInteraction(discord::Interaction action) {
+  bool ClientApplication::startInteraction(api::Interaction action) {
     if (m_demo || !m_connected) {
       m_status = "Demo mode is read-only.";
       return false;
@@ -595,10 +595,10 @@ namespace app {
   }
   void ClientApplication::contextAction(Action action) {
     closeContext();
-    const auto found = std::ranges::find(m_messages, m_contextMessage, &discord::Message::id);
+    const auto found = std::ranges::find(m_messages, m_contextMessage, &api::Message::id);
     const auto user = lookupUser(m_contextUser);
-    using Kind = discord::InteractionKind;
-    discord::Interaction request;
+    using Kind = api::InteractionKind;
+    api::Interaction request;
     request.user = m_contextUser;
     request.channel = m_contextChannel;
     request.message = m_contextMessage;
@@ -714,7 +714,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::showProfile(const std::string& user) {
-    if (!discord::validSnowflake(user))
+    if (!api::validSnowflake(user))
       return;
     closeContext();
     closeGifPicker();
@@ -734,8 +734,8 @@ namespace app {
     m_profileAnchorY = m_pointerY;
     m_dialogText.clear();
     m_dialogError.clear();
-    m_dialogAction = discord::Interaction{
-        .kind = discord::InteractionKind::UserProfile,
+    m_dialogAction = api::Interaction{
+        .kind = api::InteractionKind::UserProfile,
         .user = user,
         .guild = m_profileCard.guild,
         .revision = m_dialogGeneration
@@ -846,7 +846,7 @@ namespace app {
       else
         label(
             root, x + 24, y + 76, width - 48,
-            m_dialogAction && m_dialogAction->kind == discord::InteractionKind::DeleteMessage
+            m_dialogAction && m_dialogAction->kind == api::InteractionKind::DeleteMessage
                 ? "This permanently deletes the message."
                 : "This changes your Discord relationship with this user.",
             14, foreground, FontWeight::Normal, 2
@@ -871,11 +871,11 @@ namespace app {
       return;
     auto action = *m_dialogAction;
     action.text = m_dialogText;
-    if (action.kind == discord::InteractionKind::CreateThread
-        || action.kind == discord::InteractionKind::CreateForumPost)
+    if (action.kind == api::InteractionKind::CreateThread
+        || action.kind == api::InteractionKind::CreateForumPost)
       action.stateRevision = m_threads.revision();
-    if (action.kind == discord::InteractionKind::CreateForumPost) {
-      const auto channel = std::ranges::find(m_channels, action.channel, &discord::Channel::id);
+    if (action.kind == api::InteractionKind::CreateForumPost) {
+      const auto channel = std::ranges::find(m_channels, action.channel, &api::Channel::id);
       if (channel == m_channels.end())
         return;
       if (channel->requireTag && m_forumPostTag.empty()) {
@@ -884,13 +884,13 @@ namespace app {
         return;
       }
       action.content = m_emojiCatalog.messageContent(
-          m_drafts[action.channel], action.guild, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
+          m_drafts[action.channel], action.guild, m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
       );
       action.tags = m_forumPostTag.empty() ? std::vector<std::string>{} : std::vector{m_forumPostTag};
     }
-    if (action.kind == discord::InteractionKind::EditMessage)
+    if (action.kind == api::InteractionKind::EditMessage)
       action.text = m_emojiCatalog.messageContent(
-          action.text, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
+          action.text, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
       );
     if (startInteraction(action)) {
       m_dialogAction = action;
@@ -900,12 +900,12 @@ namespace app {
       m_dialogError = m_status;
     m_window.invalidate();
   }
-  void ClientApplication::interactionResult(const discord::Event& event) {
+  void ClientApplication::interactionResult(const api::Event& event) {
     if (!event.interaction)
       return;
     const auto& action = *event.interaction;
     const auto key = interactionKey(action);
-    if (action.kind == discord::InteractionKind::ListReactions) {
+    if (action.kind == api::InteractionKind::ListReactions) {
       const auto found = m_reactorPages.find(key);
       if (found == m_reactorPages.end() || found->second.revision != action.revision)
         return; // A Gateway update, eviction or logout invalidated this request.
@@ -919,8 +919,8 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
-    if (action.kind == discord::InteractionKind::MessageButton
-        || action.kind == discord::InteractionKind::SubmitModal) {
+    if (action.kind == api::InteractionKind::MessageButton
+        || action.kind == api::InteractionKind::SubmitModal) {
       componentResult(event);
       return;
     }
@@ -938,10 +938,10 @@ namespace app {
       return;
     if (threadInteraction(event, dialog))
       return;
-    using Kind = discord::InteractionKind;
+    using Kind = api::InteractionKind;
     if (action.kind == Kind::JoinGuild && !event.guildVerificationRequired)
       for (const auto& guild : event.guilds)
-        if (guild.id == action.guild && std::ranges::find(m_guilds, guild.id, &discord::Guild::id) == m_guilds.end()) {
+        if (guild.id == action.guild && std::ranges::find(m_guilds, guild.id, &api::Guild::id) == m_guilds.end()) {
           m_guilds.push_back(guild);
           m_folders.push_back({{}, {}, 0, {guild.id}});
         }
@@ -951,7 +951,7 @@ namespace app {
     }
     if (action.kind == Kind::AddReaction || action.kind == Kind::RemoveReaction || action.kind == Kind::DeleteMessage)
       invalidateReactors(action.channel, action.message);
-    discord::UserUpdates changes;
+    api::UserUpdates changes;
     if (action.kind == Kind::Nickname)
       changes.users[action.user].nickname = action.text;
     else if (action.kind == Kind::Block)
@@ -965,7 +965,7 @@ namespace app {
     if (!changes.users.empty())
       m_messageLayouts.clear();
     if (action.kind == Kind::EditMessage || action.kind == Kind::DeleteMessage) {
-      auto update = [&](std::vector<discord::Message>& messages) {
+      auto update = [&](std::vector<api::Message>& messages) {
         if (action.kind == Kind::DeleteMessage)
           std::erase_if(messages, [&](const auto& message) { return message.id == action.message; });
         else if (!event.messages.empty())
@@ -978,7 +978,7 @@ namespace app {
       if (action.channel == m_channelId) {
         update(m_messages);
         m_liveChanges[action.message] = action.kind == Kind::DeleteMessage || event.messages.empty()
-            ? std::optional<discord::Message>{}
+            ? std::optional<api::Message>{}
             : event.messages.front();
         m_messageLayouts.erase(action.message);
       }
@@ -997,7 +997,7 @@ namespace app {
       m_guildPreviewJoined = true;
       m_guildPreviewVerification = event.guildVerificationRequired || m_guildProfile.recruitment;
       if (!m_guildPreviewVerification
-          && std::ranges::find(m_guilds, action.guild, &discord::Guild::id) == m_guilds.end()) {
+          && std::ranges::find(m_guilds, action.guild, &api::Guild::id) == m_guilds.end()) {
         m_guilds.push_back({m_guildProfile.id, m_guildProfile.name, m_guildProfile.icon});
         m_folders.push_back({{}, {}, 0, {action.guild}});
       }
@@ -1010,7 +1010,7 @@ namespace app {
         if (m_profileCard.roles
             && !m_profileCard.guild.empty()
             && !m_roleDirectory.memberships(m_profileCard.guild, m_profileCard.user.id)) {
-          discord::GuildRoleUpdate update{.guild = m_profileCard.guild};
+          api::GuildRoleUpdate update{.guild = m_profileCard.guild};
           update.members[m_profileCard.user.id] = *m_profileCard.roles;
           m_roleDirectory.apply({false, {std::move(update)}});
         }
@@ -1024,11 +1024,11 @@ namespace app {
   }
   void ClientApplication::invalidateReactors(const std::string& channel, const std::string& message) {
     const auto prefix =
-        std::to_string(static_cast<int>(discord::InteractionKind::ListReactions)) + ":" + channel + ":" + message + ":";
+        std::to_string(static_cast<int>(api::InteractionKind::ListReactions)) + ":" + channel + ":" + message + ":";
     std::erase_if(m_reactorPages, [&](const auto& item) { return item.first.starts_with(prefix); });
     m_hoverReactionKey.clear();
   }
-  void ClientApplication::requestReactors(discord::Interaction action) {
+  void ClientApplication::requestReactors(api::Interaction action) {
     if (m_demo
         || !m_connected
         || m_channelId != action.channel
@@ -1058,7 +1058,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::hoverReaction(
-      const discord::Message& message, const discord::Reaction& reaction, const Hit& chip
+      const api::Message& message, const api::Reaction& reaction, const Hit& chip
   ) {
     if (m_contextOpen
         || !m_dialogKind.empty()
@@ -1069,11 +1069,11 @@ namespace app {
         || !chip.contains(m_pointerX, m_pointerY))
       return;
     m_reactionHoveredThisFrame = true;
-    discord::Interaction action{
-        .kind = discord::InteractionKind::ListReactions,
+    api::Interaction action{
+        .kind = api::InteractionKind::ListReactions,
         .channel = message.channelId,
         .message = message.id,
-        .emoji = discord::reactionKey(reaction)
+        .emoji = api::reactionKey(reaction)
     };
     const auto key = interactionKey(action);
     if (m_hoverReactionKey != key) {
@@ -1089,7 +1089,7 @@ namespace app {
         }
       });
     }
-    std::vector<discord::Account> people;
+    std::vector<api::Account> people;
     bool pending = false, failed = false, loaded = false;
     for (bool burst : {false, true}) {
       if (burst && reaction.burstCount == 0)
@@ -1137,7 +1137,7 @@ namespace app {
     m_tooltipY = chip.y;
   }
   float ClientApplication::reactionStrip(
-      Node* parent, const discord::Message& message, float x, float y, float width, bool addButton
+      Node* parent, const api::Message& message, float x, float y, float width, bool addButton
   ) {
     if (message.reactions.empty())
       return 0;
@@ -1156,7 +1156,7 @@ namespace app {
           ox += node->x();
           oy += node->y();
         }
-        Hit hit{ax + ox, ay + oy, chip, 28, Action::ToggleReaction, message.id + "\n" + discord::reactionKey(reaction)};
+        Hit hit{ax + ox, ay + oy, chip, 28, Action::ToggleReaction, message.id + "\n" + api::reactionKey(reaction)};
         const bool over = hit.contains(m_pointerX, m_pointerY);
         const bool mine = reaction.me || reaction.meBurst;
         auto frame = std::make_unique<RectNode>();
@@ -1186,7 +1186,7 @@ namespace app {
               std::ceil(emoji.width) + 2, reaction.name, size, foreground
           );
         } else
-          emojiImage(*parent, ax + 7, ay + 4, 20, discord::emojiPath(reaction.id));
+          emojiImage(*parent, ax + 7, ay + 4, 20, api::emojiPath(reaction.id));
         const auto metrics = m_window.target().renderer().measureText(count, 13, FontWeight::Medium);
         label(
             *parent, ax + 34, ay + (28 - (metrics.bottom - metrics.top)) / 2, chip - 39, count, 13,
@@ -1257,17 +1257,17 @@ namespace app {
       const auto split = hit.id.find('\n');
       if (split == std::string::npos)
         break;
-      const auto message = std::ranges::find(m_messages, hit.id.substr(0, split), &discord::Message::id);
+      const auto message = std::ranges::find(m_messages, hit.id.substr(0, split), &api::Message::id);
       if (message == m_messages.end())
         break;
       const auto key = hit.id.substr(split + 1);
       const auto reaction = std::ranges::find_if(message->reactions, [&](const auto& value) {
-        return discord::reactionKey(value) == key;
+        return api::reactionKey(value) == key;
       });
       if (reaction == message->reactions.end())
         break;
       startInteraction(
-          {.kind = reaction->me ? discord::InteractionKind::RemoveReaction : discord::InteractionKind::AddReaction,
+          {.kind = reaction->me ? api::InteractionKind::RemoveReaction : api::InteractionKind::AddReaction,
            .channel = m_channelId,
            .message = message->id,
            .emoji = key}
@@ -1278,7 +1278,7 @@ namespace app {
       if (m_reactionMessage.empty())
         return false;
       startInteraction(
-          {.kind = discord::InteractionKind::AddReaction,
+          {.kind = api::InteractionKind::AddReaction,
            .channel = m_reactionChannel,
            .message = m_reactionMessage,
            .emoji = hit.id}

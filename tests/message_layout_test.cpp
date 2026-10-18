@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
     const app::MessageMeasure editMeasure = [](std::string_view text, const app::MessageStyle& style) {
       return static_cast<float>(text.size()) * style.size * .5F;
     };
-    discord::Message editedMessage{"900", "10", "Maya", "Hello", "2026-10-17T09:00:00Z"};
+    api::Message editedMessage{"900", "10", "Maya", "Hello", "2026-10-17T09:00:00Z"};
     const auto originalLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
     require(!originalLayout.edited, "Unedited messages have no marker");
     editedMessage.editedTimestamp = "2026-10-17T09:01:00Z";
@@ -61,7 +61,7 @@ int main(int argc, char** argv) {
             && editedLayout.edited->y >= editedLayout.pictures.back().y + editedLayout.pictures.back().height,
         "Media-only edited messages keep their marker clear of the image"
     );
-    discord::MessageReference reference{
+    api::MessageReference reference{
         "1", "2", "3", "Maya",
         "First line\r\nSecond\tline\xE2\x80\xA8"
         "Third\xE2\x80\xA9"
@@ -122,9 +122,9 @@ int main(int argc, char** argv) {
         std::ranges::distance(replyImages) == 2, "Reply previews render static and animated custom emoji as images"
     );
     require(
-        replyImages.front().image == discord::emojiPath("1407464763293831269", false), "Static reply emoji uses PNG"
+        replyImages.front().image == api::emojiPath("1407464763293831269", false), "Static reply emoji uses PNG"
     );
-    require(std::next(replyImages.begin())->image == discord::emojiPath("123", true), "Animated reply emoji uses GIF");
+    require(std::next(replyImages.begin())->image == api::emojiPath("123", true), "Animated reply emoji uses GIF");
     require(
         std::ranges::all_of(
             reply.runs,
@@ -170,10 +170,10 @@ int main(int argc, char** argv) {
         "A clipped emoji is omitted whole, without requesting its asset"
     );
     reference.content = "https://cdn.discordapp.com/emojis/123.png?size=48&name=wave";
-    reply = app::layoutReplyPreview(reference, "Maya", 1000, emojiMeasure, {.fakeNitroEmojis = true});
+    reply = app::layoutReplyPreview(reference, "Maya", 1000, emojiMeasure, {.emojiImageLinks = true});
     require(
         std::ranges::count_if(reply.runs, [](const auto& run) { return !run.image.empty(); }) == 1,
-        "Opt-in FakeNitro emoji links render consistently in reply previews"
+        "Opt-in emoji image links render consistently in reply previews"
     );
     reference.content = "||<:hidden:123>||";
     reply = app::layoutReplyPreview(reference, "Maya", 500, emojiMeasure, emojiOptions);
@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
             && std::ranges::none_of(reply.runs, [](const auto& run) { return !run.image.empty(); }),
         "Deleted reply previews cannot load media from old content"
     );
-    discord::Message emojiMessage;
+    api::Message emojiMessage;
     emojiMessage.content = "🙂 ❤️ 👩🏽‍💻 🇩🇪 1️⃣ <:wave:123>";
     auto sized = app::layoutRichMessage(emojiMessage, 600, emojiMeasure, 14, emojiOptions);
     require(
@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
             && std::ranges::any_of(notice.runs, [](const auto& run) { return run.style.mention && !run.style.bold; }),
         "Inline system names omit the mention prefix while remaining literal and styled"
     );
-    discord::Message mentionMessage;
+    api::Message mentionMessage;
     mentionMessage.content = "Hi <@123> and <@!123>, see <#456>. `literal <@123>`";
     mentionMessage.mentions = {{"123", "Maya **literal**"}, {"456", "general"}};
     const auto mentions =
@@ -338,7 +338,7 @@ int main(int argc, char** argv) {
     require(
         std::ranges::any_of(link.boxes, [](const auto& box) { return box.quote; }), "Blockquotes have a native rule"
     );
-    discord::Message rich;
+    api::Message rich;
     rich.content = "**An image**";
     rich.attachments.push_back(
         {"1",
@@ -347,7 +347,7 @@ int main(int argc, char** argv) {
          "image/png",
          {"https://cdn.discordapp.com/attachments/1/2/photo.png", 1920, 1080}}
     );
-    discord::Embed embed;
+    api::Embed embed;
     embed.title = "Preview";
     embed.description = "**Formatted** description";
     embed.fields.push_back({"Field", "value"});
@@ -372,8 +372,8 @@ int main(int argc, char** argv) {
           richLayout.plainText.substr(run.offset, run.text.size()) == run.text,
           "Selection offsets refer to rendered plain text"
       );
-    discord::Message video;
-    discord::Message attachedVideo;
+    api::Message video;
+    api::Message attachedVideo;
     const std::string videoUrl = "https://cdn.discordapp.com/attachments/1/2/clip.mp4?ex=a&hm=b";
     attachedVideo.attachments.push_back({"2", "clip.mp4", videoUrl, "video/mp4", {videoUrl, 1920, 1080}});
     const auto attachedLayout =
@@ -397,8 +397,8 @@ int main(int argc, char** argv) {
         missingMetadata.pictures.size() == 1 && missingMetadata.pictures[0].videoSource == videoUrl,
         "Known video extensions remain playable without optional MIME/thumbnail dimensions"
     );
-    discord::Message animated;
-    discord::Embed gif;
+    api::Message animated;
+    api::Embed gif;
     gif.type = "gifv";
     gif.url = "https://klipy.com/gifs/example";
     gif.video = {"https://static.klipy.com/ii/example.mp4", 320, 180};
@@ -461,38 +461,38 @@ int main(int argc, char** argv) {
             && imageLayout.pictures[0].media.url == gif.thumbnail.url,
         "Image embeds with thumbnail media display as an unframed image, not a link card"
     );
-    discord::Message fake;
+    api::Message fake;
     const std::string fakeUrl = "https://cdn.discordapp.com/emojis/123456789.gif?size=48&name=wave&lossless=true";
     fake.content = "[wave](" + fakeUrl + ")";
     auto fakeLayout = app::layoutRichMessage(
         fake, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }, 14,
-        {.fakeNitroEmojis = true}
+        {.emojiImageLinks = true}
     );
     require(
         fakeLayout.runs.size() == 1 && !fakeLayout.runs[0].image.empty() && fakeLayout.pictures.empty(),
-        "Standalone FakeNitro links render inline without requiring a server embed"
+        "Standalone emoji image links render inline without requiring a server embed"
     );
-    discord::Embed duplicate;
+    api::Embed duplicate;
     duplicate.type = "image";
     duplicate.url = fakeUrl;
     duplicate.thumbnail = {fakeUrl, 48, 48};
     fake.embeds.push_back(duplicate);
     fakeLayout = app::layoutRichMessage(
         fake, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }, 14,
-        {.fakeNitroEmojis = true}
+        {.emojiImageLinks = true}
     );
-    require(fakeLayout.runs.size() == 1 && fakeLayout.pictures.empty(), "Suppress duplicate FakeNitro image previews");
+    require(fakeLayout.runs.size() == 1 && fakeLayout.pictures.empty(), "Suppress duplicate emoji image previews");
     fake.content = "`" + fake.content + "`";
     fake.embeds.clear();
     fakeLayout = app::layoutRichMessage(
         fake, 400, [&](std::string_view text, const app::MessageStyle&) { return measure(text); }, 14,
-        {.fakeNitroEmojis = true}
+        {.emojiImageLinks = true}
     );
     require(
         std::ranges::none_of(fakeLayout.runs, [](const auto& run) { return !run.image.empty(); }),
         "Code containing emoji CDN links remains literal"
     );
-    discord::Embed youtube;
+    api::Embed youtube;
     youtube.type = "video";
     youtube.provider = "YouTube";
     youtube.title = "A video";

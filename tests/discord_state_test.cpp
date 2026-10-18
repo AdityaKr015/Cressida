@@ -1,4 +1,4 @@
-#include "discord/models.h"
+#include "api/models.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -14,7 +14,7 @@ int main() {
   using nlohmann::json;
   try {
     // Independent fixture encoded with Python struct.pack('<Q') and base64.
-    const auto layout = discord::parseGuildLayout(
+    const auto layout = api::parseGuildLayout(
         json{
             {"settings",
              "ck8KJwoQLAEAAAAAAABkAAAAAAAAABICCGQaCQoHRnJpZW5kcyIECLPERAoKCgjIAAAAAAAAABIYyAAAAAAAAABkAAAAAAAAACwBAAAAA"
@@ -32,7 +32,7 @@ int main() {
     require(
         layout.positions == std::vector<std::string>{"200", "100", "300"}, "Decode legacy ordering alongside folders"
     );
-    auto order = discord::arrangeGuilds({{"100", "A"}, {"200", "B"}, {"300", "C"}, {"400", "D"}}, layout);
+    auto order = api::arrangeGuilds({{"100", "A"}, {"200", "B"}, {"300", "C"}, {"400", "D"}}, layout);
     require(
         order.size() == 3
             && order[0].guildIds == std::vector<std::string>{"300", "100"}
@@ -43,38 +43,38 @@ int main() {
     auto duplicate = layout;
     duplicate.folders.push_back({"101", "Duplicates", 0, {"100", "999"}});
     require(
-        discord::arrangeGuilds({{"100", "A"}, {"200", "B"}, {"300", "C"}}, duplicate).size() == 2,
+        api::arrangeGuilds({{"100", "A"}, {"200", "B"}, {"300", "C"}}, duplicate).size() == 2,
         "Ignore duplicate and departed server references"
     );
     for (const auto* invalid : {"!!!!", "cgUK", "//8=", "cgEK"}) {
       bool rejected = false;
       try {
-        (void)discord::parseGuildLayout(json{{"proto", invalid}});
+        (void)api::parseGuildLayout(json{{"proto", invalid}});
       } catch (...) {
         rejected = true;
       }
       require(rejected, "Reject malformed or truncated settings");
     }
-    auto legacy = discord::parseGuildLayout(
+    auto legacy = api::parseGuildLayout(
         json{
             {"guild_folders", json::array({{{"id", nullptr}, {"guild_ids", json::array({"200"})}}})},
             {"guild_positions", json::array({"300", "100"})}
         }
     );
     require(
-        discord::arrangeGuilds({{"100", "A"}, {"200", "B"}, {"300", "C"}}, legacy)[0].guildIds[0] == "200",
+        api::arrangeGuilds({{"100", "A"}, {"200", "B"}, {"300", "C"}}, legacy)[0].guildIds[0] == "200",
         "Accept legacy settings without inventing folders"
     );
     require(
-        discord::avatarPath(json{{"id", "123"}, {"avatar", "a_abc"}}) == "/avatars/123/a_abc.png?size=128",
+        api::avatarPath(json{{"id", "123"}, {"avatar", "a_abc"}}) == "/avatars/123/a_abc.png?size=128",
         "Request the static frame of animated avatars"
     );
     require(
-        discord::avatarPath(json{{"id", "123"}, {"avatar", nullptr}}) == "/embed/avatars/0.png",
+        api::avatarPath(json{{"id", "123"}, {"avatar", nullptr}}) == "/embed/avatars/0.png",
         "Use Discord default avatars for accounts without custom images"
     );
-    require(discord::emojiPath("1/../2").empty(), "CDN resources must use validated identifiers");
-    discord::MemberList members;
+    require(api::emojiPath("1/../2").empty(), "CDN resources must use validated identifiers");
+    api::MemberList members;
     const json alice = {
         {"member",
          {{"user", {{"id", "1"}, {"username", "alice"}}}, {"nick", "Alice"}, {"presence", {{"status", "online"}}}}}

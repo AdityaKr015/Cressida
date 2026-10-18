@@ -2,8 +2,8 @@
 
 #include "app/discord_timestamp.h"
 #include "app/reply_preview.h"
-#include "discord/emoji.h"
-#include "discord/models.h"
+#include "api/emoji.h"
+#include "api/models.h"
 
 #include <algorithm>
 #include <md4c.h>
@@ -269,7 +269,7 @@ namespace app {
                 auto id = token.substr(1);
                 if (id.starts_with('!') || id.starts_with('&'))
                   id.remove_prefix(1);
-                if (discord::validSnowflake(std::string(id))) {
+                if (api::validSnowflake(std::string(id))) {
                   const auto found =
                       mentions ? mentions->find(std::string(id)) : std::map<std::string, std::string>::const_iterator{};
                   auto name = mentions && found != mentions->end() ? found->second
@@ -288,7 +288,7 @@ namespace app {
                 }
               }
               if ((token.starts_with(':') || token.starts_with("a:")) && colon != std::string_view::npos && colon > 1) {
-                auto path = discord::emojiPath(std::string(token.substr(colon + 1)), token.starts_with("a:"));
+                auto path = api::emojiPath(std::string(token.substr(colon + 1)), token.starts_with("a:"));
                 if (!path.empty()) {
                   add(std::string(text.substr(pos, end - pos + 1)), std::move(path));
                   pos = end + 1;
@@ -514,7 +514,7 @@ namespace app {
   }
 
   MessageLayout layoutReplyPreview(
-      const discord::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
+      const api::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
       const MessageOptions& options
   ) {
     MessageLayout result;
@@ -537,9 +537,9 @@ namespace app {
     auto bodyOptions = options;
     bodyOptions.compact = true;
     auto body = parseMessage(replyContent(reply), 32768, measure, 12, {}, bodyOptions, 16);
-    if (options.fakeNitroEmojis && !body.runs.empty() && body.boxes.empty()) {
+    if (options.emojiImageLinks && !body.runs.empty() && body.boxes.empty()) {
       const auto& link = body.runs.front().style.link;
-      if (const auto emoji = discord::emojiFromImageLink(link);
+      if (const auto emoji = api::emojiFromImageLink(link);
           emoji && std::ranges::all_of(body.runs, [&](const auto& run) {
             return run.image.empty() && !run.style.code && !run.style.spoiler && run.style.link == link;
           }))
@@ -612,16 +612,16 @@ namespace app {
     return layoutMessage(content, width, [&](std::string_view text, const MessageStyle&) { return measure(text); });
   }
   MessageLayout layoutRichMessage(
-      const discord::Message& message, float width, const MessageMeasure& measure, float fontSize,
+      const api::Message& message, float width, const MessageMeasure& measure, float fontSize,
       const MessageOptions& options
   ) {
     // Only a standalone parsed link is transformed. Code, spoilers and captions
     // keep their original presentation; the source message always stays intact.
-    if (options.fakeNitroEmojis) {
+    if (options.emojiImageLinks) {
       const auto probe = layoutMessage(message.content, width, measure, fontSize, message.mentions);
       if (!probe.runs.empty() && probe.boxes.empty()) {
         const auto& link = probe.runs.front().style.link;
-        const auto emoji = discord::emojiFromImageLink(link);
+        const auto emoji = api::emojiFromImageLink(link);
         if (emoji && std::ranges::all_of(probe.runs, [&](const auto& run) {
               return run.style.link == link && !run.style.code && !run.style.spoiler && run.image.empty();
             })) {
@@ -632,7 +632,7 @@ namespace app {
                 && (embed.url == link || embed.image.url == link || embed.thumbnail.url == link);
           });
           auto transformed = options;
-          transformed.fakeNitroEmojis = false;
+          transformed.emojiImageLinks = false;
           return layoutRichMessage(shown, width, measure, fontSize, transformed);
         }
       }
@@ -728,7 +728,7 @@ namespace app {
       }
       return block.height;
     };
-    auto picture = [&](const discord::Media& media, float x, float atY, float available, float maxHeight,
+    auto picture = [&](const api::Media& media, float x, float atY, float available, float maxHeight,
                        std::string link) {
       float w = std::min(available, 420.0F), h = std::min(maxHeight, 220.0F);
       if (media.width > 0 && media.height > 0) {
@@ -744,7 +744,7 @@ namespace app {
       const bool videoAttachment = attachment.contentType.starts_with("video/")
           || (attachment.contentType.empty()
               && (attachment.filename.ends_with(".mp4") || attachment.filename.ends_with(".webm")));
-      auto source = discord::mediaUrl(attachment.url);
+      auto source = api::mediaUrl(attachment.url);
       if (source.empty())
         source = attachment.image.url;
       if (videoAttachment && !source.empty()) {

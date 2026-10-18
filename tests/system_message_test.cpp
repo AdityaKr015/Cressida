@@ -11,7 +11,7 @@ int main() {
       throw std::runtime_error(reason);
   };
   try {
-    const auto messages = discord::parseMessages(
+    const auto messages = api::parseMessages(
         nlohmann::json::array(
             {{{"id", "100"},
               {"channel_id", "10"},
@@ -49,7 +49,7 @@ int main() {
         app::joinNoticeText(message, "<b>Literal 🦊</b>").find("<b>Literal 🦊</b>") != std::string::npos,
         "Welcome formatting preserves names verbatim before escaped application rendering"
     );
-    discord::parseMessagePatch({{"reactions", nlohmann::json::array()}}).apply(message);
+    api::parseMessagePatch({{"reactions", nlohmann::json::array()}}).apply(message);
     require(
         message.type == 7 && message.content.empty() && message.reactions.empty(),
         "Partial join edits retain type/content and allow reaction clearing"

@@ -13,8 +13,8 @@
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
 #include "core/timer_manager.h"
-#include "discord/assets.h"
-#include "discord/client.h"
+#include "api/assets.h"
+#include "api/client.h"
 #include "media/video_player.h"
 #include "render/backend/gles_framebuffer.h"
 #include "render/core/color.h"
@@ -220,45 +220,45 @@ namespace app {
     void showDirectMessages();
     void selectChannel(std::string id);
     void refresh();
-    void loadHistory(discord::HistoryDirection direction, bool retry = false);
-    void applyHistory(discord::Event& event);
+    void loadHistory(api::HistoryDirection direction, bool retry = false);
+    void applyHistory(api::Event& event);
     void demoHistoryStep();
     void demoRoleStep();
     void
-    drawJoinNotice(Node& parent, const discord::Message& message, const MessageLayout& layout, float y, float width);
+    drawJoinNotice(Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width);
     void demoJoinStep();
     void drawProfileCard(Node& root, float width, float height);
     bool profileAction(const Hit& hit);
     void demoProfileStep();
     void prepareProfileDemo();
     float drawGuildTag(
-        Node& parent, float x, float y, float width, const std::optional<discord::GuildTag>& tag, bool clickable = true
+        Node& parent, float x, float y, float width, const std::optional<api::GuildTag>& tag, bool clickable = true
     );
     float drawRoleIcon(
         Node& parent, float x, float y, const std::string& guild, const std::string& user,
         const std::optional<std::vector<std::string>>& roles = {}
     );
-    float drawRoleBadge(Node& parent, float x, float y, const discord::ColoredRole& role);
+    float drawRoleBadge(Node& parent, float x, float y, const api::ColoredRole& role);
     void showGuildProfile(const std::string& guild);
     void drawGuildProfile(Node& root, float width, float height);
     void clearThreads();
-    const discord::Channel* selectedChannel() const;
+    const api::Channel* selectedChannel() const;
     std::optional<std::uint64_t> selectedChannelPermissions() const;
     void clearChannelFeatures();
     void closeChannelPanel();
     void drawChannelHeader(Node& root, float width);
     float channelIntro(Node* root, float x, float y, float width);
-    float messageButtons(Node* root, const discord::Message& message, float x, float y, float width);
-    void channelFeatureEvent(const discord::Event& event);
-    void componentResult(const discord::Event& event);
+    float messageButtons(Node* root, const api::Message& message, float x, float y, float width);
+    void channelFeatureEvent(const api::Event& event);
+    void componentResult(const api::Event& event);
     bool channelFeatureAction(const Hit& hit);
-    bool channelFeatureInteraction(const discord::Event& event, bool dialog);
+    bool channelFeatureInteraction(const api::Event& event, bool dialog);
     void drawChannelDialog(Node& root, float width, float height);
     void drawApplicationModal(Node& root, float width, float height);
     void submitApplicationModal();
     void dismissEphemeral(const std::string& message);
-    void removeGuildChannels(const discord::Event& event);
-    void filterDeletedChannels(discord::Event& event) const;
+    void removeGuildChannels(const api::Event& event);
+    void filterDeletedChannels(api::Event& event) const;
     void drawChannelPanel(Node& root, float x, float y, float width, float height);
     void openChannelDialog(const std::string& kind);
     void requestChannelPage(bool next = false, bool previous = false);
@@ -268,7 +268,7 @@ namespace app {
     void demoChannelStep();
     void loadThreads(bool retry = false, bool more = false);
     void rebuildThreadChannels();
-    void threadEvent(const discord::Event& event);
+    void threadEvent(const api::Event& event);
     void showThreads(const std::string& parent);
     void loadArchivedThreads(bool more = false);
     void drawThreads(Node& root, float width, float height);
@@ -280,10 +280,10 @@ namespace app {
     void demoForumStep();
     void drawForumPostDialog(Node& root, float width, float height);
     bool threadAction(const Hit& hit);
-    bool threadInteraction(const discord::Event& event, bool dialog);
+    bool threadInteraction(const api::Event& event, bool dialog);
     void openThread(const std::string& id);
     void createThread(const std::string& parent, const std::string& message = {});
-    float threadStrip(Node* root, const discord::Message& message, float x, float y, float width);
+    float threadStrip(Node* root, const api::Message& message, float x, float y, float width);
     void prepareThreadDemo(const std::string& view);
     void demoThreadStep();
     bool canSendToThread();
@@ -319,16 +319,16 @@ namespace app {
     void prepareEmojiPicker();
     void closeEmojiPicker();
     void clearEmojiState();
-    void emojiEvent(discord::Event& event);
+    void emojiEvent(api::Event& event);
     void pickEmoji(const std::string& key);
     void favoriteEmoji(const std::string& key);
-    std::string favoriteEmojiKey(const discord::Emoji& emoji) const;
+    std::string favoriteEmojiKey(const api::Emoji& emoji) const;
     void drawGifPicker(Node& root, float w, float h);
     void searchGifs();
     void closeGifPicker();
     void clearGifs();
-    void gifEvent(discord::Event& event);
-    void toggleGifFavorite(const discord::Gif& gif);
+    void gifEvent(api::Event& event);
+    void toggleGifFavorite(const api::Gif& gif);
     void demoGifStep();
     void drawTooltip(Node& root, float w, float h);
     void drawSettings(Node& root, float w, float h);
@@ -362,11 +362,11 @@ namespace app {
     void sidebarDemoFrame();
     void positionCaret(float x, float y, bool extend);
     void positionChatSelection(float x, float y);
-    void upsertMessage(discord::Message message);
+    void upsertMessage(api::Message message);
     void saveSelection();
     std::string userName(const std::string& id, const std::string& fallback) const;
     std::string userStatus(const std::string& id, const std::string& fallback = "offline") const;
-    std::string channelName(const discord::Channel& channel) const;
+    std::string channelName(const api::Channel& channel) const;
     void updateDmMembers();
     void statusBadge(Node& parent, float x, float y, const std::string& status, Color backdrop);
     void openContext(float x, float y);
@@ -375,31 +375,31 @@ namespace app {
     void contextAction(Action action);
     bool overlayKey(const Key& key);
     bool overlayClick(float x, float y);
-    discord::Account lookupUser(const std::string& id) const;
-    bool startInteraction(discord::Interaction action);
-    void interactionResult(const discord::Event& event);
+    api::Account lookupUser(const std::string& id) const;
+    bool startInteraction(api::Interaction action);
+    void interactionResult(const api::Event& event);
     void showProfile(const std::string& user);
     void drawDialog(Node& root, float w, float h);
     void submitDialog();
     void closeDialog();
     float
-    reactionStrip(Node* parent, const discord::Message& message, float x, float y, float width, bool addButton = false);
-    bool blockedMessage(const discord::Message& message) const;
+    reactionStrip(Node* parent, const api::Message& message, float x, float y, float width, bool addButton = false);
+    bool blockedMessage(const api::Message& message) const;
     bool interactionAction(const Hit& hit);
     void clearInteractions();
     void contextMotion(float x, float y);
     void scrollContext(float delta);
     void chooseReaction(const std::string& emoji);
     void openReactionSubmenu(float rowCenter);
-    void hoverReaction(const discord::Message& message, const discord::Reaction& reaction, const Hit& chip);
-    void requestReactors(discord::Interaction action);
+    void hoverReaction(const api::Message& message, const api::Reaction& reaction, const Hit& chip);
+    void requestReactors(api::Interaction action);
     void invalidateReactors(const std::string& channel, const std::string& message);
     void demoInteractionStep();
 
     Window m_window;
     ScrollMotion m_scrolling;
-    discord::Client m_client;
-    discord::Assets m_assets;
+    api::Client m_client;
+    api::Assets m_assets;
     media::VideoPlayer m_video;
     EGLContext m_videoContext = EGL_NO_CONTEXT;
     GlesFramebuffer m_videoTarget;
@@ -414,17 +414,17 @@ namespace app {
     SessionStore m_sessionStore;
     std::string m_restoreChannel;
     Preferences m_preferences;
-    discord::RoleDirectory m_roleDirectory;
+    api::RoleDirectory m_roleDirectory;
     RoleMotion m_roleMotion;
-    discord::Presence m_presence;
+    api::Presence m_presence;
     bool m_presenceMenu = false, m_settingsOpen = false, m_savingProfile = false, m_loadingProfile = false,
          m_profileDirty = false;
     std::string m_settingsPage = "account", m_settingsField, m_settingsStatus, m_desiredPresence;
     std::map<std::string, std::string> m_settingsFields;
     float m_settingsScroll = 0, m_settingsNavScroll = 0, m_settingsNavRight = 0;
-    discord::SettingValues m_accountSettings, m_settingsDraft;
+    api::SettingValues m_accountSettings, m_settingsDraft;
     bool m_loadingSettings = false, m_savingSettings = false, m_settingsLoaded = false;
-    std::map<std::string, std::vector<discord::SettingsEntry>> m_settingsLists;
+    std::map<std::string, std::vector<api::SettingsEntry>> m_settingsLists;
     std::map<std::string, std::string> m_settingsListErrors;
     std::set<std::string> m_loadingSettingsLists;
     std::unique_ptr<Node> m_scene;
@@ -436,7 +436,7 @@ namespace app {
     std::string m_focusedInput, m_pasteInput;
     bool m_buildingScene = false, m_emojiMenu = false;
     EmojiCatalog m_emojiCatalog;
-    discord::EmojiPreferences m_emojiPreferences;
+    api::EmojiPreferences m_emojiPreferences;
     std::vector<std::string> m_recentEmojis;
     std::set<std::string> m_loadedEmojiGuilds, m_loadingEmojiGuilds, m_pendingEmojiFavorites;
     std::map<std::string, std::string> m_emojiGuildErrors;
@@ -448,8 +448,8 @@ namespace app {
     bool m_gifMenu = false, m_gifFavoritesTab = false, m_loadingGifs = false, m_loadingGifFavorites = false,
          m_gifFavoritesLoaded = false, m_gifFavoritesDirty = false, m_sentGif = false;
     std::string m_gifQuery, m_gifRequestedQuery, m_gifError, m_gifFavoriteError;
-    std::vector<discord::Gif> m_gifs, m_gifFavorites;
-    std::map<std::string, discord::Gif> m_gifTargets;
+    std::vector<api::Gif> m_gifs, m_gifFavorites;
+    std::map<std::string, api::Gif> m_gifTargets;
     std::set<std::string> m_pendingGifFavorites;
     Hit m_gifBounds{};
     float m_gifScroll = 0, m_gifMaxScroll = 0;
@@ -470,21 +470,21 @@ namespace app {
     Hit m_contextBounds{}, m_dialogBounds{};
     std::string m_contextMessage, m_contextUser, m_contextChannel;
     std::string m_dialogKind, m_dialogTitle, m_dialogText, m_dialogError;
-    std::optional<discord::Interaction> m_dialogAction;
-    discord::Account m_dialogAccount;
-    discord::UserProfile m_profileCard;
-    discord::GuildProfile m_guildProfile;
+    std::optional<api::Interaction> m_dialogAction;
+    api::Account m_dialogAccount;
+    api::UserProfile m_profileCard;
+    api::GuildProfile m_guildProfile;
     bool m_guildPreviewJoined = false, m_guildPreviewVerification = false;
     bool m_profileExpanded = false, m_profileRevealSpoilers = false;
     float m_profileScroll = 0, m_profileAnchorX = -1, m_profileAnchorY = -1;
     bool m_dialogPending = false;
     std::uint64_t m_dialogGeneration = 0, m_pasteDialogGeneration = 0;
     std::set<std::string> m_pendingInteractions, m_revealedBlocked;
-    std::map<std::string, discord::MessageReference> m_replies;
-    std::optional<discord::MessageReference> m_pendingReply;
+    std::map<std::string, api::MessageReference> m_replies;
+    std::optional<api::MessageReference> m_pendingReply;
     std::string m_reactionMessage, m_reactionChannel;
     struct ReactorPage {
-      std::vector<discord::Account> users;
+      std::vector<api::Account> users;
       std::string error;
       bool pending = false, loaded = false;
       std::uint64_t revision = 0;
@@ -502,7 +502,7 @@ namespace app {
     std::string m_demoOverlay;
     bool m_demoOverlayApplied = false;
     unsigned m_demoInteractionStep = 0;
-    std::optional<discord::HistoryQuery> m_demoHistoryQuery;
+    std::optional<api::HistoryQuery> m_demoHistoryQuery;
     std::optional<TimelineAnchor::Row> m_demoHistoryAnchor;
     std::optional<TimelineAnchor::Row> m_demoMotionAnchor;
     unsigned m_demoHistoryPages = 0, m_demoHistoryPhase = 0, m_demoHistoryMotion = 0;
@@ -527,42 +527,42 @@ namespace app {
     std::uint64_t m_pasteSession = 0;
     std::string m_pasteChannel;
     std::uint64_t m_session = 0;
-    discord::Account m_account;
-    discord::UserDirectory m_userDirectory;
-    std::vector<discord::Guild> m_guilds;
-    std::vector<discord::Channel> m_channels;
-    std::vector<discord::Channel> m_privateChannels;
+    api::Account m_account;
+    api::UserDirectory m_userDirectory;
+    std::vector<api::Guild> m_guilds;
+    std::vector<api::Channel> m_channels;
+    std::vector<api::Channel> m_privateChannels;
     std::set<std::string> m_collapsedCategories;
     std::set<std::string> m_unreadDMs, m_unreadChannels;
     std::map<std::string, std::string> m_unreadGuilds, m_localRead;
     UnreadTimeline m_unreadTimeline;
-    std::map<std::string, std::vector<discord::Channel>> m_guildChannels;
-    discord::ThreadDirectory m_threads;
-    std::map<std::string, discord::ThreadQuery> m_threadRequests;
-    std::map<std::string, discord::ThreadPage> m_threadPages;
-    std::map<std::string, discord::Message> m_forumFirstMessages;
+    std::map<std::string, std::vector<api::Channel>> m_guildChannels;
+    api::ThreadDirectory m_threads;
+    std::map<std::string, api::ThreadQuery> m_threadRequests;
+    std::map<std::string, api::ThreadPage> m_threadPages;
+    std::map<std::string, api::Message> m_forumFirstMessages;
     std::string m_forumSearch, m_forumTag, m_forumPostTag;
     bool m_forumNewest = false;
     float m_forumScroll = 0;
     Timer m_forumSearchTimer;
     std::set<std::string> m_threadsLoaded, m_threadPending;
     std::map<std::string, std::string> m_threadErrors;
-    std::optional<discord::ThreadQuery> m_archiveQuery, m_openThreadQuery;
+    std::optional<api::ThreadQuery> m_archiveQuery, m_openThreadQuery;
     std::string m_threadParent, m_threadBefore, m_threadError;
-    discord::ThreadList m_threadTab = discord::ThreadList::Active;
+    api::ThreadList m_threadTab = api::ThreadList::Active;
     bool m_threadMore = false;
     float m_threadScroll = 0;
     std::uint64_t m_threadSerial = 0;
     std::set<std::string> m_channelDetailRequests, m_channelDetailsLoaded;
     std::map<std::string, std::string> m_channelDetailErrors;
     std::string m_channelSearchText, m_channelPanel, m_channelPanelError;
-    std::optional<discord::ChannelPageQuery> m_channelPageRequest, m_channelPageShown;
-    discord::ChannelPageResult m_channelPage;
+    std::optional<api::ChannelPageQuery> m_channelPageRequest, m_channelPageShown;
+    api::ChannelPageResult m_channelPage;
     std::vector<std::string> m_pinCursors;
     float m_channelPanelScroll = 0, m_channelDialogScroll = 0;
     std::string m_channelFormName, m_channelFormTopic, m_channelAccessFilter, m_channelAccessTarget;
     int m_channelAccessMode = 0;
-    discord::Channel m_channelEditOriginal;
+    api::Channel m_channelEditOriginal;
     std::uint64_t m_channelFeatureSerial = 0;
     std::string m_seekMessage;
     std::optional<std::pair<std::string, std::string>> m_pendingMessageJump;
@@ -571,15 +571,15 @@ namespace app {
       bool pending = false;
     };
     std::map<std::string, ComponentState> m_componentStates;
-    std::optional<discord::ApplicationModal> m_applicationModal;
+    std::optional<api::ApplicationModal> m_applicationModal;
     std::vector<std::string> m_applicationValues;
     std::string m_modalNonce;
     std::set<std::string> m_dismissedEphemeral;
     std::set<std::string> m_deletedChannels;
-    std::map<std::string, std::vector<discord::Message>> m_channelMessages;
+    std::map<std::string, std::vector<api::Message>> m_channelMessages;
     std::vector<std::string> m_channelCacheOrder;
     struct MemberSnapshot {
-      std::vector<discord::MemberRow> rows;
+      std::vector<api::MemberRow> rows;
       int count = 0;
     };
     std::map<std::string, MemberSnapshot> m_channelMembers;
@@ -587,7 +587,7 @@ namespace app {
     void cacheChannel();
     bool readingChannel(const std::string& channel) const;
     bool markChannelRead(bool explicitAction = false);
-    std::vector<discord::Message> m_messages;
+    std::vector<api::Message> m_messages;
     struct CachedMessageLayout {
       MessageLayout layout;
       MessageLayout reply;
@@ -595,12 +595,12 @@ namespace app {
       std::uint64_t fonts = 0;
     };
     std::map<std::string, CachedMessageLayout> m_messageLayouts;
-    std::vector<discord::GuildFolder> m_folders;
+    std::vector<api::GuildFolder> m_folders;
     std::set<std::string> m_openFolders;
-    std::vector<discord::MemberRow> m_members;
+    std::vector<api::MemberRow> m_members;
     int m_memberCount = 0;
     int m_memberPage = 0;
-    std::map<std::string, std::optional<discord::Message>> m_liveChanges;
+    std::map<std::string, std::optional<api::Message>> m_liveChanges;
     struct CachedImage {
       TextureHandle texture;
       std::vector<unsigned char> bytes;
@@ -624,7 +624,7 @@ namespace app {
     std::string m_pendingDraft;
     std::map<std::string, std::string> m_drafts;
     struct DraftImage {
-      discord::Upload upload;
+      api::Upload upload;
       TextureHandle texture;
       std::string key;
     };

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "discord/models.h"
+#include "api/models.h"
 
 #include <functional>
 #include <optional>
@@ -30,7 +30,7 @@ namespace app {
     std::uint32_t color = 0;
   };
   struct MessagePicture {
-    discord::Media media;
+    api::Media media;
     float x, y, width, height;
     std::string link;
     bool video = false;
@@ -49,19 +49,19 @@ namespace app {
     std::optional<EditedMarker> edited;
   };
   struct MessageOptions {
-    bool fakeNitroEmojis = false, compact = false;
+    bool emojiImageLinks = false, compact = false;
     std::function<bool(std::string_view)> unicodeEmoji;
     bool discordTimestamps = false;
     bool mentionPrefix = true;
   };
   MessageLayout layoutRichMessage(
-      const discord::Message& message, float width,
+      const api::Message& message, float width,
       const std::function<float(std::string_view, const MessageStyle&)>& measure, float fontSize = 14,
       const MessageOptions& options = {}
   );
   using MessageMeasure = std::function<float(std::string_view, const MessageStyle&)>;
   MessageLayout layoutReplyPreview(
-      const discord::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
+      const api::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
       const MessageOptions& options = {}
   );
   std::string messageMarkup(std::string_view text, const MessageStyle& style);

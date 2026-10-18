@@ -1,5 +1,5 @@
-#include "discord/actions.h"
-#include "discord/uploads.h"
+#include "api/actions.h"
+#include "api/uploads.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -11,10 +11,10 @@ int main(int argc, char** argv) {
   try {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
-    const std::vector<discord::Upload> uploads{
+    const std::vector<api::Upload> uploads{
         {"plant.png", "image/png", {0x89, 'P', 'N', 'G', 0, 10, 255}}, {"second.jpg", "image/jpeg", {255, 216, 255}}
     };
-    auto body = discord::messageBody("first\nsecond 🌿", discord::MessageReference{"20", "10"});
+    auto body = api::messageBody("first\nsecond 🌿", api::MessageReference{"20", "10"});
     body.update(
         json{
             {"content", "first\nsecond 🌿"},
@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
         }
     );
     const auto payload = body.dump();
-    auto mime = discord::makeMessageMime(curl.get(), payload, uploads);
+    auto mime = api::makeMessageMime(curl.get(), payload, uploads);
     curl_easy_setopt(curl.get(), CURLOPT_URL, argv[1]);
     curl_easy_setopt(curl.get(), CURLOPT_MIMEPOST, mime.get());
     curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 3000L);

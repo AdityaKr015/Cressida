@@ -1,5 +1,5 @@
-#include "discord/models.h"
-#include "discord/read_state.h"
+#include "api/models.h"
+#include "api/read_state.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -11,7 +11,7 @@ int main() {
       throw std::runtime_error(message);
   };
   try {
-    discord::ReadState state;
+    api::ReadState state;
     state.ready(
         json{
             {"guilds",
@@ -39,7 +39,7 @@ int main() {
     );
     require(
         state.unreadCursors()
-            == std::map<std::string, discord::UnreadCursor>{{"10", {"99", "100"}}, {"20", {"899", "900"}}},
+            == std::map<std::string, api::UnreadCursor>{{"10", {"99", "100"}}, {"20", {"899", "900"}}},
         "Unread snapshots expose exact read cursors, without unrelated channel states"
     );
     state.acknowledge(json{{"channel_id", "10"}, {"message_id", "100"}});
@@ -188,7 +188,7 @@ int main() {
     );
     state.ready(json::object());
     require(state.unreadCursors().empty(), "Account reset clears badge data and live mention journal");
-    auto entries = discord::parseSettingsEntries(
+    auto entries = api::parseSettingsEntries(
         "devices",
         json{
             {"user_sessions",

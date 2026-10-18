@@ -1,4 +1,4 @@
-#include "discord/actions.h"
+#include "api/actions.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -10,7 +10,7 @@ namespace {
   }
 } // namespace
 int main() {
-  using namespace discord;
+  using namespace api;
   using Kind = InteractionKind;
   using nlohmann::json;
   try {

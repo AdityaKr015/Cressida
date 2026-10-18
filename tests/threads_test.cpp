@@ -1,13 +1,13 @@
-#include "discord/actions.h"
-#include "discord/read_state.h"
-#include "discord/threads.h"
+#include "api/actions.h"
+#include "api/read_state.h"
+#include "api/threads.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
 using nlohmann::json;
-using namespace discord;
+using namespace api;
 namespace {
   void require(bool ok, const char* message) {
     if (!ok)

@@ -231,7 +231,7 @@ namespace app {
               if (id == "application-field:" + std::to_string(i) && text.size() <= 16000)
                 m_applicationValues[i] = text;
         } else if (id == "forum-search") {
-          if (text.size() <= 400 && discord::utf8Length(text) <= 100) {
+          if (text.size() <= 400 && api::utf8Length(text) <= 100) {
             m_forumSearch = text;
             updateForumSearch();
           }
@@ -254,7 +254,7 @@ namespace app {
         } else if (id.starts_with("settings:")) {
           const auto key = id.substr(9);
           const auto limit = key == "display_name" ? 32U : key == "pronouns" ? 40U : key == "bio" ? 190U : 128U;
-          if (discord::utf8Length(text) <= limit) {
+          if (api::utf8Length(text) <= limit) {
             m_settingsFields[key] = text;
             if (key != "custom_status" && key != "search")
               m_profileDirty = true;
@@ -288,7 +288,7 @@ namespace app {
         else if (id == "token")
           connect();
         else if (id == "settings:custom_status")
-          setPresence(discord::validStatus(m_presence.status) ? m_presence.status : "online", true);
+          setPresence(api::validStatus(m_presence.status) ? m_presence.status : "online", true);
         else if (id != "settings:search")
           activate({0, 0, 0, 0, Action::SaveProfile, {}});
       });

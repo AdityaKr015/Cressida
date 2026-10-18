@@ -1,13 +1,13 @@
 #include "app/message_history.h"
-#include "discord/actions.h"
-#include "discord/channel_features.h"
-#include "discord/history.h"
+#include "api/actions.h"
+#include "api/channel_features.h"
+#include "api/history.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
-using namespace discord;
+using namespace api;
 using nlohmann::json;
 namespace {
   void require(bool ok, const char* message) {

@@ -24,7 +24,7 @@ int main() {
           "Separate groups retain a larger gap than consecutive messages"
       );
     }
-    discord::Message first{"100", "10", "Lemmy", "First", "2026-10-17T09:41:00.000000+00:00", "11"};
+    api::Message first{"100", "10", "Lemmy", "First", "2026-10-17T09:41:00.000000+00:00", "11"};
     auto next = first;
     next.id = "101";
     next.content = "Second";
@@ -60,7 +60,7 @@ int main() {
       next = first;
       switch (reason) {
       case 0:
-        next.reply = discord::MessageReference{};
+        next.reply = api::MessageReference{};
         break;
       case 1:
         next.flags = 64;
@@ -89,13 +89,13 @@ int main() {
           "Replies, ephemeral/system messages and changed identities delimit groups in both directions"
       );
     }
-    auto parsed = discord::parseMessages(nlohmann::json::parse(R"JSON([
+    auto parsed = api::parseMessages(nlohmann::json::parse(R"JSON([
       {"id":"100","channel_id":"10","type":7,"webhook_id":"123","author":{"id":"11","username":"Lemmy"},"content":"Hello"}
     ])JSON"))
                       .front();
-    discord::parseMessagePatch({{"content", "Edited"}}).apply(parsed);
+    api::parseMessagePatch({{"content", "Edited"}}).apply(parsed);
     require(parsed.type == 7 && parsed.webhookId == "123", "Partial edits retain message type and webhook identity");
-    discord::parseMessagePatch({{"type", 0}, {"webhook_id", nullptr}}).apply(parsed);
+    api::parseMessagePatch({{"type", 0}, {"webhook_id", nullptr}}).apply(parsed);
     require(parsed.type == 0 && parsed.webhookId.empty(), "Explicit fields can reset grouping metadata");
     std::cout << "Message grouping boundaries and identity projection passed\n";
   } catch (const std::exception& error) {

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "discord/models.h"
-#include "discord/read_state.h"
+#include "api/models.h"
+#include "api/read_state.h"
 
 #include <algorithm>
 #include <map>
@@ -18,7 +18,7 @@ namespace app {
       m_channel = channel;
       m_positionPending = !channel.empty();
     }
-    void snapshot(std::map<std::string, discord::UnreadCursor> unread, const std::string& rewind = {}) {
+    void snapshot(std::map<std::string, api::UnreadCursor> unread, const std::string& rewind = {}) {
       m_unread = std::move(unread);
       if (rewind == "reset")
         m_readThrough.clear();
@@ -27,7 +27,7 @@ namespace app {
       m_receivedState = true;
     }
     void acknowledged(const std::string& channel, const std::string& message) {
-      if (discord::validSnowflake(message) && newer(message, m_readThrough[channel]))
+      if (api::validSnowflake(message) && newer(message, m_readThrough[channel]))
         m_readThrough[channel] = message;
     }
     void failed(const std::string& channel, const std::string& message) {
@@ -38,7 +38,7 @@ namespace app {
     bool waiting() const { return !m_channel.empty() && !m_receivedState; }
     bool positionPending() const { return m_positionPending; }
     void positioned() { m_positionPending = false; }
-    std::optional<discord::UnreadCursor> cursor(const std::string& channel) const {
+    std::optional<api::UnreadCursor> cursor(const std::string& channel) const {
       const auto at = m_unread.find(channel);
       if (at == m_unread.end())
         return {};
@@ -64,16 +64,16 @@ namespace app {
       return value ? value->mentions : 0;
     }
     bool unread() const { return cursor(m_channel).has_value(); }
-    std::optional<std::size_t> first(std::span<const discord::Message> messages) const {
+    std::optional<std::size_t> first(std::span<const api::Message> messages) const {
       const auto value = cursor(m_channel);
       if (!value)
         return {};
       for (std::size_t i = 0; i < messages.size(); ++i)
-        if (!(messages[i].flags & 64) && discord::validSnowflake(messages[i].id) && newer(messages[i].id, value->after))
+        if (!(messages[i].flags & 64) && api::validSnowflake(messages[i].id) && newer(messages[i].id, value->after))
           return i;
       return {};
     }
-    bool estimated(std::span<const discord::Message> messages) const {
+    bool estimated(std::span<const api::Message> messages) const {
       const auto value = cursor(m_channel);
       return value && (value->after.empty() || messages.empty() || newer(messages.front().id, value->after));
     }
@@ -82,7 +82,7 @@ namespace app {
     static bool newer(const std::string& a, const std::string& b) {
       return a.size() != b.size() ? a.size() > b.size() : a > b;
     }
-    std::map<std::string, discord::UnreadCursor> m_unread;
+    std::map<std::string, api::UnreadCursor> m_unread;
     std::map<std::string, std::string> m_readThrough;
     std::string m_channel;
     bool m_receivedState = false, m_positionPending = false;

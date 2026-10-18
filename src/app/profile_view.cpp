@@ -47,7 +47,7 @@ namespace app {
     const bool mutuals = !own && (profile.mutualFriendCount || profile.mutualGuildCount);
     const float roleTop = bioSection + (mutuals ? 46 : 0);
     struct Chip {
-      const discord::ColoredRole* role;
+      const api::ColoredRole* role;
       float x, y, width;
     };
     std::vector<Chip> chips;
@@ -352,7 +352,7 @@ namespace app {
     profile.theme = std::array<std::uint32_t, 2>{0xBD78B1, 0x40508B};
     profile.guildTag = "MOON";
     profile.guildBadge = "demo-profile-badge";
-    profile.user.guildTag = discord::GuildTag{"99", "MOON", "demo-profile-badge"};
+    profile.user.guildTag = api::GuildTag{"99", "MOON", "demo-profile-badge"};
     std::vector<unsigned char> badge(32 * 32 * 4);
     for (int y = 0; y < 32; ++y)
       for (int x = 0; x < 32; ++x) {
@@ -372,7 +372,7 @@ namespace app {
     const std::vector<std::string> names = {"Moonwarden", "Nightlight", "Artists",   "Developers",
                                             "Stargazer",  "Friends",    "Designers", "Community"};
     const std::vector<std::uint32_t> colors = {0xB498F0, 0x6DBBC7, 0xD986AF, 0x78B591, 0xD6AA6A, 0, 0x7A92CE, 0};
-    discord::GuildRoleUpdate roles;
+    api::GuildRoleUpdate roles;
     roles.guild = m_guildId;
     std::vector<std::string> ids;
     for (std::size_t i = 0; i < names.size(); ++i) {
@@ -388,7 +388,7 @@ namespace app {
     m_roleDirectory.apply({false, {std::move(roles)}});
     profile.roles = ids;
     m_dialogAccount = profile.user;
-    discord::UserUpdates users;
+    api::UserUpdates users;
     users.users[id].relationship = own ? 0 : 1;
     users.users[id].status = "online";
     m_userDirectory.apply(users);
@@ -400,7 +400,7 @@ namespace app {
     if (m_demoOverlay == "profile-card-error")
       m_dialogError = "The connection was interrupted.";
     if (!own) {
-      discord::Channel dm;
+      api::Channel dm;
       dm.id = "900";
       dm.name = "Maya";
       dm.type = 1;
@@ -437,7 +437,7 @@ namespace app {
       require(m_profileScroll > 0, "Expanded profiles can scroll without moving the conversation");
       const auto old = *m_dialogAction;
       showProfile(m_account.id);
-      discord::Event stale;
+      api::Event stale;
       stale.interaction = old;
       stale.account = {"11", "Stale result"};
       interactionResult(stale);
@@ -454,7 +454,7 @@ namespace app {
     } else if (step == 5) {
       action(Action::ProfileFriend);
       require(
-          m_dialogKind == "confirm" && m_dialogAction->kind == discord::InteractionKind::RemoveFriend,
+          m_dialogKind == "confirm" && m_dialogAction->kind == api::InteractionKind::RemoveFriend,
           "Removing a friend retains the existing explicit confirmation"
       );
       closeDialog();
@@ -465,7 +465,7 @@ namespace app {
       showProfile("11");
       const auto old = *m_dialogAction;
       showProfile("11");
-      discord::Event stale;
+      api::Event stale;
       stale.interaction = old;
       stale.account = {"11", "Stale result"};
       interactionResult(stale);

@@ -10,7 +10,7 @@ namespace app {
   using namespace theme;
 
   void ClientApplication::showGuildProfile(const std::string& guild) {
-    if (!discord::validSnowflake(guild))
+    if (!api::validSnowflake(guild))
       return;
     closeContext();
     closeGifPicker();
@@ -21,14 +21,14 @@ namespace app {
     m_dialogError.clear();
     m_guildProfile.id = guild;
     m_guildProfile.name = "Server";
-    if (const auto at = std::ranges::find(m_guilds, guild, &discord::Guild::id); at != m_guilds.end()) {
+    if (const auto at = std::ranges::find(m_guilds, guild, &api::Guild::id); at != m_guilds.end()) {
       m_guildProfile.name = at->name;
       m_guildProfile.icon = at->icon;
     }
     m_profileAnchorX = m_pointerX;
     m_profileAnchorY = m_pointerY;
-    m_dialogAction = discord::Interaction{
-        .kind = discord::InteractionKind::GuildProfile, .guild = guild, .revision = m_dialogGeneration
+    m_dialogAction = api::Interaction{
+        .kind = api::InteractionKind::GuildProfile, .guild = guild, .revision = m_dialogGeneration
     };
     m_dialogPending = !m_demo && startInteraction(*m_dialogAction);
     if (m_demo) {
@@ -37,7 +37,7 @@ namespace app {
           "A little space for art, software, and good company. Come share what you are making, or stay for a quiet "
           "orbit."
       };
-      m_guildProfile.tag = discord::GuildTag{guild, "MOON", "demo-profile-badge"};
+      m_guildProfile.tag = api::GuildTag{guild, "MOON", "demo-profile-badge"};
       m_guildProfile.members = 75205;
       m_guildProfile.online = 23918;
       m_guildProfile.joinable = true;
@@ -104,7 +104,7 @@ namespace app {
     clipped->setPosition(x + 18, y + bannerHeight + 122);
     clipped->setSize(inner, std::max(0.0F, height - bannerHeight - 206));
     clipped->setClipChildren(true);
-    if (m_dialogPending && m_dialogAction && m_dialogAction->kind == discord::InteractionKind::GuildProfile) {
+    if (m_dialogPending && m_dialogAction && m_dialogAction->kind == api::InteractionKind::GuildProfile) {
       for (int row = 0; row < 3; ++row)
         rectangle(*clipped, 0, row * 22, inner * (row == 2 ? .6F : .95F), 10, lerpColor(sidebar, muted, .15F), 5);
     } else {
@@ -123,7 +123,7 @@ namespace app {
       }
     }
     root.addChild(std::move(clipped));
-    const bool member = std::ranges::find(m_guilds, guild.id, &discord::Guild::id) != m_guilds.end();
+    const bool member = std::ranges::find(m_guilds, guild.id, &api::Guild::id) != m_guilds.end();
     const bool joined = member || m_guildPreviewJoined;
     const auto status = !m_dialogError.empty() ? m_dialogError
         : m_guildPreviewVerification           ? guild.recruitment ? "Continue joining this server in Discord."
@@ -164,13 +164,13 @@ namespace app {
       const auto guild = m_guildProfile.id;
       showGuildProfile(guild);
     } else if (hit.action == Action::JoinGuild && m_guildProfile.joinable && !m_guildPreviewJoined) {
-      discord::Interaction join{
-          .kind = discord::InteractionKind::JoinGuild, .guild = m_guildProfile.id, .revision = ++m_dialogGeneration
+      api::Interaction join{
+          .kind = api::InteractionKind::JoinGuild, .guild = m_guildProfile.id, .revision = ++m_dialogGeneration
       };
       if (m_demo) {
         // Simulate only a server acknowledgement; never send an account mutation.
         m_dialogAction = join;
-        discord::Event event;
+        api::Event event;
         event.interaction = join;
         interactionResult(event);
       } else if (startInteraction(join)) {
@@ -181,7 +181,7 @@ namespace app {
         m_dialogError = m_status;
     } else if (hit.action == Action::OpenPreviewGuild) {
       const auto guild = m_guildProfile;
-      const bool member = std::ranges::find(m_guilds, guild.id, &discord::Guild::id) != m_guilds.end();
+      const bool member = std::ranges::find(m_guilds, guild.id, &api::Guild::id) != m_guilds.end();
       if (m_guildPreviewVerification) {
         if (!m_demo)
           activate({0, 0, 0, 0, Action::OpenUrl, "https://discord.com/channels/" + guild.id});

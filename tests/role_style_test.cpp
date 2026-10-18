@@ -1,6 +1,6 @@
 #include "app/role_motion.h"
-#include "discord/models.h"
-#include "discord/role_styles.h"
+#include "api/models.h"
+#include "api/role_styles.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -13,7 +13,7 @@ int main() {
       throw std::runtime_error(message);
   };
   try {
-    discord::RoleDirectory directory;
+    api::RoleDirectory directory;
     auto solid = json{{"id", "50"}, {"position", 1}, {"color", 0xFF8844}};
     auto gradient = json{
         {"id", "60"},
@@ -44,9 +44,9 @@ int main() {
               json::array({{{"user_id", "11"}, {"roles", json::array({"90"})}}})}
          )}
     };
-    directory.apply(discord::parseRoleUpdates("READY", ready));
+    directory.apply(api::parseRoleUpdates("READY", ready));
     require(
-        directory.colors("1", "11") == discord::RoleColors{0xF05090, 0x50CCFF, {}},
+        directory.colors("1", "11") == api::RoleColors{0xF05090, 0x50CCFF, {}},
         "Highest colored role wins over higher colorless roles; new colors override legacy color"
     );
     require(
@@ -55,7 +55,7 @@ int main() {
     );
     require(directory.colors("1", "12")->tertiary == 16761760, "Holographic palette retains all three server colors");
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_MEMBER_UPDATE", json{{"guild_id", "1"}, {"user", {{"id", "11"}}}, {"roles", json::array({"50"})}}
         )
     );
@@ -64,21 +64,21 @@ int main() {
         "Live membership changes recolor existing messages without fetching history"
     );
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_MEMBER_UPDATE", json{{"guild_id", "1"}, {"user", {{"id", "11"}}}, {"nick", "Changed"}}
         )
     );
     require(directory.colors("1", "11")->primary == 0xFF8844, "Partial member updates preserve roles");
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_ROLE_UPDATE", json{{"guild_id", "1"}, {"role", {{"id", "50"}, {"position", 1}, {"color", 0x2255AA}}}}
         )
     );
     require(directory.colors("1", "11")->primary == 0x2255AA, "Live role edits replace colors");
-    directory.apply(discord::parseRoleUpdates("GUILD_ROLE_DELETE", json{{"guild_id", "1"}, {"role_id", "50"}}));
+    directory.apply(api::parseRoleUpdates("GUILD_ROLE_DELETE", json{{"guild_id", "1"}, {"role_id", "50"}}));
     require(!directory.colors("1", "11"), "Deleting the only colored role restores default color");
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_MEMBER_UPDATE", json{{"guild_id", "1"}, {"user_id", "12"}, {"roles", json::array()}}
         )
     );
@@ -87,25 +87,25 @@ int main() {
         "Live empty roles override stale message membership"
     );
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "MESSAGE_CREATE",
             json{{"guild_id", "1"}, {"author", {{"id", "12"}}}, {"member", {{"roles", json::array({"70"})}}}}
         )
     );
     require(directory.colors("1", "12")->tertiary.has_value(), "Live message membership refreshes the directory");
-    directory.apply(discord::parseRoleUpdates("GUILD_UPDATE", json{{"id", "1"}, {"features", json::array()}}));
+    directory.apply(api::parseRoleUpdates("GUILD_UPDATE", json{{"id", "1"}, {"features", json::array()}}));
     require(
         !directory.colors("1", "12")->secondary && directory.colors("1", "12")->primary == 11127295,
         "Losing enhanced styles falls back to primary color"
     );
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_UPDATE", json{{"id", "1"}, {"features", json::array({"ENHANCED_ROLE_COLORS"})}}
         )
     );
     require(directory.colors("1", "12")->tertiary.has_value(), "Restored perk enables the saved palette");
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_MEMBER_LIST_UPDATE",
             json{
                 {"guild_id", "1"},
@@ -118,7 +118,7 @@ int main() {
         )
     );
     require(directory.colors("1", "13")->secondary == 0x50CCFF, "Lazy member-list data resolves colors");
-    const auto messages = discord::parseMessages(
+    const auto messages = api::parseMessages(
         json::array(
             {{{"id", "100"},
               {"channel_id", "10"},
@@ -132,13 +132,13 @@ int main() {
         "REST message roles work without loading the member list first"
     );
     auto message = messages.front();
-    discord::parseMessagePatch(json{{"content", "updated"}}).apply(message);
+    api::parseMessagePatch(json{{"content", "updated"}}).apply(message);
     require(message.memberRoles == messages.front().memberRoles, "Missing roles preserve message membership on edits");
-    discord::parseMessagePatch(json{{"member", {{"roles", json::array()}}}}).apply(message);
+    api::parseMessagePatch(json{{"member", {{"roles", json::array()}}}}).apply(message);
     require(message.memberRoles && message.memberRoles->empty(), "Explicit empty role lists clear message membership");
-    require(!discord::parseMemberRoles(json{{"roles", json::array({123})}}), "Malformed role IDs are not coerced");
+    require(!api::parseMemberRoles(json{{"roles", json::array({123})}}), "Malformed role IDs are not coerced");
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_ROLE_CREATE",
             json{
                 {"guild_id", "1"},
@@ -154,7 +154,7 @@ int main() {
         directory.colors("1", "15", std::vector<std::string>{"60", "61"})->primary == 0xF05090,
         "Smaller role ID wins equal-position ties"
     );
-    const auto history = discord::parseMessages(
+    const auto history = api::parseMessages(
         json::array(
             {{{"id", "101"},
               {"channel_id", "10"},
@@ -166,7 +166,7 @@ int main() {
         !history.front().memberRoles && !directory.colors("1", "16"), "History without member data starts unresolved"
     );
     directory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "GUILD_MEMBERS_CHUNK",
             json{
                 {"guild_id", "1"},
@@ -178,13 +178,13 @@ int main() {
         directory.colors("1", "16", history.front().memberRoles)->secondary == 0x50CCFF,
         "Targeted member replies recolor existing history without a member-list page or profile"
     );
-    directory.apply(discord::parseRoleUpdates("GUILD_DELETE", json{{"id", "1"}, {"unavailable", true}}));
+    directory.apply(api::parseRoleUpdates("GUILD_DELETE", json{{"id", "1"}, {"unavailable", true}}));
     require(directory.colors("1", "13").has_value(), "Temporary guild unavailability preserves colors");
-    directory.apply(discord::parseRoleUpdates("GUILD_DELETE", json{{"id", "1"}}));
+    directory.apply(api::parseRoleUpdates("GUILD_DELETE", json{{"id", "1"}}));
     require(!directory.colors("1", "13"), "Departed guild clears role state");
-    directory.apply(discord::parseRoleUpdates("RESUMED", json::object()));
+    directory.apply(api::parseRoleUpdates("RESUMED", json::object()));
     require(directory.colors("2", "11").has_value(), "RESUME retains account state");
-    directory.apply(discord::parseRoleUpdates("READY", json::object()));
+    directory.apply(api::parseRoleUpdates("READY", json::object()));
     require(!directory.colors("2", "11"), "Fresh READY clears the previous account");
 
     app::RoleMotion motion;

@@ -10,7 +10,7 @@ namespace app {
     using Json = nlohmann::json;
     m_demoOverlay = view;
     m_showMembers = false;
-    auto channels = discord::parseChannels(Json::parse(R"JSON([
+    auto channels = api::parseChannels(Json::parse(R"JSON([
       {"id":"101","name":"🛟-support","type":0,
        "topic":"**Need help?** Bugs and feature requests belong on [GitHub](https://github.com/Ly-sec/Cressida).\nQuick questions and temporary troubleshooting: use the support panel to open a private session.",
        "permission_overwrites":[
@@ -22,7 +22,7 @@ namespace app {
     ])JSON"));
     m_guildChannels[m_guildId] = channels;
     m_channels = channels;
-    m_roleDirectory.apply(discord::parseRoleUpdates("READY", Json::parse(R"JSON({
+    m_roleDirectory.apply(api::parseRoleUpdates("READY", Json::parse(R"JSON({
       "user":{"id":"1"},"guilds":[{"id":"1","owner_id":"11",
         "roles":[
           {"id":"1","name":"@everyone","permissions":"68608"},
@@ -31,7 +31,7 @@ namespace app {
           {"id":"52","name":"Support bot","position":1,"color":10395294,"permissions":"0"}],
         "members":[{"user":{"id":"1"},"roles":["50","51"]}]}]
     })JSON")));
-    m_messages = discord::parseMessages(Json::parse(R"JSON([
+    m_messages = api::parseMessages(Json::parse(R"JSON([
       {"id":"5001","channel_id":"101","timestamp":"2026-10-17T09:41:00Z",
        "author":{"id":"52","username":"Talia","bot":true},"content":"",
        "embeds":[{"title":"Need help?","description":"For bugs and feature requests, please use **GitHub** so the work can be tracked.\n\nFor quick questions or temporary troubleshooting, use a button below to open a private support session.","color":11977215}],
@@ -48,7 +48,7 @@ namespace app {
     if (view == "channel-search") {
       m_channelPanel = "search";
       m_channelSearchText = "help";
-      m_channelPageShown = discord::ChannelPageQuery{discord::ChannelPage::Search, "1", "101", "help"};
+      m_channelPageShown = api::ChannelPageQuery{api::ChannelPage::Search, "1", "101", "help"};
       m_channelPage.messages = m_messages;
       m_channelPage.total = 1;
     }
@@ -66,10 +66,10 @@ namespace app {
       m_messages.push_back(std::move(reply));
       if (view == "channel-modal") {
         m_componentStates["5002:support:confirm"] = {"456", {}, true};
-        discord::Event event;
-        event.operation = discord::Operation::ComponentResult;
+        api::Event event;
+        event.operation = api::Operation::ComponentResult;
         event.nonce = "456";
-        event.modal = discord::parseApplicationModal(Json::parse(R"JSON({
+        event.modal = api::parseApplicationModal(Json::parse(R"JSON({
           "id":"6001","channel_id":"101","application":{"id":"52"},
           "custom_id":"support:details","title":"Open support session",
           "components":[{"type":1,"components":[{"type":4,"style":1,"custom_id":"system","label":"Your system","placeholder":"Distribution and desktop"}]},
@@ -93,12 +93,12 @@ namespace app {
       const auto copy = *found;
       activate(copy);
     };
-    using Kind = discord::InteractionKind;
+    using Kind = api::InteractionKind;
     const auto step = m_demoInteractionStep++;
     std::clog << "Channel feature replay step " << step << '\n';
     if (step == 0) {
       require(
-          selectedChannel()->topic && selectedChannelPermissions().value_or(0) & discord::manageChannel,
+          selectedChannel()->topic && selectedChannelPermissions().value_or(0) & api::manageChannel,
           "Project channel topic and actor permissions"
       );
       require(
@@ -116,9 +116,9 @@ namespace app {
           "Bot message components must render clickable buttons"
       );
       m_componentStates["5001:support:cressida"] = {"123", "Sending…", true};
-      discord::Event event;
-      event.operation = discord::Operation::Interaction;
-      event.interaction = discord::Interaction{
+      api::Event event;
+      event.operation = api::Operation::Interaction;
+      event.interaction = api::Interaction{
           .kind = Kind::MessageButton,
           .channel = "101",
           .message = "5001",
@@ -131,8 +131,8 @@ namespace app {
           m_componentStates.at("5001:support:cressida").status.empty(),
           "Successful acceptance must not add a confirmation below the message"
       );
-      discord::Event event;
-      event.operation = discord::Operation::ComponentResult;
+      api::Event event;
+      event.operation = api::Operation::ComponentResult;
       event.nonce = "123";
       event.error = "The application could not complete this action.";
       componentResult(event);
@@ -151,9 +151,9 @@ namespace app {
           m_channelFormTopic != m_channelEditOriginal.topic.value_or("") && !m_dialogPending,
           "Typing must edit the draft without mutating the account"
       );
-      discord::Event event;
-      event.operation = discord::Operation::Interaction;
-      event.interaction = discord::Interaction{
+      api::Event event;
+      event.operation = api::Operation::Interaction;
+      event.interaction = api::Interaction{
           .kind = Kind::EditChannel, .channel = "101", .guild = "1", .channelTopic = "A saved channel description."
       };
       event.channels = {*selectedChannel()};
@@ -174,12 +174,12 @@ namespace app {
       closeDialog();
     } else if (step == 6) {
       click(Action::ChannelPins);
-      discord::ChannelPageQuery query{discord::ChannelPage::Pins, "1", "101", {}, {}, 0, ++m_channelFeatureSerial};
+      api::ChannelPageQuery query{api::ChannelPage::Pins, "1", "101", {}, {}, 0, ++m_channelFeatureSerial};
       m_channelPageRequest = query;
-      discord::Event event;
-      event.operation = discord::Operation::ChannelPage;
+      api::Event event;
+      event.operation = api::Operation::ChannelPage;
       event.channelQuery = query;
-      event.channelPage = discord::ChannelPageResult{m_messages};
+      event.channelPage = api::ChannelPageResult{m_messages};
       channelFeatureEvent(event);
     } else if (step == 7) {
       require(
@@ -198,31 +198,31 @@ namespace app {
       require(m_channelSearchText == "help", "Search fields retain standard native text editing");
       m_window.key({.symbol = XKB_KEY_Return});
       require(m_status.empty(), "Search Enter must not submit unrelated account settings");
-      discord::ChannelPageQuery query{discord::ChannelPage::Search, "1", "101", "help", {}, 0,
+      api::ChannelPageQuery query{api::ChannelPage::Search, "1", "101", "help", {}, 0,
                                       ++m_channelFeatureSerial};
       m_channelPageRequest = query;
-      discord::Event event;
-      event.operation = discord::Operation::ChannelPage;
+      api::Event event;
+      event.operation = api::Operation::ChannelPage;
       event.channelQuery = query;
-      event.channelPage = discord::ChannelPageResult{m_messages, 1};
+      event.channelPage = api::ChannelPageResult{m_messages, 1};
       channelFeatureEvent(event);
     } else if (step == 10) {
       require(m_channelPanel == "search" && m_channelPage.total == 1, "Search projects typed, scoped result pages");
-      discord::Event stale;
-      stale.operation = discord::Operation::ChannelPage;
-      stale.channelQuery = discord::ChannelPageQuery{discord::ChannelPage::Search, "1", "101", "old", {}, 0, 0};
+      api::Event stale;
+      stale.operation = api::Operation::ChannelPage;
+      stale.channelQuery = api::ChannelPageQuery{api::ChannelPage::Search, "1", "101", "old", {}, 0, 0};
       stale.error = "Stale result";
       channelFeatureEvent(stale);
       require(m_channelPanelError.empty(), "Late searches cannot replace the current panel state");
       click(Action::ToggleMembers);
     } else if (step == 11) {
       require(m_channelPanel.empty() && m_showMembers, "Member-list actions replace result panels");
-      discord::GuildRoleUpdate changed;
+      api::GuildRoleUpdate changed;
       changed.guild = "1";
       changed.members["1"] = {};
       m_roleDirectory.apply({false, {changed}});
       require(
-          !(selectedChannelPermissions().value_or(0) & discord::manageChannel),
+          !(selectedChannelPermissions().value_or(0) & api::manageChannel),
           "Losing management permissions hides privileged channel actions"
       );
       auto reply = m_messages.front();
@@ -230,10 +230,10 @@ namespace app {
       reply.flags = 64;
       m_messages.push_back(std::move(reply));
       m_componentStates["5002:support:cressida"] = {"456", {}, true};
-      discord::Event event;
-      event.operation = discord::Operation::ComponentResult;
+      api::Event event;
+      event.operation = api::Operation::ComponentResult;
       event.nonce = "456";
-      event.modal = discord::parseApplicationModal(nlohmann::json::parse(R"JSON({
+      event.modal = api::parseApplicationModal(nlohmann::json::parse(R"JSON({
         "id":"6001","channel_id":"101","application":{"id":"52"},"custom_id":"support:details","title":"Support details",
         "components":[{"type":1,"components":[{"type":4,"style":2,"custom_id":"details","label":"Describe the issue","min_length":3}]}]
       })JSON"));
@@ -255,7 +255,7 @@ namespace app {
           "Editing native form fields changes only the draft"
       );
     } else if (step == 13) {
-      discord::Interaction action{
+      api::Interaction action{
           .kind = Kind::SubmitModal,
           .channel = "101",
           .guild = "1",
@@ -265,18 +265,18 @@ namespace app {
           .values = m_applicationValues
       };
       require(
-          discord::interactionRequest(action).has_value(), "Completed forms construct validated type-5 submissions"
+          api::interactionRequest(action).has_value(), "Completed forms construct validated type-5 submissions"
       );
       m_dialogPending = true;
       m_modalNonce = "789";
-      discord::Event event;
-      event.operation = discord::Operation::Interaction;
+      api::Event event;
+      event.operation = api::Operation::Interaction;
       event.interaction = action;
       componentResult(event);
       require(m_dialogPending && m_applicationModal, "HTTP acceptance waits for the application's form response");
     } else if (step == 14) {
-      discord::Event event;
-      event.operation = discord::Operation::ComponentResult;
+      api::Event event;
+      event.operation = api::Operation::ComponentResult;
       event.nonce = "789";
       event.error = "Application rejected this form.";
       componentResult(event);
@@ -287,13 +287,13 @@ namespace app {
       m_modalNonce = "790";
       m_dialogPending = true;
     } else if (step == 15) {
-      discord::Event event;
-      event.operation = discord::Operation::ComponentResult;
+      api::Event event;
+      event.operation = api::Operation::ComponentResult;
       event.nonce = "790";
       componentResult(event);
-      discord::Event late;
-      late.operation = discord::Operation::Interaction;
-      late.interaction = discord::Interaction{.kind = Kind::SubmitModal, .nonce = "790"};
+      api::Event late;
+      late.operation = api::Operation::Interaction;
+      late.interaction = api::Interaction{.kind = Kind::SubmitModal, .nonce = "790"};
       componentResult(late);
       require(
           m_dialogKind.empty() && !m_applicationModal && m_applicationValues.empty(),
@@ -316,8 +316,8 @@ namespace app {
       m_channels.push_back({"102", "other-channel"});
       m_guildChannels["1"] = m_channels;
       m_channelMessages["101"] = m_messages;
-      discord::Event removal;
-      removal.operation = discord::Operation::InvalidateChannels;
+      api::Event removal;
+      removal.operation = api::Operation::InvalidateChannels;
       removal.resource = "1";
       removal.removed = {"101"};
       removeGuildChannels(removal);
@@ -329,8 +329,8 @@ namespace app {
               && m_dialogKind.empty(),
           "Gateway deletion removes rows and cached history immediately and navigates away without a list reload"
       );
-      discord::Event stale;
-      stale.operation = discord::Operation::Channels;
+      api::Event stale;
+      stale.operation = api::Operation::Channels;
       stale.resource = "1";
       stale.channels = {deleted, m_channels.front()};
       filterDeletedChannels(stale);

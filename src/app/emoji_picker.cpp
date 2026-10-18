@@ -14,9 +14,9 @@ namespace app {
     if (m_demo) {
       if (m_loadedEmojiGuilds.empty() && !m_guilds.empty()) {
         for (std::size_t g = 0; g < m_guilds.size(); ++g) {
-          std::vector<discord::Emoji> emojis;
+          std::vector<api::Emoji> emojis;
           for (int i = 0; i < 16; ++i) {
-            discord::Emoji emoji;
+            api::Emoji emoji;
             emoji.id = std::to_string(800000000000000000ULL + g * 100 + i);
             emoji.name = i == 0 ? "umbriel" : "project_" + std::to_string(i);
             emoji.guild = m_guilds[g].id;
@@ -40,7 +40,7 @@ namespace app {
               animation->frames.push_back(std::move(frame));
             }
             animation->duration = std::chrono::milliseconds(300);
-            const auto path = discord::emojiPath(emoji.id, emoji.animated);
+            const auto path = api::emojiPath(emoji.id, emoji.animated);
             auto& cached = m_images[path];
             cached.texture = m_window.context().textureManager().loadFromRgba(animation->frames[0].rgba.data(), 48, 48);
             if (emoji.animated)
@@ -61,7 +61,7 @@ namespace app {
       if (!m_loadingEmojiPreferences)
         m_emojiError = "Could not load emoji favorites. Try again.";
     }
-    const auto guild = discord::validSnowflake(m_emojiSection) ? m_emojiSection : m_guildId;
+    const auto guild = api::validSnowflake(m_emojiSection) ? m_emojiSection : m_guildId;
     if (!guild.empty()
         && !m_loadedEmojiGuilds.contains(guild)
         && !m_loadingEmojiGuilds.contains(guild)
@@ -97,8 +97,8 @@ namespace app {
     m_emojiJump.clear();
     m_emojiScroll = m_emojiRailScroll = 0;
   }
-  void ClientApplication::emojiEvent(discord::Event& event) {
-    if (event.operation == discord::Operation::GuildEmojis) {
+  void ClientApplication::emojiEvent(api::Event& event) {
+    if (event.operation == api::Operation::GuildEmojis) {
       m_loadingEmojiGuilds.erase(event.resource);
       if (event.error.empty()) {
         m_emojiGuildErrors.erase(event.resource);
@@ -111,7 +111,7 @@ namespace app {
     if (event.resource == "changed")
       m_emojiPreferencesDirty = true;
     else {
-      if (event.operation == discord::Operation::SaveEmojiFavorite)
+      if (event.operation == api::Operation::SaveEmojiFavorite)
         m_pendingEmojiFavorites.erase(event.resource);
       else
         m_loadingEmojiPreferences = false;
@@ -131,7 +131,7 @@ namespace app {
         m_emojiPreferencesDirty = false;
     }
   }
-  std::string ClientApplication::favoriteEmojiKey(const discord::Emoji& emoji) const {
+  std::string ClientApplication::favoriteEmojiKey(const api::Emoji& emoji) const {
     for (const auto& key : m_emojiPreferences.favorites) {
       const auto* item = m_emojiCatalog.find(key);
       if (key == emoji.key() || (item && item->key() == emoji.key()))
@@ -160,16 +160,16 @@ namespace app {
   }
   void ClientApplication::pickEmoji(const std::string& key) {
     const auto* emoji = m_emojiCatalog.find(key);
-    if (!emoji || (!emoji->available && (!m_reactionMessage.empty() || !m_preferences.fakeNitroEmojis)))
+    if (!emoji || (!emoji->available && (!m_reactionMessage.empty() || !m_preferences.emojiImageLinks)))
       return;
     if (m_reactionMessage.empty()
-        && !m_preferences.fakeNitroEmojis
-        && discord::emojiNeedsImage(*emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0)))
+        && !m_preferences.emojiImageLinks
+        && api::emojiNeedsImage(*emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0)))
       return;
     const auto picked = *emoji;
     if (!m_reactionMessage.empty()) {
       startInteraction(
-          {.kind = discord::InteractionKind::AddReaction,
+          {.kind = api::InteractionKind::AddReaction,
            .channel = m_reactionChannel,
            .message = m_reactionMessage,
            .emoji = picked.reaction()}
@@ -221,7 +221,7 @@ namespace app {
     rail->setClipChildren(true);
     float railY = 0;
     auto railItem = [&](const std::string& id, const std::string& icon, const std::string& title,
-                        const discord::Guild* guild = nullptr) {
+                        const api::Guild* guild = nullptr) {
       const float ry = railY - m_emojiRailScroll;
       railY += 44;
       if (ry + 36 <= 0 || ry >= available)
@@ -246,10 +246,10 @@ namespace app {
     railItem("favorites", "star", "Favorites");
     railItem("recent", "clock", "Frequently used");
     railItem("all", "mood-smile", "All emoji");
-    std::vector<const discord::Guild*> guilds;
+    std::vector<const api::Guild*> guilds;
     for (const auto& folder : m_folders)
       for (const auto& id : folder.guildIds) {
-        const auto guild = std::ranges::find(m_guilds, id, &discord::Guild::id);
+        const auto guild = std::ranges::find(m_guilds, id, &api::Guild::id);
         if (guild != m_guilds.end())
           guilds.push_back(&*guild);
       }
@@ -274,7 +274,7 @@ namespace app {
     root.addChild(std::move(rail));
     struct Group {
       std::string id, title;
-      std::vector<const discord::Emoji*> items;
+      std::vector<const api::Emoji*> items;
     };
     std::vector<Group> groups;
     auto appendKeys = [&](std::string id, std::string title, const std::vector<std::string>& keys) {
@@ -306,7 +306,7 @@ namespace app {
     };
     auto query = lower(m_emojiQuery);
     std::erase(query, ':');
-    auto matches = [&](const discord::Emoji& emoji) {
+    auto matches = [&](const api::Emoji& emoji) {
       if (query.empty() || lower(emoji.name).contains(query) || emoji.unicode == query)
         return true;
       for (const auto& word : emoji.aliases)
@@ -380,10 +380,10 @@ namespace app {
         }
         if (emoji.id.empty())
           label(*grid, ex + (cell - 36) / 2, ey + 4, 40, emoji.unicode, 30, emoji.available ? foreground : muted);
-        else if (!emojiImage(*grid, ex + (cell - 36) / 2, ey + 4, 36, discord::emojiPath(emoji.id, emoji.animated)))
+        else if (!emojiImage(*grid, ex + (cell - 36) / 2, ey + 4, 36, api::emojiPath(emoji.id, emoji.animated)))
           glyph(*grid, ex + 12, ey + 10, 20, "loader", muted);
-        const bool selectable = m_reactionMessage.empty() ? m_preferences.fakeNitroEmojis
-                || !discord::emojiNeedsImage(emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0))
+        const bool selectable = m_reactionMessage.empty() ? m_preferences.emojiImageLinks
+                || !api::emojiNeedsImage(emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0))
                                                           : emoji.available;
         if (selectable)
           m_hits.push_back(
@@ -416,19 +416,19 @@ namespace app {
       if (emoji->id.empty())
         label(root, gridX, y + height - 43, 36, emoji->unicode, 27, foreground);
       else
-        emojiImage(root, gridX, y + height - 43, 32, discord::emojiPath(emoji->id, emoji->animated));
+        emojiImage(root, gridX, y + height - 43, 32, api::emojiPath(emoji->id, emoji->animated));
       label(
           root, gridX + 44, y + height - 44, gridWidth - 48, ":" + emoji->name + ":", 13, foreground,
           FontWeight::SemiBold
       );
-      const auto guild = std::ranges::find(m_guilds, emoji->guild, &discord::Guild::id);
+      const auto guild = std::ranges::find(m_guilds, emoji->guild, &api::Guild::id);
       auto source = emoji->guild.empty() ? std::string("Unicode emoji")
           : guild == m_guilds.end()      ? "Server emoji"
                                          : "from " + guild->name;
       if (m_reactionMessage.empty()
-          && discord::emojiNeedsImage(*emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0)))
-        source =
-            m_preferences.fakeNitroEmojis ? "Sends as an image link" : "Enable FakeNitro in Cressida → General → Expressions";
+          && api::emojiNeedsImage(*emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0)))
+        source = m_preferences.emojiImageLinks ? "Sends as an image link"
+                                               : "Enable Emoji image links in Cressida → General → Expressions";
       label(root, gridX + 44, y + height - 24, gridWidth - 48, source, 11, muted);
     }
   }

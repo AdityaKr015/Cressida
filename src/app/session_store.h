@@ -10,7 +10,7 @@ namespace app {
     float messageSize = 14;
     bool compact = false, showEmbeds = true, showImages = true;
     bool autoplayGifs = true;
-    bool fakeNitroEmojis = false;
+    bool emojiImageLinks = false;
     bool roleColors = true, animateRoleColors = true;
     bool showGuildTags = true;
     float channelSidebarWidth = 248;

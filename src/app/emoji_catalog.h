@@ -1,5 +1,5 @@
 #pragma once
-#include "discord/emoji.h"
+#include "api/emoji.h"
 
 #include <filesystem>
 #include <map>
@@ -9,9 +9,9 @@ namespace app {
   class EmojiCatalog {
   public:
     void load(const std::filesystem::path& catalog, const std::filesystem::path& aliases);
-    void setGuild(const std::string& guild, std::vector<discord::Emoji> emojis);
+    void setGuild(const std::string& guild, std::vector<api::Emoji> emojis);
     void clearGuilds();
-    const discord::Emoji* find(const std::string& key) const;
+    const api::Emoji* find(const std::string& key) const;
     bool isUnicode(std::string_view text) const;
     std::string
     messageContent(std::string_view content, const std::string& guild, int premiumType, bool fallback) const;
@@ -20,7 +20,7 @@ namespace app {
     const std::vector<std::string>& category(const std::string& id) const;
 
   private:
-    std::map<std::string, discord::Emoji> m_items;
+    std::map<std::string, api::Emoji> m_items;
     std::map<std::string, std::string> m_aliases;
     std::map<std::string, std::vector<std::string>> m_guilds;
     std::map<std::string, std::vector<std::string>> m_categories;

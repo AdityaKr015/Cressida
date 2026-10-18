@@ -27,7 +27,7 @@ namespace app {
   bool ClientApplication::forumView() const {
     if (m_dmMode)
       return false;
-    const auto channel = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+    const auto channel = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
     return channel != m_channels.end() && channel->isForum();
   }
   void ClientApplication::updateForumSearch() {
@@ -50,7 +50,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::drawForum(Node& root, float x, float y, float width, float height) {
-    const auto parent = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+    const auto parent = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
     if (parent == m_channels.end())
       return;
     const float inset = 22, inner = width - 2 * inset;
@@ -66,8 +66,8 @@ namespace app {
     button(
         root,
         {x + inset + sortWidth + 8, y + 76, 96, 30, Action::ThreadTab,
-         m_threadTab == discord::ThreadList::Archived ? "forum-active" : "forum-archived"},
-        m_threadTab == discord::ThreadList::Archived ? "Active posts" : "Archived"
+         m_threadTab == api::ThreadList::Archived ? "forum-active" : "forum-archived"},
+        m_threadTab == api::ThreadList::Archived ? "Active posts" : "Archived"
     );
     float tx = sortWidth + 116, ty = 76;
     for (const auto& tag : parent->availableTags) {
@@ -93,7 +93,7 @@ namespace app {
       );
       float textX = bx + 11;
       if (!tag.emojiId.empty()) {
-        emojiImage(root, textX, by + 7, 16, discord::emojiPath(tag.emojiId));
+        emojiImage(root, textX, by + 7, 16, api::emojiPath(tag.emojiId));
         textX += 22;
       } else if (!tag.emojiName.empty()) {
         label(root, textX, by + 6, 22, tag.emojiName, 16, foreground);
@@ -115,7 +115,7 @@ namespace app {
     auto threads = m_threads.list(m_guildId, m_channelId);
     const auto query = folded(m_forumSearch);
     std::erase_if(threads, [&](const auto& thread) {
-      return thread.archived.value_or(false) != (m_threadTab == discord::ThreadList::Archived)
+      return thread.archived.value_or(false) != (m_threadTab == api::ThreadList::Archived)
           || (!query.empty() && !folded(thread.name).contains(query))
           || (!m_forumTag.empty()
               && (!thread.appliedTags
@@ -155,7 +155,7 @@ namespace app {
       );
       m_hits.push_back({x + inset, sy, cardWidth, end - sy, Action::OpenThread, thread.id});
       const auto first = m_forumFirstMessages.find(thread.id);
-      const discord::Message* preview = first == m_forumFirstMessages.end() ? nullptr : &first->second;
+      const api::Message* preview = first == m_forumFirstMessages.end() ? nullptr : &first->second;
       std::string thumbnail;
       if (preview) {
         for (const auto& a : preview->attachments)
@@ -174,7 +174,7 @@ namespace app {
       float chipX = 14;
       if (thread.appliedTags)
         for (const auto& id : *thread.appliedTags) {
-          const auto tag = std::ranges::find(parent->availableTags, id, &discord::ForumTag::id);
+          const auto tag = std::ranges::find(parent->availableTags, id, &api::ForumTag::id);
           if (tag == parent->availableTags.end())
             continue;
           const float tw = m_window.target().renderer().measureText(tag->name, 10).width
@@ -185,7 +185,7 @@ namespace app {
           rectangle(*content, chipX, ry + 12, tw, 23, lerpColor(panel, muted, 0.13F), 11);
           float cx = chipX + 9;
           if (!tag->emojiId.empty()) {
-            emojiImage(*content, cx, ry + 16, 14, discord::emojiPath(tag->emojiId));
+            emojiImage(*content, cx, ry + 16, 14, api::emojiPath(tag->emojiId));
             cx += 18;
           } else if (!tag->emojiName.empty()) {
             label(*content, cx, ry + 15, 18, tag->emojiName, 13, foreground);
@@ -229,7 +229,7 @@ namespace app {
         const auto& reaction = preview->reactions.front();
         rectangle(*content, detailX, ry + 102, 62, 24, lerpColor(background, accent, reaction.me ? 0.2F : 0.07F), 7);
         if (!reaction.id.empty())
-          emojiImage(*content, detailX + 7, ry + 105, 18, discord::emojiPath(reaction.id));
+          emojiImage(*content, detailX + 7, ry + 105, 18, api::emojiPath(reaction.id));
         else
           label(*content, detailX + 7, ry + 103, 28, reaction.name, 18, foreground);
         label(*content, detailX + 34, ry + 108, 24, std::to_string(reaction.count), 11, muted);
@@ -299,8 +299,8 @@ namespace app {
     m_dialogText.clear();
     m_forumPostTag = m_forumTag;
     m_dialogTitle = "New post";
-    m_dialogAction = discord::Interaction{
-        .kind = discord::InteractionKind::CreateForumPost,
+    m_dialogAction = api::Interaction{
+        .kind = api::InteractionKind::CreateForumPost,
         .channel = m_channelId,
         .guild = m_guildId,
         .revision = ++m_dialogGeneration,
@@ -326,7 +326,7 @@ namespace app {
         root, x + 24, y + 126, width - 48, std::max(60.0F, height - 332), "forum-body", m_drafts[m_channelId],
         "Write your post…", true
     );
-    const auto channel = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+    const auto channel = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
     float tx = 24, ty = height - 190;
     if (channel != m_channels.end())
       for (const auto& tag : channel->availableTags) {
@@ -354,7 +354,7 @@ namespace app {
   void ClientApplication::prepareForumDemo(const std::string& view) {
     m_demoOverlay = view;
     using Json = nlohmann::json;
-    auto forum = discord::parseChannels(
+    auto forum = api::parseChannels(
                      Json::array(
                          {{{"id", "105"},
                            {"type", 15},
@@ -388,7 +388,7 @@ namespace app {
            {"member", Json::object()},
            {"thread_metadata", {{"archived", false}, {"locked", false}}}}
       );
-      discord::Message message{
+      api::Message message{
           id,
           id,
           i % 2 ? "Maya" : "Noah",
@@ -400,8 +400,8 @@ namespace app {
       message.reactions = {{"", "❤️", i + 1}};
       m_forumFirstMessages[id] = std::move(message);
     }
-    discord::ThreadQuery query{discord::ThreadList::Active, "1", "105", {}, 0, m_threads.revision()};
-    m_threads.page(query, discord::parseThreadPage(Json{{"threads", threads}}, query));
+    api::ThreadQuery query{api::ThreadList::Active, "1", "105", {}, 0, m_threads.revision()};
+    m_threads.page(query, api::parseThreadPage(Json{{"threads", threads}}, query));
     rebuildThreadChannels();
     selectChannel("105");
     if (view == "forum-error")
@@ -494,10 +494,10 @@ namespace app {
           "Cancelling preserves the unsent post body"
       );
       const auto revision = m_threads.revision();
-      discord::Event failure;
-      failure.operation = discord::Operation::Threads;
+      api::Event failure;
+      failure.operation = api::Operation::Threads;
       failure.threadQuery =
-          discord::ThreadQuery{discord::ThreadList::Active, "1", "105", {}, ++m_threadSerial, revision};
+          api::ThreadQuery{api::ThreadList::Active, "1", "105", {}, ++m_threadSerial, revision};
       m_threadRequests["105"] = *failure.threadQuery;
       failure.error = "A synthetic request failed.";
       selectChannel("101");
@@ -511,7 +511,7 @@ namespace app {
     } else if (step == 11) {
       require(forumView() && m_channelId == "105", "Forum navigation survives errors and revisits");
       click(Action::ThreadTab, "forum-archived");
-      require(m_threadTab == discord::ThreadList::Archived, "Archived forum posts stay in the main forum view");
+      require(m_threadTab == api::ThreadList::Archived, "Archived forum posts stay in the main forum view");
       std::clog << "Offline forum replay passed\n";
     }
     m_window.invalidate();

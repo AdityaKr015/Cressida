@@ -1,7 +1,7 @@
 #include "app/client_application.h"
 #include "app/theme.h"
 #include "core/files/resource_paths.h"
-#include "discord/video_source.h"
+#include "api/video_source.h"
 #include "render/gl_shared_context.h"
 #include "render/scene/image_node.h"
 
@@ -58,7 +58,7 @@ namespace app {
         return;
       input = media::memoryVideoInput(bytes);
     } else
-      input = discord::videoSource(source);
+      input = api::videoSource(source);
     if (!input)
       return;
     m_videoSource = source;

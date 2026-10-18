@@ -32,18 +32,18 @@ namespace app {
   using namespace theme;
   namespace {
     struct ChannelListRow {
-      const discord::Channel* channel;
+      const api::Channel* channel;
       float top, height, advance;
     };
     template <class MentionCount>
     std::vector<ChannelListRow> channelListRows(
-        const std::vector<discord::Channel>& channels, const std::set<std::string>& collapsed,
+        const std::vector<api::Channel>& channels, const std::set<std::string>& collapsed,
         const std::string& selected, MentionCount mentions
     ) {
       std::vector<ChannelListRow> rows;
       float top = 0;
       for (const auto& channel : channels) {
-        const auto parent = std::ranges::find(channels, channel.parentId, &discord::Channel::id);
+        const auto parent = std::ranges::find(channels, channel.parentId, &api::Channel::id);
         const auto category = channel.isThread() && parent != channels.end() ? parent->parentId : channel.parentId;
         if (channel.type != 4 && collapsed.contains(category) && channel.id != selected && mentions(channel.id) == 0)
           continue;
@@ -116,20 +116,20 @@ namespace app {
               || std::abs((b->y - a->y) - (c->y - b->y)) > .1F
               || std::abs((c->y - b->y) - a->run.height) > .1F)
             throw std::runtime_error("Wrapped lines and consecutive messages must use the same line spacing");
-          discord::parseMessagePatch({{"mentions", nlohmann::json::array()},
+          api::parseMessagePatch({{"mentions", nlohmann::json::array()},
                                       {"edited_timestamp", "2026-10-17T09:42:00Z"}})
               .apply(m_messages[1]);
           m_messageLayouts.erase(m_messages[1].id);
         } else if (step == 1) {
           if (!m_messageLayouts.at("9102").layout.edited)
             throw std::runtime_error("Live edits must show an edited marker on the next frame");
-          discord::GuildRoleUpdate roles;
+          api::GuildRoleUpdate roles;
           roles.guild = m_guildId;
           roles.members[m_account.id] = {};
           m_roleDirectory.apply({false, {roles}});
         } else if (step == 2) {
-          discord::parseMessagePatch({{"mention_everyone", false}}).apply(m_messages[3]);
-          discord::parseMessagePatch({{"edited_timestamp", nullptr}}).apply(m_messages[4]);
+          api::parseMessagePatch({{"mention_everyone", false}}).apply(m_messages[3]);
+          api::parseMessagePatch({{"edited_timestamp", nullptr}}).apply(m_messages[4]);
           m_messageLayouts.erase(m_messages[4].id);
         } else {
           if (m_messageLayouts.at("9105").layout.edited)
@@ -162,8 +162,8 @@ namespace app {
         auto inspect = [&](auto&& self, const Node& node) -> void {
           if (node.type() == NodeType::Image) {
             const auto& picture = static_cast<const ImageNode&>(node);
-            const auto wide = m_images.at(discord::emojiPath("1407464763293831269", false)).texture.id;
-            const auto tall = m_images.at(discord::emojiPath("123", true)).texture.id;
+            const auto wide = m_images.at(api::emojiPath("1407464763293831269", false)).texture.id;
+            const auto tall = m_images.at(api::emojiPath("123", true)).texture.id;
             if (picture.textureId() == wide || picture.textureId() == tall) {
               if (picture.fitMode() != ImageFitMode::Contain || picture.textureWidth() == picture.textureHeight())
                 throw std::runtime_error("Non-square custom emoji must retain full image bounds");
@@ -488,7 +488,7 @@ namespace app {
       }
       if (!m_connected || m_demo || m_sending || m_channelId.empty() || !m_fieldFocused)
         return;
-      discord::Upload upload{
+      api::Upload upload{
           "pasted-image-"
               + std::to_string(++m_attachmentSerial)
               + (mime == "image/png"        ? ".png"
@@ -497,11 +497,11 @@ namespace app {
           mime,
           {bytes.begin(), bytes.end()}
       };
-      std::vector<discord::Upload> uploads;
+      std::vector<api::Upload> uploads;
       for (const auto& image : m_attachments[m_channelId])
         uploads.push_back(image.upload);
       uploads.push_back(upload);
-      if (!discord::validUploads(uploads)) {
+      if (!api::validUploads(uploads)) {
         m_status = "Attachments exceed the 20 MiB draft limit.";
         m_window.invalidate();
         return;
@@ -699,11 +699,11 @@ namespace app {
           pixels[offset + 3] = 255;
         }
       m_images["demo-preview"].texture = m_window.context().textureManager().loadFromRgba(pixels.data(), 640, 360);
-      discord::Message preview{"6", m_channelId, "Alex", "An image and a video preview", "2026-10-17T09:50:00Z"};
+      api::Message preview{"6", m_channelId, "Alex", "An image and a video preview", "2026-10-17T09:50:00Z"};
       preview.attachments.push_back(
           {"7", "preview.png", "https://example.com/preview.png", "image/png", {"demo-preview", 1280, 720}}
       );
-      discord::Embed video;
+      api::Embed video;
       video.type = "video";
       video.provider = "YouTube";
       video.title = "Offline video preview";
@@ -726,7 +726,7 @@ namespace app {
           m_messages.clear();
           const std::vector<std::string> people = {"NIRIXD", "ae", "lowvan", "nikusya", "Kyoka", "Telepuzik"};
           for (std::size_t i = 0; i < people.size(); ++i) {
-            auto messages = discord::parseMessages(
+            auto messages = api::parseMessages(
                 nlohmann::json::array(
                     {{{"id", std::to_string(9400 + i)},
                       {"channel_id", m_channelId},
@@ -739,7 +739,7 @@ namespace app {
             );
             m_messages.push_back(std::move(messages.front()));
           }
-          discord::GuildRoleUpdate roles{.guild = m_guildId};
+          api::GuildRoleUpdate roles{.guild = m_guildId};
           roles.roles = {{"50", 1, {0x5798D0}, "Nightling"}};
           for (const auto& message : m_messages)
             roles.members[message.authorId] = {"50"};
@@ -751,7 +751,7 @@ namespace app {
             channel.parentId = "100";
           m_channels.insert(m_channels.begin(), {"100", "PRIVATE", 4});
           m_channels.push_back({"200", "COMMUNITY", 4});
-          discord::Channel channel{"201", "showcase"};
+          api::Channel channel{"201", "showcase"};
           channel.parentId = "200";
           m_channels.push_back(std::move(channel));
           m_guildChannels[m_guildId] = m_channels;
@@ -762,7 +762,7 @@ namespace app {
           m_preferences.compact = view == "mentions-compact";
           if (view == "mentions-light")
             m_preferences.theme = "light";
-          m_messages = discord::parseMessages(nlohmann::json::parse(R"JSON([
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
             {"id":"9101","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:00Z","content":"A normal message starts the group.\nThis second line belongs to that same message."},
             {"id":"9102","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:10Z","content":"<@1> could you take a look?","mentions":[{"id":"1","username":"Alex"}]},
             {"id":"9103","channel_id":"101","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-17T09:41:20Z","content":"The Moonwarden role was mentioned.","mention_roles":["50"]},
@@ -771,7 +771,7 @@ namespace app {
           ])JSON"));
           for (auto& message : m_messages)
             message.channelId = m_channelId;
-          discord::GuildRoleUpdate roles;
+          api::GuildRoleUpdate roles;
           roles.guild = m_guildId;
           roles.members[m_account.id] = {"50"};
           m_roleDirectory.apply({false, {roles}});
@@ -805,7 +805,7 @@ namespace app {
                     std::
                         string>{"Kitsune 🦊 Cat 🏳️‍🌈", "Amber 🇩🇪", "👩🏽‍💻 Ada 1️⃣✨", "Default member"}
               : std::vector<std::string>{"⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "Prismatic member", "Amber member", "Default member"};
-          discord::GuildRoleUpdate roles;
+          api::GuildRoleUpdate roles;
           roles.guild = "1";
           roles.replaceRoles = true;
           roles.enhanced = true;
@@ -822,7 +822,7 @@ namespace app {
             m_messages.push_back(
                 {id, m_channelId, names[i], "A message from " + names[i] + ".", "2026-10-17T09:50:00Z", user}
             );
-            discord::MemberRow member;
+            api::MemberRow member;
             member.index = static_cast<int>(i);
             member.user = {user, names[i]};
             member.status = "online";
@@ -833,7 +833,7 @@ namespace app {
             roles.members.clear();
           m_roleDirectory.apply({true, {std::move(roles)}});
           if (view.starts_with("role-emoji")) {
-            discord::GuildRoleUpdate headings{.guild = "1"};
+            api::GuildRoleUpdate headings{.guild = "1"};
             headings.roles = {
                 {"50", 2, {0xF38BA8, 0x89DCEB, {}}, "Moonwarden", {}, "🌙"},
                 {"51", 3, {11127295, 16759788, 16761760}, "Prismatic", {}, "🔮"},
@@ -843,7 +843,7 @@ namespace app {
             const auto people = m_members;
             m_members.clear();
             for (std::size_t i = 0; i < people.size(); ++i) {
-              discord::MemberRow header;
+              api::MemberRow header;
               header.index = static_cast<int>(i * 2);
               header.groupId = i < 3 ? std::to_string(50 + i) : "online";
               header.group = i < 3 ? headings.roles[i].name : "Online";
@@ -868,7 +868,7 @@ namespace app {
           for (std::size_t i = 0; i < names.size(); ++i) {
             const auto id = std::to_string(8100 + i);
             m_messages.push_back({id, m_channelId, names[i], "what is serein?", "2026-10-17T09:50:00Z", id});
-            discord::MemberRow member;
+            api::MemberRow member;
             member.index = static_cast<int>(i);
             member.user = {id, names[i]};
             member.status = "online";
@@ -881,7 +881,7 @@ namespace app {
           m_demoOverlay = view;
           m_showMembers = false;
           m_messages.clear();
-          discord::Message clip{
+          api::Message clip{
               "7000", m_channelId, "Alex", "Original-resolution native video playback", "2026-10-17T09:50:00Z"
           };
           clip.attachments.push_back({"7001", "demo.mp4", "demo-video", "video/mp4", {"demo-video", 1280, 720}});
@@ -915,8 +915,8 @@ namespace app {
           for (std::size_t i = 0; i < m_messages.size() && i < authors.size(); ++i)
             m_messages[i].authorId = authors[i];
           m_messages[2].reactions = {{"", "👍", 3, true}, {"", "🎉", 2}, {"", "❤️", 5}};
-          m_messages[1].reply = discord::MessageReference{"1", m_channelId, "11", "Maya", m_messages.front().content};
-          discord::UserUpdates users;
+          m_messages[1].reply = api::MessageReference{"1", m_channelId, "11", "Maya", m_messages.front().content};
+          api::UserUpdates users;
           users.users["11"].relationship = view == "blocked" ? 2 : 1;
           m_userDirectory.apply(users);
           if (view.starts_with("guild-tag") || view == "guild-profile")
@@ -964,7 +964,7 @@ namespace app {
             cached.texture = m_window.context().textureManager().loadFromRgba(
                 animation->frames[0].rgba.data(), animation->width, animation->height
             );
-            discord::Gif gif;
+            api::Gif gif;
             gif.url = "https://klipy.com/gifs/cressida-demo-" + std::to_string(i);
             gif.src = path;
             gif.width = animation->width;
@@ -980,7 +980,7 @@ namespace app {
           if (view == "animated-media" || view == "animation-cycle" || view == "animated-image") {
             m_messages.resize(1);
             m_messages[0].content = "Native looping media";
-            discord::Embed gif;
+            api::Embed gif;
             gif.type = "gifv";
             gif.url = m_gifs[0].url;
             gif.video = {m_gifs[0].src, 480, 320};
@@ -1081,10 +1081,10 @@ namespace app {
                   + std::string(180, 'x')
           };
           for (std::size_t i = 0; i < replies.size(); ++i) {
-            discord::Message message{
+            api::Message message{
                 std::to_string(8400 + i), m_channelId, "Lysec", "they're back xD", "2026-10-17T09:41:00Z"
             };
-            message.reply = discord::MessageReference{"1", m_channelId, "11", "Yocraft", replies[i]};
+            message.reply = api::MessageReference{"1", m_channelId, "11", "Yocraft", replies[i]};
             m_messages.push_back(std::move(message));
           }
           if (view == "emoji-fit") {
@@ -1093,7 +1093,7 @@ namespace app {
             m_messages[2].reactions = {{"1407464763293831269", "wide", 1}};
           }
           for (const bool animated : {false, true}) {
-            const auto path = discord::emojiPath(animated ? "123" : "1407464763293831269", animated);
+            const auto path = api::emojiPath(animated ? "123" : "1407464763293831269", animated);
             auto animation = std::make_shared<media::Animation>();
             animation->width = animated ? 32 : 64;
             animation->height = animated ? 64 : 32;
@@ -1133,11 +1133,11 @@ namespace app {
         } else if (view == "reply-overlap") {
           m_messages.clear();
           for (int i = 0; i < 6; ++i) {
-            discord::Message message{
+            api::Message message{
                 std::to_string(4000 + i), m_channelId, "Maya", "This reply body stays below its preview.",
                 "2026-10-17T09:41:00Z"
             };
-            message.reply = discord::MessageReference{
+            message.reply = api::MessageReference{
                 "1", m_channelId, "11", "Alex",
                 "The Linux kernel got open-sourced btw\nLike, the entire thing is just open to download on GitHub "
                 "now\nhttps://github.com/torvalds/linux"
@@ -1151,7 +1151,7 @@ namespace app {
           m_messageLayouts.clear();
           m_unreadTimeline.snapshot({});
           m_unreadTimeline.positioned();
-          loadHistory(discord::HistoryDirection::Latest);
+          loadHistory(api::HistoryDirection::Latest);
         } else if (view == "scroll-cycle") {
           m_demoOverlay = view;
           m_messages.clear();
@@ -1181,13 +1181,13 @@ namespace app {
           prepareEmojiPicker();
           const auto* emoji = m_emojiCatalog.find("800000000000000000");
           if (emoji) {
-            const auto url = "https://cdn.discordapp.com" + discord::emojiPath(emoji->id, emoji->animated);
+            const auto url = "https://cdn.discordapp.com" + api::emojiPath(emoji->id, emoji->animated);
             m_messages.resize(1);
             m_messages[0].content = "[woe](" + url + ")";
-            discord::Embed preview;
+            api::Embed preview;
             preview.type = "image";
             preview.url = url;
-            preview.thumbnail = {discord::emojiPath(emoji->id, emoji->animated), 160, 160};
+            preview.thumbnail = {api::emojiPath(emoji->id, emoji->animated), 160, 160};
             m_messages[0].embeds = {preview};
             m_messageLayouts.clear();
           }
@@ -1229,7 +1229,7 @@ namespace app {
             for (int i = 0; i < 40; ++i)
               m_channels.push_back({std::to_string(1100 + i), "quiet-channel-" + std::to_string(i + 1)});
             m_channels.push_back({"1200", "mentioned-channel"});
-            auto cursors = std::map<std::string, discord::UnreadCursor>{
+            auto cursors = std::map<std::string, api::UnreadCursor>{
                 {"102", {"8999", "9000", 1}}, {"104", {"8999", "9000", 12}}, {"1200", {"8999", "9000", 2}}
             };
             m_unreadTimeline.snapshot(std::move(cursors), "reset");
@@ -1241,14 +1241,14 @@ namespace app {
           for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
                    {"11", "Maya"}, {"12", "Noah"}, {"13", "Robin"}, {"14", "Sam"}
                }) {
-            discord::Channel channel;
+            api::Channel channel;
             channel.id = "90" + id;
             channel.type = 1;
             channel.name = name;
             channel.recipients.push_back({id, name});
             m_privateChannels.push_back(std::move(channel));
           }
-          discord::UserUpdates users;
+          api::UserUpdates users;
           users.users["11"] = {"My friend 🌿", "online"};
           users.users["12"] = {{}, "idle"};
           users.users["13"] = {{}, "dnd"};
@@ -1640,9 +1640,9 @@ namespace app {
       }
 
       struct RailRow {
-        const discord::Guild* guild;
-        const discord::GuildFolder* folder;
-        const discord::Channel* dm = nullptr;
+        const api::Guild* guild;
+        const api::GuildFolder* folder;
+        const api::Channel* dm = nullptr;
       };
       std::vector<RailRow> rail;
       for (const auto& dm : m_privateChannels)
@@ -1654,7 +1654,7 @@ namespace app {
           rail.push_back({nullptr, &folder});
         if (folder.id.empty() || m_openFolders.contains(folder.id)) {
           for (const auto& guildId : folder.guildIds) {
-            auto it = std::ranges::find(m_guilds, guildId, &discord::Guild::id);
+            auto it = std::ranges::find(m_guilds, guildId, &api::Guild::id);
             if (it != m_guilds.end())
               rail.push_back({&*it, &folder});
           }
@@ -1686,7 +1686,7 @@ namespace app {
           color.a = hovered(10, y, 56, 50) ? 0.65F : 0.35F;
           rectangle(root, 10, y, 56, 50, color, 14);
           for (std::size_t j = 0; j < std::min<std::size_t>(4, row.folder->guildIds.size()); ++j) {
-            auto guild = std::ranges::find(m_guilds, row.folder->guildIds[j], &discord::Guild::id);
+            auto guild = std::ranges::find(m_guilds, row.folder->guildIds[j], &api::Guild::id);
             if (guild != m_guilds.end())
               avatar(root, 17 + (j % 2) * 22, y + 5 + (j / 2) * 22, 18, guild->icon, guild->name);
           }
@@ -1905,7 +1905,7 @@ namespace app {
                 attachment.image.url.clear();
             if (message.type == 7) {
               const auto notice = joinNotice(message);
-              const auto authorId = discord::validSnowflake(message.authorId) ? message.authorId : "1";
+              const auto authorId = api::validSnowflake(message.authorId) ? message.authorId : "1";
               const auto text = std::string(notice.before) + "<@" + authorId + ">" + std::string(notice.after);
               cached.layout = layoutMessage(
                   text, std::max(32.0F, textWidth - 40), measure, m_preferences.messageSize,
@@ -1919,7 +1919,7 @@ namespace app {
             } else {
               cached.layout = layoutRichMessage(
                   displayed, textWidth, measure, m_preferences.messageSize,
-                  {.fakeNitroEmojis = m_preferences.fakeNitroEmojis && m_preferences.showImages,
+                  {.emojiImageLinks = m_preferences.emojiImageLinks && m_preferences.showImages,
                    .compact = m_preferences.compact,
                    .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
               );
@@ -1931,7 +1931,7 @@ namespace app {
                           message.reply->authorId, message.reply->author.empty() ? "message" : message.reply->author
                       ),
                       textWidth, measure,
-                      {.fakeNitroEmojis = m_preferences.fakeNitroEmojis,
+                      {.emojiImageLinks = m_preferences.emojiImageLinks,
                        .compact = true,
                        .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
                   )
@@ -2098,7 +2098,7 @@ namespace app {
                 && message.webhookId.empty()
                 && !message.memberRoles
                 && !m_roleDirectory.memberships(m_guildId, message.authorId)
-                && discord::validSnowflake(message.authorId)
+                && api::validSnowflake(message.authorId)
                 && missingAuthors.size() < 100
                 && std::ranges::find(missingAuthors, message.authorId) == missingAuthors.end())
               missingAuthors.push_back(message.authorId);
@@ -2343,14 +2343,14 @@ namespace app {
                   if (animated && hovered(px, py, pic.width, pic.height) && py >= top && py + 36 <= bottom) {
                     if (!m_demo && !m_gifFavoritesLoaded && !m_loadingGifFavorites)
                       m_loadingGifFavorites = m_client.gifFavorites();
-                    discord::Gif gif;
-                    gif.url = pic.link.empty() ? discord::mediaUrl(pic.media.url) : pic.link;
-                    gif.src = discord::mediaUrl(pic.media.url);
+                    api::Gif gif;
+                    gif.url = pic.link.empty() ? api::mediaUrl(pic.media.url) : pic.link;
+                    gif.src = api::mediaUrl(pic.media.url);
                     gif.width = pic.media.width;
                     gif.height = pic.media.height;
                     gif.format = pic.media.url.contains(".mp4") || pic.media.url.contains(".webm") ? 2 : 1;
                     const bool favorite =
-                        std::ranges::find(m_gifFavorites, gif.url, &discord::Gif::url) != m_gifFavorites.end();
+                        std::ranges::find(m_gifFavorites, gif.url, &api::Gif::url) != m_gifFavorites.end();
                     m_gifTargets[gif.url] = gif;
                     rectangle(*content, 50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30, sidebar, 7);
                     iconButton(
@@ -2454,15 +2454,15 @@ namespace app {
             && m_dialogKind.empty()) {
           const float threshold = std::max(240.0F, (bottom - top) * 0.6F);
           if (!m_history.olderEnd() && m_messageMaxScroll - m_messageScroll < threshold)
-            loadHistory(discord::HistoryDirection::Older);
+            loadHistory(api::HistoryDirection::Older);
           else if (!m_history.atLatest() && m_messageScroll < threshold)
-            loadHistory(discord::HistoryDirection::Newer);
+            loadHistory(api::HistoryDirection::Newer);
         }
         const auto pendingHistory = m_history.pending();
-        if ((pendingHistory && pendingHistory->direction != discord::HistoryDirection::Latest)
+        if ((pendingHistory && pendingHistory->direction != api::HistoryDirection::Latest)
             || !m_history.error().empty()) {
           const auto direction = pendingHistory ? pendingHistory->direction : m_history.failedDirection();
-          const bool older = direction == discord::HistoryDirection::Older;
+          const bool older = direction == api::HistoryDirection::Older;
           const float statusY = older ? top + 4 : bottom - 32;
           const float width = std::min(360.0F, bodyWidth - 48), statusX = left + (bodyWidth - width) / 2;
           rectangle(root, statusX, statusY, width, 28, sidebar, 8);
@@ -2608,7 +2608,7 @@ namespace app {
           members->setPosition(memberX, 148);
           members->setSize(memberWidth, h - 158);
           members->setClipChildren(true);
-          const auto guildRoles = m_dmMode ? std::vector<discord::ColoredRole>{} : m_roleDirectory.allRoles(m_guildId);
+          const auto guildRoles = m_dmMode ? std::vector<api::ColoredRole>{} : m_roleDirectory.allRoles(m_guildId);
           for (const auto& member : m_members) {
             const float rowY = member.index * 44.0F - m_memberScroll;
             if (rowY < -44 || rowY > h - 148)
@@ -2616,7 +2616,7 @@ namespace app {
             if (!member.group.empty()) {
               // Keep spacing above groups while bringing their heading closer to
               // the first avatar; member rows and subscription indices stay stable.
-              const auto role = std::ranges::find(guildRoles, member.groupId, &discord::ColoredRole::id);
+              const auto role = std::ranges::find(guildRoles, member.groupId, &api::ColoredRole::id);
               const float iconWidth = role != guildRoles.end() && (!role->icon.empty() || !role->unicodeEmoji.empty())
                   ? drawRoleBadge(*members, 18, rowY + 24, *role)
                   : 0;
@@ -2712,12 +2712,12 @@ namespace app {
       if (chip != m_hits.end()) {
         m_pointerX = chip->x + 10;
         m_pointerY = chip->y + 12;
-        auto message = std::ranges::find(m_messages, "3", &discord::Message::id);
+        auto message = std::ranges::find(m_messages, "3", &api::Message::id);
         if (message != m_messages.end()) {
           if (m_demoOverlay == "reaction-people") {
             // Synthetic users only; demo never contacts the network.
-            discord::Interaction request{
-                .kind = discord::InteractionKind::ListReactions,
+            api::Interaction request{
+                .kind = api::InteractionKind::ListReactions,
                 .channel = m_channelId,
                 .message = "3",
                 .emoji = "👍",
@@ -2726,11 +2726,11 @@ namespace app {
             const auto key = std::to_string(static_cast<int>(request.kind)) + ":" + m_channelId + ":3::👍:normal";
             auto& page = m_reactorPages[key];
             page.revision = 1;
-            discord::Event result;
+            api::Event result;
             result.interaction = request;
             result.reactors = {{"1", "Alex"}, {"11", "Maya"}, {"12", "Noah"}};
             interactionResult(result);
-            discord::UserUpdates alias;
+            api::UserUpdates alias;
             alias.users["11"].nickname = "May";
             m_userDirectory.apply(alias);
           }
@@ -2777,7 +2777,7 @@ namespace app {
     return m_userDirectory.status(id, fallback);
   }
 
-  std::string ClientApplication::channelName(const discord::Channel& channel) const {
+  std::string ClientApplication::channelName(const api::Channel& channel) const {
     if ((channel.type != 1 && channel.type != 3) || (channel.type == 3 && channel.named) || channel.recipients.empty())
       return channel.name;
     std::string name;
@@ -2793,7 +2793,7 @@ namespace app {
     if (!m_dmMode)
       return;
     m_members.clear();
-    const auto channel = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
+    const auto channel = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
     if (channel != m_channels.end()) {
       int index = 0;
       for (const auto& user : channel->recipients)
@@ -2981,14 +2981,14 @@ namespace app {
       if (auto cached = m_guildChannels.find(id); cached != m_guildChannels.end()) {
         m_channels = cached->second;
         rebuildThreadChannels();
-        auto selected = std::ranges::find(m_channels, m_restoreChannel, &discord::Channel::id);
+        auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
         const auto restore = m_restoreChannel;
         if (selected == m_channels.end())
           selected = std::ranges::find_if(m_channels, [](const auto& c) { return c.type != 4 && !c.isForum(); });
         if (selected != m_channels.end())
           selectChannel(selected->id);
         m_restoreChannel.clear();
-        if (!restore.empty() && std::ranges::find(m_channels, restore, &discord::Channel::id) == m_channels.end())
+        if (!restore.empty() && std::ranges::find(m_channels, restore, &api::Channel::id) == m_channels.end())
           openThread(restore);
         m_loadingChannels = false;
         m_window.invalidate();
@@ -3029,7 +3029,7 @@ namespace app {
     if (!m_demo && m_privateChannels.empty() && !m_loadingPrivate)
       m_loadingPrivate = m_client.privateChannels();
     if (!m_channels.empty()) {
-      auto selected = std::ranges::find(m_channels, m_restoreChannel, &discord::Channel::id);
+      auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
       selectChannel(selected == m_channels.end() ? m_channels.front().id : selected->id);
       m_restoreChannel.clear();
     }
@@ -3041,7 +3041,7 @@ namespace app {
     closeChannelPanel();
     m_seekMessage.clear();
     m_pendingMessageJump.reset();
-    const auto selected = std::ranges::find(m_channels, id, &discord::Channel::id);
+    const auto selected = std::ranges::find(m_channels, id, &api::Channel::id);
     const bool forum = selected != m_channels.end() && selected->isForum();
     m_forumSearchTimer.stop();
     m_threadParent.clear();
@@ -3115,7 +3115,7 @@ namespace app {
     }
     if (forum) {
       m_threadParent = id;
-      m_threadTab = discord::ThreadList::Active;
+      m_threadTab = api::ThreadList::Active;
       m_forumSearch.clear();
       m_forumTag.clear();
       m_scrolling.stop(m_forumScroll);
@@ -3146,7 +3146,7 @@ namespace app {
           {"5", id, "Noah", "The basics first: our servers, our channels, and the people in them.",
            "2026-10-17T09:49:00Z"},
       };
-      discord::Embed preview;
+      api::Embed preview;
       preview.provider = "Project notes";
       preview.title = "Native message previews";
       preview.description = "Embeds support **formatted descriptions**, fields, and images.";
@@ -3184,10 +3184,10 @@ namespace app {
         || m_sending
         || !m_history.atLatest())
       return;
-    loadHistory(discord::HistoryDirection::Latest);
+    loadHistory(api::HistoryDirection::Latest);
   }
 
-  void ClientApplication::loadHistory(discord::HistoryDirection direction, bool retry) {
+  void ClientApplication::loadHistory(api::HistoryDirection direction, bool retry) {
     if (forumView() || (m_demo && m_demoOverlay != "history-cycle") || !m_connected || m_channelId.empty())
       return;
     const auto query = m_history.begin(direction, m_messages, retry);
@@ -3197,20 +3197,20 @@ namespace app {
       if (m_demo)
         m_demoHistoryQuery = *query;
       m_liveChanges.clear();
-      if (direction == discord::HistoryDirection::Latest || direction == discord::HistoryDirection::Around)
+      if (direction == api::HistoryDirection::Latest || direction == api::HistoryDirection::Around)
         m_loadingMessages = true;
-      if (direction == discord::HistoryDirection::Around)
+      if (direction == api::HistoryDirection::Around)
         m_seekMessage = query->cursor;
     } else
       m_history.fail(*query, "Could not load message history. Try again.");
     m_window.invalidate();
   }
 
-  void ClientApplication::applyHistory(discord::Event& event) {
+  void ClientApplication::applyHistory(api::Event& event) {
     if (!event.history || event.resource != m_channelId || !m_history.accepts(*event.history))
       return;
-    if (event.history->direction == discord::HistoryDirection::Latest
-        || event.history->direction == discord::HistoryDirection::Around)
+    if (event.history->direction == api::HistoryDirection::Latest
+        || event.history->direction == api::HistoryDirection::Around)
       m_loadingMessages = false;
     if (!event.error.empty()) {
       m_history.fail(*event.history, event.error);
@@ -3219,7 +3219,7 @@ namespace app {
     for (const auto& message : event.messages)
       m_messageLayouts.erase(message.id);
     if (m_history.apply(*event.history, m_messages, std::move(event.messages), m_liveChanges)) {
-      m_keepHistoryAnchor = event.history->direction == discord::HistoryDirection::Newer;
+      m_keepHistoryAnchor = event.history->direction == api::HistoryDirection::Newer;
       std::set<std::string> retained;
       for (const auto& message : m_messages)
         retained.insert(message.id);
@@ -3263,15 +3263,15 @@ namespace app {
     }
     if (m_demoHistoryQuery) {
       const auto query = *std::exchange(m_demoHistoryQuery, {});
-      if (query.direction != discord::HistoryDirection::Latest)
+      if (query.direction != api::HistoryDirection::Latest)
         m_demoHistoryAnchor = visibleRow();
       const int cursor = query.cursor.empty() ? 12000 : std::stoi(query.cursor);
-      const int first = query.direction == discord::HistoryDirection::Newer ? cursor + 1 : std::max(2000, cursor - 100);
-      const int count = query.direction == discord::HistoryDirection::Newer ? std::clamp(12000 - first, 0, 100)
+      const int first = query.direction == api::HistoryDirection::Newer ? cursor + 1 : std::max(2000, cursor - 100);
+      const int count = query.direction == api::HistoryDirection::Newer ? std::clamp(12000 - first, 0, 100)
           : cursor <= 2000                                                  ? 0
                                                                             : cursor - first;
-      discord::Event event;
-      event.operation = discord::Operation::Messages;
+      api::Event event;
+      event.operation = api::Operation::Messages;
       event.resource = m_channelId;
       event.history = query;
       for (int i = 0; i < count; ++i)
@@ -3280,7 +3280,7 @@ namespace app {
              "A paginated conversation.\nVisible messages keep their place as history arrives.", "2026-10-17T09:41:00Z"}
         );
       applyHistory(event);
-      if (query.direction == discord::HistoryDirection::Older)
+      if (query.direction == api::HistoryDirection::Older)
         ++m_demoHistoryPages;
       require(m_messages.size() <= MessageHistory::windowLimit, "History memory window must remain bounded");
     } else if (m_demoHistoryPhase < 2) {
@@ -3352,14 +3352,14 @@ namespace app {
     if (m_demo || !m_connected || m_channelId.empty() || m_sending)
       return;
     const auto& draft = m_drafts[m_channelId];
-    std::vector<discord::Upload> uploads;
+    std::vector<api::Upload> uploads;
     for (const auto& attachment : m_attachments[m_channelId])
       uploads.push_back(attachment.upload);
     if (draft.empty() && uploads.empty())
       return;
     const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
     const auto content = m_emojiCatalog.messageContent(
-        draft, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.fakeNitroEmojis
+        draft, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
     );
     if (!m_client.send(m_channelId, content, std::move(uploads), reply)) {
       m_status = "Messages can contain up to 2,000 characters. Please try again.";
@@ -3471,12 +3471,12 @@ namespace app {
         continue;
       filterDeletedChannels(event);
       if (!event.unauthorized
-          && event.operation == discord::Operation::ChannelDetails
+          && event.operation == api::Operation::ChannelDetails
           && m_deletedChannels.contains(event.resource))
         continue;
       if (!event.unauthorized
-          && ((event.operation == discord::Operation::Channels && event.resource != m_guildId)
-              || (event.operation == discord::Operation::Messages && event.resource != m_channelId)))
+          && ((event.operation == api::Operation::Channels && event.resource != m_guildId)
+              || (event.operation == api::Operation::Messages && event.resource != m_channelId)))
         continue;
       if (event.unauthorized) {
         closeVideo();
@@ -3527,7 +3527,7 @@ namespace app {
         m_drafts.clear();
         m_fieldFocused = true;
       }
-      if (event.operation == discord::Operation::Connect) {
+      if (event.operation == api::Operation::Connect) {
         m_connecting = m_restoringLogin = false;
         m_retrySavedLogin = event.restoredLogin && !event.noSavedLogin && !event.unauthorized && !event.error.empty();
         if (event.noSavedLogin)
@@ -3542,9 +3542,9 @@ namespace app {
           m_preferences = m_sessionStore.preferences(m_account.id);
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
-          m_presence = event.presence.value_or(discord::Presence{});
+          m_presence = event.presence.value_or(api::Presence{});
           m_guilds = std::move(event.guilds);
-          m_folders = discord::arrangeGuilds(m_guilds, event.layout);
+          m_folders = api::arrangeGuilds(m_guilds, event.layout);
           m_connected = true;
           if (!m_live)
             m_gatewayStatus = "Connecting…";
@@ -3555,7 +3555,7 @@ namespace app {
             m_window.setUiScale(last->scale);
           if (last
               && !last->guild.empty()
-              && std::ranges::find(m_guilds, last->guild, &discord::Guild::id) != m_guilds.end()) {
+              && std::ranges::find(m_guilds, last->guild, &api::Guild::id) != m_guilds.end()) {
             for (const auto& folder : m_folders)
               if (!folder.id.empty() && std::ranges::find(folder.guildIds, last->guild) != folder.guildIds.end())
                 m_openFolders.insert(folder.id);
@@ -3564,76 +3564,76 @@ namespace app {
             showDirectMessages();
         }
       } else if (
-          event.operation == discord::Operation::GifSearch
-          || event.operation == discord::Operation::GifFavorites
-          || event.operation == discord::Operation::SaveGifFavorite
+          event.operation == api::Operation::GifSearch
+          || event.operation == api::Operation::GifFavorites
+          || event.operation == api::Operation::SaveGifFavorite
       ) {
         gifEvent(event);
       } else if (
-          event.operation == discord::Operation::GuildEmojis
-          || event.operation == discord::Operation::EmojiPreferences
-          || event.operation == discord::Operation::SaveEmojiFavorite
+          event.operation == api::Operation::GuildEmojis
+          || event.operation == api::Operation::EmojiPreferences
+          || event.operation == api::Operation::SaveEmojiFavorite
       ) {
         emojiEvent(event);
       } else if (
-          event.operation == discord::Operation::Threads || event.operation == discord::Operation::ThreadUpdate
+          event.operation == api::Operation::Threads || event.operation == api::Operation::ThreadUpdate
       ) {
         threadEvent(event);
         continue; // Scoped browsing errors belong to their forum/browser, never another channel.
       } else if (
-          event.operation == discord::Operation::ChannelDetails || event.operation == discord::Operation::ChannelPage
+          event.operation == api::Operation::ChannelDetails || event.operation == api::Operation::ChannelPage
       ) {
         channelFeatureEvent(event);
         continue;
-      } else if (event.operation == discord::Operation::ComponentResult) {
+      } else if (event.operation == api::Operation::ComponentResult) {
         componentResult(event);
         continue;
-      } else if (event.operation == discord::Operation::Credentials) {
+      } else if (event.operation == api::Operation::Credentials) {
         m_loginStorageStatus = !event.error.empty()                        ? event.error
             : event.credentialOperation == auth::CredentialOperation::Save ? "Sign-in is saved in your desktop keyring."
                                                                            : "Saved sign-in has been removed.";
-      } else if (event.operation == discord::Operation::Interaction) {
+      } else if (event.operation == api::Operation::Interaction) {
         interactionResult(event);
-      } else if (event.operation == discord::Operation::Reaction && event.reaction) {
+      } else if (event.operation == api::Operation::Reaction && event.reaction) {
         const auto& change = *event.reaction;
         if (auto preview = m_forumFirstMessages.find(change.channel);
             preview != m_forumFirstMessages.end() && preview->second.id == change.message)
-          discord::applyReaction(preview->second, change, m_account.id);
+          api::applyReaction(preview->second, change, m_account.id);
         invalidateReactors(change.channel, change.message);
         if (const auto cached = m_channelMessages.find(change.channel); cached != m_channelMessages.end())
           for (auto& message : cached->second)
-            discord::applyReaction(message, change, m_account.id);
+            api::applyReaction(message, change, m_account.id);
         if (change.channel == m_channelId)
           for (auto& message : m_messages)
             if (message.id == change.message) {
-              discord::applyReaction(message, change, m_account.id);
+              api::applyReaction(message, change, m_account.id);
               m_liveChanges[message.id] = message;
             }
-      } else if (event.operation == discord::Operation::RoleStyles) {
+      } else if (event.operation == api::Operation::RoleStyles) {
         m_roleDirectory.apply(event.roleUpdates);
         if (event.roleUpdates.reset)
           m_roleMotion.clear();
-      } else if (event.operation == discord::Operation::UserState) {
+      } else if (event.operation == api::Operation::UserState) {
         m_userDirectory.apply(event.users);
         if (event.users.reset || std::ranges::any_of(event.users.users, [](const auto& item) {
               return item.second.nickname.has_value();
             }))
           m_messageLayouts.clear();
-      } else if (event.operation == discord::Operation::ChannelSnapshot) {
+      } else if (event.operation == api::Operation::ChannelSnapshot) {
         m_guildChannels[event.resource] = event.channels;
         if (!m_dmMode && event.resource == m_guildId && !m_channels.empty())
           rebuildThreadChannels();
         if (!m_dmMode && event.resource == m_guildId && m_channels.empty()) {
           m_channels = std::move(event.channels);
           rebuildThreadChannels();
-          auto selected = std::ranges::find(m_channels, m_restoreChannel, &discord::Channel::id);
+          auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
           if (selected == m_channels.end())
             selected = std::ranges::find_if(m_channels, [](const auto& c) { return c.type != 4; });
           if (selected != m_channels.end())
             selectChannel(selected->id);
           m_restoreChannel.clear();
         }
-      } else if (event.operation == discord::Operation::InvalidateChannels) {
+      } else if (event.operation == api::Operation::InvalidateChannels) {
         if (!event.removed.empty()) {
           removeGuildChannels(event);
           continue;
@@ -3643,7 +3643,7 @@ namespace app {
           m_restoreChannel = m_channelId;
           m_loadingChannels = m_client.channels(m_guildId);
         }
-      } else if (event.operation == discord::Operation::ReadState) {
+      } else if (event.operation == api::Operation::ReadState) {
         m_unreadTimeline.snapshot(std::move(event.unreadCursors), event.resource);
         if (event.resource == "reset")
           m_localRead.clear();
@@ -3657,19 +3657,19 @@ namespace app {
             continue;
           m_unreadChannels.insert(id);
           if (guild.empty()
-              && std::ranges::find(m_privateChannels, id, &discord::Channel::id) != m_privateChannels.end())
+              && std::ranges::find(m_privateChannels, id, &api::Channel::id) != m_privateChannels.end())
             m_unreadDMs.insert(id);
         }
       } else if (
-          event.operation == discord::Operation::AccountSettings
-          || event.operation == discord::Operation::SaveAccountSettings
+          event.operation == api::Operation::AccountSettings
+          || event.operation == api::Operation::SaveAccountSettings
       ) {
         if (event.resource == "changed") {
           if (m_settingsOpen && !m_loadingSettings && !m_savingSettings && m_settingsDraft == m_accountSettings)
             m_loadingSettings = m_client.accountSettings();
         } else {
           m_loadingSettings = false;
-          const bool saved = event.operation == discord::Operation::SaveAccountSettings;
+          const bool saved = event.operation == api::Operation::SaveAccountSettings;
           if (saved)
             m_savingSettings = false;
           if (event.error.empty() && event.settings) {
@@ -3683,7 +3683,7 @@ namespace app {
           } else if (!event.error.empty())
             m_settingsStatus = event.error;
         }
-      } else if (event.operation == discord::Operation::SettingsList) {
+      } else if (event.operation == api::Operation::SettingsList) {
         m_loadingSettingsLists.erase(event.resource);
         if (event.error.empty()) {
           m_settingsLists[event.resource] = std::move(event.settingsEntries);
@@ -3691,66 +3691,66 @@ namespace app {
         } else
           m_settingsListErrors[event.resource] = event.error;
       } else if (
-          event.operation == discord::Operation::Profile
-          || event.operation == discord::Operation::SaveProfile
-          || event.operation == discord::Operation::AccountUpdate
+          event.operation == api::Operation::Profile
+          || event.operation == api::Operation::SaveProfile
+          || event.operation == api::Operation::AccountUpdate
       ) {
-        if (event.operation == discord::Operation::Profile)
+        if (event.operation == api::Operation::Profile)
           m_loadingProfile = false;
-        if (event.operation == discord::Operation::SaveProfile)
+        if (event.operation == api::Operation::SaveProfile)
           m_savingProfile = false;
         if (event.error.empty() && event.account.id == m_account.id) {
           const bool editing = m_settingsOpen && m_profileDirty;
           if (!event.account.premiumType)
             event.account.premiumType = m_account.premiumType;
           m_account = std::move(event.account);
-          if (event.operation == discord::Operation::SaveProfile || !editing)
+          if (event.operation == api::Operation::SaveProfile || !editing)
             resetProfile();
-          if (event.operation == discord::Operation::SaveProfile)
+          if (event.operation == api::Operation::SaveProfile)
             m_settingsStatus = "Profile saved.";
         } else if (!event.error.empty())
           m_settingsStatus = event.error;
       } else if (
-          event.operation == discord::Operation::PresenceChanged || event.operation == discord::Operation::SavePresence
+          event.operation == api::Operation::PresenceChanged || event.operation == api::Operation::SavePresence
       ) {
         if (event.presence && (m_desiredPresence.empty() || event.presence->status == m_desiredPresence))
           m_presence = *event.presence;
-        if (event.operation == discord::Operation::SavePresence && event.resource == m_desiredPresence) {
+        if (event.operation == api::Operation::SavePresence && event.resource == m_desiredPresence) {
           m_desiredPresence.clear();
           if (event.error.empty())
             m_settingsStatus = "Status saved.";
           else
             m_settingsStatus = "Status changed for this session; could not save it to your account. " + event.error;
         }
-      } else if (event.operation == discord::Operation::Channels && event.resource == m_guildId) {
+      } else if (event.operation == api::Operation::Channels && event.resource == m_guildId) {
         m_loadingChannels = false;
         if (event.error.empty()) {
           m_channels = std::move(event.channels);
           m_guildChannels[m_guildId] = m_channels;
           rebuildThreadChannels();
           const auto restore = m_restoreChannel;
-          auto first = std::ranges::find(m_channels, m_restoreChannel, &discord::Channel::id);
+          auto first = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
           if (first == m_channels.end())
             first = std::ranges::find_if(m_channels, [](const auto& channel) { return channel.type != 4; });
           m_restoreChannel.clear();
           if (first != m_channels.end())
             selectChannel(first->id);
-          if (!restore.empty() && std::ranges::find(m_channels, restore, &discord::Channel::id) == m_channels.end())
+          if (!restore.empty() && std::ranges::find(m_channels, restore, &api::Channel::id) == m_channels.end())
             openThread(restore);
         }
-      } else if (event.operation == discord::Operation::Messages && event.resource == m_channelId) {
+      } else if (event.operation == api::Operation::Messages && event.resource == m_channelId) {
         applyHistory(event);
       } else if (
-          event.operation == discord::Operation::PrivateChannels
-          || event.operation == discord::Operation::PrivateChannelUpsert
+          event.operation == api::Operation::PrivateChannels
+          || event.operation == api::Operation::PrivateChannelUpsert
       ) {
         m_loadingPrivate = false;
         if (event.error.empty()) {
-          if (event.operation == discord::Operation::PrivateChannels)
+          if (event.operation == api::Operation::PrivateChannels)
             m_privateChannels = std::move(event.channels);
           else
             for (auto& channel : event.channels) {
-              auto existing = std::ranges::find(m_privateChannels, channel.id, &discord::Channel::id);
+              auto existing = std::ranges::find(m_privateChannels, channel.id, &api::Channel::id);
               if (existing == m_privateChannels.end())
                 m_privateChannels.insert(m_privateChannels.begin(), std::move(channel));
               else
@@ -3762,14 +3762,14 @@ namespace app {
           if (m_dmMode) {
             m_channels = m_privateChannels;
             if (m_channelId.empty() && !m_channels.empty()) {
-              auto selected = std::ranges::find(m_channels, m_restoreChannel, &discord::Channel::id);
+              auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
               selectChannel(selected == m_channels.end() ? m_channels.front().id : selected->id);
               m_restoreChannel.clear();
             }
             updateDmMembers();
           }
         }
-      } else if (event.operation == discord::Operation::PrivateChannelDelete) {
+      } else if (event.operation == api::Operation::PrivateChannelDelete) {
         std::erase_if(m_privateChannels, [&](const auto& channel) { return channel.id == event.resource; });
         if (m_dmMode) {
           m_channels = m_privateChannels;
@@ -3779,28 +3779,28 @@ namespace app {
             m_messageLayouts.clear();
           }
         }
-      } else if (event.operation == discord::Operation::Layout) {
-        m_folders = discord::arrangeGuilds(m_guilds, event.layout);
-      } else if (event.operation == discord::Operation::Members && event.resource == m_channelId) {
+      } else if (event.operation == api::Operation::Layout) {
+        m_folders = api::arrangeGuilds(m_guilds, event.layout);
+      } else if (event.operation == api::Operation::Members && event.resource == m_channelId) {
         m_members = std::move(event.members);
         m_memberCount = event.memberCount;
         m_messageLayouts.clear();
         m_memberScroll =
             std::clamp(m_memberScroll, 0.0F, std::max(0.0F, m_memberCount * 44.0F - (m_window.height() - 158)));
-      } else if (event.operation == discord::Operation::Gateway) {
+      } else if (event.operation == api::Operation::Gateway) {
         m_live = event.live;
         m_gatewayStatus = m_live ? "Connected" : "Reconnecting…";
         if (m_live) {
           m_status.clear();
           refresh();
         }
-      } else if (event.operation == discord::Operation::MessageCreate) {
+      } else if (event.operation == api::Operation::MessageCreate) {
         std::erase_if(event.messages, [&](const auto& message) { return m_dismissedEphemeral.contains(message.id); });
         if (event.messages.empty())
           continue;
         const bool ephemeral =
             std::ranges::all_of(event.messages, [](const auto& message) { return (message.flags & 64) != 0; });
-        auto dm = std::ranges::find(m_privateChannels, event.resource, &discord::Channel::id);
+        auto dm = std::ranges::find(m_privateChannels, event.resource, &api::Channel::id);
         if (dm != m_privateChannels.end() && !ephemeral) {
           auto channel = std::move(*dm);
           m_privateChannels.erase(dm);
@@ -3833,7 +3833,7 @@ namespace app {
             if (m_history.atLatest())
               upsertMessage(std::move(message));
           }
-      } else if (event.operation == discord::Operation::MessageUpdate) {
+      } else if (event.operation == api::Operation::MessageUpdate) {
         if (m_dismissedEphemeral.contains(event.messageId))
           continue;
         if (auto preview = m_forumFirstMessages.find(event.resource);
@@ -3858,7 +3858,7 @@ namespace app {
             m_messageLayouts.erase(message.id);
             m_liveChanges[message.id] = message;
           }
-      } else if (event.operation == discord::Operation::MessageDelete) {
+      } else if (event.operation == api::Operation::MessageDelete) {
         if (auto preview = m_forumFirstMessages.find(event.resource); preview != m_forumFirstMessages.end()
             && std::ranges::find(event.removed, preview->second.id) != event.removed.end())
           m_forumFirstMessages.erase(preview);
@@ -3875,7 +3875,7 @@ namespace app {
           m_messageLayouts.erase(id);
           std::erase_if(m_messages, [&](const auto& message) { return message.id == id; });
         }
-      } else if (event.operation == discord::Operation::Send) {
+      } else if (event.operation == api::Operation::Send) {
         m_sending = false;
         if (event.error.empty()) {
           if (!m_sentGif && m_drafts[event.resource] == m_pendingDraft) {
@@ -3906,7 +3906,7 @@ namespace app {
               m_history.reset();
               m_messages.clear();
               m_messageLayouts.clear();
-              loadHistory(discord::HistoryDirection::Latest);
+              loadHistory(api::HistoryDirection::Latest);
             }
             for (auto& message : event.messages) {
               m_liveChanges[message.id] = message;
@@ -3920,11 +3920,11 @@ namespace app {
         m_pendingReply.reset();
         m_pendingAttachments.clear();
       }
-      if (event.operation == discord::Operation::Acknowledge && !event.error.empty()) {
+      if (event.operation == api::Operation::Acknowledge && !event.error.empty()) {
         m_unreadTimeline.failed(event.resource, event.messageId);
         if (m_unreadTimeline.cursor(event.resource)) {
           m_unreadChannels.insert(event.resource);
-          if (std::ranges::find(m_privateChannels, event.resource, &discord::Channel::id) != m_privateChannels.end())
+          if (std::ranges::find(m_privateChannels, event.resource, &api::Channel::id) != m_privateChannels.end())
             m_unreadDMs.insert(event.resource);
         }
       }
@@ -3936,9 +3936,9 @@ namespace app {
     }
   }
 
-  void ClientApplication::upsertMessage(discord::Message message) {
+  void ClientApplication::upsertMessage(api::Message message) {
     m_messageLayouts.erase(message.id);
-    auto existing = std::ranges::find(m_messages, message.id, &discord::Message::id);
+    auto existing = std::ranges::find(m_messages, message.id, &api::Message::id);
     if (existing == m_messages.end())
       m_messages.push_back(std::move(message));
     else
@@ -4291,7 +4291,7 @@ namespace app {
       setPresence(hit.id);
       break;
     case Action::SaveCustomStatus:
-      setPresence(discord::validStatus(m_presence.status) ? m_presence.status : "online", true);
+      setPresence(api::validStatus(m_presence.status) ? m_presence.status : "online", true);
       break;
     case Action::TogglePresence:
       m_presenceMenu = !m_presenceMenu;
@@ -4321,7 +4321,7 @@ namespace app {
         } else
           value = number;
       }
-      if (discord::validSettingChanges({{field, value}}))
+      if (api::validSettingChanges({{field, value}}))
         m_settingsDraft[field] = value;
       break;
     }
@@ -4332,7 +4332,7 @@ namespace app {
         m_settingsStatus = "Demo mode is read-only.";
         break;
       }
-      discord::SettingValues changes;
+      api::SettingValues changes;
       for (const auto& [key, value] : m_settingsDraft)
         if (!m_accountSettings.contains(key) || m_accountSettings.at(key) != value)
           changes[key] = value;
@@ -4369,7 +4369,7 @@ namespace app {
       m_messages.clear();
       m_messageLayouts.clear();
       if (!m_demo)
-        loadHistory(discord::HistoryDirection::Latest);
+        loadHistory(api::HistoryDirection::Latest);
       break;
     case Action::MarkRead:
       markChannelRead(true);
@@ -4389,8 +4389,8 @@ namespace app {
         m_preferences.showImages = !m_preferences.showImages;
       else if (hit.id == "autoplay_gifs")
         m_preferences.autoplayGifs = !m_preferences.autoplayGifs;
-      else if (hit.id == "fake_nitro_emojis")
-        m_preferences.fakeNitroEmojis = !m_preferences.fakeNitroEmojis;
+      else if (hit.id == "emoji_image_links")
+        m_preferences.emojiImageLinks = !m_preferences.emojiImageLinks;
       else if (hit.id == "role_colors")
         m_preferences.roleColors = !m_preferences.roleColors;
       else if (hit.id == "animate_role_colors")
@@ -4474,7 +4474,7 @@ namespace app {
     case Action::DirectMessage: {
       m_restoreChannel = hit.id;
       showDirectMessages();
-      if (m_channelId != hit.id && std::ranges::find(m_channels, hit.id, &discord::Channel::id) != m_channels.end())
+      if (m_channelId != hit.id && std::ranges::find(m_channels, hit.id, &api::Channel::id) != m_channels.end())
         selectChannel(hit.id);
       break;
     }

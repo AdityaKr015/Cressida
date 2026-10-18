@@ -1,8 +1,8 @@
 #include "app/session_store.h"
 
-#include "discord/actions.h"
-#include "discord/emoji.h"
-#include "discord/models.h"
+#include "api/actions.h"
+#include "api/emoji.h"
+#include "api/models.h"
 
 #include <algorithm>
 #include <cmath>
@@ -75,7 +75,7 @@ namespace app {
         return std::nullopt;
       const auto& value = all[account];
       LastChannel result{value.value("guild", ""), value.value("channel", ""), value.value("scale", 1.0F)};
-      if ((!result.guild.empty() && !discord::validSnowflake(result.guild)) || !discord::validSnowflake(result.channel))
+      if ((!result.guild.empty() && !api::validSnowflake(result.guild)) || !api::validSnowflake(result.channel))
         return std::nullopt;
       result.scale = std::clamp(result.scale, 0.67F, 1.5F);
       return result;
@@ -84,7 +84,7 @@ namespace app {
     }
   }
   void SessionStore::save(const std::string& account, const LastChannel& channel) const {
-    if (m_path.empty() || !discord::validSnowflake(account) || !discord::validSnowflake(channel.channel))
+    if (m_path.empty() || !api::validSnowflake(account) || !api::validSnowflake(channel.channel))
       return;
     try {
       auto value = readState(m_path, m_legacyPath);
@@ -105,13 +105,13 @@ namespace app {
       const auto key = guild.empty() ? "@me" : guild;
       if (value.contains("channels") && value["channels"].is_object()) {
         auto channel = value["channels"].value(key, std::string{});
-        if (discord::validSnowflake(channel))
+        if (api::validSnowflake(channel))
           return channel;
       }
       // Migrate the previous single-selection format without losing its last channel.
       if (value.value("guild", std::string{}) == guild) {
         auto channel = value.value("channel", std::string{});
-        if (discord::validSnowflake(channel))
+        if (api::validSnowflake(channel))
           return channel;
       }
     } catch (...) {
@@ -133,7 +133,7 @@ namespace app {
       result.showEmbeds = value.value("embeds", true);
       result.showImages = value.value("images", true);
       result.autoplayGifs = value.value("autoplay_gifs", true);
-      result.fakeNitroEmojis = value.value("fake_nitro_emojis", false);
+      result.emojiImageLinks = value.value("emoji_image_links", false);
       result.roleColors = value.value("role_colors", true);
       result.animateRoleColors = value.value("animate_role_colors", true);
       result.showGuildTags = value.value("guild_tags", true);
@@ -145,7 +145,7 @@ namespace app {
     return result;
   }
   void SessionStore::savePreferences(const std::string& account, const Preferences& preferences) const {
-    if (m_path.empty() || !discord::validSnowflake(account))
+    if (m_path.empty() || !api::validSnowflake(account))
       return;
     try {
       auto all = readState(m_path, m_legacyPath);
@@ -156,7 +156,7 @@ namespace app {
           {"embeds", preferences.showEmbeds},
           {"images", preferences.showImages},
           {"autoplay_gifs", preferences.autoplayGifs},
-          {"fake_nitro_emojis", preferences.fakeNitroEmojis},
+          {"emoji_image_links", preferences.emojiImageLinks},
           {"role_colors", preferences.roleColors},
           {"animate_role_colors", preferences.animateRoleColors},
           {"guild_tags", preferences.showGuildTags},
@@ -176,7 +176,7 @@ namespace app {
         for (const auto& [key, count] : all[account]["emoji_usage"].items()) {
           if (ranked.size() >= 64)
             break;
-          if (discord::validEmojiKey(key) && count.is_number_integer() && count > 0 && count <= 1000000)
+          if (api::validEmojiKey(key) && count.is_number_integer() && count > 0 && count <= 1000000)
             ranked.emplace_back(count.get<int>(), key);
         }
     } catch (...) {
@@ -190,7 +190,7 @@ namespace app {
     return result;
   }
   void SessionStore::recordEmoji(const std::string& account, const std::string& key) const {
-    if (m_path.empty() || !discord::validSnowflake(account) || !discord::validEmojiKey(key))
+    if (m_path.empty() || !api::validSnowflake(account) || !api::validEmojiKey(key))
       return;
     try {
       auto all = readState(m_path, m_legacyPath);
@@ -224,7 +224,7 @@ namespace app {
             if (count.is_number_integer()
                 && count > 0
                 && count <= 1000000
-                && discord::interactionRequest({.channel = "1", .message = "1", .emoji = emoji}))
+                && api::interactionRequest({.channel = "1", .message = "1", .emoji = emoji}))
               ranked.emplace_back(count.get<int>(), emoji);
           }
       }
@@ -243,8 +243,8 @@ namespace app {
   }
   void SessionStore::recordReaction(const std::string& account, const std::string& emoji) const {
     if (m_path.empty()
-        || !discord::validSnowflake(account)
-        || !discord::interactionRequest({.channel = "1", .message = "1", .emoji = emoji}))
+        || !api::validSnowflake(account)
+        || !api::interactionRequest({.channel = "1", .message = "1", .emoji = emoji}))
       return;
     try {
       auto all = readState(m_path, m_legacyPath);

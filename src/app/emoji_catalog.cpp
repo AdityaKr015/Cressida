@@ -31,7 +31,7 @@ namespace app {
           continue;
         m_unicodeSymbols.insert(normalized(unicode));
         for (const auto& alias : values)
-          if (alias.is_string() && discord::validEmojiKey(alias.get<std::string>()))
+          if (alias.is_string() && api::validEmojiKey(alias.get<std::string>()))
             names[normalized(unicode)].push_back(alias.get<std::string>());
       }
     if (!catalog.is_array())
@@ -45,7 +45,7 @@ namespace app {
           || !item.contains("name")
           || !item["name"].is_string())
         continue;
-      discord::Emoji emoji;
+      api::Emoji emoji;
       emoji.unicode = item["emoji"].get<std::string>();
       m_unicodeSymbols.insert(normalized(emoji.unicode));
       emoji.name = item["name"].get<std::string>();
@@ -72,7 +72,7 @@ namespace app {
       }
     }
   }
-  void EmojiCatalog::setGuild(const std::string& id, std::vector<discord::Emoji> emojis) {
+  void EmojiCatalog::setGuild(const std::string& id, std::vector<api::Emoji> emojis) {
     for (const auto& key : m_guilds[id])
       m_items.erase(key);
     auto& keys = m_guilds[id];
@@ -109,7 +109,7 @@ namespace app {
     }
     return !key.empty() && m_unicodeSymbols.contains(key);
   }
-  const discord::Emoji* EmojiCatalog::find(const std::string& key) const {
+  const api::Emoji* EmojiCatalog::find(const std::string& key) const {
     auto item = m_items.find(key);
     if (item == m_items.end()) {
       auto alias = m_aliases.find(key);
@@ -131,7 +131,7 @@ namespace app {
       if (markdown[i] != '<')
         continue;
       const auto end = content.find('>', i);
-      if (end != std::string_view::npos && discord::emojiFromToken(content.substr(i, end - i + 1))) {
+      if (end != std::string_view::npos && api::emojiFromToken(content.substr(i, end - i + 1))) {
         std::fill(markdown.begin() + i, markdown.begin() + end + 1, 'X');
         i = end;
       }
@@ -171,7 +171,7 @@ namespace app {
         const auto end = content.find('>', i);
         if (end != std::string_view::npos && end - i <= 100) {
           const auto tag = content.substr(i, end - i + 1);
-          const auto token = discord::emojiFromToken(tag);
+          const auto token = api::emojiFromToken(tag);
           const auto* emoji = token ? find(token->id) : nullptr;
           std::size_t slashes = 0;
           for (auto before = i; before && content[before - 1] == '\\'; --before)
@@ -179,10 +179,10 @@ namespace app {
           if (token
               && slashes % 2 == 0
               && std::all_of(parsed.normal.begin() + i, parsed.normal.begin() + end + 1, [](bool v) { return v; })
-              && (!emoji || discord::emojiNeedsImage(*emoji, guild, premiumType))) {
+              && (!emoji || api::emojiNeedsImage(*emoji, guild, premiumType))) {
             if (!result.empty() && !std::isspace(static_cast<unsigned char>(result.back())))
               result += ' ';
-            result += discord::emojiImageLink(*token);
+            result += api::emojiImageLink(*token);
             if (end + 1 < content.size() && !std::isspace(static_cast<unsigned char>(content[end + 1])))
               result += ' ';
             i = end + 1;

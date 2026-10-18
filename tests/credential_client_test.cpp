@@ -1,4 +1,4 @@
-#include "discord/client.h"
+#include "api/client.h"
 
 #include <chrono>
 #include <fstream>
@@ -39,7 +39,7 @@ namespace {
       return {};
     }
   };
-  discord::Event wait(discord::Client& client, std::uint64_t session) {
+  api::Event wait(api::Client& client, std::uint64_t session) {
     const auto deadline = std::chrono::steady_clock::now() + 3s;
     while (std::chrono::steady_clock::now() < deadline) {
       pollfd fd{client.eventFd(), POLLIN, 0};
@@ -60,11 +60,11 @@ int main() {
   auto memory = std::make_shared<Memory>();
   try {
     {
-      discord::Client client(std::make_unique<Fake>(memory), marker);
+      api::Client client(std::make_unique<Fake>(memory), marker);
       const auto restore = client.restoreLogin();
       auto empty = wait(client, restore);
       require(
-          empty.operation == discord::Operation::Connect
+          empty.operation == api::Operation::Connect
               && empty.noSavedLogin
               && empty.restoredLogin
               && empty.account.id.empty()
@@ -90,7 +90,7 @@ int main() {
       const auto logout = client.logout();
       auto cleared = wait(client, logout);
       require(
-          cleared.operation == discord::Operation::Credentials
+          cleared.operation == api::Operation::Credentials
               && cleared.error.empty()
               && cleared.credentialOperation == auth::CredentialOperation::Forget
               && memory->writes == 0,
@@ -99,7 +99,7 @@ int main() {
     }
     {
       const auto reads = memory->loads.load();
-      discord::Client restarted(std::make_unique<Fake>(memory), marker);
+      api::Client restarted(std::make_unique<Fake>(memory), marker);
       const auto request = restarted.restoreLogin();
       require(
           wait(restarted, request).noSavedLogin && memory->loads == reads,

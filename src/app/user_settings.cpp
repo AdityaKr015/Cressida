@@ -43,7 +43,7 @@ namespace app {
         {"games", "Registered Games", "ACTIVITY SETTINGS", 350},
         {"overlay", "Game Overlay", "ACTIVITY SETTINGS", 350},
         {"cressida", "General", "CRESSIDA", 610,
-         "expressions emoji fake nitro name badges server tags role colors gradients animation"}
+         "expressions emoji image links name badges server tags role colors gradients animation"}
     };
     std::string folded(std::string text) {
       for (auto& c : text)
@@ -133,7 +133,7 @@ namespace app {
     m_loadingProfile = !m_demo && m_client.profile();
     m_loadingSettings = !m_demo && m_client.accountSettings();
     if (m_demo) {
-      m_accountSettings = discord::parseAccountSettings(nlohmann::json::object());
+      m_accountSettings = api::parseAccountSettings(nlohmann::json::object());
       m_settingsDraft = m_accountSettings;
       m_settingsLoaded = true;
     }
@@ -523,7 +523,7 @@ namespace app {
       );
       label(p, 0, 332, width, "Expressions", 17, foreground, FontWeight::SemiBold);
       toggle(
-          364, "FakeNitro emoji", m_preferences.fakeNitroEmojis, "fake_nitro_emojis", false,
+          364, "Emoji image links", m_preferences.emojiImageLinks, "emoji_image_links", false,
           "Send unsupported server emoji as image links."
       );
       label(

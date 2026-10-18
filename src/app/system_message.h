@@ -10,7 +10,7 @@ namespace app {
   struct JoinNotice {
     std::string_view before, after;
   };
-  inline JoinNotice joinNotice(const discord::Message& message) {
+  inline JoinNotice joinNotice(const api::Message& message) {
     static constexpr std::array<JoinNotice, 13> variants{
         {{"", " joined the party."},
          {"", " is here."},
@@ -37,7 +37,7 @@ namespace app {
     }
     return variants[milliseconds % variants.size()];
   }
-  inline std::string joinNoticeText(const discord::Message& message, std::string_view author) {
+  inline std::string joinNoticeText(const api::Message& message, std::string_view author) {
     const auto notice = joinNotice(message);
     return std::string(notice.before) + std::string(author) + std::string(notice.after);
   }

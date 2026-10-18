@@ -13,7 +13,7 @@ namespace app {
   using namespace theme;
 
   float ClientApplication::drawGuildTag(
-      Node& parent, float x, float y, float available, const std::optional<discord::GuildTag>& tag, bool clickable
+      Node& parent, float x, float y, float available, const std::optional<api::GuildTag>& tag, bool clickable
   ) {
     if (!tag || tag->tag.empty() || available < 42)
       return 0;
@@ -31,7 +31,7 @@ namespace app {
     if (!picture(parent, x + 4, y + 2, 16, 16, tag->badge, 0, false, false, ImageFitMode::Contain))
       glyph(parent, x + 5, y + 3, 14, "shield", muted);
     label(parent, x + 25, y + 3, width - 30, tag->tag, 11, foreground, FontWeight::Medium);
-    if (clickable && discord::validSnowflake(tag->guild)) {
+    if (clickable && api::validSnowflake(tag->guild)) {
       m_hits.push_back({x + ox, y + oy, width, 20, Action::GuildProfile, tag->guild});
       if (over) {
         m_tooltip = "View server · " + tag->tag;
@@ -51,7 +51,7 @@ namespace app {
       return 0;
     return drawRoleBadge(parent, x, y, *role);
   }
-  float ClientApplication::drawRoleBadge(Node& parent, float x, float y, const discord::ColoredRole& role) {
+  float ClientApplication::drawRoleBadge(Node& parent, float x, float y, const api::ColoredRole& role) {
     if (!role.icon.empty())
       emojiImage(parent, x, y, 16, role.icon);
     else
@@ -86,11 +86,11 @@ namespace app {
     const std::string rolePath = "/role-icons/501/" + hash + ".png?size=32";
     json members = json::array();
     for (auto& message : m_messages) {
-      message.authorTag = discord::GuildTag{"99", "MOON", "demo-profile-badge"};
+      message.authorTag = api::GuildTag{"99", "MOON", "demo-profile-badge"};
       members.push_back({{"user_id", message.authorId}, {"roles", {message.authorId == "12" ? "502" : "501"}}});
     }
     m_roleDirectory.apply(
-        discord::parseRoleUpdates(
+        api::parseRoleUpdates(
             "READY",
             json{
                 {"guilds",
@@ -111,7 +111,7 @@ namespace app {
         )
     );
     const auto icon = m_roleDirectory.icon(m_guildId, "11");
-    if (!icon || icon->icon != rolePath || discord::mediaUrl(icon->icon) != "https://cdn.discordapp.com" + rolePath)
+    if (!icon || icon->icon != rolePath || api::mediaUrl(icon->icon) != "https://cdn.discordapp.com" + rolePath)
       throw std::runtime_error("Role icons must use Discord's documented role-icons CDN route");
     m_images[rolePath].texture = m_images.at("demo-profile-badge").texture;
     if (m_demoOverlay == "guild-tags-hidden")
@@ -145,12 +145,12 @@ namespace app {
     } else if (step == 2) {
       require(m_guildPreviewJoined && !m_dialogPending, "Join changes state only after its acknowledgement");
       require(
-          std::ranges::find(m_guilds, "99", &discord::Guild::id) != m_guilds.end(),
+          std::ranges::find(m_guilds, "99", &api::Guild::id) != m_guilds.end(),
           "An acknowledged public join adds the server to the rail"
       );
       const auto old = *m_dialogAction;
       showGuildProfile("99");
-      discord::Event stale;
+      api::Event stale;
       stale.interaction = old;
       interactionResult(stale);
       require(!m_guildPreviewJoined, "Old join acknowledgements cannot replace a reopened card");
@@ -196,7 +196,7 @@ namespace app {
           "The consolidated client page is visible, including when searching its settings"
       );
       require(
-          m_widgets.contains("toggle:fake_nitro_emojis")
+          m_widgets.contains("toggle:emoji_image_links")
               && m_widgets.contains("toggle:role_colors")
               && m_widgets.contains("toggle:animate_role_colors"),
           "Expression and name controls share the same page"
@@ -213,11 +213,11 @@ namespace app {
           m_preferences.showGuildTags == (step == 8),
           "Retained native settings toggles remain functional after consolidation"
       );
-      m_settingsFields["search"] = step == 7 ? "emoji" : "role";
+      m_settingsFields["search"] = step == 7 ? "image links" : "role";
     } else if (step == 9) {
       require(
           m_widgets.at("nav:cressida")->parent() && m_preferences.showGuildTags,
-          "Search finds the General page by its role/emoji options without changing preferences"
+          "Search finds the General page by its role/image-link options without changing preferences"
       );
       std::clog << "Offline guild tag and settings replay passed\n";
     }

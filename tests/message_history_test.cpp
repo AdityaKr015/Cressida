@@ -5,32 +5,32 @@
 #include <stdexcept>
 
 int main() {
-  using enum discord::HistoryDirection;
+  using enum api::HistoryDirection;
   auto require = [](bool value, const char* message) {
     if (!value)
       throw std::runtime_error(message);
   };
   auto page = [](int first, int count) {
-    std::vector<discord::Message> result;
+    std::vector<api::Message> result;
     for (int i = 0; i < count; ++i)
       result.push_back({std::to_string(first + i), "10", "Maya", "A message"});
     return result;
   };
   try {
     require(
-        discord::messageHistoryPath("10", {Older, "100"}) == "/channels/10/messages?limit=100&before=100"
-            && discord::messageHistoryPath("10", {Newer, "200"}) == "/channels/10/messages?limit=100&after=200"
-            && discord::messageHistoryPath("10", {}) == "/channels/10/messages?limit=100",
+        api::messageHistoryPath("10", {Older, "100"}) == "/channels/10/messages?limit=100&before=100"
+            && api::messageHistoryPath("10", {Newer, "200"}) == "/channels/10/messages?limit=100&after=200"
+            && api::messageHistoryPath("10", {}) == "/channels/10/messages?limit=100",
         "Build bounded, mutually exclusive history queries"
     );
     require(
-        discord::messageHistoryPath("../token", {}).empty()
-            && discord::messageHistoryPath("10", {Older, "1&limit=999"}).empty()
-            && discord::messageHistoryPath("10", {Latest, "100"}).empty(),
+        api::messageHistoryPath("../token", {}).empty()
+            && api::messageHistoryPath("10", {Older, "1&limit=999"}).empty()
+            && api::messageHistoryPath("10", {Latest, "100"}).empty(),
         "Reject invalid history routes locally"
     );
     app::MessageHistory history;
-    std::vector<discord::Message> messages;
+    std::vector<api::Message> messages;
     auto query = *history.begin(Latest, messages);
     require(history.apply(query, messages, page(2000, 100), {}), "Apply initial history");
     require(
@@ -74,14 +74,14 @@ int main() {
         !history.apply(stale, messages, page(1, 100), {}),
         "Navigation rejects stale responses even for the same channel"
     );
-    std::map<std::string, std::optional<discord::Message>> live;
+    std::map<std::string, std::optional<api::Message>> live;
     live["105"] = std::nullopt;
     live["106"] = page(106, 1).front();
     live["106"]->content = "Edited while fetching";
     require(history.apply(query, messages, page(100, 100), live), "Merge live changes into REST history");
     require(
-        std::ranges::find(messages, "105", &discord::Message::id) == messages.end()
-            && std::ranges::find(messages, "106", &discord::Message::id)->content == "Edited while fetching",
+        std::ranges::find(messages, "105", &api::Message::id) == messages.end()
+            && std::ranges::find(messages, "106", &api::Message::id)->content == "Edited while fetching",
         "Pages cannot resurrect deleted messages or undo in-flight edits"
     );
     query = *history.begin(Older, messages);
@@ -96,17 +96,17 @@ int main() {
     history.fail(query, "Synthetic cancellation");
     history.reset();
     query = *history.begin(Latest, messages);
-    discord::MessagePatch unknownEdit;
+    api::MessagePatch unknownEdit;
     unknownEdit.content = "Edited before this row was loaded";
     history.changed("123", unknownEdit);
     unknownEdit = {};
-    unknownEdit.embeds = std::vector<discord::Embed>{};
+    unknownEdit.embeds = std::vector<api::Embed>{};
     history.changed("123", unknownEdit);
     require(
         history.apply(query, messages, page(100, 100), {}), "Apply history with patches to previously unloaded rows"
     );
     require(
-        std::ranges::find(messages, "123", &discord::Message::id)->content == "Edited before this row was loaded",
+        std::ranges::find(messages, "123", &api::Message::id)->content == "Edited before this row was loaded",
         "Partial in-flight edits merge even when the original message was not yet in the window"
     );
     query = *history.begin(Older, messages);
