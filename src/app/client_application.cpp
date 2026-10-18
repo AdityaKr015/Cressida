@@ -152,6 +152,8 @@ namespace app {
       }
       if (m_demo && m_demoOverlay == "deleted-cycle" && m_demoInteractionStep < 3)
         demoDeletedStep();
+      if (m_demo && m_demoOverlay == "dm-compose-cycle" && m_demoInteractionStep < 16)
+        demoDmComposeStep();
       if (m_demo && m_demoOverlay == "dm-home-cycle" && m_demoInteractionStep < 18)
         demoDmHomeStep();
       if (m_demo && m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep < 8)
@@ -818,6 +820,12 @@ namespace app {
           scrollContext(delta);
         return;
       }
+      if (m_dialogKind == "dm-create") {
+        if (m_dmCreateBounds.contains(m_pointerX, m_pointerY))
+          scroll(m_dmCreateScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (m_dialogKind == "threads") {
         if (m_dialogBounds.contains(m_pointerX, m_pointerY))
           scroll(m_threadScroll, delta);
@@ -939,7 +947,8 @@ namespace app {
       m_desktopNotifications.start();
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "dm-home-cycle"                           ? 18
+        smokeTest ? (m_demo && view && std::string_view(view) == "dm-compose-cycle"                        ? 16
+                         : m_demo && view && std::string_view(view) == "dm-home-cycle"                     ? 18
                          : m_demo && view && std::string_view(view) == "join-cycle"                        ? 4
                          : m_demo && view && std::string_view(view) == "deleted-cycle"                     ? 3
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"                 ? 8
@@ -1013,6 +1022,8 @@ namespace app {
       throw std::runtime_error("Jump to latest replay did not complete");
     if (m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Client preferences replay did not finish");
+    if (m_demoOverlay == "dm-compose-cycle" && m_demoInteractionStep != 16)
+      throw std::runtime_error("DM compose replay did not finish");
     if (m_demoOverlay == "dm-home-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Direct message home replay did not finish");
     if (m_demoOverlay == "user-account-cycle" && m_demoInteractionStep != 16)
@@ -1921,7 +1932,13 @@ namespace app {
             m_unreadGuilds["1200"] = "1";
             m_unreadChannels.insert("1200");
           }
-        } else if (view.starts_with("dm-home") || view.starts_with("dm-requests") || view.starts_with("dm-friends")) {
+        } else if (
+            view.starts_with("dm-home")
+            || view.starts_with("dm-requests")
+            || view.starts_with("dm-friends")
+            || view.starts_with("dm-compose")
+            || view.starts_with("dm-pins")
+        ) {
           prepareDmHomeDemo(view);
         } else if (view == "dm-presence") {
           m_privateChannels.clear();
@@ -2441,9 +2458,13 @@ namespace app {
           m_hits.push_back({90, y, sidebarWidth - 24, 36, Action::DmPage, page});
         }
       }
+      constexpr float dmHeadingTop = 190, dmHeadingHeight = 26;
+      const auto dmHeadingMetrics =
+          m_window.target().renderer().measureText("DIRECT MESSAGES", 10, FontWeight::SemiBold);
+      const float dmHeadingY = dmHeadingTop + (dmHeadingHeight - (dmHeadingMetrics.bottom - dmHeadingMetrics.top)) / 2;
       label(
-          root, 98, m_dmMode ? 201 : 113, sidebarWidth - 48, m_dmMode ? "DIRECT MESSAGES" : "CHANNELS", 10, muted,
-          FontWeight::SemiBold
+          root, 98, m_dmMode ? dmHeadingY : 113, sidebarWidth - 48, m_dmMode ? "DIRECT MESSAGES" : "CHANNELS", 10,
+          muted, FontWeight::SemiBold
       );
       iconButton(root, {14, 48, 48, 48, Action::Home, {}}, "message-circle", "Direct messages", m_dmMode);
       countBadge(root, 67, 80, messageRequestCount(), true, "pending message request");
@@ -2546,6 +2567,11 @@ namespace app {
           [&](const auto& id) { return channelMuted(id); },
           [&](const auto& id) { return m_unreadTimeline.mentions(id); }
       );
+      if (m_dmMode)
+        iconButton(
+            root, {chatLeft() - 38, dmHeadingTop, 26, dmHeadingHeight, Action::DmAction, "create"}, "plus",
+            "New message"
+        );
       const float channelTop = m_dmMode ? 228 : 142;
       const float channelListHeight =
           visibleChannels.empty() ? 0 : visibleChannels.back().top + visibleChannels.back().advance;
@@ -2601,21 +2627,60 @@ namespace app {
           glyph(root, 102, y + 8, 20, "messages", selected ? accent : muted);
         else
           label(root, 102, y + 7, 20, "#", 17, selected ? accent : muted);
-        const float badgeWidth = countBadge(root, chatLeft() - 22, y + 8, mentions);
-        label(
-            root,
-            m_dmMode                 ? 136
-                : channel.isThread() ? 142
-                                     : 128,
-            y + 8,
-            (m_dmMode                 ? sidebarWidth - 83
-                 : channel.isThread() ? sidebarWidth - 89
-                                      : sidebarWidth - 75)
-                - (badgeWidth ? badgeWidth + 8 : 0),
-            m_dmMode ? channelName(channel) : channel.name, 14, selected || over || unread ? foreground : muted,
-            selected || unread ? FontWeight::SemiBold : FontWeight::Normal
-        );
         m_hits.push_back({90, y, sidebarWidth - 24, 34, Action::Channel, channel.id});
+        const bool pinned = m_dmMode && m_userDirectory.pinnedDm(channel.id);
+        const bool showPin = m_dmMode && (pinned || over);
+        const float badgeWidth = countBadge(root, chatLeft() - 22 - (showPin ? 26 : 0), y + 8, mentions);
+        if (m_dmMode) {
+          const float right = chatLeft() - 20 - (showPin ? 28 : 0) - (badgeWidth ? badgeWidth + 8 : 0);
+          std::optional<api::GuildTag> tag;
+          if (channel.type == 1 && !channel.recipients.empty()) {
+            const auto& user = channel.recipients.front();
+            tag = m_userDirectory.guildTag(user.id, user.guildTag);
+          }
+          const float tagWidth = tag
+              ? std::min(
+                    104.0F,
+                    std::ceil(m_window.target().renderer().measureText(tag->tag, 11, FontWeight::Medium).width) + 32
+                )
+              : 0;
+          const auto weight = selected || unread ? FontWeight::SemiBold : FontWeight::Normal;
+          const float available = std::max(1.0F, right - 136);
+          const bool tagFits = tag && available >= tagWidth + 38;
+          const float nameWidth = std::max(1.0F, available - (tagFits ? tagWidth + 6 : 0));
+          const auto name = channelName(channel);
+          label(root, 136, y + 8, nameWidth, name, 14, selected || over || unread ? foreground : muted, weight);
+          if (tagFits) {
+            const float actualName =
+                std::min(nameWidth, std::ceil(m_window.target().renderer().measureText(name, 14, weight).width));
+            drawGuildTag(root, 136 + actualName + 6, y + 7, tagWidth, tag);
+          }
+          if (showPin)
+            iconButton(
+                root,
+                {chatLeft() - 43, y + 4, 26, 26, m_dmPinRequests.contains(channel.id) ? Action::None : Action::DmAction,
+                 std::string(pinned ? "unpin:" : "pin:") + channel.id},
+                pinned && hovered(chatLeft() - 43, y + 4, 26, 26) ? "pinned-off"
+                    : pinned                                      ? "pinned-filled"
+                                                                  : "pin",
+                m_dmPinRequests.contains(channel.id) ? "Saving pin…"
+                    : pinned                         ? "Unpin conversation"
+                                                     : "Pin to top"
+            );
+        } else
+          label(
+              root,
+              m_dmMode                 ? 136
+                  : channel.isThread() ? 142
+                                       : 128,
+              y + 8,
+              (m_dmMode                 ? sidebarWidth - 83
+                   : channel.isThread() ? sidebarWidth - 89
+                                        : sidebarWidth - 75)
+                  - (badgeWidth ? badgeWidth + 8 : 0),
+              m_dmMode ? channelName(channel) : channel.name, 14, selected || over || unread ? foreground : muted,
+              selected || unread ? FontWeight::SemiBold : FontWeight::Normal
+          );
         m_contextTargets.push_back(
             {90, y, sidebarWidth - 24, 34, m_dmMode ? Action::ConversationMenu : Action::ChannelMenu, channel.id}
         );
@@ -4692,6 +4757,8 @@ namespace app {
           m_roleMotion.clear();
       } else if (event.operation == api::Operation::UserState) {
         m_userDirectory.apply(event.users);
+        if (m_dmMode)
+          m_channels = dmConversations();
         scheduleMuteExpiry();
         if (event.users.reset || std::ranges::any_of(event.users.users, [](const auto& item) {
               return item.second.nickname.has_value();

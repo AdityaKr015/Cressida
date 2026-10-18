@@ -70,6 +70,67 @@ int main() {
     action.channel = "100/other";
     require(!api::interactionRequest(action), "Message request actions reject injected identifiers");
 
+    action = {};
+    action.kind = api::InteractionKind::CreateDm;
+    action.recipients = {"42", "43"};
+    route = api::interactionRequest(action);
+    require(
+        route
+            && route->path == "/users/@me/channels"
+            && route->method == "POST"
+            && route->body == Json{{"recipients", {"42", "43"}}},
+        "Group creation uses exact recipient IDs"
+    );
+    for (const auto& invalid : std::vector<std::vector<std::string>>{
+             {}, {"42", "42"}, {"42/other"}, {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+         }) {
+      action.recipients = invalid;
+      require(!api::interactionRequest(action), "Invalid, duplicate or excess recipients cannot be submitted");
+    }
+    const auto group = Json::parse(
+        R"({"id":"200","type":3,"recipients":[{"id":"43","username":"bob"},{"id":"42","username":"alice"},{"id":"99","username":"self"}]})"
+    );
+    require(
+        api::createdDm(group, {"42", "43"}, "99").id == "200",
+        "Group response validates exact membership, allowing current account"
+    );
+    const auto rejected = [&](const Json& response, const std::vector<std::string>& wanted) {
+      try {
+        (void)api::createdDm(response, wanted, "99");
+      } catch (const std::exception&) {
+        return true;
+      }
+      return false;
+    };
+    require(
+        rejected(group, {"42"}) && rejected(group, {"42", "44"}) && rejected(group, {"99"}),
+        "Wrong channel type, mismatched membership and self recipients are rejected"
+    );
+    auto duplicate = group;
+    duplicate["recipients"].push_back(duplicate["recipients"][0]);
+    require(rejected(duplicate, {"42", "43"}), "Duplicate response recipients are rejected");
+    action = {};
+    action.channel = "100";
+    action.notificationFlags = (1ULL << 40) | 512;
+    action.kind = api::InteractionKind::PinDm;
+    route = api::interactionRequest(action);
+    require(
+        route
+            && route->path == "/users/@me/guilds/@me/settings"
+            && route->method == "PATCH"
+            && route->body["channel_overrides"]["100"]["flags"] == (action.notificationFlags | 2048ULL),
+        "Pin preserves unrelated and unknown notification flags"
+    );
+    action.kind = api::InteractionKind::UnpinDm;
+    action.notificationFlags |= 2048;
+    route = api::interactionRequest(action);
+    require(
+        route && route->body["channel_overrides"]["100"]["flags"] == ((1ULL << 40) | 512),
+        "Unpin clears only the private conversation favorite flag"
+    );
+    action.guild = "200";
+    require(!api::interactionRequest(action), "DM pin actions cannot modify a guild override");
+
     api::UserDirectory directory;
     const auto ready = directory.consume("READY", Json::parse(R"({
       "users":[{"id":"42","username":"alice","global_name":"Alice"}],
@@ -81,6 +142,36 @@ int main() {
             && directory.name("42", "Alice") == "My friend",
         "Friends can render immediately from READY users and relationships"
     );
+    auto pins = directory.consume(
+        "USER_GUILD_SETTINGS_UPDATE",
+        Json::parse(R"({"guild_id":null,"channel_overrides":[{"channel_id":"100","flags":2560,"muted":true}]})")
+    );
+    require(
+        directory.pinnedDm("100") && directory.muted("100"),
+        "Remote private-channel pins are projected with notification preferences"
+    );
+    directory.consume(
+        "USER_GUILD_SETTINGS_UPDATE",
+        Json::parse(R"({"guild_id":null,"channel_overrides":[{"channel_id":"100","muted":false}]})")
+    );
+    require(directory.pinnedDm("100") && !directory.muted("100"), "Mute patches preserve pin flags");
+    directory.consume(
+        "USER_GUILD_SETTINGS_UPDATE",
+        Json::parse(R"({"guild_id":null,"channel_overrides":[{"channel_id":"100","flags":0}]})")
+    );
+    require(!directory.pinnedDm("100"), "Explicit zero flags remove a remote pin");
+    api::UserDirectory pinnedLoop;
+    pinnedLoop.consume(
+        "READY",
+        Json::parse(
+            R"({"user_guild_settings":{"entries":[{"guild_id":null,"channel_overrides":[{"channel_id":"101","flags":2048}]}]}})"
+        )
+    );
+    require(pinnedLoop.pinnedDm("101"), "Initial READY private override flags restore existing remote pins");
+    pinnedLoop.apply(pins);
+    require(pinnedLoop.pinnedDm("100"), "Pin flags reach the UI through immutable typed updates");
+    pinnedLoop.apply({.reset = true});
+    require(!pinnedLoop.pinnedDm("100"), "Account reset clears pin state");
     api::UserDirectory owningLoop;
     owningLoop.apply(ready);
     require(

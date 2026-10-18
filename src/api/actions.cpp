@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <ctime>
+#include <set>
 #include <stdexcept>
 
 namespace api {
@@ -152,6 +153,42 @@ namespace api {
       });
     }
   } // namespace
+  Channel
+  createdDm(const nlohmann::json& response, const std::vector<std::string>& recipients, const std::string& self) {
+    if (recipients.empty() || recipients.size() > 9 || !validSnowflake(self))
+      throw std::runtime_error("Invalid conversation recipients.");
+    const std::set<std::string> wanted(recipients.begin(), recipients.end());
+    if (wanted.size() != recipients.size() || wanted.contains(self) || !std::ranges::all_of(wanted, validSnowflake))
+      throw std::runtime_error("Invalid conversation recipients.");
+    if (!response.is_object()
+        || !response.contains("type")
+        || !response.contains("recipients")
+        || !response["recipients"].is_array()
+        || response["recipients"].size() > 10)
+      throw std::runtime_error("Unexpected conversation recipients.");
+    auto channels = parsePrivateChannels(nlohmann::json::array({response}));
+    if (channels.size() != 1 || channels.front().type != (wanted.size() == 1 ? 1 : 3))
+      throw std::runtime_error("Unexpected conversation type.");
+    std::set<std::string> actual;
+    for (const auto& user : channels.front().recipients)
+      if (!actual.insert(user.id).second)
+        throw std::runtime_error("Unexpected conversation recipients.");
+    actual.erase(self);
+    if (actual != wanted)
+      throw std::runtime_error("Unexpected conversation recipients.");
+    auto result = std::move(channels.front());
+    std::erase_if(result.recipients, [&](const auto& user) { return user.id == self; });
+    if (!result.named) {
+      result.name.clear();
+      for (const auto& user : result.recipients) {
+        if (!result.name.empty())
+          result.name += ", ";
+        result.name += user.name;
+      }
+    }
+    result.icon = result.recipients.front().avatar;
+    return result;
+  }
   std::string reactionKey(const Reaction& reaction) {
     return reaction.id.empty() ? reaction.name : reaction.name + ":" + reaction.id;
   }
@@ -575,6 +612,32 @@ namespace api {
         request.body = messageBody(action.text);
       } else
         request.method = "DELETE";
+      break;
+    case Kind::CreateDm: {
+      if (action.recipients.empty() || action.recipients.size() > 9)
+        return {};
+      std::set<std::string> unique;
+      for (const auto& id : action.recipients)
+        if (!validSnowflake(id) || !unique.insert(id).second)
+          return {};
+      request.path = "/users/@me/channels";
+      request.method = "POST";
+      request.body = {{"recipients", action.recipients}};
+      break;
+    }
+    case Kind::PinDm:
+    case Kind::UnpinDm:
+      if (!validSnowflake(action.channel) || !action.guild.empty())
+        return {};
+      request.path = "/users/@me/guilds/@me/settings";
+      request.method = "PATCH";
+      request.body = {
+          {"channel_overrides",
+           {{action.channel,
+             {{"flags",
+               action.kind == Kind::PinDm ? action.notificationFlags | 2048ULL
+                                          : action.notificationFlags & ~2048ULL}}}}}
+      };
       break;
     case Kind::Block:
     case Kind::Unblock:

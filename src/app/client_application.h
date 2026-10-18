@@ -181,6 +181,8 @@ namespace app {
       SetNickname,
       MuteConversation,
       UnmuteConversation,
+      PinConversation,
+      UnpinConversation,
       SubmitDialog,
       CloseDialog,
       JumpReply,
@@ -292,6 +294,11 @@ namespace app {
     int messageRequestCount() const;
     void openDmPage(const std::string& page);
     void dmAction(const std::string& action);
+    void openDmCreate();
+    void dmCreateAction(const std::string& command);
+    void drawDmCreate(Node& root, float w, float h);
+    void pinDm(const std::string& id, bool pin);
+    void demoDmComposeStep();
     void drawDmHome(Node& root, float width, float height);
     void drawDmRequestPanel(Node& root, float x, float y, float width, float height);
     void dmButton(Node& parent, Hit hit, const std::string& text, bool primary = false);
@@ -661,6 +668,13 @@ namespace app {
     Hit m_guildTooltipBounds{};
     std::string m_restoreChannel;
     std::string m_dmPage, m_dmFilter = "online", m_dmSearch, m_dmFriendName, m_dmStatus, m_dmConfirm;
+    std::string m_dmCreateSearch, m_dmCreateError;
+    std::vector<api::Account> m_dmCreateCandidates;
+    std::vector<std::string> m_dmCreateRecipients;
+    std::uint64_t m_dmCreateRequest = 0;
+    float m_dmCreateScroll = 0;
+    Hit m_dmCreateBounds{};
+    std::map<std::string, std::uint64_t> m_dmPinRequests;
     std::string m_dmPreviewId;
     std::vector<api::Message> m_dmPreview;
     std::set<std::string> m_dmPending;

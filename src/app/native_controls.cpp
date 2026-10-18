@@ -258,6 +258,12 @@ namespace app {
             m_drafts[m_channelId] = text;
             m_edit.end(text);
           }
+        } else if (id == "dm-create-search") {
+          if (m_dialogKind == "dm-create" && text.size() <= 256) {
+            m_dmCreateSearch = text;
+            m_scrolling.stop(m_dmCreateScroll);
+            m_dmCreateScroll = 0;
+          }
         } else if (id == "dm-search" || id == "dm-friend-name") {
           if (text.size() <= 256) {
             (id == "dm-search" ? m_dmSearch : m_dmFriendName) = text;
@@ -343,6 +349,8 @@ namespace app {
           submitMessageEdit();
         else if (id == "dm-friend-name")
           dmAction("add-friend");
+        else if (id == "dm-create-search")
+          dmCreateAction("create-submit");
         else if (id == "dm-search") {
           // Searching conversations never submits profile settings or a draft.
         } else if (id == "emoji-search") {
@@ -393,9 +401,10 @@ namespace app {
     input.setPlaceholder(placeholder);
     input.setFrameVisible(id != "composer");
     input.setEnabled(
-        (m_dialogKind.empty() || id == "dialog")
+        (m_dialogKind.empty() || id == "dialog" || id == "dm-create-search")
         && (!m_serverSettings.open || id.starts_with("server-settings:"))
-        && (id == "dialog"             ? !m_dialogPending
+        && (id == "dm-create-search"   ? !m_dialogPending
+                : id == "dialog"       ? !m_dialogPending
                 : id == "message-edit" ? m_messageEdit && !m_messageEdit->request
                 : id == "token"        ? !m_connecting
                 : id == "composer"     ? !m_demo

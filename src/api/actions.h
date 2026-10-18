@@ -17,6 +17,9 @@ namespace api {
     RemoveFriend,
     Nickname,
     OpenDm,
+    CreateDm,
+    PinDm,
+    UnpinDm,
     UserProfile,
     Mute,
     Unmute,
@@ -51,6 +54,8 @@ namespace api {
     std::uint64_t stateRevision = 0; // Thread directory version, never sent to Discord.
     std::string content;
     std::vector<std::string> tags;
+    std::vector<std::string> recipients;
+    std::uint64_t notificationFlags = 0;
     std::string application, customId, nonce;
     std::uint64_t messageFlags = 0;
     std::optional<std::string> channelName, channelTopic;
@@ -75,6 +80,8 @@ namespace api {
   };
   // Fixed routes and validated identifiers only; never accept an arbitrary URL.
   std::optional<InteractionRequest> interactionRequest(const Interaction& action);
+  Channel
+  createdDm(const nlohmann::json& response, const std::vector<std::string>& recipients, const std::string& self);
   nlohmann::json messageBody(const std::string& content, const std::optional<MessageReference>& reply = {});
   std::string reactionKey(const Reaction& reaction);
   nlohmann::json decodeRestBody(long status, std::string_view bytes);

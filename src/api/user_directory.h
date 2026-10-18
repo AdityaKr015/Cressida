@@ -9,6 +9,7 @@ namespace api {
     std::optional<int> level;
     std::optional<bool> muted;
     std::optional<std::string> muteUntil;
+    std::optional<std::uint64_t> flags;
   };
   std::map<std::string, ChannelNotification> channelNotifications(const nlohmann::json& settings);
   std::optional<std::chrono::system_clock::time_point> muteDeadline(std::string_view text);
@@ -41,6 +42,8 @@ namespace api {
     std::vector<Account> relatedUsers() const;
     std::uint64_t relationshipRevision() const { return m_relationshipRevision; }
     bool muted(const std::string& channel) const;
+    std::uint64_t notificationFlags(const std::string& channel) const;
+    bool pinnedDm(const std::string& channel) const { return (notificationFlags(channel) & 2048) != 0; }
     int notificationLevel(const std::string& channel) const;
     std::uint64_t notificationRevision(const std::string& channel) const;
     std::optional<std::chrono::system_clock::time_point> nextMuteExpiry() const;

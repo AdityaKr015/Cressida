@@ -719,6 +719,21 @@ namespace api {
       auto users = m_userDirectory.consume(type, data);
       if (type != "READY")
         m_readState.context(type, data, m_self);
+      {
+        std::lock_guard lock(m_mutex);
+        if (session == m_session) {
+          if (users.reset) {
+            m_channelNotificationFlags.clear();
+            const auto settings = data.find("user_guild_settings");
+            m_channelNotificationFlagsReady = settings != data.end()
+                && (settings->is_array()
+                    || (settings->is_object() && settings->contains("entries") && (*settings)["entries"].is_array()));
+          }
+          for (const auto& [id, patch] : users.notifications)
+            if (patch.flags && (m_channelNotificationFlags.contains(id) || m_channelNotificationFlags.size() < 100000))
+              m_channelNotificationFlags[id] = *patch.flags;
+        }
+      }
       if (users.reset || !users.users.empty() || !users.mutedChannels.empty() || !users.notifications.empty()) {
         Event event{.operation = Operation::UserState, .session = session};
         event.users = std::move(users);
@@ -1010,6 +1025,8 @@ namespace api {
           break;
         if (activeSession != m_session) {
           token.clear();
+          m_channelNotificationFlags.clear();
+          m_channelNotificationFlagsReady = false;
           authenticatedUser.clear();
           guildMfa.clear();
           userMfa.clear();
@@ -1402,6 +1419,25 @@ namespace api {
         case Operation::Interaction:
           if (!command.interaction || !(interaction = interactionRequest(*command.interaction)))
             continue;
+          if (command.interaction->kind == InteractionKind::CreateDm
+              && std::ranges::find(command.interaction->recipients, authenticatedUser)
+                  != command.interaction->recipients.end()) {
+            event.interaction = command.interaction;
+            event.error = "Choose recipients other than yourself.";
+            break;
+          }
+          if (command.interaction->kind == InteractionKind::PinDm
+              || command.interaction->kind == InteractionKind::UnpinDm) {
+            std::lock_guard lock(m_mutex);
+            if (!m_channelNotificationFlagsReady || command.session != m_session) {
+              event.interaction = command.interaction;
+              event.error = "Wait for your conversation preferences to finish loading, then try again.";
+              break;
+            }
+            const auto flags = m_channelNotificationFlags.find(command.resource);
+            command.interaction->notificationFlags = flags == m_channelNotificationFlags.end() ? 0 : flags->second;
+            interaction = interactionRequest(*command.interaction);
+          }
           event.interaction = command.interaction;
           path = interaction->path;
           body = interaction->body;
@@ -1919,7 +1955,25 @@ namespace api {
               event.messages = parseMessages(Json::array({*response}));
             else if (command.interaction->kind == InteractionKind::OpenDm)
               event.channels = parsePrivateChannels(Json::array({*response}));
+            else if (command.interaction->kind == InteractionKind::CreateDm)
+              event.channels = {createdDm(*response, command.interaction->recipients, authenticatedUser)};
             else if (
+                command.interaction->kind == InteractionKind::PinDm
+                || command.interaction->kind == InteractionKind::UnpinDm
+            ) {
+              event.users.notifications = channelNotifications(*response);
+              const auto patch = event.users.notifications.find(command.resource);
+              if (patch == event.users.notifications.end()
+                  || !patch->second.flags
+                  || ((*patch->second.flags & 2048) != 0) != (command.interaction->kind == InteractionKind::PinDm))
+                throw std::runtime_error("Discord did not confirm the conversation pin. Try again.");
+              std::lock_guard lock(m_mutex);
+              if (command.session == m_session
+                  && (m_channelNotificationFlags.contains(command.resource)
+                      || m_channelNotificationFlags.size() < 100000)
+                  && m_channelNotificationFlags[command.resource] == command.interaction->notificationFlags)
+                m_channelNotificationFlags[command.resource] = *patch->second.flags;
+            } else if (
                 command.interaction->kind == InteractionKind::AcceptMessageRequest
                 || command.interaction->kind == InteractionKind::IgnoreMessageRequest
             ) {

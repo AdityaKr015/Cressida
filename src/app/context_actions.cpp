@@ -158,6 +158,10 @@ namespace app {
       case Action::UnblockUser:
         entry.icon = "user-check";
         break;
+      case Action::PinConversation:
+      case Action::UnpinConversation:
+        entry.icon = action == Action::PinConversation ? "pin" : "pinned-off";
+        break;
       case Action::MuteConversation:
         entry.icon = "bell-off";
         break;
@@ -236,6 +240,15 @@ namespace app {
             add(Action::AddFriend, relationship == 3 ? "Accept friend request" : "Add friend");
           separator();
           add(relationship == 2 ? Action::UnblockUser : Action::BlockUser, relationship == 2 ? "Unblock" : "Block");
+        }
+      }
+      if (target->action == Action::ConversationMenu) {
+        const auto channel = std::ranges::find(m_privateChannels, m_contextChannel, &api::Channel::id);
+        if (channel != m_privateChannels.end() && !channel->isMessageRequest()) {
+          separator();
+          const bool pinned = m_userDirectory.pinnedDm(m_contextChannel);
+          add(pinned ? Action::UnpinConversation : Action::PinConversation,
+              pinned ? "Unpin conversation" : "Pin to top");
         }
       }
       // User menus can mute an existing one-to-one DM, even from a guild member.
@@ -659,6 +672,7 @@ namespace app {
         return true;
       if (!m_focusedInput.starts_with("channel-")
           && !m_focusedInput.starts_with("application-field:")
+          && m_focusedInput != "dm-create-search"
           && m_focusedInput != "dialog"
           && !(m_dialogKind == "forum-create" && m_focusedInput == "forum-body")
           && key.symbol != XKB_KEY_Tab)
@@ -709,6 +723,12 @@ namespace app {
         if (channel != m_channels.end())
           openChannelInvite({.kind = api::InteractionKind::CreateInvite, .channel = channel->id, .guild = guild});
       }
+      return;
+    }
+    if (action == Action::PinConversation || action == Action::UnpinConversation) {
+      const auto id = m_contextChannel;
+      closeContext();
+      pinDm(id, action == Action::PinConversation);
       return;
     }
     closeContext();
@@ -877,6 +897,16 @@ namespace app {
       m_dialogError = m_status;
   }
   void ClientApplication::closeDialog() {
+    m_scrolling.stop(m_dmCreateScroll);
+    m_dmCreateScroll = 0;
+    m_dmCreateBounds = {};
+    m_dmCreateRecipients.clear();
+    m_dmCreateCandidates.clear();
+    m_dmCreateSearch.clear();
+    m_dmCreateError.clear();
+    m_dmCreateRequest = 0;
+    if (m_inputs.contains("dm-create-search"))
+      m_inputs["dm-create-search"]->setValue("");
     m_scrolling.stop(m_channelInvite.scroll);
     m_scrolling.stop(m_channelInvite.formScroll);
     m_channelInvite = {};
@@ -916,6 +946,7 @@ namespace app {
   }
   void ClientApplication::clearInteractions() {
     m_dmDemoAction.reset();
+    m_dmPinRequests.clear();
     m_dmPage.clear();
     m_dmSearch.clear();
     m_dmFriendName.clear();
@@ -948,6 +979,10 @@ namespace app {
     m_revealedBlocked.clear();
   }
   void ClientApplication::drawDialog(Node& root, float w, float h) {
+    if (m_dialogKind == "dm-create") {
+      drawDmCreate(root, w, h);
+      return;
+    }
     if (m_dialogKind.empty())
       return;
     if (m_dialogKind.starts_with("sidebar-")) {

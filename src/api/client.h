@@ -240,6 +240,9 @@ namespace api {
     std::optional<bool> m_authTotpEnabled;
     std::uint64_t m_gatewaySessionGeneration = 0;
     int m_selectedMemberFirst = 0;
+    // Shared only under m_mutex: latest Gateway/acknowledged override flags.
+    std::map<std::string, std::uint64_t> m_channelNotificationFlags;
+    bool m_channelNotificationFlagsReady = false;
     // These caches belong exclusively to the Gateway worker.
     std::uint64_t m_memberSession = 0;
     std::string m_memberChannel;

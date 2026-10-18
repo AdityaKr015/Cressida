@@ -26,6 +26,9 @@ namespace app {
   std::vector<api::Channel> ClientApplication::dmConversations() const {
     auto result = m_privateChannels;
     std::erase_if(result, [](const auto& channel) { return channel.isMessageRequest(); });
+    std::stable_sort(result.begin(), result.end(), [&](const auto& a, const auto& b) {
+      return m_userDirectory.pinnedDm(a.id) > m_userDirectory.pinnedDm(b.id);
+    });
     return result;
   }
   int ClientApplication::messageRequestCount() const {
@@ -52,6 +55,19 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::dmAction(const std::string& command) {
+    if (command == "create") {
+      openDmCreate();
+      return;
+    }
+    if (command.starts_with("recipient:") || command == "create-submit") {
+      dmCreateAction(command);
+      return;
+    }
+    if (command.starts_with("pin:") || command.starts_with("unpin:")) {
+      const auto colon = command.find(':');
+      pinDm(command.substr(colon + 1), command.starts_with("pin:"));
+      return;
+    }
     if (!m_dmMode || m_dmPage.empty())
       return;
     if (command.starts_with("filter:")) {
@@ -225,6 +241,47 @@ namespace app {
     if (!event.interaction || !(event.interaction->revision & homeRequest))
       return false;
     const auto& action = *event.interaction;
+    if (action.kind == api::InteractionKind::CreateDm) {
+      const bool current = m_dialogKind == "dm-create" && m_dmCreateRequest == action.revision;
+      if (current) {
+        m_dmCreateRequest = 0;
+        m_dialogPending = false;
+        m_dmCreateError = event.error;
+      }
+      if (!event.error.empty() || event.channels.size() != 1)
+        return true;
+      const auto& channel = event.channels.front();
+      const auto found = std::ranges::find(m_privateChannels, channel.id, &api::Channel::id);
+      if (found == m_privateChannels.end())
+        m_privateChannels.push_back(channel);
+      else
+        api::mergePrivateChannel(*found, channel);
+      if (current) {
+        closeDialog();
+        m_restoreChannel = channel.id;
+        showDirectMessages();
+        if (m_channelId != channel.id)
+          selectChannel(channel.id);
+      } else if (m_dmMode)
+        m_channels = dmConversations();
+      return true;
+    }
+    if (action.kind == api::InteractionKind::PinDm || action.kind == api::InteractionKind::UnpinDm) {
+      const auto pending = m_dmPinRequests.find(action.channel);
+      if (pending == m_dmPinRequests.end() || pending->second != action.revision)
+        return true;
+      m_dmPinRequests.erase(pending);
+      m_status = m_dmStatus = event.error;
+      if (event.error.empty() && m_userDirectory.notificationFlags(action.channel) == action.notificationFlags) {
+        api::UserUpdates changes;
+        if (const auto at = event.users.notifications.find(action.channel); at != event.users.notifications.end())
+          changes.notifications[action.channel].flags = at->second.flags;
+        m_userDirectory.apply(changes);
+      }
+      if (m_dmMode)
+        m_channels = dmConversations();
+      return true;
+    }
     const auto id = action.channel.empty() ? action.user : action.channel;
     if (!m_dmPending.erase(id))
       return true;

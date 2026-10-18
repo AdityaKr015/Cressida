@@ -56,6 +56,10 @@ namespace api {
       if (!validSnowflake(id) || result.size() >= maxUsers)
         continue;
       ChannelNotification update;
+      if (const auto at = row.find("flags"); at != row.end() && at->is_number_unsigned())
+        update.flags = at->get<std::uint64_t>();
+      else if (at != row.end() && at->is_number_integer() && *at >= 0)
+        update.flags = at->get<std::uint64_t>();
       if (const auto at = row.find("message_notifications");
           at != row.end() && at->is_number_integer() && *at >= 0 && *at <= 3)
         update.level = at->get<int>();
@@ -126,6 +130,8 @@ namespace api {
       if (!validSnowflake(id) || (!m_notifications.contains(id) && m_notifications.size() >= maxUsers))
         continue;
       auto& target = m_notifications[id];
+      if (patch.flags)
+        target.flags = patch.flags;
       if (patch.level)
         target.level = patch.level;
       if (patch.muted) {
@@ -163,6 +169,10 @@ namespace api {
       if (const auto end = muteDeadline(*at->second.muteUntil); end && *end <= std::chrono::system_clock::now())
         return false;
     return true;
+  }
+  std::uint64_t UserDirectory::notificationFlags(const std::string& channel) const {
+    const auto at = m_notifications.find(channel);
+    return at == m_notifications.end() ? 0 : at->second.flags.value_or(0);
   }
   int UserDirectory::notificationLevel(const std::string& channel) const {
     const auto at = m_notifications.find(channel);
