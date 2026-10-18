@@ -4386,6 +4386,7 @@ namespace app {
     TimerManager::instance().tick();
     bool imagesChanged = false;
     for (auto& asset : m_assets.drain()) {
+      m_desktopNotifications.avatarLoaded(asset.path, asset.bytes);
       m_pendingImages.erase(asset.path);
       auto& cached = m_images[asset.path];
       if (!asset.bytes.empty() && m_window.context().makeCurrent(m_window.target())) {

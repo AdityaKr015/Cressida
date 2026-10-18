@@ -285,7 +285,7 @@ test('user_settings', user_settings_test)
 
 desktop_notifications_test = executable('desktop_notifications_test',
   'tests/desktop_notifications_test.cpp', 'src/app/desktop_notifications.cpp',
-  include_directories: include_directories('src'), dependencies: [dependency('gio-2.0'), dependency('threads')])
+  include_directories: include_directories('src'), dependencies: [render_dep, dependency('gio-2.0'), dependency('threads')])
 test('desktop_notifications', desktop_notifications_test, timeout: 15)
 
 billing_amount_test = executable('billing_amount_test', 'tests/billing_amount_test.cpp',

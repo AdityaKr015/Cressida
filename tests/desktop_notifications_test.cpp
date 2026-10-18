@@ -1,4 +1,5 @@
 #include "app/desktop_notifications.h"
+#include "render/core/image_encoder.h"
 
 #include <algorithm>
 #include <chrono>
@@ -43,6 +44,9 @@ namespace {
     std::vector<std::string> actions;
     bool suppress = false;
     int timeout = 0;
+    int width = 0, height = 0, rowstride = 0, bits = 0, channels = 0;
+    gboolean alpha = false;
+    std::vector<std::uint8_t> image;
   };
   class Service {
   public:
@@ -109,6 +113,18 @@ namespace {
                 capture.sound = value;
               if (g_variant_lookup(hints, "suppress-sound", "b", &suppress))
                 capture.suppress = suppress;
+              if (auto* image = g_variant_lookup_value(hints, "image-data", G_VARIANT_TYPE("(iiibiiay)"))) {
+                GVariant* pixels;
+                g_variant_get(
+                    image, "(iiibii@ay)", &capture.width, &capture.height, &capture.rowstride, &capture.alpha,
+                    &capture.bits, &capture.channels, &pixels
+                );
+                gsize size = 0;
+                const auto* data = static_cast<const std::uint8_t*>(g_variant_get_fixed_array(pixels, &size, 1));
+                capture.image.assign(data, data + size);
+                g_variant_unref(pixels);
+                g_variant_unref(image);
+              }
               GVariantIter it;
               g_variant_iter_init(&it, actions);
               while (g_variant_iter_next(&it, "&s", &value))
@@ -215,6 +231,7 @@ int main() {
           !first.suppress && first.sound == "message-new-instant" && first.timeout == 7000,
           "Enabled notification sounds and expiry use documented hints"
       );
+      require(first.image.empty(), "A notice without sender identity never contains an avatar");
       service.action(first.id, "unrecognized");
       dispatchFor(std::chrono::milliseconds(30));
       require(!notifications.poll(), "Unrecognized notification actions do not navigate");
@@ -264,6 +281,99 @@ int main() {
       dispatchFor(std::chrono::milliseconds(30));
       require(!notifications.poll(), "Late callbacks cannot resurrect a stale desktop target");
       service.hold = false;
+    }
+    {
+      app::DesktopNotifications notifications;
+      notifications.start();
+      const std::vector<std::uint8_t> rgba{220, 40, 60, 255, 30, 120, 200, 127};
+      const auto png = encodePng(rgba.data(), 2, 1);
+      require(!png.empty(), "Build an isolated avatar fixture with transparency");
+      std::size_t expected = service.captures.size();
+      const auto awaitNotice = [&] {
+        ++expected;
+        waitFor([&] { return service.captures.size() == expected; }, "Deliver avatar notification");
+      };
+      const auto checkImage = [&] {
+        const auto& image = service.captures.back();
+        require(
+            image.width == 2
+                && image.height == 1
+                && image.rowstride == 8
+                && image.alpha
+                && image.bits == 8
+                && image.channels == 4
+                && image.image == rgba
+                && image.icon == "cressida",
+            "Standard image-data preserves sender RGBA pixels and the separate application icon"
+        );
+      };
+      auto cached = notice("Cached avatar");
+      cached.avatar = "/avatars/42/cached.png?size=128";
+      cached.avatarBytes = png;
+      notifications.show(std::move(cached));
+      awaitNotice();
+      checkImage();
+
+      auto downloading = notice("Downloading avatar");
+      downloading.avatar = "/avatars/43/new.png?size=128";
+      notifications.show(downloading);
+      dispatchFor(std::chrono::milliseconds(40));
+      require(service.captures.size() == expected, "Uncached avatar briefly waits for the shared asset worker");
+      notifications.avatarLoaded("/unrelated.png", png);
+      dispatchFor(std::chrono::milliseconds(20));
+      require(service.captures.size() == expected, "Unrelated image results cannot supply a sender avatar");
+      notifications.avatarLoaded(downloading.avatar, png);
+      awaitNotice();
+      checkImage();
+
+      // Completion may arrive before the notification worker has seen its queue.
+      notifications.show(downloading);
+      notifications.avatarLoaded(downloading.avatar, png);
+      awaitNotice();
+      checkImage();
+
+      notifications.show(downloading);
+      notifications.avatarLoaded(downloading.avatar, {});
+      awaitNotice();
+      require(service.captures.back().image.empty(), "Failed downloads fall back to the application icon");
+
+      auto invalid = downloading;
+      invalid.avatarBytes = {1, 2, 3};
+      notifications.show(invalid);
+      awaitNotice();
+      require(service.captures.back().image.empty(), "Malformed avatar data cannot enter notification hints");
+      invalid.avatarBytes = png;
+      invalid.avatarBytes[16] = 1; // Oversized PNG canvas is rejected before decoding.
+      notifications.show(invalid);
+      awaitNotice();
+      require(service.captures.back().image.empty(), "Avatar dimensions are bounded before allocation");
+      invalid.avatarBytes.assign(256 * 1024 + 1, 0);
+      notifications.show(std::move(invalid));
+      awaitNotice();
+      require(service.captures.back().image.empty(), "Encoded avatar size is bounded");
+
+      const auto start = std::chrono::steady_clock::now();
+      notifications.show(downloading);
+      awaitNotice();
+      require(
+          service.captures.back().image.empty() && std::chrono::steady_clock::now() - start < std::chrono::seconds(2),
+          "Missing avatar results cannot indefinitely delay a desktop notification"
+      );
+      notifications.avatarLoaded(downloading.avatar, png);
+      dispatchFor(std::chrono::milliseconds(40));
+      require(service.captures.size() == expected, "A late image does not duplicate an expired delivery");
+
+      notifications.show(downloading);
+      dispatchFor(std::chrono::milliseconds(20));
+      notifications.clear();
+      notifications.avatarLoaded(downloading.avatar, png);
+      dispatchFor(std::chrono::milliseconds(800));
+      require(service.captures.size() == expected, "Reset cancels pending avatar deliveries and their deadlines");
+      notifications.show(downloading);
+      notifications.avatarLoaded(downloading.avatar, png);
+      awaitNotice();
+      checkImage();
+      notifications.show(downloading); // Destruction must also cancel the image deadline.
     }
     service.markup = false;
     {

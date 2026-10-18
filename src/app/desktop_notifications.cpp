@@ -1,8 +1,12 @@
 #include "app/desktop_notifications.h"
 
 #include "core/process/wake_event.h"
+#include "render/core/image_decoder.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <gio/gio.h>
 #include <map>
@@ -14,6 +18,35 @@ namespace app {
   namespace {
     constexpr auto service = "org.freedesktop.Notifications";
     constexpr auto path = "/org/freedesktop/Notifications";
+    constexpr std::size_t maxAvatarBytes = 256 * 1024;
+    // Avatar routes request static PNGs. Check the canvas before decoding so
+    // malformed or unexpectedly large images cannot expand on this worker.
+    GVariant* avatarImage(std::span<const std::uint8_t> bytes) {
+      constexpr std::array<std::uint8_t, 16> header{137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 'I', 'H', 'D', 'R'};
+      if (bytes.size() < 33 || bytes.size() > maxAvatarBytes || !std::ranges::equal(bytes.first(16), header))
+        return nullptr;
+      const auto dimension = [&](std::size_t offset) {
+        std::uint32_t value = 0;
+        for (std::size_t i = offset; i < offset + 4; ++i)
+          value = (value << 8) | bytes[i];
+        return value;
+      };
+      const auto width = dimension(16), height = dimension(20);
+      if (!width || !height || width > 512 || height > 512)
+        return nullptr;
+      const auto image = decodeRasterImage(bytes.data(), bytes.size());
+      if (!image
+          || image->width <= 0
+          || image->height <= 0
+          || image->width > 512
+          || image->height > 512
+          || image->pixels.size() != std::size_t(image->width) * image->height * 4)
+        return nullptr;
+      return g_variant_new(
+          "(iiibii@ay)", image->width, image->height, image->width * 4, true, 8, 4,
+          g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, image->pixels.data(), image->pixels.size(), 1)
+      );
+    }
     std::string plain(std::string text, bool markup = false) {
       if (!g_utf8_validate(text.data(), text.size(), nullptr))
         return {};
@@ -43,7 +76,13 @@ namespace app {
     std::atomic<bool> stopping = false, scheduled = false;
     bool bodyMarkup = false;
     std::mutex mutex;
-    std::deque<DesktopNotice> queue;
+    struct Queued {
+      DesktopNotice notice;
+      std::chrono::steady_clock::time_point deadline;
+      bool avatarReady;
+    };
+    std::deque<Queued> queue;
+    GSource* avatarDeadline = nullptr;
     std::deque<DesktopNoticeAction> actions;
     std::uint64_t epoch = 1;
     struct Active {
@@ -53,6 +92,13 @@ namespace app {
     std::map<guint32, Active> active;
     bool clearPending = false;
     unsigned pendingCalls = 0;
+    void cancelDeadline() {
+      if (avatarDeadline) {
+        g_source_destroy(avatarDeadline);
+        g_source_unref(avatarDeadline);
+        avatarDeadline = nullptr;
+      }
+    }
     ~Impl() {
       stopping = true;
       g_cancellable_cancel(cancel);
@@ -89,6 +135,7 @@ namespace app {
         );
     }
     void flush() {
+      cancelDeadline();
       if (stopping) {
         g_main_loop_quit(loop);
         return;
@@ -96,11 +143,34 @@ namespace app {
       std::deque<DesktopNotice> batch;
       std::uint64_t current;
       bool clear;
+      const auto now = std::chrono::steady_clock::now();
+      auto deadline = std::chrono::steady_clock::time_point::max();
       {
         std::lock_guard lock(mutex);
-        batch.swap(queue);
+        for (auto it = queue.begin(); it != queue.end();) {
+          if (it->avatarReady || it->deadline <= now) {
+            batch.push_back(std::move(it->notice));
+            it = queue.erase(it);
+          } else {
+            deadline = std::min(deadline, it->deadline);
+            ++it;
+          }
+        }
         current = epoch;
         clear = std::exchange(clearPending, false);
+      }
+      if (deadline != std::chrono::steady_clock::time_point::max()) {
+        const auto delay = std::chrono::ceil<std::chrono::milliseconds>(deadline - now).count();
+        avatarDeadline = g_timeout_source_new(static_cast<guint>(std::max<std::int64_t>(1, delay)));
+        g_source_set_callback(
+            avatarDeadline,
+            [](void* data) -> gboolean {
+              static_cast<Impl*>(data)->flush();
+              return G_SOURCE_REMOVE;
+            },
+            this, nullptr
+        );
+        g_source_attach(avatarDeadline, context);
       }
       if (clear) {
         for (const auto& [id, _] : active)
@@ -119,6 +189,8 @@ namespace app {
         g_variant_builder_add(&hints, "{sv}", "suppress-sound", g_variant_new_boolean(!notice.sound));
         if (notice.sound)
           g_variant_builder_add(&hints, "{sv}", "sound-name", g_variant_new_string("message-new-instant"));
+        if (auto* image = avatarImage(notice.avatarBytes))
+          g_variant_builder_add(&hints, "{sv}", "image-data", image);
         const char* buttons[] = {"default", "Open conversation", nullptr};
         struct Pending {
           Impl* owner;
@@ -227,6 +299,7 @@ namespace app {
       }
       if (!stopping)
         g_main_loop_run(loop);
+      cancelDeadline();
       if (bus) {
         for (const auto& [id, _] : active)
           close(id);
@@ -257,9 +330,27 @@ namespace app {
       std::lock_guard lock(m->mutex);
       if (m->queue.size() == 32)
         m->queue.pop_front();
-      m->queue.push_back(std::move(notice));
+      const bool ready = notice.avatar.empty() || !notice.avatarBytes.empty();
+      if (notice.avatarBytes.size() > maxAvatarBytes)
+        notice.avatarBytes.clear();
+      m->queue.push_back({std::move(notice), std::chrono::steady_clock::now() + std::chrono::milliseconds(750), ready});
     }
     m->schedule();
+  }
+  void DesktopNotifications::avatarLoaded(const std::string& path, std::span<const std::uint8_t> bytes) {
+    bool changed = false;
+    {
+      std::lock_guard lock(m->mutex);
+      for (auto& queued : m->queue)
+        if (!queued.avatarReady && queued.notice.avatar == path) {
+          if (bytes.size() <= maxAvatarBytes)
+            queued.notice.avatarBytes.assign(bytes.begin(), bytes.end());
+          queued.avatarReady = true;
+          changed = true;
+        }
+    }
+    if (changed)
+      m->schedule();
   }
   void DesktopNotifications::clear() {
     {
