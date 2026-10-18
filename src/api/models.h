@@ -127,7 +127,11 @@ namespace api {
     std::optional<int> rateLimitPerUser;
     bool isThread() const { return type == 10 || type == 11 || type == 12; }
     bool isForum() const { return type == 15 || type == 16; }
+    std::optional<bool> messageRequest, spam;
+    std::optional<std::string> messageRequestTimestamp;
+    bool isMessageRequest() const { return messageRequest.value_or(false) || spam.value_or(false); }
   };
+  void mergePrivateChannel(Channel& current, Channel update);
 
   struct Media {
     std::string url;

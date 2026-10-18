@@ -39,7 +39,9 @@ namespace api {
     CreateInvite,
     ChannelNotifications,
     SendInvite,
-    EditChannelPermission
+    EditChannelPermission,
+    AcceptMessageRequest,
+    IgnoreMessageRequest
   };
   struct Interaction {
     InteractionKind kind = InteractionKind::AddReaction;

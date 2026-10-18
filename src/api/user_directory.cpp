@@ -85,6 +85,7 @@ namespace api {
       ++m_relationshipRevision;
     }
     if (update.reset) {
+      m_accounts.clear();
       m_statuses.clear();
       m_relationships.clear();
       m_mutedChannels.clear();
@@ -95,6 +96,8 @@ namespace api {
     for (const auto& [id, user] : update.users) {
       if (!validSnowflake(id))
         continue;
+      if (user.account && (m_accounts.contains(id) || m_accounts.size() < maxUsers))
+        m_accounts[id] = *user.account;
       if (user.nickname || user.relationship || user.ignored)
         ++m_relationshipRevision;
       if (user.ignored && (m_ignored.contains(id) || m_ignored.size() < maxUsers)) {
@@ -195,6 +198,10 @@ namespace api {
     }
     auto recordTag = [&](const nlohmann::json& user) {
       const auto id = text(user, "id");
+      if (validSnowflake(id)
+          && user.contains("username")
+          && (changes.users.size() < maxUsers || changes.users.contains(id)))
+        changes.users[id].account = parseAccount(user);
       const auto at = user.find(user.contains("primary_guild") ? "primary_guild" : "clan");
       if (!validSnowflake(id) || at == user.end() || (changes.users.size() >= maxUsers && !changes.users.contains(id)))
         return;
@@ -337,5 +344,14 @@ namespace api {
       notificationSettings(data);
     apply(changes);
     return changes;
+  }
+  std::vector<Account> UserDirectory::relatedUsers() const {
+    std::vector<Account> result;
+    for (const auto& [id, type] : m_relationships)
+      if (type != 0) {
+        const auto user = m_accounts.find(id);
+        result.push_back(user == m_accounts.end() ? Account{id, "Unknown user"} : user->second);
+      }
+    return result;
   }
 } // namespace api

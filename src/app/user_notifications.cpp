@@ -1,6 +1,7 @@
 #include "app/client_application.h"
 #include "app/message_mentions.h"
 #include "app/message_preferences.h"
+#include "app/notification_preview.h"
 
 #include <algorithm>
 
@@ -69,17 +70,28 @@ namespace app {
           notice.title += " · " + server->name;
       }
       if (!m_preferences.notificationPrivacy) {
-        notice.body = message.content.empty() ? "Sent an attachment" : notificationMessagePreview(message.content);
-        // Protocol mentions are readable without leaking user IDs or enabling markup.
-        for (const auto& [id, name] : message.mentions) {
-          for (const auto& token : {"<@" + id + ">", "<@!" + id + ">"}) {
-            std::size_t at = 0;
-            while ((at = notice.body.find(token, at)) != std::string::npos) {
-              notice.body.replace(at, token.size(), "@" + name);
-              at += name.size() + 1;
-            }
+        const auto guildRoles = m_roleDirectory.allRoles(guild);
+        notice.body = desktopMessagePreview(message, [&](char kind, const std::string& id) -> std::string {
+          if (kind == '&') {
+            const auto role = std::ranges::find(guildRoles, id, &api::ColoredRole::id);
+            return role == guildRoles.end() ? "" : role->name;
           }
-        }
+          if (kind == '#') {
+            if (const auto channels = m_guildChannels.find(guild); channels != m_guildChannels.end()) {
+              const auto entry = std::ranges::find(channels->second, id, &api::Channel::id);
+              if (entry != channels->second.end())
+                return entry->name;
+            }
+            return "";
+          }
+          const auto mentioned = message.mentions.find(id);
+          if (mentioned != message.mentions.end())
+            return userName(id, mentioned->second);
+          if (id == message.authorId)
+            return userName(id, message.author);
+          const auto user = lookupUser(id);
+          return user.name == "Unknown user" ? "" : userName(id, user.name);
+        });
       }
     }
     const auto avatar = notice.avatar;

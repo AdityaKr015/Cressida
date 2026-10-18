@@ -56,6 +56,8 @@ namespace app {
   private:
     enum class Action {
       Settings,
+      DmPage,
+      DmAction,
       GuildMenu,
       CopyServerId,
       ServerInvitePeople,
@@ -284,7 +286,19 @@ namespace app {
     void channelSnapshotEvent(api::Event& event);
     void demoConnectionStep();
     void selectGuild(const std::string& id);
-    void showDirectMessages();
+    void showDirectMessages(bool home = false);
+    std::vector<api::Channel> dmConversations() const;
+    bool dmMatches(const std::string& text) const;
+    int messageRequestCount() const;
+    void openDmPage(const std::string& page);
+    void dmAction(const std::string& action);
+    void drawDmHome(Node& root, float width, float height);
+    void drawDmRequestPanel(Node& root, float x, float y, float width, float height);
+    void dmButton(Node& parent, Hit hit, const std::string& text, bool primary = false);
+    bool dmHomeEvent(const api::Event& event);
+    bool dmInteractionResult(const api::Event& event);
+    void prepareDmHomeDemo(const std::string& view);
+    void demoDmHomeStep();
     void selectChannel(std::string id);
     void refresh();
     void loadHistory(api::HistoryDirection direction, bool retry = false);
@@ -389,7 +403,9 @@ namespace app {
     void demoGuildTagStep();
     void send();
     void rectangle(Node& parent, float x, float y, float w, float h, Color fill, float radius = 0);
-    float countBadge(Node& parent, float right, float y, int count, bool rail = false);
+    float countBadge(
+        Node& parent, float right, float y, int count, bool rail = false, std::string_view noun = "unread mention"
+    );
     float roleLabel(
         Node& parent, float x, float y, float width, const std::string& text, float size, Color fallback,
         FontWeight weight, const std::string& user, const std::string& key, bool hovered,
@@ -644,6 +660,16 @@ namespace app {
     std::map<std::string, api::GuildUpdate> m_guildUpdates;
     Hit m_guildTooltipBounds{};
     std::string m_restoreChannel;
+    std::string m_dmPage, m_dmFilter = "online", m_dmSearch, m_dmFriendName, m_dmStatus, m_dmConfirm;
+    std::string m_dmPreviewId;
+    std::vector<api::Message> m_dmPreview;
+    std::set<std::string> m_dmPending;
+    float m_dmHomeScroll = 0, m_dmPreviewScroll = 0;
+    Hit m_dmPreviewBounds{};
+    std::uint64_t m_dmSerial = 0, m_dmPreviewRequest = 0, m_dmFriendRequest = 0;
+    bool m_dmPreviewLoading = false;
+    bool m_privateReady = false;
+    std::optional<api::Interaction> m_dmDemoAction;
     DesktopNotifications m_desktopNotifications;
     std::vector<std::string> m_notifiedMessages;
     Preferences m_preferences;

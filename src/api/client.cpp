@@ -797,7 +797,7 @@ namespace api {
                 m_roleNames[role.at("id").get<std::string>()] = role.value("name", "Members");
           }
         if (data.contains("private_channels")) {
-          Event event{.operation = Operation::PrivateChannels, .session = session};
+          Event event{.operation = Operation::PrivateChannels, .session = session, .live = true};
           event.channels = parsePrivateChannels(data["private_channels"], m_users);
           publish(std::move(event));
         }
@@ -899,7 +899,7 @@ namespace api {
             }
         );
       } else if (type == "CHANNEL_CREATE" || type == "CHANNEL_UPDATE") {
-        const auto channelType = data.value("type", -1);
+        const auto channelType = data.value("type", 1);
         if (channelType == 1 || channelType == 3) {
           Event event{.operation = Operation::PrivateChannelUpsert, .session = session};
           event.channels = parsePrivateChannels(Json::array({data}), m_users);
@@ -1919,7 +1919,16 @@ namespace api {
               event.messages = parseMessages(Json::array({*response}));
             else if (command.interaction->kind == InteractionKind::OpenDm)
               event.channels = parsePrivateChannels(Json::array({*response}));
-            else if (command.interaction->kind == InteractionKind::UserProfile) {
+            else if (
+                command.interaction->kind == InteractionKind::AcceptMessageRequest
+                || command.interaction->kind == InteractionKind::IgnoreMessageRequest
+            ) {
+              if (response->contains("id")) {
+                if ((*response)["id"] != command.interaction->channel)
+                  throw std::runtime_error("Unexpected message request identity");
+                event.channels = parsePrivateChannels(Json::array({*response}));
+              }
+            } else if (command.interaction->kind == InteractionKind::UserProfile) {
               event.profile = parseUserProfile(*response, command.interaction->guild);
               if (event.profile->user.id != command.interaction->user)
                 throw std::runtime_error("Unexpected profile identity");

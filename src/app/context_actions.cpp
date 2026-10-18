@@ -53,6 +53,9 @@ namespace app {
     for (const auto& message : m_messages)
       if (message.authorId == id)
         return {id, message.author, message.avatar};
+    for (const auto& user : m_userDirectory.relatedUsers())
+      if (user.id == id)
+        return user;
     return {id, "Unknown user"};
   }
   bool ClientApplication::blockedMessage(const api::Message& message) const {
@@ -783,8 +786,15 @@ namespace app {
       });
       if (channel != m_privateChannels.end()) {
         const auto id = channel->id;
+        if (channel->isMessageRequest()) {
+          openDmPage("requests");
+          dmAction("open-request:" + id);
+          break;
+        }
+        m_restoreChannel = id;
         showDirectMessages();
-        selectChannel(id);
+        if (m_channelId != id)
+          selectChannel(id);
       } else {
         request.kind = Kind::OpenDm;
         startInteraction(request);
@@ -905,6 +915,22 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::clearInteractions() {
+    m_dmDemoAction.reset();
+    m_dmPage.clear();
+    m_dmSearch.clear();
+    m_dmFriendName.clear();
+    m_dmStatus.clear();
+    m_dmConfirm.clear();
+    m_dmPending.clear();
+    m_dmPreviewId.clear();
+    m_dmPreview.clear();
+    m_dmPreviewLoading = false;
+    m_dmPreviewBounds = {};
+    m_scrolling.stop(m_dmPreviewScroll);
+    m_dmPreviewScroll = 0;
+    m_dmPreviewRequest = m_dmFriendRequest = 0;
+    m_privateReady = false;
+    m_privateChannels.clear();
     m_channelInviteSettings.clear();
     closeCompletion();
     cancelMessageEdit(false);
@@ -1055,6 +1081,8 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
+    if (dmInteractionResult(event))
+      return;
     if (channelInviteResult(event))
       return;
     if (m_messageEdit

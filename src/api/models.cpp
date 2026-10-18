@@ -266,6 +266,16 @@ namespace api {
         channel.name = type == 3 ? "Group conversation" : "Direct message";
       if (!channel.recipients.empty())
         channel.icon = channel.recipients.front().avatar;
+      if (const auto field = item.find("is_message_request"); field != item.end() && field->is_boolean())
+        channel.messageRequest = field->get<bool>();
+      if (const auto field = item.find("is_spam"); field != item.end() && field->is_boolean())
+        channel.spam = field->get<bool>();
+      if (const auto field = item.find("is_message_request_timestamp"); field != item.end()) {
+        if (field->is_string())
+          channel.messageRequestTimestamp = field->get<std::string>().substr(0, 64);
+        else if (field->is_null())
+          channel.messageRequestTimestamp = "";
+      }
       result.push_back(std::move(channel));
     }
     std::ranges::stable_sort(result, [](const auto& a, const auto& b) {
@@ -273,6 +283,26 @@ namespace api {
                                                               : a.lastMessageId > b.lastMessageId;
     });
     return result;
+  }
+
+  void mergePrivateChannel(Channel& current, Channel update) {
+    if (!update.messageRequest)
+      update.messageRequest = current.messageRequest;
+    if (!update.spam)
+      update.spam = current.spam;
+    if (!update.messageRequestTimestamp)
+      update.messageRequestTimestamp = current.messageRequestTimestamp;
+    if (update.recipients.empty()) {
+      update.recipients = std::move(current.recipients);
+      update.icon = std::move(current.icon);
+      if (!update.named) {
+        update.name = std::move(current.name);
+        update.named = current.named;
+      }
+    }
+    if (update.lastMessageId.empty())
+      update.lastMessageId = std::move(current.lastMessageId);
+    current = std::move(update);
   }
 
   std::vector<SettingsEntry> parseSettingsEntries(const std::string& section, const nlohmann::json& value) {

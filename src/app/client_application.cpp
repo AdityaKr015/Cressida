@@ -152,6 +152,8 @@ namespace app {
       }
       if (m_demo && m_demoOverlay == "deleted-cycle" && m_demoInteractionStep < 3)
         demoDeletedStep();
+      if (m_demo && m_demoOverlay == "dm-home-cycle" && m_demoInteractionStep < 18)
+        demoDmHomeStep();
       if (m_demo && m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep < 8)
         demoMessageEditStep();
       if (m_demo && m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep < 9)
@@ -883,6 +885,8 @@ namespace app {
         scroll(m_guildScroll, delta);
       else if (m_pointerX < chatLeft())
         scroll(m_channelScroll, delta);
+      else if (m_dmMode && !m_dmPage.empty())
+        scroll(m_dmPreviewBounds.contains(m_pointerX, m_pointerY) ? m_dmPreviewScroll : m_dmHomeScroll, delta);
       else if (!m_channelPanel.empty() && m_pointerX >= m_window.width() - channelPanelWidth())
         scroll(m_channelPanelScroll, delta);
       else if (forumView())
@@ -935,7 +939,8 @@ namespace app {
       m_desktopNotifications.start();
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"                              ? 4
+        smokeTest ? (m_demo && view && std::string_view(view) == "dm-home-cycle"                           ? 18
+                         : m_demo && view && std::string_view(view) == "join-cycle"                        ? 4
                          : m_demo && view && std::string_view(view) == "deleted-cycle"                     ? 3
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"                 ? 8
                          : m_demo && view && std::string_view(view) == "autocomplete-cycle"                ? 9
@@ -1008,6 +1013,8 @@ namespace app {
       throw std::runtime_error("Jump to latest replay did not complete");
     if (m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Client preferences replay did not finish");
+    if (m_demoOverlay == "dm-home-cycle" && m_demoInteractionStep != 18)
+      throw std::runtime_error("Direct message home replay did not finish");
     if (m_demoOverlay == "user-account-cycle" && m_demoInteractionStep != 16)
       throw std::runtime_error("User account replay did not finish");
     if (m_demoOverlay == "user-settings-lists-cycle" && m_demoInteractionStep != 30)
@@ -1914,6 +1921,8 @@ namespace app {
             m_unreadGuilds["1200"] = "1";
             m_unreadChannels.insert("1200");
           }
+        } else if (view.starts_with("dm-home") || view.starts_with("dm-requests") || view.starts_with("dm-friends")) {
+          prepareDmHomeDemo(view);
         } else if (view == "dm-presence") {
           m_privateChannels.clear();
           for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
@@ -2095,7 +2104,7 @@ namespace app {
     return height;
   }
 
-  float ClientApplication::countBadge(Node& parent, float right, float y, int count, bool rail) {
+  float ClientApplication::countBadge(Node& parent, float right, float y, int count, bool rail, std::string_view noun) {
     if (count <= 0)
       return 0;
     const auto text = count > 99 ? "99+" : std::to_string(count);
@@ -2110,7 +2119,7 @@ namespace app {
         rgbHex(0xFFFFFF), FontWeight::Bold
     );
     if (hovered(x, y, width, 18))
-      m_tooltip = std::to_string(count) + (count == 1 ? " unread mention" : " unread mentions");
+      m_tooltip = std::to_string(count) + ' ' + std::string(noun) + (count == 1 ? "" : "s");
     return width;
   }
 
@@ -2405,18 +2414,39 @@ namespace app {
         if (const auto at = std::ranges::find(m_guilds, m_guildId, &api::Guild::id); at != m_guilds.end())
           guildBadgeWidth = drawGuildBadge(root, 98, 59, api::guildBadge(*at));
       }
-      label(
-          root, 98 + guildBadgeWidth, 57, sidebarWidth - 60 - guildBadgeWidth, guildName, 17, foreground,
-          FontWeight::SemiBold
-      );
+      if (m_dmMode)
+        inputControl(root, 90, 53, sidebarWidth - 24, 32, "dm-search", m_dmSearch, "Find or start a conversation");
+      else
+        label(
+            root, 98 + guildBadgeWidth, 57, sidebarWidth - 60 - guildBadgeWidth, guildName, 17, foreground,
+            FontWeight::SemiBold
+        );
       if (!m_dmMode && !m_guildId.empty()) {
         glyph(root, chatLeft() - 32, 61, 16, "chevron-down", muted);
         Hit header{88, 48, sidebarWidth - 20, 44, Action::GuildMenu, m_guildId};
         m_hits.push_back(header);
         m_contextTargets.push_back(header);
       }
-      label(root, 98, 113, sidebarWidth - 48, m_dmMode ? "CONVERSATIONS" : "CHANNELS", 10, muted, FontWeight::SemiBold);
+      if (m_dmMode) {
+        for (const auto& [page, title, icon, y] : std::vector<std::tuple<std::string, std::string, std::string, float>>{
+                 {"friends", "Friends", "users", 105}, {"requests", "Message Requests", "mail", 145}
+             }) {
+          const bool selected = m_dmPage == page;
+          if (selected || hovered(90, y, sidebarWidth - 24, 36))
+            rectangle(root, 90, y, sidebarWidth - 24, 36, selected ? raised : panel, 6);
+          glyph(root, 102, y + 8, 20, icon, selected ? foreground : muted);
+          label(root, 136, y + 10, sidebarWidth - 94, title, 13, selected ? foreground : muted, FontWeight::Medium);
+          if (page == "requests")
+            countBadge(root, chatLeft() - 22, y + 9, messageRequestCount(), false, "pending message request");
+          m_hits.push_back({90, y, sidebarWidth - 24, 36, Action::DmPage, page});
+        }
+      }
+      label(
+          root, 98, m_dmMode ? 201 : 113, sidebarWidth - 48, m_dmMode ? "DIRECT MESSAGES" : "CHANNELS", 10, muted,
+          FontWeight::SemiBold
+      );
       iconButton(root, {14, 48, 48, 48, Action::Home, {}}, "message-circle", "Direct messages", m_dmMode);
+      countBadge(root, 67, 80, messageRequestCount(), true, "pending message request");
 
       // Derive rail totals from the same filtered cursors as the channel badges,
       // so an in-flight local ACK cannot leave a stale server/folder count.
@@ -2435,7 +2465,9 @@ namespace app {
       };
       std::vector<RailRow> rail;
       for (const auto& dm : m_privateChannels)
-        if (m_unreadDMs.contains(dm.id) && (!m_userDirectory.muted(dm.id) || m_unreadTimeline.mentions(dm.id) > 0))
+        if (!dm.isMessageRequest()
+            && m_unreadDMs.contains(dm.id)
+            && (!m_userDirectory.muted(dm.id) || m_unreadTimeline.mentions(dm.id) > 0))
           rail.push_back({nullptr, nullptr, &dm});
       const auto unreadDMRows = rail.size();
       for (const auto& folder : m_folders) {
@@ -2506,27 +2538,31 @@ namespace app {
         m_hits.push_back({14, y, 48, 48, Action::Guild, guild.id});
         m_contextTargets.push_back({14, y, 48, 48, Action::GuildMenu, guild.id});
       }
+      auto listedChannels = m_channels;
+      if (m_dmMode && !m_dmSearch.empty())
+        std::erase_if(listedChannels, [&](const auto& channel) { return !dmMatches(channelName(channel)); });
       const auto visibleChannels = channelListRows(
-          m_channels, m_collapsedCategories, m_channelId, m_channelListPreferences,
+          listedChannels, m_collapsedCategories, m_channelId, m_channelListPreferences,
           [&](const auto& id) { return channelMuted(id); },
           [&](const auto& id) { return m_unreadTimeline.mentions(id); }
       );
+      const float channelTop = m_dmMode ? 228 : 142;
       const float channelListHeight =
           visibleChannels.empty() ? 0 : visibleChannels.back().top + visibleChannels.back().advance;
-      m_scrolling.limit(m_channelScroll, std::max(0.0F, channelListHeight - (h - 228)));
+      m_scrolling.limit(m_channelScroll, std::max(0.0F, channelListHeight - (h - channelTop - 86)));
       if (!m_dmMode)
         m_contextTargets.push_back({78, 138, sidebarWidth, std::max(0.0F, h - 214), Action::ChannelListMenu, {}});
       int mentionsBelow = 0;
       std::string nextMention;
       for (const auto& row : visibleChannels) {
-        const float y = 142 + row.top - m_channelScroll;
+        const float y = channelTop + row.top - m_channelScroll;
         const auto& channel = *row.channel;
         if (channel.type != 4 && y + 34 > h - 76 && m_unreadTimeline.mentions(channel.id) > 0) {
           mentionsBelow = std::min(1000000, mentionsBelow + m_unreadTimeline.mentions(channel.id));
           if (nextMention.empty())
             nextMention = channel.id;
         }
-        if (y < 138 || y + row.height > h - 76)
+        if (y < channelTop - 4 || y + row.height > h - 76)
           continue;
         if (channel.type == 4) {
           if (hovered(90, y, sidebarWidth - 24, row.height))
@@ -2601,7 +2637,7 @@ namespace app {
       }
       if (m_channels.empty())
         label(
-            root, 100, 151, sidebarWidth - 48,
+            root, 100, channelTop + 9, sidebarWidth - 48,
             (m_dmMode ? m_loadingPrivate : m_loadingChannels) ? "Loading…"
                 : m_dmMode                                    ? "No conversations yet."
                                                               : "No text channels to show.",
@@ -2626,16 +2662,25 @@ namespace app {
 
       const bool forum = forumView();
       const float panelWidth = m_channelPanel.empty() ? 0 : channelPanelWidth();
-      const float memberWidth =
-          !forum && m_channelPanel.empty() && m_showMembers && w >= 1000 && w - chatLeft() >= 600 ? 240 : 0;
+      const float memberWidth = (!m_dmMode || m_dmPage.empty())
+              && !forum
+              && m_channelPanel.empty()
+              && m_showMembers
+              && w >= 1000
+              && w - chatLeft() >= 600
+          ? 240
+          : 0;
       const float left = chatLeft(), bodyWidth = w - left - memberWidth - panelWidth;
       if (m_messageEdit
           && (m_messageEdit->channel != m_channelId
               || std::ranges::find(m_messages, m_messageEdit->message, &api::Message::id) == m_messages.end()))
         cancelMessageEdit(false);
-      drawChannelHeader(root, w);
+      if (!m_dmMode || m_dmPage.empty())
+        drawChannelHeader(root, w);
       rectangle(root, left, 101, bodyWidth, 1, raised);
-      if (forum)
+      if (m_dmMode && !m_dmPage.empty())
+        drawDmHome(root, w, h);
+      else if (forum)
         drawForum(root, left, 102, bodyWidth, h - 102);
       else {
         const auto& draft = m_drafts[m_channelId];
@@ -3931,7 +3976,7 @@ namespace app {
     m_window.invalidate();
   }
 
-  void ClientApplication::showDirectMessages() {
+  void ClientApplication::showDirectMessages(bool home) {
     m_startupGuild.clear();
     closeCompletion();
     cancelMessageEdit(false);
@@ -3946,6 +3991,14 @@ namespace app {
           : m_demo                                      ? ""
                                                         : m_sessionStore.channelForGuild(m_account.id, "");
     m_dmMode = true;
+    m_dmPage = home ? "friends" : "";
+    m_dmPreviewId.clear();
+    m_dmPreview.clear();
+    m_dmPreviewLoading = false;
+    m_dmPreviewBounds = {};
+    m_scrolling.stop(m_dmPreviewScroll);
+    m_dmPreviewScroll = 0;
+    m_dmConfirm.clear();
     m_channelListPreferences = {};
     m_openThreadQuery.reset();
     m_forumSearchTimer.stop();
@@ -3953,16 +4006,16 @@ namespace app {
     m_guildId.clear();
     m_channelId.clear();
     m_unreadTimeline.open({});
-    m_channels = m_privateChannels;
+    m_channels = dmConversations();
     m_messages.clear();
     m_messageLayouts.clear();
     m_members.clear();
     m_memberCount = 0;
     m_channelScroll = 0;
     m_liveChanges.clear();
-    if (!m_demo && m_privateChannels.empty() && !m_loadingPrivate)
+    if (!m_demo && !m_privateReady && m_privateChannels.empty() && !m_loadingPrivate)
       m_loadingPrivate = m_client.privateChannels();
-    if (!m_channels.empty()) {
+    if (!home && !m_channels.empty()) {
       auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
       selectChannel(selected == m_channels.end() ? m_channels.front().id : selected->id);
       m_restoreChannel.clear();
@@ -3971,6 +4024,17 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(std::string id) {
+    if (m_dmMode) {
+      const auto request = std::ranges::find(m_privateChannels, id, &api::Channel::id);
+      if (request != m_privateChannels.end() && request->isMessageRequest()) {
+        openDmPage("requests");
+        dmAction("open-request:" + id);
+        return;
+      }
+      m_dmPage.clear();
+      m_dmPreviewId.clear();
+      m_dmPreview.clear();
+    }
     closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();
@@ -4032,7 +4096,7 @@ namespace app {
              [&](const auto& channel) { return m_unreadTimeline.mentions(channel); }
          )) {
       if (row.channel->id == id) {
-        const auto view = std::max(38.0F, m_window.height() - 228.0F);
+        const auto view = std::max(38.0F, m_window.height() - (m_dmMode ? 314.0F : 228.0F));
         m_channelScroll = std::clamp(m_channelScroll, std::max(0.0F, row.top - view + row.advance), row.top);
         break;
       }
@@ -4466,6 +4530,10 @@ namespace app {
         continue;
       }
       filterDeletedChannels(event);
+      if (!event.unauthorized && dmHomeEvent(event)) {
+        m_window.invalidate();
+        continue;
+      }
       if (!event.unauthorized
           && event.operation == api::Operation::ChannelDetails
           && m_deletedChannels.contains(event.resource))
@@ -4735,22 +4803,34 @@ namespace app {
       ) {
         m_loadingPrivate = false;
         if (event.error.empty()) {
-          if (event.operation == api::Operation::PrivateChannels)
+          if (event.operation == api::Operation::PrivateChannels && !event.live && m_privateReady)
+            continue;
+          if (event.operation == api::Operation::PrivateChannels) {
+            if (event.live)
+              m_privateReady = true;
             m_privateChannels = std::move(event.channels);
-          else
+          } else
             for (auto& channel : event.channels) {
               auto existing = std::ranges::find(m_privateChannels, channel.id, &api::Channel::id);
               if (existing == m_privateChannels.end())
                 m_privateChannels.insert(m_privateChannels.begin(), std::move(channel));
               else
-                *existing = std::move(channel);
+                api::mergePrivateChannel(*existing, std::move(channel));
             }
+          if (!m_dmPreviewId.empty()) {
+            const auto preview = std::ranges::find(m_privateChannels, m_dmPreviewId, &api::Channel::id);
+            if (preview == m_privateChannels.end() || !preview->isMessageRequest()) {
+              m_dmPreviewId.clear();
+              m_dmPreview.clear();
+              m_dmPreviewLoading = false;
+            }
+          }
           for (const auto& channel : m_privateChannels)
             if (m_unreadGuilds.contains(channel.id) && !readingChannel(channel.id))
               m_unreadDMs.insert(channel.id);
           if (m_dmMode) {
-            m_channels = m_privateChannels;
-            if (m_channelId.empty() && !m_channels.empty()) {
+            m_channels = dmConversations();
+            if (m_dmPage.empty() && m_channelId.empty() && !m_channels.empty()) {
               auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
               selectChannel(selected == m_channels.end() ? m_channels.front().id : selected->id);
               m_restoreChannel.clear();
@@ -4759,11 +4839,18 @@ namespace app {
           }
         }
       } else if (event.operation == api::Operation::PrivateChannelDelete) {
+        m_unreadDMs.erase(event.resource);
+        m_unreadChannels.erase(event.resource);
+        if (m_dmPreviewId == event.resource) {
+          m_dmPreviewId.clear();
+          m_dmPreview.clear();
+          m_dmPreviewLoading = false;
+        }
         m_messageLog.clearChannel(event.resource);
         m_channelMessages.erase(event.resource);
         std::erase_if(m_privateChannels, [&](const auto& channel) { return channel.id == event.resource; });
         if (m_dmMode) {
-          m_channels = m_privateChannels;
+          m_channels = dmConversations();
           if (m_channelId == event.resource) {
             m_channelId.clear();
             m_messages.clear();
@@ -4813,7 +4900,7 @@ namespace app {
             channel.lastMessageId = event.messages.back().id;
           m_privateChannels.insert(m_privateChannels.begin(), std::move(channel));
           if (m_dmMode)
-            m_channels = m_privateChannels;
+            m_channels = dmConversations();
           if (!readingChannel(event.resource)
               && !event.messages.empty()
               && event.messages.back().authorId != m_account.id)
@@ -5035,6 +5122,17 @@ namespace app {
     }
     if (key.symbol == XKB_KEY_Escape && completionKey(key))
       return;
+    if (key.symbol == XKB_KEY_Escape
+        && m_dmMode
+        && m_dmPage == "requests"
+        && !m_dmPreviewId.empty()
+        && !settingsVisible()
+        && m_dialogKind.empty()
+        && !m_contextOpen
+        && m_viewImage.empty()) {
+      dmAction("close-request");
+      return;
+    }
     if (key.symbol == XKB_KEY_Escape
         && m_dialogKind.empty()
         && !m_channelPanel.empty()
@@ -5495,7 +5593,13 @@ namespace app {
     }
     case Action::Home:
       m_restoreChannel.clear();
-      showDirectMessages();
+      openDmPage("friends");
+      break;
+    case Action::DmPage:
+      openDmPage(hit.id);
+      break;
+    case Action::DmAction:
+      dmAction(hit.id);
       break;
     case Action::Category:
       if (!m_collapsedCategories.erase(hit.id))
@@ -5724,6 +5828,14 @@ namespace app {
       m_sending = false;
       m_live = false;
       m_dmMode = false;
+      m_dmPage.clear();
+      m_dmSearch.clear();
+      m_dmFriendName.clear();
+      m_dmStatus.clear();
+      m_dmPending.clear();
+      m_dmPreview.clear();
+      m_dmPreviewId.clear();
+      m_dmFriendRequest = m_dmPreviewRequest = 0;
       m_privateChannels.clear();
       m_userDirectory = {};
       m_roleDirectory = {};

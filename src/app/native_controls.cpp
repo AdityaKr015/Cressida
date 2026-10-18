@@ -258,6 +258,14 @@ namespace app {
             m_drafts[m_channelId] = text;
             m_edit.end(text);
           }
+        } else if (id == "dm-search" || id == "dm-friend-name") {
+          if (text.size() <= 256) {
+            (id == "dm-search" ? m_dmSearch : m_dmFriendName) = text;
+            m_scrolling.stop(m_dmHomeScroll);
+            m_dmHomeScroll = 0;
+            m_scrolling.stop(m_channelScroll);
+            m_channelScroll = 0;
+          }
         } else if (id == "message-edit") {
           if (m_messageEdit && !m_messageEdit->request && text.size() <= 8000) {
             m_messageEdit->text = text;
@@ -333,7 +341,11 @@ namespace app {
           send();
         else if (id == "message-edit")
           submitMessageEdit();
-        else if (id == "emoji-search") {
+        else if (id == "dm-friend-name")
+          dmAction("add-friend");
+        else if (id == "dm-search") {
+          // Searching conversations never submits profile settings or a draft.
+        } else if (id == "emoji-search") {
           // Selection is explicit; Enter must not submit account settings.
         } else if (id == "channel-search" || id == "channel-search-panel")
           searchChannel();

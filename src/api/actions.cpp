@@ -322,6 +322,15 @@ namespace api {
     using Kind = InteractionKind;
     InteractionRequest request;
     switch (action.kind) {
+    case Kind::AcceptMessageRequest:
+    case Kind::IgnoreMessageRequest:
+      if (!validSnowflake(action.channel))
+        return {};
+      request.path = "/channels/" + action.channel + "/recipients/@me";
+      request.method = action.kind == Kind::AcceptMessageRequest ? "PUT" : "DELETE";
+      if (action.kind == Kind::AcceptMessageRequest)
+        request.body = {{"consent_status", 2}};
+      break;
     case Kind::CreateChannel:
     case Kind::DuplicateChannel:
       if ((action.kind == Kind::CreateChannel && !validCreation(action))
