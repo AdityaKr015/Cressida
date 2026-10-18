@@ -3,6 +3,7 @@
 #include "api/actions.h"
 #include "api/emoji.h"
 #include "api/models.h"
+#include "app/font_catalog.h"
 
 #include <algorithm>
 #include <cmath>
@@ -129,6 +130,9 @@ namespace app {
       if (result.theme != "dark" && result.theme != "light" && result.theme != "midnight")
         result.theme = "dark";
       result.messageSize = std::clamp(value.value("message_size", 14.0F), 12.0F, 20.0F);
+      result.fontFamily = value.value("font_family", std::string{});
+      if (!validFontFamily(result.fontFamily))
+        result.fontFamily.clear();
       result.compact = value.value("compact", false);
       result.showEmbeds = value.value("embeds", true);
       result.showImages = value.value("images", true);
@@ -154,6 +158,7 @@ namespace app {
       all[account]["preferences"] = {
           {"theme", preferences.theme},
           {"message_size", preferences.messageSize},
+          {"font_family", validFontFamily(preferences.fontFamily) ? preferences.fontFamily : std::string{}},
           {"compact", preferences.compact},
           {"embeds", preferences.showEmbeds},
           {"images", preferences.showImages},

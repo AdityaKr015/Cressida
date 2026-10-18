@@ -1,12 +1,15 @@
 #include "app/client_application.h"
+#include "app/font_catalog.h"
 #include "app/theme.h"
 #include "render/scene/input_area.h"
 #include "render/scene/rect_node.h"
 #include "ui/controls/button.h"
+#include "ui/controls/scrollbar.h"
 #include "ui/controls/toggle.h"
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -35,7 +38,7 @@ namespace app {
         {"devices", "Devices", "ACCOUNT"},
         {"connections", "Connections", "ACCOUNT"},
         {"subscriptions", "Subscriptions & Billing", "PAYMENT"},
-        {"appearance", "Appearance", "APP SETTINGS"},
+        {"appearance", "Appearance", "APP SETTINGS", "font family text size theme scale compact"},
         {"accessibility", "Accessibility", "APP SETTINGS"},
         {"voice", "Voice & Video", "APP SETTINGS"},
         {"text", "Text & Images", "APP SETTINGS"},
@@ -74,6 +77,13 @@ namespace app {
     if (std::ranges::none_of(pages, [&](const auto& item) { return item.id == page; }))
       return;
     m_settingsPage = page;
+    m_fontPickerOpen = false;
+    m_fontPickerBounds = {};
+    m_scrolling.stop(m_fontPickerScroll);
+    m_fontPickerScroll = 0;
+    m_installedFonts.clear();
+    m_fontMatches.clear();
+    m_settingsFields.erase("font_search");
     m_settingsScroll = 0;
     m_settingsField.clear();
     m_controlInput.setFocus(nullptr);
@@ -150,6 +160,152 @@ namespace app {
     if (!m_demo)
       m_sessionStore.savePreferences(m_account.id, m_preferences);
     m_window.invalidate();
+  }
+  bool ClientApplication::fontPreference(const std::string& id) {
+    if (!m_settingsOpen || m_settingsPage != "appearance")
+      return false;
+    if (id == "font-picker") {
+      m_fontPickerOpen = !m_fontPickerOpen;
+      m_settingsFields["font_search"].clear();
+      m_scrolling.stop(m_fontPickerScroll);
+      m_fontPickerScroll = 0;
+      m_fontPickerBounds = {};
+      if (m_fontPickerOpen) {
+        m_fontPickerReturnScroll = m_settingsScroll;
+        m_installedFonts = installedFontFamilies();
+        m_fontMatches = m_installedFonts;
+        m_fontFilter.clear();
+        m_window.context().notifyFontConfigChanged();
+        m_focusedInput = "settings:font_search";
+      } else {
+        m_controlInput.cancelPointerCapture();
+        m_controlInput.setFocus(nullptr);
+        m_focusedInput.clear();
+        m_scrolling.stop(m_settingsScroll);
+        m_settingsScroll = m_fontPickerReturnScroll;
+      }
+    } else if (id.starts_with("font-family:")) {
+      if (!m_fontPickerOpen)
+        return true;
+      const auto family = id.substr(12);
+      if (!family.empty() && std::ranges::find(m_installedFonts, family) == m_installedFonts.end())
+        return true;
+      m_preferences.fontFamily = family;
+      m_fontPickerOpen = false;
+      m_fontPickerBounds = {};
+      m_scrolling.stop(m_fontPickerScroll);
+      m_controlInput.cancelPointerCapture();
+      m_settingsFields["font_search"].clear();
+      m_controlInput.setFocus(nullptr);
+      m_focusedInput.clear();
+      m_scrolling.stop(m_settingsScroll);
+      m_settingsScroll = m_fontPickerReturnScroll;
+      savePreferences();
+    } else
+      return false;
+    m_window.invalidate();
+    return true;
+  }
+  bool ClientApplication::fontPickerClick(float x, float y) {
+    if (!m_settingsOpen || !m_fontPickerOpen)
+      return false;
+    const auto& bounds = m_fontPickerBounds;
+    if (!bounds.contains(x, y)) {
+      fontPreference("font-picker");
+      return true;
+    }
+    const bool search = x >= bounds.x + 8 && x < bounds.x + bounds.width - 8 && y >= bounds.y + 8 && y < bounds.y + 40;
+    const auto bar = m_widgets.find("font-picker-scrollbar");
+    const bool scrollbar = x >= bounds.x + bounds.width - 16
+        && y >= bounds.y + 80
+        && bar != m_widgets.end()
+        && static_cast<Scrollbar*>(bar->second)->visible();
+    if (search || scrollbar) {
+      m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+      m_window.invalidate();
+      return true;
+    }
+    for (auto at = m_hits.rbegin(); at != m_hits.rend(); ++at)
+      if (at->action == Action::Preference && at->id.starts_with("font-family:") && at->contains(x, y)) {
+        const auto id = at->id;
+        fontPreference(id);
+        break;
+      }
+    return true;
+  }
+  void ClientApplication::drawFontPicker(Node& root, float w, float h) {
+    if (!m_fontPickerOpen || m_settingsPage != "appearance")
+      return;
+    const auto& query = m_settingsFields["font_search"];
+    if (query != m_fontFilter) {
+      m_fontFilter = query;
+      m_fontMatches.clear();
+      for (const auto& name : m_installedFonts)
+        if (fontFamilyMatches(name, query))
+          m_fontMatches.push_back(name);
+    }
+    const float width = std::min(420.0F, w - 32);
+    const float x = std::clamp(m_fontPickerAnchor.x + m_fontPickerAnchor.width - width, 16.0F, w - width - 16);
+    const float below = h - m_fontPickerAnchor.y - m_fontPickerAnchor.height - 20;
+    const float above = m_fontPickerAnchor.y - 56;
+    const bool down = below >= std::min(320.0F, above);
+    const float full = std::max<std::size_t>(1, m_fontMatches.size()) * 30;
+    const float viewport = std::min(full, std::max(30.0F, std::min(600.0F, (down ? below : above) - 88)));
+    const float height = viewport + 88;
+    const float y = std::clamp(
+        down ? m_fontPickerAnchor.y + m_fontPickerAnchor.height + 6 : m_fontPickerAnchor.y - height - 6, 40.0F,
+        std::max(40.0F, h - height - 12)
+    );
+    m_fontPickerBounds = {x, y, width, height, Action::None, {}};
+    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    m_hits.push_back(m_fontPickerBounds);
+    rectangle(root, x, y, width, height, raised, 8);
+    rectangle(root, x + 1, y + 1, width - 2, height - 2, sidebar, 7);
+    inputControl(root, x + 8, y + 8, width - 16, 32, "settings:font_search", query, "Search installed fonts");
+    const auto option = [&](Node& parent, float localX, float localY, float rowWidth, const std::string& name,
+                            const std::string& value, float hitY, float hitHeight) {
+      const bool selected = m_preferences.fontFamily == value;
+      const bool over = hitHeight > 0 && hovered(x + 8, hitY, rowWidth, hitHeight);
+      if (selected || over)
+        rectangle(parent, localX, localY, rowWidth, 26, selected ? lerpColor(sidebar, accent, .16F) : raised, 5);
+      const auto metrics = m_window.target().renderer().measureText(name, 12, FontWeight::Normal);
+      label(
+          parent, localX + 8, localY + (26 - (metrics.bottom - metrics.top)) / 2, rowWidth - 16, name, 12, foreground
+      );
+      if (hitHeight > 0)
+        m_hits.push_back({x + 8, hitY, rowWidth, hitHeight, Action::Preference, "font-family:" + value});
+    };
+    // Reset remains pinned while results scroll, including for an empty search.
+    option(root, x + 8, y + 46, width - 16, "System default", {}, y + 46, 26);
+    auto list = std::make_unique<Node>();
+    list->setPosition(x + 8, y + 80);
+    list->setSize(width - 28, viewport);
+    list->setClipChildren(true);
+    list->setTextPixelSnap(false);
+    m_scrolling.limit(m_fontPickerScroll, std::max(0.0F, full - viewport));
+    // Keep 25 rows prepared around the viewport; font metadata is inexpensive,
+    // and the remaining families need no scene nodes or glyphs until approached.
+    const std::size_t visible = static_cast<std::size_t>(std::ceil(viewport / 30)) + 1;
+    const std::size_t overscan = visible < 25 ? (25 - visible) / 2 : 0;
+    const auto top = static_cast<std::size_t>(m_fontPickerScroll / 30);
+    const auto first =
+        std::min(top > overscan ? top - overscan : 0, m_fontMatches.size() > 25 ? m_fontMatches.size() - 25 : 0);
+    const auto end = std::min(m_fontMatches.size(), first + 25);
+    for (auto i = first; i < end; ++i) {
+      const float rowY = i * 30 - m_fontPickerScroll + 2;
+      const float hitTop = std::max(0.0F, rowY), hitBottom = std::min(viewport, rowY + 26);
+      option(
+          *list, 0, rowY, width - 28, m_fontMatches[i], m_fontMatches[i], y + 80 + hitTop,
+          std::max(0.0F, hitBottom - hitTop)
+      );
+    }
+    if (m_fontMatches.empty())
+      label(
+          *list, 8, 6, width - 44, m_installedFonts.empty() ? "No installed fonts found" : "No matching fonts", 12,
+          muted
+      );
+    root.addChild(std::move(list));
+    settingsScrollbar(root, "font-picker-scrollbar", {x + width - 14, y + 80, 8, viewport}, full, m_fontPickerScroll);
   }
   void ClientApplication::setPresence(const std::string& status, bool custom) {
     m_presenceMenu = false;
@@ -302,10 +458,9 @@ namespace app {
     if (navRows.empty())
       label(*nav, 12, 12, navWidth - 24, "No matching settings", 12, muted);
     root.addChild(std::move(nav));
-    if (navHeight > navH)
-      rectangle(
-          root, frameX + navWidth - 3, navTop + (navH - 32) * m_settingsNavScroll / (navHeight - navH), 3, 32, raised, 2
-      );
+    settingsScrollbar(
+        root, "settings-nav-scrollbar", {frameX + navWidth - 4, navTop, 8, navH}, navHeight, m_settingsNavScroll
+    );
     settingsButton(root, {frameX + 4, h - 62, navWidth - 8, 32, Action::SignOut, {}}, "Log Out");
     iconButton(root, {w - 56, 52, 30, 30, Action::CloseSettings, {}}, "x", "Close settings (Esc)");
     const auto selected = std::ranges::find_if(pages, [&](const auto& entry) { return m_settingsPage == entry.id; });
@@ -501,13 +656,21 @@ namespace app {
       }
       cursor += ((3 + columns - 1) / columns) * 30 + 8;
       section("Text & interface");
+      const auto family = actionRow("Font family", "Choose an installed font for the interface and messages.");
+      rowAction(
+          family, Action::Preference, "font-picker",
+          m_preferences.fontFamily.empty() ? "System default" : m_preferences.fontFamily
+      );
+      m_fontPickerAnchor = m_hits.back();
       const auto font = row("Message text size", "Change the size of text in conversations.", 196, 40, false, true);
       const float controlsX = stacked ? 0 : width - 180;
       const float fontY = stacked ? font.top + font.height - 40 : font.top + (font.height - 32) / 2;
       settingsButton(p, {controlsX, fontY, 36, 32, Action::Preference, "font-"}, "−", false, false, true, true);
+      const auto fontSize = std::to_string(static_cast<int>(m_preferences.messageSize)) + " px";
+      const auto fontMetrics = m_window.target().renderer().measureText(fontSize, 13, FontWeight::Normal);
       label(
-          p, controlsX + 50, fontY + 7, 80, std::to_string(static_cast<int>(m_preferences.messageSize)) + " px", 13,
-          foreground
+          p, controlsX + 90 - fontMetrics.width / 2, fontY + (32 - (fontMetrics.bottom - fontMetrics.top)) / 2,
+          fontMetrics.width + 1, fontSize, 13, foreground
       );
       settingsButton(p, {controlsX + 144, fontY, 36, 32, Action::Preference, "font+"}, "+", false, false, true, true);
       const auto zoom =
@@ -728,14 +891,11 @@ namespace app {
       hit.y = std::max(hit.y, viewportY);
       hit.height = std::max(0.0F, end - hit.y);
     }
+    m_fontPickerAnchor.y += correction;
     root.addChild(std::move(page));
-    if (pageHeight > viewportH) {
-      const float thumb = std::max(28.0F, viewportH * viewportH / pageHeight);
-      rectangle(
-          root, contentX + width + 10, viewportY + (viewportH - thumb) * m_settingsScroll / (pageHeight - viewportH), 3,
-          thumb, raised, 2
-      );
-    }
+    settingsScrollbar(
+        root, "settings-scrollbar", {contentX + width + 4, viewportY, 8, viewportH}, pageHeight, m_settingsScroll
+    );
     if (unsaved) {
       const float y = h - 24 - saveHeight - (statusHeight ? statusHeight + 8 : 0);
       rectangle(root, contentX, y, width, saveHeight, panel, 7);
@@ -767,9 +927,131 @@ namespace app {
       rectangle(root, contentX, h - 24 - statusHeight, width, statusHeight, panel, 7);
       label(root, contentX + 12, h - 14 - statusHeight, width - 24, m_settingsStatus, 12, muted, FontWeight::Normal, 0);
     }
+    drawFontPicker(root, w, h);
+  }
+  void ClientApplication::demoFontStep() {
+    const auto require = [](bool ok, const char* message) {
+      if (!ok)
+        throw std::runtime_error(message);
+    };
+    const auto click = [&](const std::string& id) {
+      const auto at = std::ranges::find_if(m_hits, [&](const auto& hit) {
+        return hit.action == Action::Preference && hit.id == id && hit.height > 0;
+      });
+      require(at != m_hits.end(), "Font setting action must be visible");
+      const auto hit = *at;
+      m_window.click(hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - 36, 272);
+      m_window.released();
+    };
+    const auto drag = [&](const std::string& id) {
+      const auto* bar = static_cast<Scrollbar*>(m_widgets.at(id));
+      require(bar->visible(), "Overflowing settings lists require a native scrollbar");
+      const auto* thumb = bar->children()[1].get();
+      const float x = bar->x() + bar->width() / 2;
+      const float y = bar->y() + thumb->y() + thumb->height() / 2 + m_window.titlebarHeight() - 36;
+      m_window.motion(x, y);
+      m_window.click(x, y, 272);
+      m_window.motion(x, y + 40);
+      require(m_controlInput.pointerCaptured(), "Settings scrollbar captures the pointer while dragging");
+    };
+    const auto step = m_demoInteractionStep++;
+    if (step == 0) {
+      click("font-picker");
+      require(m_installedFonts.size() > 25, "Font replay needs enough installed families to exercise virtualization");
+    } else if (step == 1) {
+      require(m_fontPickerOpen && m_inputs.contains("settings:font_search"), "Picker retains a native search field");
+      require(m_fontPickerBounds.height <= 688, "Font choices stay inside a bounded picker");
+      require(
+          std::ranges::count_if(
+              m_hits,
+              [](const auto& hit) { return hit.action == Action::Preference && hit.id.starts_with("font-family:"); }
+          ) <= 26,
+          "Font picker only builds a bounded option window"
+      );
+      drag("font-picker-scrollbar");
+    } else if (step == 2) {
+      require(
+          m_fontPickerScroll > 0 && m_settingsScroll == m_fontPickerReturnScroll,
+          "Font scrollbar moves the picker independently of the settings page"
+      );
+      require(m_controlInput.pointerCaptured(), "Font scrollbar capture survives scene reconstruction");
+      m_window.motion(m_pointerX, m_window.height() * 2);
+      m_window.released();
+      focusControl("settings:font_search");
+      pasteControl("settings:font_search", m_installedFonts.front());
+      require(!m_profileDirty, "Font search must not dirty account profile settings");
+    } else if (step == 3) {
+      require(
+          m_settingsFields["font_search"] == m_installedFonts.front() && m_fontPickerScroll == 0,
+          "Native font search updates the filter and resets its scrollbar"
+      );
+      click("font-family:" + m_installedFonts.front());
+    } else if (step == 4) {
+      require(!m_fontPickerOpen && m_preferences.fontFamily == m_installedFonts.front(), "Font selection applies");
+      auto& renderer = m_window.target().renderer();
+      const auto normal = renderer.measureText("Font preview Wi", 14);
+      const auto chosen = renderer.measureText(
+          "Font preview Wi", 14, FontWeight::Normal, 0, 0, TextAlign::Start, m_preferences.fontFamily
+      );
+      require(std::abs(normal.width - chosen.width) < .01F, "Selected font drives default text measurements");
+      click("font-picker");
+      m_settingsFields["font_search"] = "no-font-family-cressida-987654321";
+    } else if (step == 5) {
+      require(
+          std::ranges::none_of(
+              m_hits,
+              [](const auto& hit) {
+                return hit.action == Action::Preference
+                    && hit.id.starts_with("font-family:")
+                    && hit.id != "font-family:";
+              }
+          ),
+          "Unmatched font search must hide installed family choices"
+      );
+      click("font-family:");
+    } else if (step == 6) {
+      require(m_preferences.fontFamily.empty() && !m_fontPickerOpen, "System default clears the saved family");
+      const auto before = m_window.target().renderer().measureText("Font preview Wi", 14);
+      const auto system = m_window.target().renderer().measureText(
+          "Font preview Wi", 14, FontWeight::Normal, 0, 0, TextAlign::Start, "sans-serif"
+      );
+      require(std::abs(before.width - system.width) < .01F, "Reset restores system default measurements");
+      click("font-picker");
+    } else if (step == 7) {
+      settingsKey({.symbol = XKB_KEY_Escape});
+      require(!m_fontPickerOpen && m_settingsOpen, "Escape closes the font picker before settings");
+      drag("settings-nav-scrollbar");
+    } else if (step == 8) {
+      require(
+          m_settingsNavScroll > 0 && m_controlInput.pointerCaptured(),
+          "Navigation scrollbar drags and retains capture across scene reconstruction"
+      );
+      m_window.motion(m_pointerX, m_window.height() * 2);
+      m_window.released();
+      selectSettingsPage("notifications");
+      m_window.setUiScale(1.8F);
+    } else if (step == 9) {
+      drag("settings-scrollbar");
+    } else if (step == 10) {
+      require(
+          m_settingsScroll > 0 && m_controlInput.pointerCaptured(),
+          "Settings page scrollbar drags and retains capture across scene reconstruction"
+      );
+      m_window.motion(m_pointerX, m_window.height() * 2);
+      m_window.released();
+      selectSettingsPage("cressida");
+    } else if (step == 11) {
+      require(!m_fontPickerOpen && m_installedFonts.empty(), "Page navigation clears the font catalog");
+    }
+    std::clog << "Offline font settings replay step " << step + 1 << " passed\n";
+    m_window.invalidate();
   }
   void ClientApplication::settingsKey(const Key& key) {
     if (key.symbol == XKB_KEY_Escape) {
+      if (m_fontPickerOpen) {
+        fontPreference("font-picker");
+        return;
+      }
       m_settingsOpen = false;
       m_settingsField.clear();
       m_controlInput.setFocus(nullptr);

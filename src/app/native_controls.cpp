@@ -1,9 +1,11 @@
 #include "app/client_application.h"
+#include "app/font_catalog.h"
 #include "app/theme.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/keybind_matcher.h"
 #include "render/scene/input_area.h"
 #include "ui/controls/glyph.h"
+#include "ui/controls/scrollbar.h"
 #include "ui/palette.h"
 
 #include <cmath>
@@ -86,6 +88,12 @@ namespace app {
     Input::setTextClipboard(nullptr);
   }
   void ClientApplication::beginControls() {
+    const auto generation = m_window.target().renderer().textMetricsGeneration();
+    if (m_controlFontGeneration != generation) {
+      m_controlFontGeneration = generation;
+      for (const auto& [id, input] : m_inputs)
+        input->setFontSize(id == "message-edit" ? m_preferences.messageSize : 14);
+    }
     m_buildingScene = true;
     if (!m_controlClipboard) {
       m_controlClipboard = std::make_unique<WindowClipboard>(m_window);
@@ -128,6 +136,28 @@ namespace app {
       m_focusedInput = id;
       m_controlInput.setFocus(found->second->inputArea());
     }
+  }
+  void
+  ClientApplication::settingsScrollbar(Node& parent, const std::string& id, Hit bounds, float content, float& offset) {
+    std::unique_ptr<Node> saved;
+    if (auto at = m_detachedInputs.find(id); at != m_detachedInputs.end()) {
+      saved = std::move(at->second);
+      m_detachedInputs.erase(at);
+    } else {
+      auto bar = std::make_unique<Scrollbar>();
+      bar->setOnScrollChanged([this, position = &offset](float value) {
+        m_scrolling.stop(*position);
+        *position = value;
+        m_window.invalidate();
+      });
+      saved = std::move(bar);
+    }
+    auto* bar = static_cast<Scrollbar*>(saved.get());
+    m_widgets[id] = bar;
+    bar->setPosition(bounds.x, bounds.y);
+    bar->setSize(bounds.width, bounds.height);
+    bar->update(bounds.height, content, offset);
+    parent.addChild(std::move(saved));
   }
   void ClientApplication::finishControls() {
     m_scene->setInvalidationCallback([this](NodeInvalidation) {
@@ -262,10 +292,14 @@ namespace app {
           const auto limit = key == "display_name" ? 32U : key == "pronouns" ? 40U : key == "bio" ? 190U : 128U;
           if (api::utf8Length(text) <= limit) {
             m_settingsFields[key] = text;
-            if (key != "custom_status" && key != "search")
+            if (key != "custom_status" && key != "search" && key != "font_search")
               m_profileDirty = true;
             if (key == "search")
               m_settingsNavScroll = 0;
+            if (key == "font_search") {
+              m_scrolling.stop(m_fontPickerScroll);
+              m_fontPickerScroll = 0;
+            }
           }
         }
         m_window.invalidate();
@@ -297,7 +331,13 @@ namespace app {
           connect();
         else if (id == "settings:custom_status")
           setPresence(api::validStatus(m_presence.status) ? m_presence.status : "online", true);
-        else if (id != "settings:search")
+        else if (id == "settings:font_search") {
+          const auto match = std::ranges::find_if(m_installedFonts, [&](const auto& family) {
+            return fontFamilyMatches(family, m_settingsFields["font_search"]);
+          });
+          if (m_fontPickerOpen && match != m_installedFonts.end())
+            fontPreference("font-family:" + *match);
+        } else if (id != "settings:search" && id != "settings:font_search")
           activate({0, 0, 0, 0, Action::SaveProfile, {}});
       });
       m_inputs[id] = field.get();

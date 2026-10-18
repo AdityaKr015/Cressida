@@ -130,7 +130,7 @@ message_layout = static_library('message-layout', ['src/app/message_layout.cpp',
 message_layout_dep = declare_dependency(link_with: message_layout, dependencies: [render_dep, backend_dep, markdown_dep])
 emoji_catalog = static_library('emoji-catalog', 'src/app/emoji_catalog.cpp', dependencies: [backend_dep, markdown_dep])
 client = executable('cressida',
-  'src/main.cpp', 'src/app/window.cpp', 'src/app/autocomplete.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/system_message_view.cpp', 'src/app/message_log_view.cpp', 'src/app/message_dialog.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
+  'src/main.cpp', 'src/app/window.cpp', 'src/app/font_catalog.cpp', 'src/app/autocomplete.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/system_message_view.cpp', 'src/app/message_log_view.cpp', 'src/app/message_dialog.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
   dependencies: [render_dep, backend_dep, browser_dep, markdown_dep, video_dep],
   link_with: [message_layout, emoji_catalog],
   cpp_args: client_args,
@@ -140,7 +140,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: ['app/channel_demo.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'api/channel_features.cpp', 'api/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'api/emoji.cpp', 'api/role_styles.cpp', 'api/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/role_view.cpp', 'app/system_message_view.cpp', 'app/message_log_view.cpp', 'app/message_dialog.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'api/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'api/client.cpp', 'api/models.cpp', 'api/settings.cpp', 'api/gifs.cpp', 'api/read_state.cpp', 'api/user_directory.cpp', 'api/actions.cpp', 'api/assets.cpp', 'api/gateway.cpp', 'api/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
+  exclude_files: ['app/channel_demo.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'api/channel_features.cpp', 'api/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'api/emoji.cpp', 'api/role_styles.cpp', 'api/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/role_view.cpp', 'app/system_message_view.cpp', 'app/message_log_view.cpp', 'app/message_dialog.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'api/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/font_catalog.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'api/client.cpp', 'api/models.cpp', 'api/settings.cpp', 'api/gifs.cpp', 'api/read_state.cpp', 'api/user_directory.cpp', 'api/actions.cpp', 'api/assets.cpp', 'api/gateway.cpp', 'api/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -181,6 +181,9 @@ gateway_test = executable('gateway_test', 'tests/gateway_test.cpp', dependencies
 test('gateway', find_program('python3'), args: [files('tests/gateway_fixture.py'), gateway_test], timeout: 15)
 session_test = executable('session_store_test', 'tests/session_store_test.cpp', 'src/app/session_store.cpp', dependencies: backend_dep)
 test('session_store', session_test)
+font_catalog_test = executable('font_catalog_test', 'tests/font_catalog_test.cpp', 'src/app/font_catalog.cpp',
+  include_directories: include_directories('src'), dependencies: dependency('fontconfig'))
+test('font_catalog', font_catalog_test)
 
 install_data('assets/dev.lysec.Cressida.desktop', install_dir: get_option('datadir') / 'applications')
 editor_test = executable('text_edit_test', 'tests/text_edit_test.cpp', dependencies: render_dep)

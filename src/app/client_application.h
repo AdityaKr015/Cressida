@@ -371,6 +371,11 @@ namespace app {
     void clearAccountSettings();
     void resetProfile();
     void settingsKey(const Key& key);
+    bool fontPreference(const std::string& id);
+    bool fontPickerClick(float x, float y);
+    void drawFontPicker(Node& root, float w, float h);
+    void settingsScrollbar(Node& parent, const std::string& id, Hit bounds, float content, float& offset);
+    void demoFontStep();
     void savePreferences();
     void setPresence(const std::string& status, bool custom = false);
     void drawImageViewer(Node& root, float w, float h);
@@ -445,6 +450,13 @@ namespace app {
          m_profileDirty = false;
     std::string m_settingsPage = "cressida", m_settingsField, m_settingsStatus, m_desiredPresence;
     std::map<std::string, std::string> m_settingsFields;
+    std::vector<std::string> m_installedFonts;
+    std::vector<std::string> m_fontMatches;
+    std::string m_fontFilter;
+    bool m_fontPickerOpen = false;
+    float m_fontPickerReturnScroll = 0;
+    float m_fontPickerScroll = 0;
+    Hit m_fontPickerAnchor{}, m_fontPickerBounds{};
     float m_settingsScroll = 0, m_settingsNavScroll = 0, m_settingsNavRight = 0;
     api::SettingValues m_accountSettings, m_settingsDraft;
     bool m_loadingSettings = false, m_savingSettings = false, m_settingsLoaded = false;
@@ -456,6 +468,7 @@ namespace app {
     std::map<std::string, Node*> m_widgets;
     std::map<std::string, std::unique_ptr<Node>> m_detachedInputs;
     InputDispatcher m_controlInput;
+    std::uint64_t m_controlFontGeneration = 0;
     std::unique_ptr<TextClipboard> m_controlClipboard;
     std::string m_focusedInput, m_pasteInput;
     bool m_buildingScene = false, m_emojiMenu = false;

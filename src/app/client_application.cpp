@@ -87,6 +87,8 @@ namespace app {
         demoMessageEditStep();
       if (m_demo && m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep < 9)
         demoCompletionStep();
+      if (m_demo && m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep < 12)
+        demoFontStep();
       if (m_demo && m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep < 5) {
         const auto step = m_demoInteractionStep++;
         if (step > 0) {
@@ -417,6 +419,8 @@ namespace app {
       }
       if (completionClick(x, y))
         return;
+      if (fontPickerClick(x, y))
+        return;
       if (m_emojiMenu
           && m_emojiBounds.contains(x, y)
           && y >= m_emojiBounds.y + 52
@@ -616,6 +620,12 @@ namespace app {
       if (!m_dialogKind.empty())
         return;
       if (m_settingsOpen) {
+        if (m_fontPickerOpen) {
+          if (m_fontPickerBounds.contains(m_pointerX, m_pointerY))
+            scroll(m_fontPickerScroll, delta);
+          m_window.invalidate();
+          return;
+        }
         scroll(m_pointerX < m_settingsNavRight ? m_settingsNavScroll : m_settingsScroll, delta);
         m_window.invalidate();
         return;
@@ -685,6 +695,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "deleted-cycle"       ? 3
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"   ? 8
                          : m_demo && view && std::string_view(view) == "autocomplete-cycle"  ? 9
+                         : m_demo && view && std::string_view(view) == "settings-font-cycle" ? 12
                          : m_demo && view && std::string_view(view) == "message-hover-cycle" ? 5
                          : m_demo && view && std::string_view(view) == "sidebar-cycle"       ? 10
                          : m_demo && view && std::string_view(view) == "role-emoji-cycle"    ? 3
@@ -709,6 +720,8 @@ namespace app {
       throw std::runtime_error("Inline message editing replay did not finish");
     if (m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep != 9)
       throw std::runtime_error("Autocomplete replay did not finish");
+    if (m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep != 12)
+      throw std::runtime_error("Font settings replay did not finish");
     if (m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep != 5)
       throw std::runtime_error("Message hover replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
@@ -1509,6 +1522,7 @@ namespace app {
           m_settingsPage = "appearance";
         } else if (
             view.starts_with("settings:")
+            || view.starts_with("settings-font")
             || view.starts_with("settings-narrow")
             || view == "settings-feedback"
             || view == "cressida-settings-light"
@@ -1529,17 +1543,27 @@ namespace app {
             || view == "search"
         ) {
           openSettings();
+          if (view == "settings-font-cycle")
+            m_demoOverlay = view;
           if (view.starts_with("settings-narrow"))
             m_window.setUiScale(1.8F);
-          if (view == "cressida-settings-light")
+          if (view == "cressida-settings-light" || view == "settings-fonts-light")
             m_preferences.theme = "light";
           selectSettingsPage(
               view.starts_with("settings:")                                                      ? view.substr(9)
+                  : view.starts_with("settings-font")                                            ? "appearance"
                   : view == "settings-narrow-appearance"                                         ? "appearance"
                   : view.starts_with("settings-narrow") || view.starts_with("cressida-settings") ? "cressida"
                   : view == "search" || view == "settings-feedback"                              ? "privacy"
                                                                                                  : view
           );
+          if (view.starts_with("settings-fonts")) {
+            fontPreference("font-picker");
+            if (view == "settings-fonts-filtered")
+              m_settingsFields["font_search"] = "mono";
+            if (view == "settings-fonts-selected" && !m_installedFonts.empty())
+              fontPreference("font-family:" + m_installedFonts.front());
+          }
           if (view == "settings-feedback") {
             m_settingsDraft["restrict_new_guild_dms"] ^= 1;
             m_settingsStatus = "Could not save changes. Try again.";
@@ -1769,6 +1793,7 @@ namespace app {
     ++m_animationDraw;
     m_animationDelay = std::chrono::milliseconds::max();
     theme::select(m_preferences.theme);
+    m_window.context().setTextFontFamily(m_connected ? m_preferences.fontFamily : std::string{});
     const float w = m_window.width(), h = m_window.height() + 36 - m_window.titlebarHeight();
     m_tooltip.clear();
     if (!m_emojiMenu && m_emojiOpened)
@@ -4683,6 +4708,8 @@ namespace app {
       markChannelRead(true);
       break;
     case Action::Preference:
+      if (fontPreference(hit.id))
+        break;
       if (hit.id.starts_with("theme:"))
         m_preferences.theme = hit.id.substr(6);
       else if (hit.id == "font+")

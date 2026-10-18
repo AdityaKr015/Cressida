@@ -82,6 +82,8 @@ int main() {
     const auto preferences = restored.preferences("123");
     require(preferences.autoplayGifs, "GIF autoplay defaults on for existing accounts");
     auto pausedGifs = preferences;
+    require(preferences.fontFamily.empty(), "Existing accounts use the system font by default");
+    pausedGifs.fontFamily = "École Mono";
     require(!preferences.emojiImageLinks, "Emoji image links default off for existing accounts");
     require(
         !preferences.logDeletedMessages && !preferences.logEditHistory,
@@ -98,6 +100,11 @@ int main() {
     pausedGifs.channelSidebarWidth = 372;
     restored.savePreferences("123", pausedGifs);
     restored.save("123", {"10", "20", 1.2F});
+    require(
+        app::SessionStore(path).preferences("123").fontFamily == "École Mono"
+            && app::SessionStore(path).preferences("456").fontFamily.empty(),
+        "Installed font preference survives navigation saves and remains account-scoped"
+    );
     require(
         app::SessionStore(path).preferences("123").channelSidebarWidth == 372
             && app::SessionStore(path).preferences("456").channelSidebarWidth == 248,
@@ -187,6 +194,19 @@ int main() {
         stat(path.c_str(), &state) == 0 && (state.st_mode & 0777) == 0600,
         "Private UI state must be owner-readable only"
     );
+    auto invalidFont = pausedGifs;
+    invalidFont.fontFamily = "Bad\nFamily";
+    restored.savePreferences("789", invalidFont);
+    require(
+        restored.preferences("789").fontFamily.empty() && restored.preferences("789").theme == "midnight",
+        "Invalid font names fall back without dropping other preferences"
+    );
+    invalidFont.fontFamily.assign(513, 'a');
+    restored.savePreferences("789", invalidFont);
+    require(restored.preferences("789").fontFamily.empty(), "Oversized font names fall back to the system default");
+    pausedGifs.fontFamily.clear();
+    restored.savePreferences("123", pausedGifs);
+    require(restored.preferences("123").fontFamily.empty(), "System default font selection persists");
     std::ofstream(path) << "broken JSON";
     require(!restored.load("123"), "Ignore damaged UI preferences");
     {

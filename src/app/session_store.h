@@ -15,6 +15,7 @@ namespace app {
     bool showGuildTags = true;
     float channelSidebarWidth = 248;
     bool logDeletedMessages = false, logEditHistory = false;
+    std::string fontFamily;
   };
   struct LastChannel {
     std::string guild, channel;

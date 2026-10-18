@@ -65,6 +65,9 @@ namespace app {
           return id == "gif-search" && m_gifBounds.contains(m_pointerX, m_pointerY);
         if (m_completionQuery && m_completionBounds.contains(m_pointerX, m_pointerY))
           return id == "completion-scrollbar";
+        if (m_settingsOpen && m_fontPickerOpen)
+          return m_fontPickerBounds.contains(m_pointerX, m_pointerY)
+              && (id == "settings:font_search" || id == "font-picker-scrollbar");
         return true;
       };
       bool nativeAllowed = false;
