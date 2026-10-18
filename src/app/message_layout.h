@@ -12,6 +12,7 @@ namespace app {
   struct MessageStyle {
     bool bold = false, italic = false, underline = false, strike = false, code = false, spoiler = false,
          mention = false, emoji = false;
+    bool historical = false;
     float size = 14;
     std::string link;
   };
@@ -45,7 +46,7 @@ namespace app {
     std::vector<MessageBox> boxes;
     std::vector<MessagePicture> pictures;
     std::string plainText;
-    float height = 0;
+    float height = 0, historyHeight = 0;
     std::optional<EditedMarker> edited;
   };
   struct MessageOptions {

@@ -64,7 +64,11 @@ namespace app {
     }
     if (!layout.runs.empty() && message.timestamp.size() >= 16) {
       const auto& last = layout.runs.back();
-      label(parent, 50 + last.x + last.width + 6, y + last.y + 4, 36, message.timestamp.substr(11, 5), 10, muted);
+      label(
+          parent, 50 + last.x + last.width + 6, y + last.y + 4, message.deleted ? 120 : 36,
+          message.timestamp.substr(11, 5) + (message.deleted ? " · Deleted" : ""), 10,
+          message.deleted ? rgbHex(m_preferences.theme == "light" ? 0xB52C39 : 0xEF7D86) : muted
+      );
     }
     reactionStrip(&parent, message, 50, y + std::max(22.0F, layout.height) + 6, width, true);
   }

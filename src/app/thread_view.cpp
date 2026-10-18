@@ -42,8 +42,7 @@ namespace app {
         || (!retry && !more && (m_threadsLoaded.contains(parent) || m_threadErrors.contains(parent))))
       return;
     api::ThreadQuery query{
-        forumView() && m_threadTab == api::ThreadList::Archived ? api::ThreadList::Archived
-                                                                    : api::ThreadList::Active,
+        forumView() && m_threadTab == api::ThreadList::Archived ? api::ThreadList::Archived : api::ThreadList::Active,
         m_guildId,
         parent,
         more ? m_threadPages[parent].before : "",
@@ -193,7 +192,7 @@ namespace app {
     if (m_threadTab == api::ThreadList::Active || m_archiveQuery || m_demo)
       return;
     api::ThreadQuery query{m_threadTab,      m_guildId,           m_threadParent, more ? m_threadBefore : "",
-                               ++m_threadSerial, m_threads.revision()};
+                           ++m_threadSerial, m_threads.revision()};
     m_threadError.clear();
     if (m_client.threads(query))
       m_archiveQuery = query;
@@ -234,7 +233,7 @@ namespace app {
         return thread.archived.value_or(false);
       return !thread.archived.value_or(false)
           || (m_threadTab == api::ThreadList::Archived ? thread.type == 12
-                                                           : thread.type != 12 || !thread.joined.value_or(false));
+                                                       : thread.type != 12 || !thread.joined.value_or(false));
     });
     const float fullHeight = threads.size() * 68.0F;
     m_scrolling.limit(m_threadScroll, std::max(0.0F, fullHeight - viewport));
@@ -285,8 +284,8 @@ namespace app {
       bar->update(viewport, fullHeight, m_threadScroll);
       root.addChild(std::move(owned));
     }
-    const bool loading = m_threadTab == api::ThreadList::Active ? m_threadRequests.contains(m_threadParent)
-                                                                    : m_archiveQuery.has_value();
+    const bool loading =
+        m_threadTab == api::ThreadList::Active ? m_threadRequests.contains(m_threadParent) : m_archiveQuery.has_value();
     const auto error = m_threadTab == api::ThreadList::Active ? m_threadErrors[m_threadParent] : m_threadError;
     if (threads.empty())
       label(
@@ -333,8 +332,7 @@ namespace app {
     } else if (!m_demo) {
       closeContext();
       closeDialog();
-      api::ThreadQuery query{api::ThreadList::Single, m_guildId, id, {}, ++m_threadSerial,
-                                 m_threads.revision()};
+      api::ThreadQuery query{api::ThreadList::Single, m_guildId, id, {}, ++m_threadSerial, m_threads.revision()};
       if (m_client.threads(query)) {
         m_openThreadQuery = query;
         m_status = "Opening thread…";
@@ -514,7 +512,10 @@ namespace app {
     const auto* thread = m_threads.find(m_guildId, message.id);
     if (!thread && message.thread)
       thread = &*message.thread;
-    if (m_dmMode || (!thread && !message.hasThread) || (thread ? thread->id : message.id) == m_channelId)
+    if (message.deleted
+        || m_dmMode
+        || (!thread && !message.hasThread)
+        || (thread ? thread->id : message.id) == m_channelId)
       return 0;
     if (!root)
       return 48;
@@ -554,8 +555,7 @@ namespace app {
             {{"archived", i >= 10}, {"locked", false}, {"archive_timestamp", "2026-10-17T09:50:00Z"}}}}
       );
     api::ThreadQuery query{api::ThreadList::Active, m_guildId, {}, {}, 0, m_threads.revision()};
-    auto page =
-        api::parseThreadPage(Json{{"threads", threads}, {"members", Json::array({{{"id", "809"}}})}}, query);
+    auto page = api::parseThreadPage(Json{{"threads", threads}, {"members", Json::array({{{"id", "809"}}})}}, query);
     m_threads.page(query, page);
     rebuildThreadChannels();
     if (view == "thread")

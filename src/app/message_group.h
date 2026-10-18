@@ -65,7 +65,9 @@ namespace app {
   // Each message retains its own content, actions and selection. Only the author
   // header and inter-message spacing are shared by a short consecutive run.
   inline bool continuesMessageGroup(const api::Message& previous, const api::Message& current) {
-    if (previous.authorId.empty()
+    if (previous.deleted
+        || current.deleted
+        || previous.authorId.empty()
         || previous.authorId != current.authorId
         || previous.channelId != current.channelId
         || previous.author != current.author

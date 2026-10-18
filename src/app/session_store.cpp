@@ -134,6 +134,8 @@ namespace app {
       result.showImages = value.value("images", true);
       result.autoplayGifs = value.value("autoplay_gifs", true);
       result.emojiImageLinks = value.value("emoji_image_links", false);
+      result.logDeletedMessages = value.value("log_deleted_messages", false);
+      result.logEditHistory = value.value("log_edit_history", false);
       result.roleColors = value.value("role_colors", true);
       result.animateRoleColors = value.value("animate_role_colors", true);
       result.showGuildTags = value.value("guild_tags", true);
@@ -157,6 +159,8 @@ namespace app {
           {"images", preferences.showImages},
           {"autoplay_gifs", preferences.autoplayGifs},
           {"emoji_image_links", preferences.emojiImageLinks},
+          {"log_deleted_messages", preferences.logDeletedMessages},
+          {"log_edit_history", preferences.logEditHistory},
           {"role_colors", preferences.roleColors},
           {"animate_role_colors", preferences.animateRoleColors},
           {"guild_tags", preferences.showGuildTags},

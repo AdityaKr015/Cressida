@@ -1,6 +1,7 @@
 #include "app/discord_timestamp.h"
 #include "app/emoji_catalog.h"
 #include "app/message_layout.h"
+#include "app/message_log_layout.h"
 #include "app/reply_preview.h"
 #include "app/text_edit.h"
 
@@ -36,6 +37,42 @@ int main(int argc, char** argv) {
             && editedLayout.edited->x == 0
             && editedLayout.height >= editedLayout.edited->y + editedLayout.edited->height,
         "Narrow messages reserve a new line for the marker without overflowing"
+    );
+    api::Message oldVersion = editedMessage;
+    oldVersion.content = "Earlier **text** with <@1>";
+    oldVersion.mentions["1"] = "Alex";
+    oldVersion.editedTimestamp.clear();
+    const auto liveLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
+    const auto loggedLayout = app::withEditHistory(liveLayout, std::vector{oldVersion}, 400, editMeasure, 14);
+    require(
+        loggedLayout.historyHeight > 0
+            && loggedLayout.edited
+            && loggedLayout.edited->y == liveLayout.edited->y + loggedLayout.historyHeight
+            && loggedLayout.height == liveLayout.height + loggedLayout.historyHeight,
+        "Edit history reserves height and shifts the current edited marker together"
+    );
+    require(
+        loggedLayout.plainText.contains("Earlier text with @Alex")
+            && loggedLayout.plainText.ends_with(liveLayout.plainText),
+        "Historical text remains selectable and current content stays last"
+    );
+    for (const auto& run : loggedLayout.runs) {
+      require(
+          run.style.historical == (run.y < loggedLayout.historyHeight),
+          "Only earlier versions use muted history styling"
+      );
+      require(
+          run.offset + run.text.size() <= loggedLayout.plainText.size(), "History text selection offsets stay valid"
+      );
+      if (run.image.empty())
+        require(
+            loggedLayout.plainText.substr(run.offset, run.text.size()) == run.text,
+            "Selection offsets identify the exact historical/current text"
+        );
+    }
+    require(
+        app::withEditHistory(liveLayout, {}, 400, editMeasure, 14).height == liveLayout.height,
+        "Without retained edits the normal message layout is unchanged"
     );
     editedMessage.content = "```cpp\nint x = 1;\n```";
     editedLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
@@ -121,9 +158,7 @@ int main(int argc, char** argv) {
     require(
         std::ranges::distance(replyImages) == 2, "Reply previews render static and animated custom emoji as images"
     );
-    require(
-        replyImages.front().image == api::emojiPath("1407464763293831269", false), "Static reply emoji uses PNG"
-    );
+    require(replyImages.front().image == api::emojiPath("1407464763293831269", false), "Static reply emoji uses PNG");
     require(std::next(replyImages.begin())->image == api::emojiPath("123", true), "Animated reply emoji uses GIF");
     require(
         std::ranges::all_of(

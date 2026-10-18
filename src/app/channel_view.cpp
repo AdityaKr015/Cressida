@@ -92,6 +92,7 @@ namespace app {
       m_deletedChannels.insert(id);
       selected |= !m_dmMode && event.resource == m_guildId && (m_channelId == id || (thread && thread->parentId == id));
       m_channelMessages.erase(id);
+      m_messageLog.clearChannel(id);
       m_channelMembers.erase(id);
       std::erase(m_channelCacheOrder, id);
       m_channelDetailRequests.erase(id);
@@ -653,8 +654,7 @@ namespace app {
           m_channelEditOriginal.topic.value_or(""), width - 60, measure, 14, {},
           {.compact = true, .discordTimestamps = true}
       );
-      const auto roles =
-          api::channelAccessRoles(m_guildId, m_roleDirectory.allRoles(m_guildId), m_channelEditOriginal);
+      const auto roles = api::channelAccessRoles(m_guildId, m_roleDirectory.allRoles(m_guildId), m_channelEditOriginal);
       const float viewport = height - 150, full = std::max(30.0F, description.height) + 48 + roles.size() * 28;
       m_scrolling.limit(m_channelDialogScroll, std::max(0.0F, full - viewport));
       auto content = std::make_unique<Node>();
@@ -795,8 +795,7 @@ namespace app {
     case Action::ToggleChannelMute:
       if (!m_channelId.empty())
         startInteraction(
-            {.kind =
-                 m_userDirectory.muted(m_channelId) ? api::InteractionKind::Unmute : api::InteractionKind::Mute,
+            {.kind = m_userDirectory.muted(m_channelId) ? api::InteractionKind::Unmute : api::InteractionKind::Mute,
              .channel = m_channelId,
              .guild = m_guildId}
         );
@@ -888,8 +887,7 @@ namespace app {
   }
   bool ClientApplication::channelFeatureInteraction(const api::Event& event, bool dialog) {
     const auto& action = *event.interaction;
-    if (action.kind != api::InteractionKind::EditChannel
-        && action.kind != api::InteractionKind::GrantChannelAccess)
+    if (action.kind != api::InteractionKind::EditChannel && action.kind != api::InteractionKind::GrantChannelAccess)
       return false;
     for (const auto& fresh : event.channels) {
       for (auto& [guild, channels] : m_guildChannels)

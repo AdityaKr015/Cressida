@@ -10,7 +10,7 @@ namespace app {
   using namespace theme;
   float ClientApplication::messageButtons(Node* root, const api::Message& message, float x, float y, float width) {
     const bool ephemeral = (message.flags & 64) != 0;
-    if ((message.buttons.empty() && !ephemeral) || blockedMessage(message))
+    if (message.deleted || (message.buttons.empty() && !ephemeral) || blockedMessage(message))
       return 0;
     float rowY = 0;
     std::string feedback;

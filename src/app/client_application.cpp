@@ -2,6 +2,7 @@
 
 #include "app/message_group.h"
 #include "app/message_layout.h"
+#include "app/message_log_layout.h"
 #include "app/message_mentions.h"
 #include "app/reply_preview.h"
 #include "app/system_message.h"
@@ -37,8 +38,8 @@ namespace app {
     };
     template <class MentionCount>
     std::vector<ChannelListRow> channelListRows(
-        const std::vector<api::Channel>& channels, const std::set<std::string>& collapsed,
-        const std::string& selected, MentionCount mentions
+        const std::vector<api::Channel>& channels, const std::set<std::string>& collapsed, const std::string& selected,
+        MentionCount mentions
     ) {
       std::vector<ChannelListRow> rows;
       float top = 0;
@@ -80,6 +81,8 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "deleted-cycle" && m_demoInteractionStep < 3)
+        demoDeletedStep();
       if (m_demo && m_demoOverlay == "join-cycle")
         demoJoinStep();
       if (m_demo && m_demoOverlay == "sidebar-cycle")
@@ -116,8 +119,7 @@ namespace app {
               || std::abs((b->y - a->y) - (c->y - b->y)) > .1F
               || std::abs((c->y - b->y) - a->run.height) > .1F)
             throw std::runtime_error("Wrapped lines and consecutive messages must use the same line spacing");
-          api::parseMessagePatch({{"mentions", nlohmann::json::array()},
-                                      {"edited_timestamp", "2026-10-17T09:42:00Z"}})
+          api::parseMessagePatch({{"mentions", nlohmann::json::array()}, {"edited_timestamp", "2026-10-17T09:42:00Z"}})
               .apply(m_messages[1]);
           m_messageLayouts.erase(m_messages[1].id);
         } else if (step == 1) {
@@ -644,6 +646,7 @@ namespace app {
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"               ? 4
+                         : m_demo && view && std::string_view(view) == "deleted-cycle"      ? 3
                          : m_demo && view && std::string_view(view) == "sidebar-cycle"      ? 10
                          : m_demo && view && std::string_view(view) == "role-emoji-cycle"   ? 3
                          : m_demo && view && std::string_view(view) == "role-members-cycle" ? 2
@@ -661,6 +664,8 @@ namespace app {
                   : 0,
         m_assets.eventFd(), m_video.eventFd()
     );
+    if (m_demoOverlay == "deleted-cycle" && m_demoInteractionStep != 3)
+      throw std::runtime_error("Deleted-message replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
       throw std::runtime_error("Server join replay did not complete");
     if (m_demoOverlay == "role-emoji-cycle" && m_demoInteractionStep != 3)
@@ -778,6 +783,52 @@ namespace app {
           m_messageLayouts.clear();
           m_unreadTimeline.snapshot({});
           m_unreadTimeline.positioned();
+        }
+        if (view == "deleted"
+            || view == "deleted-light"
+            || view == "deleted-compact"
+            || view == "deleted-cycle"
+            || view == "message-edit"
+            || view == "message-delete") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view == "deleted-compact";
+          m_preferences.logDeletedMessages = m_preferences.logEditHistory = true;
+          if (view == "deleted-light")
+            m_preferences.theme = "light";
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9501","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-18T09:41:00Z","content":"This message is still here."},
+            {"id":"9502","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-18T09:42:00Z","edited_timestamp":"2026-10-18T09:43:00Z","content":"This message was deleted. Its last known text stays readable.\n**Formatting** and `code` still work.","reactions":[{"emoji":{"name":"❤️"},"count":2,"me":true}]},
+            {"id":"9503","author":{"id":"12","username":"Jun"},"timestamp":"2026-10-18T09:44:00Z","content":"Another normal message."},
+            {"id":"9504","author":{"id":"12","username":"Jun"},"timestamp":"2026-10-18T09:45:00Z","content":"A second deleted message, removed in a bulk delete."}
+          ])JSON"));
+          for (auto& message : m_messages)
+            message.channelId = m_channelId;
+          deleteMessages(m_channelId, {"9502"});
+          deleteMessages(m_channelId, {"9504", "9599"});
+          updateMessage(
+              m_channelId, "9503",
+              {.content = "We should refresh the workspace when a display reconnects.",
+               .editedTimestamp = "2026-10-18T09:45:00Z"}
+          );
+          updateMessage(
+              m_channelId, "9503",
+              {.content =
+                   "We should refresh the workspace and preserve the window positions when a display reconnects.",
+               .editedTimestamp = "2026-10-18T09:46:00Z"}
+          );
+          if (view == "message-edit" || view == "message-delete") {
+            m_messages[2].authorId = m_account.id;
+            m_messages[2].author = m_account.name;
+            m_contextMessage = "9503";
+            m_contextChannel = m_channelId;
+            m_contextUser = m_account.id;
+            contextAction(view == "message-edit" ? Action::EditMessage : Action::DeleteMessage);
+            if (view == "message-edit")
+              m_dialogText += " Keep the animation smooth.";
+          }
         }
         if (view == "channel"
             || view == "channel-cycle"
@@ -1917,10 +1968,18 @@ namespace app {
               if (cached.layout.plainText.ends_with('\n'))
                 cached.layout.plainText.pop_back();
             } else {
+              const auto& versions = m_messageLog.edits(m_channelId, message.id);
+              if (!versions.empty() && displayed.editedTimestamp.empty())
+                displayed.editedTimestamp = "retained";
               cached.layout = layoutRichMessage(
                   displayed, textWidth, measure, m_preferences.messageSize,
                   {.emojiImageLinks = m_preferences.emojiImageLinks && m_preferences.showImages,
                    .compact = m_preferences.compact,
+                   .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
+              );
+              cached.layout = withEditHistory(
+                  std::move(cached.layout), versions, textWidth, measure, m_preferences.messageSize,
+                  {.compact = m_preferences.compact,
                    .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
               );
             }
@@ -2102,6 +2161,18 @@ namespace app {
                 && missingAuthors.size() < 100
                 && std::ranges::find(missingAuthors, message.authorId) == missingAuthors.end())
               missingAuthors.push_back(message.authorId);
+            if (message.deleted) {
+              const auto red = rgbHex(m_preferences.theme == "light" ? 0xB52C39 : 0xEF7D86);
+              const float gap = messageRowPadding(true, false, m_preferences.compact);
+              const float bandTop = std::max(top, top + y - 2);
+              const float bandBottom = std::min(bottom, top + y + heights[i] - gap + 2);
+              if (bandBottom > bandTop) {
+                rectangle(
+                    root, left + 10, bandTop, bodyWidth - 34, bandBottom - bandTop, lerpColor(background, red, .07F)
+                );
+                rectangle(root, left + 10, bandTop, 3, bandBottom - bandTop, red);
+              }
+            }
             if (message.type == 7) {
               drawJoinNotice(*content, message, *layouts[i], y, textWidth);
             } else {
@@ -2166,7 +2237,8 @@ namespace app {
               if (!continuation) {
                 const auto author = userName(message.authorId, message.author);
                 const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
-                const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
+                const std::string timestamp = (message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "")
+                    + (message.deleted ? (message.timestamp.size() >= 16 ? " · Deleted" : "Deleted") : "");
                 const float timestampWidth = m_window.target().renderer().measureText(timestamp, 10).width;
                 const float headerWidth = std::max(24.0F, textWidth - (timestamp.empty() ? 0 : timestampWidth + 10));
                 const float roleSpace =
@@ -2227,7 +2299,7 @@ namespace app {
                 if (!timestamp.empty() && timestampAvailable > 0)
                   label(
                       *content, timestampX, y + 3, std::min(timestampWidth + 2, timestampAvailable), timestamp, 10,
-                      muted
+                      message.deleted ? rgbHex(m_preferences.theme == "light" ? 0xB52C39 : 0xEF7D86) : muted
                   );
               } else if (hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop)) {
                 const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
@@ -2244,6 +2316,8 @@ namespace app {
               );
               m_messageText[message.id] = layout.plainText;
               m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
+              if (layout.historyHeight > 0)
+                rectangle(*content, 46, bodyY, 2, layout.historyHeight - 3, withAlpha(muted, .25F), 1);
               // Card backgrounds precede nested code/quote decoration.
               for (const auto& box : layout.boxes) {
                 rectangle(
@@ -2294,7 +2368,10 @@ namespace app {
                 if (run.image.empty())
                   label(
                       *content, rx, ry, std::max(1.0F, run.width + 2), messageMarkup(run.text, run.style),
-                      run.style.size, run.style.link.empty() && !run.style.mention ? foreground : accent,
+                      run.style.size,
+                      run.style.historical                               ? muted
+                          : run.style.link.empty() && !run.style.mention ? foreground
+                                                                         : accent,
                       FontWeight::Normal, 1, true
                   );
                 else if (!emojiImage(*content, rx, ry, run.width, run.image))
@@ -2365,20 +2442,21 @@ namespace app {
               }
             }
             if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
-              const float toolbarWidth = message.type == 7 ? 94 : 124;
+              const float toolbarWidth = message.deleted ? 64 : message.type == 7 ? 94 : 124;
               rectangle(*content, bodyWidth - 66 - toolbarWidth, y - 8, toolbarWidth, 34, panel, 7);
               iconButton(
                   *content, {bodyWidth - 62 - toolbarWidth, y - 4, 28, 26, Action::CopyMessage, message.id}, "copy",
                   "Copy text"
               );
-              if (message.type != 7)
+              if (!message.deleted && message.type != 7)
                 iconButton(
                     *content, {bodyWidth - 156, y - 4, 28, 26, Action::Reply, message.id}, "corner-up-left", "Reply"
                 );
-              iconButton(
-                  *content, {bodyWidth - 126, y - 4, 28, 26, Action::AddReaction, message.id}, "mood-smile",
-                  "Add reaction"
-              );
+              if (!message.deleted)
+                iconButton(
+                    *content, {bodyWidth - 126, y - 4, 28, 26, Action::AddReaction, message.id}, "mood-smile",
+                    "Add reaction"
+                );
               iconButton(
                   *content, {bodyWidth - 96, y - 4, 28, 26, Action::MessageMenu, message.id}, "dots", "More actions"
               );
@@ -2487,7 +2565,10 @@ namespace app {
         if (m_unreadTimeline.unread()) {
           std::string caption = "New messages";
           if (unreadIndex) {
-            const auto count = m_messages.size() - *unreadIndex;
+            const auto count =
+                std::count_if(m_messages.begin() + *unreadIndex, m_messages.end(), [](const auto& message) {
+                  return !message.deleted && !(message.flags & 64);
+                });
             caption = std::to_string(count)
                 + ((!m_history.atLatest() || m_unreadTimeline.estimated(m_messages)) ? "+" : "")
                 + (count == 1 ? " new message" : " new messages");
@@ -2873,6 +2954,7 @@ namespace app {
     m_loginStorageStatus.clear();
     m_userDirectory = {};
     m_roleDirectory = {};
+    m_messageLog.reset();
     m_roleMotion.clear();
     m_preferences = {};
     m_demoPrepared = false;
@@ -2907,7 +2989,7 @@ namespace app {
     if (m_channelId.empty() || m_messages.empty() || !m_history.atLatest() || (!m_demo && !m_history.initialized()))
       return false;
     const auto publicMessage = std::ranges::find_if(m_messages.rbegin(), m_messages.rend(), [](const auto& message) {
-      return !(message.flags & 64);
+      return !message.deleted && !(message.flags & 64);
     });
     if (publicMessage == m_messages.rend())
       return false;
@@ -3216,9 +3298,27 @@ namespace app {
       m_history.fail(*event.history, event.error);
       return;
     }
-    for (const auto& message : event.messages)
+    const auto prior = m_preferences.logEditHistory ? m_messages : std::vector<api::Message>{};
+    std::string first, last;
+    for (const auto& message : event.messages) {
       m_messageLayouts.erase(message.id);
+      if (first.empty() || MessageHistory::less(message.id, first))
+        first = message.id;
+      if (last.empty() || MessageHistory::less(last, message.id))
+        last = message.id;
+    }
     if (m_history.apply(*event.history, m_messages, std::move(event.messages), m_liveChanges)) {
+      for (auto& message : m_messages) {
+        const auto before = std::ranges::find(prior, message.id, &api::Message::id);
+        if (before != prior.end()) {
+          if (MessageLog::stale(*before, message))
+            message = *before;
+          else
+            logMessageEdit(*before, message);
+        }
+      }
+      m_messageLog.merge(m_channelId, m_messages, m_history.olderEnd(), m_history.atLatest(), first, last);
+      m_history.trim(m_messages, event.history->direction == api::HistoryDirection::Older);
       m_keepHistoryAnchor = event.history->direction == api::HistoryDirection::Newer;
       std::set<std::string> retained;
       for (const auto& message : m_messages)
@@ -3268,8 +3368,8 @@ namespace app {
       const int cursor = query.cursor.empty() ? 12000 : std::stoi(query.cursor);
       const int first = query.direction == api::HistoryDirection::Newer ? cursor + 1 : std::max(2000, cursor - 100);
       const int count = query.direction == api::HistoryDirection::Newer ? std::clamp(12000 - first, 0, 100)
-          : cursor <= 2000                                                  ? 0
-                                                                            : cursor - first;
+          : cursor <= 2000                                              ? 0
+                                                                        : cursor - first;
       api::Event event;
       event.operation = api::Operation::Messages;
       event.resource = m_channelId;
@@ -3486,6 +3586,7 @@ namespace app {
         clearInteractions();
         m_userDirectory = {};
         m_roleDirectory = {};
+        m_messageLog.reset();
         m_roleMotion.clear();
         clearAccountSettings();
         m_emojiMenu = false;
@@ -3575,14 +3676,10 @@ namespace app {
           || event.operation == api::Operation::SaveEmojiFavorite
       ) {
         emojiEvent(event);
-      } else if (
-          event.operation == api::Operation::Threads || event.operation == api::Operation::ThreadUpdate
-      ) {
+      } else if (event.operation == api::Operation::Threads || event.operation == api::Operation::ThreadUpdate) {
         threadEvent(event);
         continue; // Scoped browsing errors belong to their forum/browser, never another channel.
-      } else if (
-          event.operation == api::Operation::ChannelDetails || event.operation == api::Operation::ChannelPage
-      ) {
+      } else if (event.operation == api::Operation::ChannelDetails || event.operation == api::Operation::ChannelPage) {
         channelFeatureEvent(event);
         continue;
       } else if (event.operation == api::Operation::ComponentResult) {
@@ -3596,6 +3693,8 @@ namespace app {
         interactionResult(event);
       } else if (event.operation == api::Operation::Reaction && event.reaction) {
         const auto& change = *event.reaction;
+        if (m_messageLog.known(change.channel, change.message))
+          continue;
         if (auto preview = m_forumFirstMessages.find(change.channel);
             preview != m_forumFirstMessages.end() && preview->second.id == change.message)
           api::applyReaction(preview->second, change, m_account.id);
@@ -3656,13 +3755,11 @@ namespace app {
           if (!m_unreadTimeline.cursor(id))
             continue;
           m_unreadChannels.insert(id);
-          if (guild.empty()
-              && std::ranges::find(m_privateChannels, id, &api::Channel::id) != m_privateChannels.end())
+          if (guild.empty() && std::ranges::find(m_privateChannels, id, &api::Channel::id) != m_privateChannels.end())
             m_unreadDMs.insert(id);
         }
       } else if (
-          event.operation == api::Operation::AccountSettings
-          || event.operation == api::Operation::SaveAccountSettings
+          event.operation == api::Operation::AccountSettings || event.operation == api::Operation::SaveAccountSettings
       ) {
         if (event.resource == "changed") {
           if (m_settingsOpen && !m_loadingSettings && !m_savingSettings && m_settingsDraft == m_accountSettings)
@@ -3741,8 +3838,7 @@ namespace app {
       } else if (event.operation == api::Operation::Messages && event.resource == m_channelId) {
         applyHistory(event);
       } else if (
-          event.operation == api::Operation::PrivateChannels
-          || event.operation == api::Operation::PrivateChannelUpsert
+          event.operation == api::Operation::PrivateChannels || event.operation == api::Operation::PrivateChannelUpsert
       ) {
         m_loadingPrivate = false;
         if (event.error.empty()) {
@@ -3770,6 +3866,8 @@ namespace app {
           }
         }
       } else if (event.operation == api::Operation::PrivateChannelDelete) {
+        m_messageLog.clearChannel(event.resource);
+        m_channelMessages.erase(event.resource);
         std::erase_if(m_privateChannels, [&](const auto& channel) { return channel.id == event.resource; });
         if (m_dmMode) {
           m_channels = m_privateChannels;
@@ -3795,7 +3893,9 @@ namespace app {
           refresh();
         }
       } else if (event.operation == api::Operation::MessageCreate) {
-        std::erase_if(event.messages, [&](const auto& message) { return m_dismissedEphemeral.contains(message.id); });
+        std::erase_if(event.messages, [&](const auto& message) {
+          return m_dismissedEphemeral.contains(message.id) || m_messageLog.known(event.resource, message.id);
+        });
         if (event.messages.empty())
           continue;
         const bool ephemeral =
@@ -3834,47 +3934,9 @@ namespace app {
               upsertMessage(std::move(message));
           }
       } else if (event.operation == api::Operation::MessageUpdate) {
-        if (m_dismissedEphemeral.contains(event.messageId))
-          continue;
-        if (auto preview = m_forumFirstMessages.find(event.resource);
-            preview != m_forumFirstMessages.end() && preview->second.id == event.messageId)
-          event.patch.apply(preview->second);
-        if (event.resource == m_channelId) {
-          m_history.changed(event.messageId, event.patch);
-          if (!m_history.busy())
-            m_loadingMessages = false;
-        }
-        if (event.patch.reactions)
-          invalidateReactors(event.resource, event.messageId);
-        if (auto cached = m_channelMessages.find(event.resource); cached != m_channelMessages.end())
-          for (auto& message : cached->second)
-            if (message.id == event.messageId)
-              event.patch.apply(message);
-        if (event.resource != m_channelId)
-          continue;
-        for (auto& message : m_messages)
-          if (message.id == event.messageId) {
-            event.patch.apply(message);
-            m_messageLayouts.erase(message.id);
-            m_liveChanges[message.id] = message;
-          }
+        updateMessage(event.resource, event.messageId, event.patch);
       } else if (event.operation == api::Operation::MessageDelete) {
-        if (auto preview = m_forumFirstMessages.find(event.resource); preview != m_forumFirstMessages.end()
-            && std::ranges::find(event.removed, preview->second.id) != event.removed.end())
-          m_forumFirstMessages.erase(preview);
-        for (const auto& id : event.removed)
-          invalidateReactors(event.resource, id);
-        if (auto cached = m_channelMessages.find(event.resource); cached != m_channelMessages.end())
-          std::erase_if(cached->second, [&](const auto& message) {
-            return std::ranges::find(event.removed, message.id) != event.removed.end();
-          });
-        if (event.resource != m_channelId)
-          continue;
-        for (const auto& id : event.removed) {
-          m_liveChanges[id] = std::nullopt;
-          m_messageLayouts.erase(id);
-          std::erase_if(m_messages, [&](const auto& message) { return message.id == id; });
-        }
+        deleteMessages(event.resource, event.removed);
       } else if (event.operation == api::Operation::Send) {
         m_sending = false;
         if (event.error.empty()) {
@@ -3909,6 +3971,8 @@ namespace app {
               loadHistory(api::HistoryDirection::Latest);
             }
             for (auto& message : event.messages) {
+              if (m_messageLog.known(event.resource, message.id))
+                continue;
               m_liveChanges[message.id] = message;
               upsertMessage(std::move(message));
             }
@@ -3937,6 +4001,8 @@ namespace app {
   }
 
   void ClientApplication::upsertMessage(api::Message message) {
+    if (m_messageLog.known(message.channelId, message.id))
+      return;
     m_messageLayouts.erase(message.id);
     auto existing = std::ranges::find(m_messages, message.id, &api::Message::id);
     if (existing == m_messages.end())
@@ -4389,7 +4455,15 @@ namespace app {
         m_preferences.showImages = !m_preferences.showImages;
       else if (hit.id == "autoplay_gifs")
         m_preferences.autoplayGifs = !m_preferences.autoplayGifs;
-      else if (hit.id == "emoji_image_links")
+      else if (hit.id == "log_deleted_messages") {
+        m_preferences.logDeletedMessages = !m_preferences.logDeletedMessages;
+        if (!m_preferences.logDeletedMessages)
+          clearMessageLog(true, false);
+      } else if (hit.id == "log_edit_history") {
+        m_preferences.logEditHistory = !m_preferences.logEditHistory;
+        if (!m_preferences.logEditHistory)
+          clearMessageLog(false, true);
+      } else if (hit.id == "emoji_image_links")
         m_preferences.emojiImageLinks = !m_preferences.emojiImageLinks;
       else if (hit.id == "role_colors")
         m_preferences.roleColors = !m_preferences.roleColors;
@@ -4696,6 +4770,7 @@ namespace app {
       m_privateChannels.clear();
       m_userDirectory = {};
       m_roleDirectory = {};
+      m_messageLog.reset();
       m_roleMotion.clear();
       m_unreadDMs.clear();
       m_unreadChannels.clear();

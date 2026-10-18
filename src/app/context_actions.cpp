@@ -31,11 +31,9 @@ namespace app {
           || action.kind == api::InteractionKind::CreateThread
           || action.kind == api::InteractionKind::CreateForumPost)
         key += ":" + action.guild + ":" + std::to_string(action.revision);
-      if (action.kind == api::InteractionKind::MessageButton
-          || action.kind == api::InteractionKind::SubmitModal)
+      if (action.kind == api::InteractionKind::MessageButton || action.kind == api::InteractionKind::SubmitModal)
         key += ":" + action.customId + ":" + action.nonce;
-      if (action.kind == api::InteractionKind::EditChannel
-          || action.kind == api::InteractionKind::GrantChannelAccess)
+      if (action.kind == api::InteractionKind::EditChannel || action.kind == api::InteractionKind::GrantChannelAccess)
         key += ":" + std::to_string(action.revision);
       return key;
     }
@@ -157,14 +155,17 @@ namespace app {
         return;
       m_contextMessage = message->id;
       m_contextUser = message->authorId;
-      add(Action::AddReaction, "Add Reaction");
-      separator();
-      if (message->authorId == m_account.id && message->type != 7)
+      if (!message->deleted) {
+        add(Action::AddReaction, "Add Reaction");
+        separator();
+      }
+      if (!message->deleted && message->authorId == m_account.id && message->type != 7)
         add(Action::EditMessage, "Edit Message");
-      if (message->type != 7)
+      if (!message->deleted && message->type != 7)
         add(Action::Reply, "Reply");
       const auto selected = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
-      if (message->type != 7
+      if (!message->deleted
+          && message->type != 7
           && !m_dmMode
           && selected != m_channels.end()
           && (selected->type == 0 || selected->type == 5))
@@ -175,7 +176,7 @@ namespace app {
       separator();
       add(Action::CopyMessage, "Copy Text");
       add(Action::CopyLink, "Copy Message Link");
-      if (message->authorId == m_account.id) {
+      if (!message->deleted && message->authorId == m_account.id) {
         separator();
         add(Action::DeleteMessage, "Delete Message");
       }
@@ -267,7 +268,7 @@ namespace app {
         ContextMenuControl::preferredWidth(m_window.target().renderer(), m_contextEntries),
         m_contextMessage.empty() ? 210.0F : 230.0F, std::max(230.0F, w - 16)
     );
-    const float header = m_contextMessage.empty() ? 0 : 58;
+    const float header = m_contextMessage.empty() || m_messageLog.known(m_contextChannel, m_contextMessage) ? 0 : 58;
     const auto height = m_contextControl->preferredHeight() + header;
     if (m_contextControl->width() != width)
       m_contextControl->setMenuWidth(width);
@@ -437,7 +438,7 @@ namespace app {
   }
   void ClientApplication::chooseReaction(const std::string& emoji) {
     const auto message = std::ranges::find(m_messages, m_contextMessage, &api::Message::id);
-    if (message == m_messages.end())
+    if (message == m_messages.end() || message->deleted)
       return;
     const bool own = std::ranges::any_of(message->reactions, [&](const auto& reaction) {
       return api::reactionKey(reaction) == emoji && reaction.me;
@@ -579,6 +580,17 @@ namespace app {
     return false;
   }
   bool ClientApplication::startInteraction(api::Interaction action) {
+    using Kind = api::InteractionKind;
+    if (!action.message.empty()
+        && m_messageLog.known(action.channel, action.message)
+        && (action.kind == Kind::AddReaction
+            || action.kind == Kind::RemoveReaction
+            || action.kind == Kind::ListReactions
+            || action.kind == Kind::EditMessage
+            || action.kind == Kind::DeleteMessage
+            || action.kind == Kind::CreateThread
+            || action.kind == Kind::MessageButton))
+      return false;
     if (m_demo || !m_connected) {
       m_status = "Demo mode is read-only.";
       return false;
@@ -596,6 +608,14 @@ namespace app {
   void ClientApplication::contextAction(Action action) {
     closeContext();
     const auto found = std::ranges::find(m_messages, m_contextMessage, &api::Message::id);
+    if (found != m_messages.end()
+        && found->deleted
+        && (action == Action::Reply
+            || action == Action::EditMessage
+            || action == Action::DeleteMessage
+            || action == Action::AddReaction
+            || action == Action::CreateThread))
+      return;
     const auto user = lookupUser(m_contextUser);
     using Kind = api::InteractionKind;
     api::Interaction request;
@@ -816,6 +836,13 @@ namespace app {
       drawProfileCard(root, w, h);
       return;
     }
+    if (m_dialogKind == "edit"
+        || (m_dialogKind == "confirm"
+            && m_dialogAction
+            && m_dialogAction->kind == api::InteractionKind::DeleteMessage)) {
+      drawMessageDialog(root, w, h);
+      return;
+    }
     const float width = std::min(500.0F, w - 32), height = m_dialogKind == "edit" ? 328 : 230;
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
     rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.65F});
@@ -870,9 +897,16 @@ namespace app {
     if (!m_dialogAction || m_dialogPending)
       return;
     auto action = *m_dialogAction;
+    if (action.kind == api::InteractionKind::EditMessage) {
+      const auto found = std::ranges::find(m_messages, action.message, &api::Message::id);
+      if (found == m_messages.end()
+          || found->deleted
+          || found->content == m_dialogText
+          || (m_dialogText.empty() && found->attachments.empty()))
+        return;
+    }
     action.text = m_dialogText;
-    if (action.kind == api::InteractionKind::CreateThread
-        || action.kind == api::InteractionKind::CreateForumPost)
+    if (action.kind == api::InteractionKind::CreateThread || action.kind == api::InteractionKind::CreateForumPost)
       action.stateRevision = m_threads.revision();
     if (action.kind == api::InteractionKind::CreateForumPost) {
       const auto channel = std::ranges::find(m_channels, action.channel, &api::Channel::id);
@@ -919,8 +953,7 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
-    if (action.kind == api::InteractionKind::MessageButton
-        || action.kind == api::InteractionKind::SubmitModal) {
+    if (action.kind == api::InteractionKind::MessageButton || action.kind == api::InteractionKind::SubmitModal) {
       componentResult(event);
       return;
     }
@@ -964,11 +997,28 @@ namespace app {
     m_userDirectory.apply(changes);
     if (!changes.users.empty())
       m_messageLayouts.clear();
-    if (action.kind == Kind::EditMessage || action.kind == Kind::DeleteMessage) {
+    if (action.kind == Kind::DeleteMessage) {
+      deleteMessages(action.channel, {action.message});
+    } else if (action.kind == Kind::EditMessage && !m_messageLog.known(action.channel, action.message)) {
+      const api::Message* prior = nullptr;
+      if (action.channel == m_channelId) {
+        const auto found = std::ranges::find(m_messages, action.message, &api::Message::id);
+        if (found != m_messages.end())
+          prior = &*found;
+      }
+      if (!prior)
+        if (const auto cache = m_channelMessages.find(action.channel); cache != m_channelMessages.end()) {
+          const auto found = std::ranges::find(cache->second, action.message, &api::Message::id);
+          if (found != cache->second.end())
+            prior = &*found;
+        }
+      if (prior && !event.messages.empty()) {
+        if (MessageLog::stale(*prior, event.messages.front()))
+          return;
+        logMessageEdit(*prior, event.messages.front());
+      }
       auto update = [&](std::vector<api::Message>& messages) {
-        if (action.kind == Kind::DeleteMessage)
-          std::erase_if(messages, [&](const auto& message) { return message.id == action.message; });
-        else if (!event.messages.empty())
+        if (!event.messages.empty())
           for (auto& message : messages)
             if (message.id == action.message)
               message = event.messages.front();
@@ -977,9 +1027,7 @@ namespace app {
         update(cached->second);
       if (action.channel == m_channelId) {
         update(m_messages);
-        m_liveChanges[action.message] = action.kind == Kind::DeleteMessage || event.messages.empty()
-            ? std::optional<api::Message>{}
-            : event.messages.front();
+        m_liveChanges[action.message] = event.messages.empty() ? std::optional<api::Message>{} : event.messages.front();
         m_messageLayouts.erase(action.message);
       }
     } else if (action.kind == Kind::OpenDm && !event.channels.empty()) {
@@ -996,8 +1044,7 @@ namespace app {
     } else if (action.kind == Kind::JoinGuild && dialog) {
       m_guildPreviewJoined = true;
       m_guildPreviewVerification = event.guildVerificationRequired || m_guildProfile.recruitment;
-      if (!m_guildPreviewVerification
-          && std::ranges::find(m_guilds, action.guild, &api::Guild::id) == m_guilds.end()) {
+      if (!m_guildPreviewVerification && std::ranges::find(m_guilds, action.guild, &api::Guild::id) == m_guilds.end()) {
         m_guilds.push_back({m_guildProfile.id, m_guildProfile.name, m_guildProfile.icon});
         m_folders.push_back({{}, {}, 0, {action.guild}});
       }
@@ -1030,6 +1077,7 @@ namespace app {
   }
   void ClientApplication::requestReactors(api::Interaction action) {
     if (m_demo
+        || m_messageLog.known(action.channel, action.message)
         || !m_connected
         || m_channelId != action.channel
         || m_contextOpen
@@ -1057,9 +1105,7 @@ namespace app {
       page.error = "Could not load reactions.";
     m_window.invalidate();
   }
-  void ClientApplication::hoverReaction(
-      const api::Message& message, const api::Reaction& reaction, const Hit& chip
-  ) {
+  void ClientApplication::hoverReaction(const api::Message& message, const api::Reaction& reaction, const Hit& chip) {
     if (m_contextOpen
         || !m_dialogKind.empty()
         || m_settingsOpen
@@ -1157,7 +1203,7 @@ namespace app {
           oy += node->y();
         }
         Hit hit{ax + ox, ay + oy, chip, 28, Action::ToggleReaction, message.id + "\n" + api::reactionKey(reaction)};
-        const bool over = hit.contains(m_pointerX, m_pointerY);
+        const bool over = !message.deleted && hit.contains(m_pointerX, m_pointerY);
         const bool mine = reaction.me || reaction.meBurst;
         auto frame = std::make_unique<RectNode>();
         frame->setPosition(ax, ay);
@@ -1192,12 +1238,14 @@ namespace app {
             *parent, ax + 34, ay + (28 - (metrics.bottom - metrics.top)) / 2, chip - 39, count, 13,
             mine ? accent : foreground, FontWeight::Medium
         );
-        m_hits.push_back(hit);
-        hoverReaction(message, reaction, hit);
+        if (!message.deleted) {
+          m_hits.push_back(hit);
+          hoverReaction(message, reaction, hit);
+        }
       }
       rx += chip + 6;
     }
-    if (addButton) {
+    if (addButton && !message.deleted) {
       if (rx + 28 > width) {
         rx = 0;
         ry += 32;
@@ -1261,9 +1309,8 @@ namespace app {
       if (message == m_messages.end())
         break;
       const auto key = hit.id.substr(split + 1);
-      const auto reaction = std::ranges::find_if(message->reactions, [&](const auto& value) {
-        return api::reactionKey(value) == key;
-      });
+      const auto reaction =
+          std::ranges::find_if(message->reactions, [&](const auto& value) { return api::reactionKey(value) == key; });
       if (reaction == message->reactions.end())
         break;
       startInteraction(

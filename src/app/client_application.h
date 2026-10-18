@@ -1,8 +1,11 @@
 #pragma once
 
+#include "api/assets.h"
+#include "api/client.h"
 #include "app/emoji_catalog.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
+#include "app/message_log.h"
 #include "app/role_motion.h"
 #include "app/scroll_motion.h"
 #include "app/session_store.h"
@@ -13,8 +16,6 @@
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
 #include "core/timer_manager.h"
-#include "api/assets.h"
-#include "api/client.h"
 #include "media/video_player.h"
 #include "render/backend/gles_framebuffer.h"
 #include "render/core/color.h"
@@ -224,9 +225,14 @@ namespace app {
     void applyHistory(api::Event& event);
     void demoHistoryStep();
     void demoRoleStep();
-    void
-    drawJoinNotice(Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width);
+    void drawJoinNotice(Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width);
     void demoJoinStep();
+    void deleteMessages(const std::string& channel, const std::vector<std::string>& ids);
+    void clearMessageLog(bool deletions = true, bool edits = true);
+    void updateMessage(const std::string& channel, const std::string& id, const api::MessagePatch& patch);
+    void logMessageEdit(const api::Message& before, const api::Message& after);
+    void drawMessageDialog(Node& root, float width, float height);
+    void demoDeletedStep();
     void drawProfileCard(Node& root, float width, float height);
     bool profileAction(const Hit& hit);
     void demoProfileStep();
@@ -588,6 +594,7 @@ namespace app {
     bool readingChannel(const std::string& channel) const;
     bool markChannelRead(bool explicitAction = false);
     std::vector<api::Message> m_messages;
+    MessageLog m_messageLog;
     struct CachedMessageLayout {
       MessageLayout layout;
       MessageLayout reply;

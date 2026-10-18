@@ -69,13 +69,18 @@ namespace app {
       if (!value)
         return {};
       for (std::size_t i = 0; i < messages.size(); ++i)
-        if (!(messages[i].flags & 64) && api::validSnowflake(messages[i].id) && newer(messages[i].id, value->after))
+        if (!messages[i].deleted
+            && !(messages[i].flags & 64)
+            && api::validSnowflake(messages[i].id)
+            && newer(messages[i].id, value->after))
           return i;
       return {};
     }
     bool estimated(std::span<const api::Message> messages) const {
       const auto value = cursor(m_channel);
-      return value && (value->after.empty() || messages.empty() || newer(messages.front().id, value->after));
+      const auto first =
+          std::ranges::find_if(messages, [](const auto& message) { return !message.deleted && !(message.flags & 64); });
+      return value && (value->after.empty() || first == messages.end() || newer(first->id, value->after));
     }
 
   private:

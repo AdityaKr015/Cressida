@@ -14,6 +14,7 @@ namespace app {
     bool roleColors = true, animateRoleColors = true;
     bool showGuildTags = true;
     float channelSidebarWidth = 248;
+    bool logDeletedMessages = false, logEditHistory = false;
   };
   struct LastChannel {
     std::string guild, channel;

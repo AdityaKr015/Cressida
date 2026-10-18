@@ -42,8 +42,10 @@ namespace app {
         {"activity", "Activity Privacy", "ACTIVITY SETTINGS", 480},
         {"games", "Registered Games", "ACTIVITY SETTINGS", 350},
         {"overlay", "Game Overlay", "ACTIVITY SETTINGS", 350},
-        {"cressida", "General", "CRESSIDA", 610,
-         "expressions emoji image links name badges server tags role colors gradients animation"}
+        {"cressida", "General", "CRESSIDA", 836,
+         "messages deleted edited history logger memory expressions emoji image links name badges server tags role "
+         "colors gradients "
+         "animation"}
     };
     std::string folded(std::string text) {
       for (auto& c : text)
@@ -521,19 +523,28 @@ namespace app {
           220, "Animate gradients on hover", m_preferences.animateRoleColors, "animate_role_colors", false,
           "Animate while hovering a name, member row or message."
       );
-      label(p, 0, 332, width, "Expressions", 17, foreground, FontWeight::SemiBold);
+      label(p, 0, 332, width, "Message logger", 17, foreground, FontWeight::SemiBold);
       toggle(
-          364, "Emoji image links", m_preferences.emojiImageLinks, "emoji_image_links", false,
+          364, "Keep deleted messages", m_preferences.logDeletedMessages, "log_deleted_messages", false,
+          "Keep deleted messages visible in memory. Clear on disable, sign-out or exit."
+      );
+      toggle(
+          458, "Keep edit history", m_preferences.logEditHistory, "log_edit_history", false,
+          "Show previous message versions in memory. Clear on disable, sign-out or exit."
+      );
+      label(p, 0, 558, width, "Expressions", 17, foreground, FontWeight::SemiBold);
+      toggle(
+          590, "Emoji image links", m_preferences.emojiImageLinks, "emoji_image_links", false,
           "Send unsupported server emoji as image links."
       );
       label(
-          p, 0, 466, width,
+          p, 0, 692, width,
           "Other clients may show an image or a link; channel embed permissions still apply. "
           "Reactions use Discord's normal rules.",
           12, muted, FontWeight::Normal, 3
       );
       label(
-          p, 0, 548, width, "These preferences apply immediately and are saved for this account on this device.", 12,
+          p, 0, 774, width, "These preferences apply immediately and are saved for this account on this device.", 12,
           muted, FontWeight::Normal, 2
       );
     } else if (m_settingsPage == "text") {

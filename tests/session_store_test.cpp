@@ -83,6 +83,11 @@ int main() {
     require(preferences.autoplayGifs, "GIF autoplay defaults on for existing accounts");
     auto pausedGifs = preferences;
     require(!preferences.emojiImageLinks, "Emoji image links default off for existing accounts");
+    require(
+        !preferences.logDeletedMessages && !preferences.logEditHistory,
+        "Both logger options default off for existing accounts"
+    );
+    pausedGifs.logDeletedMessages = true;
     pausedGifs.emojiImageLinks = true;
     pausedGifs.autoplayGifs = false;
     require(preferences.roleColors && preferences.animateRoleColors, "Role colors and hover animation default on");
@@ -97,6 +102,29 @@ int main() {
         app::SessionStore(path).preferences("123").channelSidebarWidth == 372
             && app::SessionStore(path).preferences("456").channelSidebarWidth == 248,
         "Sidebar width survives navigation saves and stays account-scoped"
+    );
+    require(
+        app::SessionStore(path).preferences("123").logDeletedMessages
+            && !app::SessionStore(path).preferences("123").logEditHistory
+            && !app::SessionStore(path).preferences("456").logDeletedMessages
+            && !app::SessionStore(path).preferences("456").logEditHistory,
+        "Deletion-only logging persists independently for each account"
+    );
+    auto historyOnly = pausedGifs;
+    historyOnly.logDeletedMessages = false;
+    historyOnly.logEditHistory = true;
+    restored.savePreferences("123", historyOnly);
+    require(
+        !app::SessionStore(path).preferences("123").logDeletedMessages
+            && app::SessionStore(path).preferences("123").logEditHistory,
+        "History-only logging persists independently of deletion logging"
+    );
+    pausedGifs.logEditHistory = true;
+    restored.savePreferences("123", pausedGifs);
+    require(
+        app::SessionStore(path).preferences("123").logDeletedMessages
+            && app::SessionStore(path).preferences("123").logEditHistory,
+        "Both logger options can be enabled together"
     );
     auto invalidWidth = pausedGifs;
     invalidWidth.channelSidebarWidth = 900;

@@ -116,13 +116,16 @@ namespace api {
   struct Media {
     std::string url;
     int width = 0, height = 0;
+    bool operator==(const Media&) const = default;
   };
   struct Attachment {
     std::string id, filename, url, contentType;
     Media image;
+    bool operator==(const Attachment&) const = default;
   };
   struct EmbedField {
     std::string name, value;
+    bool operator==(const EmbedField&) const = default;
   };
   struct Embed {
     std::string title, description, url, provider, author, footer, type;
@@ -130,6 +133,7 @@ namespace api {
     Media image, thumbnail;
     std::vector<EmbedField> fields;
     Media video;
+    bool operator==(const Embed&) const = default;
   };
   struct Upload {
     std::string filename, mime;
@@ -190,6 +194,8 @@ namespace api {
     std::vector<std::string> mentionRoles;
     bool mentionEveryone = false;
     std::string editedTimestamp;
+    // Local session-only retention state; never read from or sent to Discord.
+    bool deleted = false;
   };
 
   struct MessagePatch {

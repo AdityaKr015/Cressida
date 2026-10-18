@@ -8,10 +8,9 @@
 namespace app {
   // Use Discord's resolved mention metadata, never token-looking message text or
   // the larger name lookup assembled for Markdown rendering.
-  inline bool messageMentions(
-      const api::Message& message, const std::string& account, std::span<const std::string> roles = {}
-  ) {
-    if (account.empty())
+  inline bool
+  messageMentions(const api::Message& message, const std::string& account, std::span<const std::string> roles = {}) {
+    if (message.deleted || account.empty())
       return false;
     if (message.mentions.contains(account) || message.mentionEveryone)
       return true;
