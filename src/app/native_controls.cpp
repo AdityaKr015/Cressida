@@ -126,7 +126,7 @@ namespace app {
         m_detachedInputs[id] = control->parent()->removeChild(control);
     using namespace theme;
     setPalette(
-        {accent, ink, accent, ink, accent, ink, rgbHex(0xED4245), rgbHex(0xFFFFFF), background, foreground, panel,
+        {accent, ink, accent, ink, accent, ink, theme::destructive, rgbHex(0xFFFFFF), background, foreground, panel,
          muted, raised, rgbHex(0x000000), raised, foreground}
     );
   }

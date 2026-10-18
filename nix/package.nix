@@ -20,11 +20,13 @@
   libjxl,
   libxkbcommon,
   nlohmann_json,
+  tomlplusplus,
   curl,
   autoAddDriverRunpath,
   xdg-utils,
   noto-fonts-color-emoji,
   python3,
+  dbus,
   md4c,
   libsecret,
   ffmpeg-headless,
@@ -60,6 +62,7 @@ stdenv.mkDerivation {
     autoAddDriverRunpath
     xdg-utils
     python3
+    dbus
   ];
   buildInputs = [
     wayland
@@ -76,6 +79,7 @@ stdenv.mkDerivation {
     libjxl
     libxkbcommon
     nlohmann_json
+    tomlplusplus
     md4c
     libsecret
     ffmpeg-headless

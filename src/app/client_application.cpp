@@ -89,6 +89,8 @@ namespace app {
         demoCompletionStep();
       if (m_demo && m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep < 12)
         demoFontStep();
+      if (m_demo && m_demoOverlay == "themes-cycle" && m_demoInteractionStep < 11)
+        demoThemeStep();
       if (m_demo && m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep < 5) {
         const auto step = m_demoInteractionStep++;
         if (step > 0) {
@@ -672,6 +674,8 @@ namespace app {
           "The renderer library is stale: its menu layout differs from the client. Run just rebuild."
       );
     m_window.initialize();
+    m_themeSnapshot =
+        m_themes.start(paths::assetPath("themes"), m_demo ? std::filesystem::path{} : userThemeDirectory(), !m_demo);
     if (!m_demo) {
       if (!m_token.empty())
         connect();
@@ -696,6 +700,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"   ? 8
                          : m_demo && view && std::string_view(view) == "autocomplete-cycle"  ? 9
                          : m_demo && view && std::string_view(view) == "settings-font-cycle" ? 12
+                         : m_demo && view && std::string_view(view) == "themes-cycle"        ? 11
                          : m_demo && view && std::string_view(view) == "message-hover-cycle" ? 5
                          : m_demo && view && std::string_view(view) == "sidebar-cycle"       ? 10
                          : m_demo && view && std::string_view(view) == "role-emoji-cycle"    ? 3
@@ -712,7 +717,7 @@ namespace app {
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
-        m_assets.eventFd(), m_video.eventFd()
+        m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd()
     );
     if (m_demoOverlay == "deleted-cycle" && m_demoInteractionStep != 3)
       throw std::runtime_error("Deleted-message replay did not finish");
@@ -722,6 +727,8 @@ namespace app {
       throw std::runtime_error("Autocomplete replay did not finish");
     if (m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Font settings replay did not finish");
+    if (m_demoOverlay == "themes-cycle" && m_demoInteractionStep != 11)
+      throw std::runtime_error("Theme settings replay did not finish");
     if (m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep != 5)
       throw std::runtime_error("Message hover replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
@@ -1522,6 +1529,7 @@ namespace app {
           m_settingsPage = "appearance";
         } else if (
             view.starts_with("settings:")
+            || view.starts_with("themes")
             || view.starts_with("settings-font")
             || view.starts_with("settings-narrow")
             || view == "settings-feedback"
@@ -1543,6 +1551,24 @@ namespace app {
             || view == "search"
         ) {
           openSettings();
+          if (view.starts_with("themes")) {
+            if (view == "themes-cycle")
+              m_demoOverlay = view;
+            if (view.contains("catppuccin"))
+              m_preferences.colorTheme = "catppuccin";
+            if (view.contains("gruvbox"))
+              m_preferences.colorTheme = "gruvbox";
+            if (view == "themes-narrow")
+              m_window.setUiScale(1.8F);
+            if (view.contains("rose-pine"))
+              m_preferences.colorTheme = "rose-pine";
+            if (view.ends_with("-light"))
+              m_preferences.theme = "light";
+            if (view == "themes-system-light") {
+              m_preferences.theme = "system";
+              m_themeSnapshot.systemLight = true;
+            }
+          }
           if (view == "settings-font-cycle")
             m_demoOverlay = view;
           if (view.starts_with("settings-narrow"))
@@ -1551,6 +1577,7 @@ namespace app {
             m_preferences.theme = "light";
           selectSettingsPage(
               view.starts_with("settings:")                                                      ? view.substr(9)
+                  : view.starts_with("themes")                                                   ? "themes"
                   : view.starts_with("settings-font")                                            ? "appearance"
                   : view == "settings-narrow-appearance"                                         ? "appearance"
                   : view.starts_with("settings-narrow") || view.starts_with("cressida-settings") ? "cressida"
@@ -1620,8 +1647,8 @@ namespace app {
     const float width = std::max(18.0F, std::ceil(metrics.width) + 10);
     const float x = right - width;
     if (rail)
-      rectangle(parent, x - 2, y - 2, width + 4, 22, rgbHex(0x14151A), 11);
-    rectangle(parent, x, y, width, 18, rgbHex(0xD6303E), 9);
+      rectangle(parent, x - 2, y - 2, width + 4, 22, theme::railBackground, 11);
+    rectangle(parent, x, y, width, 18, destructive, 9);
     label(
         parent, x + (width - metrics.width) / 2, y + (18 - (metrics.bottom - metrics.top)) / 2, width, text, 12,
         rgbHex(0xFFFFFF), FontWeight::Bold
@@ -1647,7 +1674,7 @@ namespace app {
     const bool over = hit.contains(m_pointerX - offsetX, m_pointerY - offsetY);
     rectangle(
         parent, hit.x, hit.y, hit.width, hit.height,
-        primary                ? (over ? rgbHex(m_preferences.theme == "light" ? 0x8063C6 : 0xDACDFB) : accent)
+        primary                ? (over ? lerpColor(accent, foreground, .12F) : accent)
             : selected || over ? raised
                                : panel,
         10
@@ -1792,7 +1819,9 @@ namespace app {
       m_videoPosters.clear();
     ++m_animationDraw;
     m_animationDelay = std::chrono::milliseconds::max();
-    theme::select(m_preferences.theme);
+    const bool lightMode = resolveLightMode(m_preferences.theme, m_themeSnapshot.systemLight);
+    const auto& colorTheme = m_themeSnapshot.selected(m_preferences.colorTheme);
+    theme::apply(lightMode ? colorTheme.light : colorTheme.dark, lightMode);
     m_window.context().setTextFontFamily(m_connected ? m_preferences.fontFamily : std::string{});
     const float w = m_window.width(), h = m_window.height() + 36 - m_window.titlebarHeight();
     m_tooltip.clear();
@@ -1818,12 +1847,12 @@ namespace app {
     m_hits.clear();
     rectangle(root, 0, 0, w, h, background);
     if (m_window.titlebarHeight() > 0) {
-      rectangle(root, 0, 0, w, 36, rgbHex(0x121318));
+      rectangle(root, 0, 0, w, 36, theme::sidebar);
       label(root, 18, 8, 300, "CRESSIDA", 11, muted, FontWeight::SemiBold);
       for (int i = 0; i < 3; ++i) {
         const float x = w - 144 + i * 48;
         if (hovered(x, 0, 48, 36))
-          rectangle(root, x, 0, 48, 36, i == 2 ? rgbHex(0xED4245) : raised);
+          rectangle(root, x, 0, 48, 36, i == 2 ? destructive : raised);
         glyph(
             root, x + 15, 8, 18,
             i == 0       ? "minus"
@@ -1889,11 +1918,11 @@ namespace app {
         button(root, {x + 278, y + 241, 150, 44, Action::ToggleToken, {}}, "Back to sign-in");
         label(
             root, x + 32, y + 306, 396, m_status.empty() ? "Sign-in is remembered in your desktop keyring." : m_status,
-            12, m_status.empty() ? muted : rgbHex(0xF4B6B6), FontWeight::Normal, 2
+            12, m_status.empty() ? muted : danger, FontWeight::Normal, 2
         );
       }
     } else if (!m_settingsOpen) {
-      rectangle(root, 0, 36, 78, h - 36, rgbHex(0x14151A));
+      rectangle(root, 0, 36, 78, h - 36, theme::railBackground);
       const float sidebarWidth = channelSidebarWidth();
       rectangle(root, 78, 36, sidebarWidth, h - 36, sidebar);
       rectangle(root, 78, 36, sidebarWidth, 66, sidebar);
@@ -1947,7 +1976,7 @@ namespace app {
           const bool over = hovered(14, y, 48, 48);
           avatar(root, 14, y, 48, channel.icon, channelName(channel));
           if (channel.type == 1 && !channel.recipients.empty())
-            statusBadge(root, 48, y + 34, userStatus(channel.recipients.front().id), rgbHex(0x14151A));
+            statusBadge(root, 48, y + 34, userStatus(channel.recipients.front().id), theme::railBackground);
           rectangle(root, 0, y + 16, 4, 16, foreground, 2);
           countBadge(root, 67, y - 2, m_unreadTimeline.mentions(channel.id), true);
           if (over)
@@ -2070,7 +2099,9 @@ namespace app {
         const auto metrics = m_window.target().renderer().measureText(text, 11, FontWeight::Bold);
         const float width = std::ceil(metrics.width) + 24, x = 78 + sidebarWidth / 2 - width / 2, y = h - 110;
         rectangle(root, x - 3, y - 3, width + 6, 34, sidebar, 17);
-        rectangle(root, x, y, width, 28, rgbHex(hovered(x, y, width, 28) ? 0xB72735 : 0xD6303E), 14);
+        rectangle(
+            root, x, y, width, 28, hovered(x, y, width, 28) ? lerpColor(destructive, background, .12F) : destructive, 14
+        );
         label(
             root, x + 12, y + (28 - (metrics.bottom - metrics.top)) / 2, width - 24, text, 11, rgbHex(0xFFFFFF),
             FontWeight::Bold
@@ -2085,7 +2116,7 @@ namespace app {
                                                               : "No text channels to show.",
             13, muted, FontWeight::Normal, 2
         );
-      rectangle(root, 78, h - 72, sidebarWidth, 72, rgbHex(0x1A1B22));
+      rectangle(root, 78, h - 72, sidebarWidth, 72, lerpColor(sidebar, background, .4F));
       if (hovered(88, h - 65, sidebarWidth - 68, 58))
         rectangle(root, 88, h - 65, sidebarWidth - 68, 58, panel, 8);
       // Redraw the account chip above its hover background.
@@ -2395,7 +2426,7 @@ namespace app {
                 && std::ranges::find(missingAuthors, message.authorId) == missingAuthors.end())
               missingAuthors.push_back(message.authorId);
             if (message.deleted) {
-              const auto red = rgbHex(m_preferences.theme == "light" ? 0xB52C39 : 0xEF7D86);
+              const auto red = theme::danger;
               const float gap = messageRowPadding(true, false, m_preferences.compact);
               const float bandTop = std::max(top, top + y - 2);
               const float bandBottom = std::min(bottom, top + y + heights[i] - gap + 2);
@@ -2418,7 +2449,7 @@ namespace app {
                       ownRoles ? std::span<const std::string>{*ownRoles} : std::span<const std::string>{}
                   )) {
                 const bool over = hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop);
-                const float tint = (m_preferences.theme == "light" ? .10F : .07F) + (over ? .03F : 0.0F);
+                const float tint = (theme::lightTheme ? .10F : .07F) + (over ? .03F : 0.0F);
                 const float bottomGap = messageRowPadding(
                     true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact
                 );
@@ -2532,7 +2563,7 @@ namespace app {
                 if (!timestamp.empty() && timestampAvailable > 0)
                   label(
                       *content, timestampX, y + 3, std::min(timestampWidth + 2, timestampAvailable), timestamp, 10,
-                      message.deleted ? rgbHex(m_preferences.theme == "light" ? 0xB52C39 : 0xEF7D86) : muted
+                      message.deleted ? theme::danger : muted
                   );
               } else if (hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop)) {
                 const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
@@ -2562,10 +2593,10 @@ namespace app {
                   }
                   rectangle(
                       *content, 50 + box.x, bodyY + box.y, box.width, box.height,
-                      box.quote                            ? muted
-                          : box.embed                      ? sidebar
-                          : m_preferences.theme == "light" ? panel
-                                                           : rgbHex(0x111318),
+                      box.quote               ? muted
+                          : box.embed         ? sidebar
+                          : theme::lightTheme ? panel
+                                              : lerpColor(background, theme::railBackground, .6F),
                       box.quote ? 0 : 6
                   );
                   if (box.embed)
@@ -2602,7 +2633,7 @@ namespace app {
                       const auto length = run.image.empty()
                           ? measure(std::string_view(run.text).substr(from - run.offset, to - from), run.style)
                           : run.width;
-                      rectangle(*content, rx + offset, ry, length, run.height, rgbHex(0x574D70), 2);
+                      rectangle(*content, rx + offset, ry, length, run.height, withAlpha(accent, .3F), 2);
                     }
                   }
                   if (run.image.empty())
@@ -3731,6 +3762,10 @@ namespace app {
   }
 
   void ClientApplication::tick() {
+    if (auto snapshot = m_themes.drain()) {
+      m_themeSnapshot = std::move(*snapshot);
+      m_window.invalidate();
+    }
     // Advanced-control requests must be serviced before video metadata arrives,
     // including while paused or offscreen. Waiting for dimensions deadlocks load.
     if (m_videoContext != EGL_NO_CONTEXT) {
@@ -4710,9 +4745,21 @@ namespace app {
     case Action::Preference:
       if (fontPreference(hit.id))
         break;
-      if (hit.id.starts_with("theme:"))
-        m_preferences.theme = hit.id.substr(6);
-      else if (hit.id == "font+")
+      if (hit.id == "theme-template") {
+        m_window.copy(themeTemplate());
+        break;
+      }
+      if (hit.id.starts_with("palette:")) {
+        const auto id = hit.id.substr(8);
+        if (std::ranges::find(m_themeSnapshot.themes, id, &ColorTheme::id) == m_themeSnapshot.themes.end())
+          break;
+        m_preferences.colorTheme = id;
+      } else if (hit.id.starts_with("theme:")) {
+        const auto mode = hit.id.substr(6);
+        if (!validColorMode(mode))
+          break;
+        m_preferences.theme = mode;
+      } else if (hit.id == "font+")
         m_preferences.messageSize = std::min(20.0F, m_preferences.messageSize + 1);
       else if (hit.id == "font-")
         m_preferences.messageSize = std::max(12.0F, m_preferences.messageSize - 1);

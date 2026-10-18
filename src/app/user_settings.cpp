@@ -28,6 +28,7 @@ namespace app {
         {"cressida", "General", "CRESSIDA",
          "messages deleted edited history logger memory expressions emoji image links name badges server tags role "
          "colors gradients animation"},
+        {"themes", "Themes", "CRESSIDA", "theme palette catppuccin rose pine gruvbox custom toml colors dark light"},
         {"account", "My Account", "ACCOUNT"},
         {"profile", "Profiles", "ACCOUNT"},
         {"presence", "Status", "ACCOUNT"},
@@ -639,13 +640,90 @@ namespace app {
           "Send unsupported server emoji as image links. Other clients may show a link or image, depending on channel "
           "embed permissions. Reactions use Discord's normal rules."
       );
+    } else if (m_settingsPage == "themes") {
+      section("Color themes");
+      row("Choose a theme", "Each theme includes dark and light colors. Choose the mode in Appearance.");
+      if (std::ranges::find(m_themeSnapshot.themes, m_preferences.colorTheme, &ColorTheme::id)
+          == m_themeSnapshot.themes.end())
+        row("Theme unavailable", "Using Cressida until " + m_preferences.colorTheme + " is available again.");
+      cursor += 6;
+      const int columns = width >= 480 ? 2 : 1;
+      const float cardWidth = (width - (columns - 1) * 12) / columns;
+      constexpr float cardHeight = 184, cardStep = cardHeight + 12;
+      std::size_t index = 0;
+      for (const auto& value : m_themeSnapshot.themes) {
+        const float x = (index % columns) * (cardWidth + 12), y = cursor + (index / columns) * cardStep;
+        const bool selected = m_preferences.colorTheme == value.id;
+        auto tile = std::make_unique<RectNode>();
+        tile->setPosition(x, y);
+        tile->setSize(cardWidth, cardHeight);
+        tile->setStyle(
+            {.fill = panel, .border = selected ? accent : withAlpha(muted, .18F), .radius = 7, .borderWidth = 1}
+        );
+        auto* card = p.addChild(std::move(tile));
+        label(*card, 12, 10, cardWidth - 24, value.name, 13, foreground, FontWeight::SemiBold);
+        label(*card, 12, 30, cardWidth - 24, value.description, 11, muted);
+        const float previewWidth = (cardWidth - 30) / 2;
+        for (const auto light : {false, true}) {
+          const auto& colors = light ? value.light : value.dark;
+          const float px = 10 + (light ? previewWidth + 10 : 0);
+          rectangle(*card, px, 51, previewWidth, 91, rgbHex(colors.background), 5);
+          rectangle(*card, px, 51, 28, 91, rgbHex(colors.sidebar), 3);
+          rectangle(*card, px, 51, 7, 91, rgbHex(colors.rail), 3);
+          rectangle(*card, px + 11, 61, 12, 4, rgbHex(colors.muted), 1);
+          rectangle(*card, px + 10, 76, 14, 10, rgbHex(colors.accent), 2);
+          rectangle(*card, px + 13, 79, 8, 3, rgbHex(colors.ink), 1);
+          rectangle(*card, px + 11, 93, 12, 3, rgbHex(colors.muted), 1);
+          rectangle(*card, px + 11, 103, 9, 3, rgbHex(colors.muted), 1);
+          const float chatX = px + 35, chatWidth = previewWidth - 43;
+          label(*card, chatX, 57, chatWidth, light ? "Light" : "Dark", 10, rgbHex(colors.muted));
+          rectangle(*card, chatX, 77, 12, 12, rgbHex(colors.function), 6);
+          rectangle(*card, chatX + 9, 85, 4, 4, rgbHex(colors.success), 2);
+          rectangle(*card, chatX + 18, 77, chatWidth * .55F, 4, rgbHex(colors.accent), 1);
+          label(*card, chatX + 18, 84, chatWidth - 18, "Hello!", 10, rgbHex(colors.foreground));
+          rectangle(*card, chatX, 104, chatWidth, 15, rgbHex(colors.panel), 2);
+          float codeX = chatX + 5;
+          const float codeUnit = (chatWidth - 16) / 7;
+          for (const auto color : {colors.keyword, colors.function, colors.string}) {
+            rectangle(*card, codeX, 110, codeUnit * 2, 3, rgbHex(color), 1);
+            codeX += codeUnit * 2 + 3;
+          }
+          rectangle(*card, chatX, 125, chatWidth, 10, rgbHex(colors.raised), 2);
+          rectangle(*card, chatX + 5, 129, chatWidth * .5F, 2, rgbHex(colors.muted), 1);
+        }
+        label(*card, 12, 158, cardWidth - 122, value.bundled ? "Built in" : "Custom", 10, muted);
+        m_hits.push_back(
+            {contentX + x, viewportY - previousScroll + y, cardWidth, cardHeight, Action::Preference,
+             "palette:" + value.id}
+        );
+        settingsButton(
+            *card, {cardWidth - 108, 148, 96, 26, Action::Preference, "palette:" + value.id},
+            selected ? "Selected" : "Use theme", selected, false, true, true
+        );
+        ++index;
+      }
+      cursor += ((index + columns - 1) / columns) * cardStep;
+      section("Custom themes");
+      const auto directory = userThemeDirectory();
+      const auto custom = actionRow(
+          "Theme files",
+          directory.empty()
+              ? "The theme folder is unavailable. Set a home or configuration directory."
+              : "Save the template as a .toml file in " + directory.string() + ". Changes reload automatically."
+      );
+      rowAction(custom, Action::Preference, "theme-template", "Copy template");
+      if (!m_themeSnapshot.issues.empty()) {
+        section("Theme file errors");
+        for (const auto& issue : m_themeSnapshot.issues)
+          row(issue.file, issue.message + " The last valid version stays active when available.");
+      }
     } else if (m_settingsPage == "appearance") {
-      section("Theme");
+      section("Color mode");
       int index = 0;
       const bool stacked = width < 420;
       const float part = std::min(width, 100.0F);
       const int columns = std::clamp(static_cast<int>((width + 8) / (part + 8)), 1, 3);
-      for (const auto& name : {"dark", "light", "midnight"}) {
+      for (const auto& name : {"dark", "light", "system"}) {
         settingsButton(
             p,
             {(index % columns) * (part + 8), cursor + (index / columns) * 30, part, 26, Action::Preference,
@@ -1044,6 +1122,70 @@ namespace app {
       require(!m_fontPickerOpen && m_installedFonts.empty(), "Page navigation clears the font catalog");
     }
     std::clog << "Offline font settings replay step " << step + 1 << " passed\n";
+    m_window.invalidate();
+  }
+  void ClientApplication::demoThemeStep() {
+    const auto require = [](bool ok, const char* message) {
+      if (!ok)
+        throw std::runtime_error(message);
+    };
+    const auto click = [&](const std::string& id) {
+      const auto found = std::ranges::find_if(m_hits, [&](const auto& hit) {
+        return hit.action == Action::Preference && hit.id == id && hit.height > 0;
+      });
+      require(found != m_hits.end(), "Theme control must be visible");
+      const auto hit = *found;
+      m_window.click(hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - 36, 272);
+      m_window.released();
+    };
+    const auto step = m_demoInteractionStep++;
+    if (step == 0) {
+      require(m_themeSnapshot.themes.size() >= 4, "Bundled TOML themes must be available offline");
+      click("palette:catppuccin");
+    } else if (step == 1) {
+      require(
+          m_preferences.colorTheme == "catppuccin" && background == rgbHex(0x1E1E2E),
+          "Selecting Catppuccin applies Mocha"
+      );
+      selectSettingsPage("appearance");
+    } else if (step == 2) {
+      require(
+          std::ranges::count_if(
+              m_hits, [](const auto& hit) { return hit.action == Action::Preference && hit.id.starts_with("theme:"); }
+          ) == 3,
+          "Appearance offers exactly dark, light and system modes"
+      );
+      click("theme:light");
+    } else if (step == 3) {
+      require(
+          m_preferences.colorTheme == "catppuccin" && lightTheme && background == rgbHex(0xEFF1F5),
+          "Light mode applies Latte without changing the selected theme"
+      );
+      selectSettingsPage("themes");
+    } else if (step == 4) {
+      click("palette:rose-pine");
+    } else if (step == 5) {
+      require(lightTheme && background == rgbHex(0xFAF4ED), "Rosé Pine uses Dawn in light mode");
+      selectSettingsPage("appearance");
+      activate({0, 0, 0, 0, Action::Preference, "theme:system"});
+      m_themeSnapshot.systemLight = false;
+    } else if (step == 6) {
+      require(!lightTheme && background == rgbHex(0x191724), "System dark uses the same theme's dark variant");
+      m_themeSnapshot.systemLight = true;
+    } else if (step == 7) {
+      require(lightTheme && background == rgbHex(0xFAF4ED), "A desktop preference change switches the active variant");
+      selectSettingsPage("themes");
+      activate({0, 0, 0, 0, Action::Preference, "palette:../invalid"});
+      require(m_preferences.colorTheme == "rose-pine", "Unknown palette IDs cannot replace the selection");
+    } else if (step == 8) {
+      click("palette:gruvbox");
+    } else if (step == 9) {
+      require(lightTheme && background == rgbHex(0xFBF1C7), "Gruvbox uses its warm light palette");
+      m_themeSnapshot.systemLight = false;
+    } else if (step == 10) {
+      require(!lightTheme && background == rgbHex(0x282828), "Gruvbox also follows system dark mode");
+    }
+    std::clog << "Offline theme settings replay step " << step + 1 << " passed\n";
     m_window.invalidate();
   }
   void ClientApplication::settingsKey(const Key& key) {

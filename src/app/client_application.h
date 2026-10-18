@@ -11,6 +11,7 @@
 #include "app/scroll_motion.h"
 #include "app/session_store.h"
 #include "app/text_edit.h"
+#include "app/theme_runtime.h"
 #include "app/timeline_anchor.h"
 #include "app/unread_timeline.h"
 #include "app/window.h"
@@ -376,6 +377,7 @@ namespace app {
     void drawFontPicker(Node& root, float w, float h);
     void settingsScrollbar(Node& parent, const std::string& id, Hit bounds, float content, float& offset);
     void demoFontStep();
+    void demoThemeStep();
     void savePreferences();
     void setPresence(const std::string& status, bool custom = false);
     void drawImageViewer(Node& root, float w, float h);
@@ -441,6 +443,8 @@ namespace app {
     std::map<std::string, std::string> m_videoPosters;
     auth::BrowserLogin m_login;
     SessionStore m_sessionStore;
+    ThemeRuntime m_themes;
+    ThemeSnapshot m_themeSnapshot;
     std::string m_restoreChannel;
     Preferences m_preferences;
     api::RoleDirectory m_roleDirectory;

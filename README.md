@@ -10,6 +10,7 @@ A few highlights:
 - Rich profiles and animated server role colors.
 - Threads and forum posts alongside server chat and DMs.
 - Built-in image/video viewing, GIFs and custom emoji.
+- Custom themes with automatic dark and light switching.
 
 ## Run
 
@@ -36,5 +37,6 @@ settings remain incomplete.
 ## License
 
 [MIT](LICENSE). Bundled [Tabler icons](assets/fonts/tabler-icons-license.txt),
-[emoji alias data](assets/emoji-data-license.txt) and [Wuffs](third_party/wuffs)
+[emoji alias data](assets/emoji-data-license.txt), [theme palettes](assets/themes/LICENSES.txt)
+and [Wuffs](third_party/wuffs)
 retain their own license notices.

@@ -172,10 +172,7 @@ namespace app {
     control(x + width - 136, 58, "Cancel", Action::CancelMessageEdit, false);
     control(x + width - 72, 72, m_messageEdit->request ? "Saving…" : "Save", Action::SaveMessageEdit, true);
     if (!m_messageEdit->error.empty())
-      label(
-          parent, x + 2, footerY + 29, width - 4, m_messageEdit->error, 11,
-          rgbHex(m_preferences.theme == "light" ? 0xB52C39 : 0xEF7D86), FontWeight::Normal, 2
-      );
+      label(parent, x + 2, footerY + 29, width - 4, m_messageEdit->error, 11, theme::danger, FontWeight::Normal, 2);
   }
 
   void ClientApplication::demoMessageEditStep() {
@@ -353,7 +350,7 @@ namespace app {
     const float errorHeight = m_dialogError.empty() ? 0 : 38;
     const float height = (160 + previewHeight) + errorHeight;
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
-    const auto red = rgbHex(m_preferences.theme == "light" ? 0xC32B3C : 0xDA373C);
+    const auto red = theme::destructive;
     rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, .65F});
     m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
     rectangle(root, x, y, width, height, sidebar, 12);

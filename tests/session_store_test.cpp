@@ -44,7 +44,7 @@ int main() {
       store.save("123", {"10", "20", 1.2F});
       store.save("123", {"11", "21", 1.2F});
       store.save("456", {"", "30", 0.8F});
-      store.savePreferences("123", {"midnight", 18, true, false, true});
+      store.savePreferences("123", {"system", 18, true, false, true});
       store.save("123", {"10", "20", 1.2F});
       store.savePreferences("789", {"light", 16});
     }
@@ -67,7 +67,7 @@ int main() {
     restored.recordReaction("123", "../invalid");
     require(restored.frequentReactions("123").front() == "🎉", "Quick reactions rank successful local usage");
     require(restored.frequentReactions("456").front() == "❤️", "Reaction history stays account-scoped");
-    restored.savePreferences("123", {"midnight", 18, true, false, true});
+    restored.savePreferences("123", {"system", 18, true, false, true});
     restored.save("123", {"10", "20", 1.2F});
     require(
         app::SessionStore(path).frequentReactions("123").front() == "🎉",
@@ -84,6 +84,7 @@ int main() {
     auto pausedGifs = preferences;
     require(preferences.fontFamily.empty(), "Existing accounts use the system font by default");
     pausedGifs.fontFamily = "École Mono";
+    pausedGifs.colorTheme = "catppuccin";
     require(!preferences.emojiImageLinks, "Emoji image links default off for existing accounts");
     require(
         !preferences.logDeletedMessages && !preferences.logEditHistory,
@@ -104,6 +105,12 @@ int main() {
         app::SessionStore(path).preferences("123").fontFamily == "École Mono"
             && app::SessionStore(path).preferences("456").fontFamily.empty(),
         "Installed font preference survives navigation saves and remains account-scoped"
+    );
+    require(
+        app::SessionStore(path).preferences("123").colorTheme == "catppuccin"
+            && app::SessionStore(path).preferences("123").theme == "system"
+            && app::SessionStore(path).preferences("456").colorTheme == "cressida",
+        "Color theme and system mode persist independently for each account"
     );
     require(
         app::SessionStore(path).preferences("123").channelSidebarWidth == 372
@@ -161,7 +168,7 @@ int main() {
         "Role colors and animation preferences persist independently per account"
     );
     require(
-        preferences.theme == "midnight"
+        preferences.theme == "system"
             && preferences.messageSize == 18
             && preferences.compact
             && !preferences.showEmbeds
@@ -187,7 +194,7 @@ int main() {
         restored.frequentReactions("123").size() <= 68, "Reaction usage is bounded to 64 records plus missing defaults"
     );
     require(
-        restored.load("456")->channel == "30" && restored.preferences("123").theme == "midnight",
+        restored.load("456")->channel == "30" && restored.preferences("123").theme == "system",
         "Pruning emoji history preserves other account data"
     );
     require(
@@ -198,7 +205,7 @@ int main() {
     invalidFont.fontFamily = "Bad\nFamily";
     restored.savePreferences("789", invalidFont);
     require(
-        restored.preferences("789").fontFamily.empty() && restored.preferences("789").theme == "midnight",
+        restored.preferences("789").fontFamily.empty() && restored.preferences("789").theme == "system",
         "Invalid font names fall back without dropping other preferences"
     );
     invalidFont.fontFamily.assign(513, 'a');
@@ -207,6 +214,20 @@ int main() {
     pausedGifs.fontFamily.clear();
     restored.savePreferences("123", pausedGifs);
     require(restored.preferences("123").fontFamily.empty(), "System default font selection persists");
+    auto badTheme = pausedGifs;
+    badTheme.theme = "unsupported-mode";
+    badTheme.colorTheme = "../outside";
+    restored.savePreferences("789", badTheme);
+    require(
+        restored.preferences("789").theme == "dark" && restored.preferences("789").colorTheme == "cressida",
+        "Unknown modes and unsafe theme IDs use defaults without aliases"
+    );
+    pausedGifs.colorTheme = "my-uninstalled-theme";
+    restored.savePreferences("123", pausedGifs);
+    require(
+        restored.preferences("123").colorTheme == "my-uninstalled-theme",
+        "Unavailable themes keep their preference so restoring the file restores the choice"
+    );
     std::ofstream(path) << "broken JSON";
     require(!restored.load("123"), "Ignore damaged UI preferences");
     {
@@ -217,18 +238,18 @@ int main() {
       app::SessionStore legacy(oldPath);
       legacy.save("123", {"10", "20", 1.2F});
       legacy.save("123", {"11", "21", 1.2F});
-      legacy.savePreferences("123", {"midnight", 18, true, false, true});
+      legacy.savePreferences("123", {"system", 18, true, false, true});
       legacy.save("456", {"", "30", 0.8F});
       app::SessionStore migrated;
       require(migrated.load("123")->channel == "21", "Read the old name's last channel before migration");
-      require(migrated.preferences("123").theme == "midnight", "Read old appearance preferences");
+      require(migrated.preferences("123").theme == "system", "Read old appearance preferences");
       require(!std::filesystem::exists(newPath), "Reading old state must not create new files");
       migrated.save("123", {"10", "22", 1.1F});
       require(std::filesystem::exists(newPath), "Saving migrates to the Cressida directory");
       require(legacy.load("123")->channel == "21", "Migration leaves the original file intact");
       require(migrated.channelForGuild("123", "11") == "21", "Migration preserves other servers");
       require(migrated.load("456")->channel == "30", "Migration preserves other accounts");
-      require(migrated.preferences("123").theme == "midnight", "Migration preserves display preferences");
+      require(migrated.preferences("123").theme == "system", "Migration preserves display preferences");
       require(stat(newPath.c_str(), &state) == 0 && (state.st_mode & 0777) == 0600, "Migrated state remains private");
       legacy.save("456", {"", "31", 0.8F});
       require(migrated.load("456")->channel == "30", "The new state takes precedence over legacy changes");

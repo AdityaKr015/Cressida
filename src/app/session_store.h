@@ -16,6 +16,7 @@ namespace app {
     float channelSidebarWidth = 248;
     bool logDeletedMessages = false, logEditHistory = false;
     std::string fontFamily;
+    std::string colorTheme = "cressida";
   };
   struct LastChannel {
     std::string guild, channel;

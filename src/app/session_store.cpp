@@ -4,6 +4,7 @@
 #include "api/emoji.h"
 #include "api/models.h"
 #include "app/font_catalog.h"
+#include "app/theme_catalog.h"
 
 #include <algorithm>
 #include <cmath>
@@ -127,8 +128,11 @@ namespace app {
         return result;
       const auto& value = all[account]["preferences"];
       result.theme = value.value("theme", "dark");
-      if (result.theme != "dark" && result.theme != "light" && result.theme != "midnight")
+      if (!validColorMode(result.theme))
         result.theme = "dark";
+      result.colorTheme = value.value("color_theme", "cressida");
+      if (!validThemeId(result.colorTheme))
+        result.colorTheme = "cressida";
       result.messageSize = std::clamp(value.value("message_size", 14.0F), 12.0F, 20.0F);
       result.fontFamily = value.value("font_family", std::string{});
       if (!validFontFamily(result.fontFamily))
@@ -156,7 +160,8 @@ namespace app {
     try {
       auto all = readState(m_path, m_legacyPath);
       all[account]["preferences"] = {
-          {"theme", preferences.theme},
+          {"theme", validColorMode(preferences.theme) ? preferences.theme : "dark"},
+          {"color_theme", validThemeId(preferences.colorTheme) ? preferences.colorTheme : "cressida"},
           {"message_size", preferences.messageSize},
           {"font_family", validFontFamily(preferences.fontFamily) ? preferences.fontFamily : std::string{}},
           {"compact", preferences.compact},

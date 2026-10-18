@@ -24,7 +24,9 @@ namespace app {
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
     void initialize();
-    void run(int wakeFd, std::function<void()> tick, int frameLimit = 0, int assetFd = -1, int videoFd = -1);
+    void
+    run(int wakeFd, std::function<void()> tick, int frameLimit = 0, int assetFd = -1, int videoFd = -1,
+        int themeFd = -1);
     void close();
     void minimize();
     void toggleMaximized();

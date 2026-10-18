@@ -878,7 +878,7 @@ namespace app {
                 : "This changes your Discord relationship with this user.",
             14, foreground, FontWeight::Normal, 2
         );
-      label(root, x + 24, y + height - 92, width - 48, m_dialogError, 12, rgbHex(0xED4245), FontWeight::Normal, 2);
+      label(root, x + 24, y + height - 92, width - 48, m_dialogError, 12, theme::danger, FontWeight::Normal, 2);
       button(
           root, {x + 24, y + height - 52, 100, 32, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "Cancel"
       );

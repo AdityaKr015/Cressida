@@ -14,7 +14,7 @@ namespace app {
     using namespace theme;
     const float absoluteX = chatLeft() + 74, absoluteY = m_messageViewportTop + y;
     const bool over = hovered(chatLeft() + 24, absoluteY, width + 50, layout.height);
-    glyph(parent, 8, y + 2, 20, "arrow-right", presenceColor("online"));
+    glyph(parent, 8, y + 2, 20, "arrow-right", success);
     m_messageText[message.id] = layout.plainText;
     m_hits.push_back({absoluteX, absoluteY, width, layout.height, Action::SelectMessage, message.id});
     for (const auto& run : layout.runs) {
@@ -35,7 +35,7 @@ namespace app {
           const float offset = run.image.empty() ? measure(std::string_view(run.text).substr(0, from - run.offset)) : 0;
           const float length =
               run.image.empty() ? measure(std::string_view(run.text).substr(from - run.offset, to - from)) : run.width;
-          rectangle(parent, x + offset, top, length, run.height, rgbHex(0x574D70), 2);
+          rectangle(parent, x + offset, top, length, run.height, withAlpha(accent, .3F), 2);
         }
       }
       if (!run.image.empty()) {
@@ -67,7 +67,7 @@ namespace app {
       label(
           parent, 50 + last.x + last.width + 6, y + last.y + 4, message.deleted ? 120 : 36,
           message.timestamp.substr(11, 5) + (message.deleted ? " · Deleted" : ""), 10,
-          message.deleted ? rgbHex(m_preferences.theme == "light" ? 0xB52C39 : 0xEF7D86) : muted
+          message.deleted ? theme::danger : muted
       );
     }
     reactionStrip(&parent, message, 50, y + std::max(22.0F, layout.height) + 6, width, true);
