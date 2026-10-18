@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -38,6 +39,63 @@ int main() {
       throw std::runtime_error(message);
   };
   try {
+    {
+      const auto appearancePath = std::filesystem::path(directory) / "appearance.json";
+      app::SessionStore store(appearancePath);
+      require(store.startupPreferences().colorTheme == "cressida", "Fresh startup uses the default palette");
+      app::Preferences selected;
+      selected.theme = "light";
+      selected.colorTheme = "fen";
+      selected.logDeletedMessages = selected.logEditHistory = true;
+      selected.fontFamily = "Custom Font";
+      store.savePreferences("123", selected);
+      store.save("123", {"10", "20", 1});
+      const auto startup = app::SessionStore(appearancePath).startupPreferences();
+      require(
+          startup.theme == "light" && startup.colorTheme == "fen",
+          "The last chosen colors survive restart before sign-in"
+      );
+      require(
+          !startup.logDeletedMessages && !startup.logEditHistory && startup.fontFamily.empty(),
+          "Startup never inherits account-specific settings"
+      );
+      app::Preferences other;
+      other.theme = "system";
+      other.colorTheme = "catppuccin";
+      store.savePreferences("456", other);
+      require(
+          store.startupPreferences().theme == "system" && store.startupPreferences().colorTheme == "catppuccin",
+          "The most recent account's selection drives startup"
+      );
+      store.saveAppearance(selected);
+      require(
+          store.startupPreferences().colorTheme == "fen" && store.preferences("456").colorTheme == "catppuccin",
+          "Signing in remembers that account's appearance without modifying other accounts"
+      );
+      std::ifstream input(appearancePath);
+      auto json = nlohmann::json::parse(input);
+      require(
+          json["appearance"].size() == 2
+              && json["appearance"].contains("theme")
+              && json["appearance"].contains("color_theme"),
+          "Only the mode and palette are saved for signed-out screens"
+      );
+      json.erase("appearance");
+      json.erase("456");
+      std::ofstream(appearancePath) << json;
+      require(
+          store.startupPreferences().colorTheme == "fen",
+          "Existing single-account installations reuse their theme before sign-in"
+      );
+      json["appearance"] = {{"theme", false}, {"color_theme", "../unsafe"}};
+      std::ofstream(appearancePath) << json;
+      require(
+          store.startupPreferences().theme == "dark" && store.startupPreferences().colorTheme == "cressida",
+          "Malformed startup colors safely fall back without restoring account data"
+      );
+      std::ofstream(appearancePath) << "damaged";
+      require(store.startupPreferences().colorTheme == "cressida", "Damaged startup state falls back safely");
+    }
     {
       app::SessionStore store(path);
       require(!store.load("123"), "First login must not invent a previous server");

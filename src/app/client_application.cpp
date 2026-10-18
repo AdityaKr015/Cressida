@@ -81,6 +81,19 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay.starts_with("login-themed")) {
+        const bool light = m_demoOverlay == "login-themed-light" || m_demoOverlay == "login-themed-system-light";
+        const auto& palette =
+            light ? m_themeSnapshot.selected("gruvbox").light : m_themeSnapshot.selected("gruvbox").dark;
+        const auto* surface = dynamic_cast<const RectNode*>(m_scene->children().front().get());
+        if (m_connected
+            || !surface
+            || surface->style().fill != rgbHex(palette.background)
+            || theme::foreground != rgbHex(palette.foreground)
+            || theme::accent != rgbHex(palette.accent))
+          throw std::runtime_error("Startup and login must render with the selected palette and mode");
+        std::clog << "Offline themed login check passed\n";
+      }
       if (m_demo && m_demoOverlay.starts_with("channel-empty")) {
         int welcome = 0, generic = 0;
         const auto inspect = [&](auto&& self, const Node& node) -> void {
@@ -691,9 +704,13 @@ namespace app {
       throw std::runtime_error(
           "The renderer library is stale: its menu layout differs from the client. Run just rebuild."
       );
-    m_window.initialize();
+    if (!m_demo)
+      m_preferences = m_sessionStore.startupPreferences();
     m_themeSnapshot =
         m_themes.start(paths::assetPath("themes"), m_demo ? std::filesystem::path{} : userThemeDirectory(), !m_demo);
+    m_window.initialize();
+    if (auto snapshot = m_themes.drain())
+      m_themeSnapshot = std::move(*snapshot);
     if (!m_demo) {
       if (!m_token.empty())
         connect();
@@ -1241,10 +1258,21 @@ namespace app {
           if (view == "reply")
             m_replies[m_channelId] = {"1", m_channelId, "11", "Maya", m_messages.front().content};
         }
-        if (view == "login-restoring" || view == "login-retry") {
+        if (view == "login-restoring" || view == "login-retry" || view.starts_with("login-themed")) {
           m_connected = false;
-          m_connecting = m_restoringLogin = view == "login-restoring";
+          m_connecting = m_restoringLogin = view == "login-restoring" || view == "login-themed-restoring";
           m_retrySavedLogin = view == "login-retry";
+          if (view.starts_with("login-themed")) {
+            m_demoOverlay = view;
+            m_preferences.colorTheme = "gruvbox";
+            m_preferences.theme = view == "login-themed-light" ? "light" : "dark";
+            if (view == "login-themed-system-light") {
+              m_preferences.theme = "system";
+              m_themeSnapshot.systemLight = true;
+            }
+            m_showTokenEntry = view == "login-themed-token";
+            m_connecting = m_restoringLogin || view == "login-themed-connecting";
+          }
           m_status = m_restoringLogin ? "Your desktop keyring may ask you to unlock it."
                                       : "Could not reach Discord. Your saved sign-in is still available.";
         } else if (
@@ -4009,6 +4037,7 @@ namespace app {
           m_savingProfile = m_loadingProfile = false;
           m_desiredPresence.clear();
           m_preferences = m_sessionStore.preferences(m_account.id);
+          m_sessionStore.saveAppearance(m_preferences);
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
           m_presence = event.presence.value_or(api::Presence{});

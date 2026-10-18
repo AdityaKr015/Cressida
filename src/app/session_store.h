@@ -30,6 +30,9 @@ namespace app {
     void save(const std::string& account, const LastChannel& channel) const;
     std::string channelForGuild(const std::string& account, const std::string& guild) const;
     Preferences preferences(const std::string& account) const;
+    // Only color mode/palette are shared with the signed-out UI.
+    Preferences startupPreferences() const;
+    void saveAppearance(const Preferences& preferences) const;
     void savePreferences(const std::string& account, const Preferences& preferences) const;
     std::vector<std::string> frequentReactions(const std::string& account) const;
     void recordReaction(const std::string& account, const std::string& emoji) const;

@@ -174,6 +174,26 @@ int main(int argc, char** argv) {
     Portal portal;
     fileEvents(argv[1], root / "config/cressida/themes");
     {
+      const auto user = root / "startup/themes";
+      std::filesystem::create_directories(user);
+      save(user / "custom.toml", changedTemplate());
+      app::ThemeRuntime runtime;
+      const auto initial = runtime.start(argv[1], user, true, false);
+      require(
+          initial.selected("custom").dark.background == 0x123456
+              && initial.selected("custom").light.background == 0xfedcba,
+          "The first frame can use a custom theme before worker events arrive"
+      );
+      save(user / "custom.toml", "Incomplete save");
+      waitFor(
+          runtime,
+          [](const auto& snapshot) {
+            return !snapshot.issues.empty() && snapshot.selected("custom").dark.background == 0x123456;
+          },
+          "The watcher retains the valid startup palette across an incomplete edit"
+      );
+    }
+    {
       app::ThemeRuntime runtime;
       runtime.start(argv[1], root / "portal/themes", true);
       waitFor(

@@ -57,7 +57,7 @@ namespace app {
       }
       (void)wake.signal();
     }
-    void run(std::stop_token stop, std::filesystem::path bundled, std::filesystem::path user, bool desktop) {
+    void run(std::stop_token stop, ThemeCatalog catalog, std::filesystem::path user, bool desktop) {
       g_main_context_push_thread_default(context);
       {
         struct State {
@@ -222,7 +222,7 @@ namespace app {
             if (bus)
               g_object_unref(bus);
           }
-        } state{*this, ThemeCatalog(std::move(bundled), user), user};
+        } state{*this, std::move(catalog), user};
         if (!user.empty()) {
           std::error_code error;
           std::filesystem::create_directories(user, error);
@@ -243,11 +243,13 @@ namespace app {
       const std::filesystem::path& bundled, const std::filesystem::path& user, bool watch, bool desktop
   ) {
     m = std::make_unique<Impl>();
-    auto initial = ThemeCatalog(bundled).reload();
+    ThemeCatalog catalog(bundled, user);
+    auto initial = catalog.reload();
     if (watch)
-      m->worker = std::jthread([impl = m.get(), bundled, user, desktop](std::stop_token stop) {
-        impl->run(stop, bundled, user, desktop);
-      });
+      m->worker =
+          std::jthread([impl = m.get(), catalog = std::move(catalog), user, desktop](std::stop_token stop) mutable {
+            impl->run(stop, std::move(catalog), user, desktop);
+          });
     return initial;
   }
   int ThemeRuntime::eventFd() const { return m->wake.fd(); }

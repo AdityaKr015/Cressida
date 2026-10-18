@@ -17,6 +17,24 @@
 
 namespace app {
   namespace {
+    nlohmann::json appearance(const Preferences& preferences) {
+      return {
+          {"theme", validColorMode(preferences.theme) ? preferences.theme : "dark"},
+          {"color_theme", validThemeId(preferences.colorTheme) ? preferences.colorTheme : "cressida"}
+      };
+    }
+    Preferences colorPreferences(const nlohmann::json& value) {
+      Preferences result;
+      if (!value.is_object())
+        return result;
+      if (const auto at = value.find("theme");
+          at != value.end() && at->is_string() && validColorMode(at->get<std::string>()))
+        result.theme = at->get<std::string>();
+      if (const auto at = value.find("color_theme");
+          at != value.end() && at->is_string() && validThemeId(at->get<std::string>()))
+        result.colorTheme = at->get<std::string>();
+      return result;
+    }
     nlohmann::json read(const std::filesystem::path& path) {
       std::ifstream file(path, std::ios::binary);
       std::string bytes(65537, '\0');
@@ -154,6 +172,40 @@ namespace app {
     }
     return result;
   }
+  Preferences SessionStore::startupPreferences() const {
+    try {
+      const auto all = readState(m_path, m_legacyPath);
+      if (const auto at = all.find("appearance"); at != all.end())
+        return colorPreferences(*at);
+      // Existing installations have only account preferences. Reuse their color
+      // choice when it is unambiguous; no account is selected by this fallback.
+      std::optional<Preferences> previous;
+      for (const auto& [id, account] : all.items()) {
+        if (!api::validSnowflake(id)
+            || !account.is_object()
+            || !account.contains("preferences")
+            || !account["preferences"].is_object())
+          continue;
+        const auto colors = colorPreferences(account["preferences"]);
+        if (previous && (previous->theme != colors.theme || previous->colorTheme != colors.colorTheme))
+          return {};
+        previous = colors;
+      }
+      return previous.value_or(Preferences{});
+    } catch (...) {
+      return {};
+    }
+  }
+  void SessionStore::saveAppearance(const Preferences& preferences) const {
+    if (m_path.empty())
+      return;
+    try {
+      auto all = readState(m_path, m_legacyPath);
+      all["appearance"] = appearance(preferences);
+      writeState(m_path, all);
+    } catch (...) {
+    }
+  }
   void SessionStore::savePreferences(const std::string& account, const Preferences& preferences) const {
     if (m_path.empty() || !api::validSnowflake(account))
       return;
@@ -178,6 +230,7 @@ namespace app {
            std::isfinite(preferences.channelSidebarWidth) ? std::clamp(preferences.channelSidebarWidth, 200.0F, 480.0F)
                                                           : 248.0F}
       };
+      all["appearance"] = appearance(preferences);
       writeState(m_path, all);
     } catch (...) {
     }
