@@ -157,6 +157,14 @@ namespace app {
         demoCompletionStep();
       if (m_demo && m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep < 12)
         demoFontStep();
+      if (m_demo && m_demoOverlay == "server-settings-commands-cycle")
+        demoServerCommandsStep();
+      if (m_demo && m_demoOverlay == "server-settings-expressions-cycle")
+        demoServerExpressionsStep();
+      if (m_demo && m_demoOverlay == "server-settings-management-cycle")
+        demoServerManagementStep();
+      if (m_demo && m_demoOverlay == "server-settings-cycle")
+        demoServerSettingsStep();
       if (m_demo && m_demoOverlay == "channel-create-cycle")
         demoChannelCreateStep();
       if (m_demo && m_demoOverlay == "channel-invite-cycle")
@@ -492,6 +500,8 @@ namespace app {
         m_window.invalidate();
         return;
       }
+      if (selectDropdownClick(x, y))
+        return;
       if (overlayClick(x, y)) {
         return;
       }
@@ -560,6 +570,7 @@ namespace app {
       return active || (m_window.active() && m_roleMotion.active());
     };
     m_window.zoom = [this](float delta) {
+      closeSelectDropdown();
       finishSidebarResize();
       if (!m_viewImage.empty()) {
         m_viewZoom = std::clamp(m_viewZoom * (delta < 0 ? 1.1F : 1 / 1.1F), 0.25F, 4.0F);
@@ -570,6 +581,8 @@ namespace app {
       saveSelection();
     };
     m_window.pasted = [this](std::string bytes, std::string mime) {
+      if (m_pasteServerScope != serverSettingsScope())
+        return;
       if (m_pasteConnected != m_connected || m_pasteSession != m_session || m_pasteChannel != m_channelId)
         return;
       if (!m_pasteInput.empty()) {
@@ -656,6 +669,19 @@ namespace app {
               << m_animateWheel
               << '\n';
       };
+      if (m_selectRequest) {
+        if (m_selectBounds.contains(m_pointerX, m_pointerY)) {
+          scroll(m_selectScroll, delta);
+          m_window.invalidate();
+          return;
+        }
+        closeSelectDropdown();
+      }
+      if (m_serverSettings.open) {
+        scroll(m_pointerX < m_serverSettings.navRight ? m_serverSettings.navScroll : m_serverSettings.scroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (m_completionQuery && m_completionBounds.contains(m_pointerX, m_pointerY)) {
         scroll(m_completionScroll, delta);
         m_window.invalidate();
@@ -801,35 +827,47 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"                      ? 4
-                         : m_demo && view && std::string_view(view) == "deleted-cycle"             ? 3
-                         : m_demo && view && std::string_view(view) == "inline-edit-cycle"         ? 8
-                         : m_demo && view && std::string_view(view) == "autocomplete-cycle"        ? 9
-                         : m_demo && view && std::string_view(view) == "settings-font-cycle"       ? 12
-                         : m_demo && view && std::string_view(view) == "server-hover-cycle"        ? 7
-                         : m_demo && view && std::string_view(view) == "themes-cycle"              ? 11
-                         : m_demo && view && std::string_view(view) == "message-hover-cycle"       ? 5
-                         : m_demo && view && std::string_view(view) == "sidebar-cycle"             ? 10
-                         : m_demo && view && std::string_view(view) == "role-emoji-cycle"          ? 3
-                         : m_demo && view && std::string_view(view) == "role-members-cycle"        ? 2
-                         : m_demo && view && std::string_view(view) == "mentions-cycle"            ? 4
-                         : m_demo && view && std::string_view(view) == "channel-menu-scroll-cycle" ? 3
-                         : m_demo && view && std::string_view(view) == "channel-create-cycle"      ? 12
-                         : m_demo && view && std::string_view(view) == "channel-invite-cycle"      ? 18
-                         : m_demo && view && std::string_view(view) == "channel-menu-cycle"        ? 31
-                         : m_demo && view && std::string_view(view) == "channel-cycle"             ? 18
-                         : m_demo && view && std::string_view(view) == "forum-cycle"               ? 12
-                         : m_demo && view && std::string_view(view) == "thread-cycle"              ? 10
-                         : m_demo && view && std::string_view(view) == "guild-tag-cycle"           ? 10
-                         : m_demo && view && std::string_view(view) == "profile-card-cycle"        ? 8
-                         : m_demo && view && std::string_view(view) == "role-style-cycle"          ? 7
-                         : m_demo && view && std::string_view(view) == "unread-badge-cycle"        ? 4
-                         : m_demo && view && std::string_view(view) == "unread-cycle"              ? 10
+        smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"                              ? 4
+                         : m_demo && view && std::string_view(view) == "deleted-cycle"                     ? 3
+                         : m_demo && view && std::string_view(view) == "inline-edit-cycle"                 ? 8
+                         : m_demo && view && std::string_view(view) == "autocomplete-cycle"                ? 9
+                         : m_demo && view && std::string_view(view) == "settings-font-cycle"               ? 12
+                         : m_demo && view && std::string_view(view) == "server-hover-cycle"                ? 7
+                         : m_demo && view && std::string_view(view) == "themes-cycle"                      ? 11
+                         : m_demo && view && std::string_view(view) == "message-hover-cycle"               ? 5
+                         : m_demo && view && std::string_view(view) == "sidebar-cycle"                     ? 10
+                         : m_demo && view && std::string_view(view) == "role-emoji-cycle"                  ? 3
+                         : m_demo && view && std::string_view(view) == "role-members-cycle"                ? 2
+                         : m_demo && view && std::string_view(view) == "mentions-cycle"                    ? 4
+                         : m_demo && view && std::string_view(view) == "channel-menu-scroll-cycle"         ? 3
+                         : m_demo && view && std::string_view(view) == "channel-create-cycle"              ? 12
+                         : m_demo && view && std::string_view(view) == "channel-invite-cycle"              ? 18
+                         : m_demo && view && std::string_view(view) == "server-settings-commands-cycle"    ? 12
+                         : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
+                         : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
+                         : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
+                         : m_demo && view && std::string_view(view) == "channel-menu-cycle"                ? 31
+                         : m_demo && view && std::string_view(view) == "channel-cycle"                     ? 18
+                         : m_demo && view && std::string_view(view) == "forum-cycle"                       ? 12
+                         : m_demo && view && std::string_view(view) == "thread-cycle"                      ? 10
+                         : m_demo && view && std::string_view(view) == "guild-tag-cycle"                   ? 10
+                         : m_demo && view && std::string_view(view) == "profile-card-cycle"                ? 8
+                         : m_demo && view && std::string_view(view) == "role-style-cycle"                  ? 7
+                         : m_demo && view && std::string_view(view) == "unread-badge-cycle"                ? 4
+                         : m_demo && view && std::string_view(view) == "unread-cycle"                      ? 10
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
-        m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd()
+        m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd(), m_filePicker.eventFd(), m_soundPreview.eventFd()
     );
+    if (m_demoOverlay == "server-settings-commands-cycle" && m_demoInteractionStep != 12)
+      throw std::runtime_error("Server command permissions replay did not finish");
+    if (m_demoOverlay == "server-settings-expressions-cycle" && m_demoInteractionStep != 26)
+      throw std::runtime_error("Server expressions replay did not finish");
+    if (m_demoOverlay == "server-settings-management-cycle" && m_demoInteractionStep != 12)
+      throw std::runtime_error("Server management replay did not finish");
+    if (m_demoOverlay == "server-settings-cycle" && m_demoInteractionStep != 42)
+      throw std::runtime_error("Server settings replay did not finish");
     if (m_demoOverlay == "deleted-cycle" && m_demoInteractionStep != 3)
       throw std::runtime_error("Deleted-message replay did not finish");
     if (m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep != 8)
@@ -1217,6 +1255,10 @@ namespace app {
           prepareChannelMenuDemo(view);
         if (view.starts_with("channel-invite"))
           prepareChannelInviteDemo(view);
+        if (view.starts_with("server-settings")) {
+          m_demoOverlay = view;
+          prepareServerSettingsDemo();
+        }
         if (view.starts_with("channel-create")
             || view == "channel-duplicate"
             || view == "channel-delete"
@@ -1648,8 +1690,8 @@ namespace app {
           for (int i = 0; i < 100; ++i)
             m_messages.push_back(
                 {std::to_string(3000 + i), m_channelId, "Maya",
-                 "Smooth native scrolling through a conversation.\nA second line keeps the timeline long enough to "
-                 "scroll.",
+                 "Smooth native scrolling through a conversation.\nA second line keeps "
+                 "the timeline long enough to scroll.",
                  "2026-10-17T09:41:00Z"}
             );
           m_messageLayouts.clear();
@@ -2078,6 +2120,7 @@ namespace app {
     while (!m_scene->children().empty()) {
       auto removed = m_scene->removeChild(m_scene->children().back().get());
     }
+    m_scene->setPopupContext(this);
     m_scene->setSize(w, h);
     m_scene->setPosition(0, m_window.titlebarHeight() - 36);
     auto& root = *m_scene;
@@ -2158,7 +2201,7 @@ namespace app {
             12, m_status.empty() ? muted : danger, FontWeight::Normal, 2
         );
       }
-    } else if (!m_settingsOpen) {
+    } else if (!settingsVisible()) {
       rectangle(root, 0, 36, 78, h - 36, theme::railBackground);
       const float sidebarWidth = channelSidebarWidth();
       rectangle(root, 78, 36, sidebarWidth, h - 36, sidebar);
@@ -2173,9 +2216,15 @@ namespace app {
           guildBadgeWidth = drawGuildBadge(root, 98, 59, api::guildBadge(*at));
       }
       label(
-          root, 98 + guildBadgeWidth, 57, sidebarWidth - 40 - guildBadgeWidth, guildName, 17, foreground,
+          root, 98 + guildBadgeWidth, 57, sidebarWidth - 60 - guildBadgeWidth, guildName, 17, foreground,
           FontWeight::SemiBold
       );
+      if (!m_dmMode && !m_guildId.empty()) {
+        glyph(root, chatLeft() - 32, 61, 16, "chevron-down", muted);
+        Hit header{88, 48, sidebarWidth - 20, 44, Action::GuildMenu, m_guildId};
+        m_hits.push_back(header);
+        m_contextTargets.push_back(header);
+      }
       label(root, 98, 113, sidebarWidth - 48, m_dmMode ? "CONVERSATIONS" : "CHANNELS", 10, muted, FontWeight::SemiBold);
       iconButton(root, {14, 48, 48, 48, Action::Home, {}}, "message-circle", "Direct messages", m_dmMode);
 
@@ -2265,6 +2314,7 @@ namespace app {
           );
         countBadge(root, 67, y + 33, guildMentions[guild.id], true);
         m_hits.push_back({14, y, 48, 48, Action::Guild, guild.id});
+        m_contextTargets.push_back({14, y, 48, 48, Action::GuildMenu, guild.id});
       }
       const auto visibleChannels = channelListRows(
           m_channels, m_collapsedCategories, m_channelId, m_channelListPreferences,
@@ -2435,7 +2485,6 @@ namespace app {
         auto unreadIndex = m_unreadTimeline.first(m_messages);
         constexpr float unreadHeight = 36;
         const float introHeight = channelIntro(nullptr, 0, 0, textWidth);
-        float totalHeight = 24 + introHeight + (unreadIndex ? unreadHeight : 0);
         const auto continues = [&](std::size_t i) {
           return i > 0
               && !blockedMessage(m_messages[i - 1])
@@ -2526,8 +2575,12 @@ namespace app {
                   + messageButtons(nullptr, message, 0, 0, textWidth);
           layouts.push_back(&cached.layout);
           heights.push_back(height);
-          totalHeight += height;
         }
+        float totalHeight = 24 + introHeight;
+        for (const auto height : heights)
+          totalHeight += height;
+        if (unreadIndex)
+          totalHeight += unreadHeight;
         m_messageMaxScroll = std::max(0.0F, totalHeight - (bottom - top));
         if ((m_messageScroll > 1
              || m_scrolling.target(m_messageScroll) > 1
@@ -2535,18 +2588,15 @@ namespace app {
              || m_keepHistoryAnchor)
             && !m_unreadTimeline.positionPending()) {
           std::vector<TimelineAnchor::Row> positions;
-          float rowY = bottom - totalHeight + m_messageScroll + 12 + introHeight;
+          float rowY = std::min(top, bottom - totalHeight) + m_messageScroll + 12 + introHeight;
           for (std::size_t i = 0; i < m_messages.size(); ++i) {
             if (unreadIndex && i == *unreadIndex)
               rowY += unreadHeight;
             positions.push_back({m_messages[i].id, rowY});
             rowY += heights[i];
           }
-          if (const auto correction = m_timelineAnchor.correction(positions, m_messageScroll)) {
-            if (m_traceScroll && *correction != 0)
-              std::clog << "scroll geometry correction=" << *correction << " rows=" << m_messages.size() << '\n';
+          if (const auto correction = m_timelineAnchor.correction(positions, m_messageScroll))
             m_scrolling.rebase(m_messageScroll, *correction);
-          }
         }
         m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
         m_keepHistoryAnchor = false;
@@ -2574,7 +2624,7 @@ namespace app {
             for (std::size_t i = 0; i < *unreadIndex; ++i)
               preceding += heights[i];
             m_scrolling.stop(m_messageScroll);
-            m_messageScroll = std::clamp(m_messageMaxScroll - preceding, 0.0F, m_messageMaxScroll);
+            m_messageScroll = std::clamp(totalHeight - (bottom - top) - preceding, 0.0F, m_messageMaxScroll);
           }
           m_unreadTimeline.positioned();
         }
@@ -2588,16 +2638,17 @@ namespace app {
             && m_scrolling.target(m_messageScroll) <= 1
             && markChannelRead()) {
           if (unreadIndex && !m_unreadTimeline.unread()) {
-            totalHeight -= unreadHeight;
             const auto i = *unreadIndex;
             if (continues(i) && !continuations[i]) {
               const float savedGap = m_preferences.compact ? 8 : 16;
               continuations[i] = true;
               heights[i] -= 18;
               heights[i - 1] -= savedGap;
-              totalHeight -= 18 + savedGap;
             }
             unreadIndex.reset();
+            totalHeight = 24 + introHeight;
+            for (const auto height : heights)
+              totalHeight += height;
           }
           if (!m_unreadTimeline.unread())
             top = 122;
@@ -3043,10 +3094,13 @@ namespace app {
           );
         }
         std::vector<TimelineAnchor::Row> visibleAnchors;
+        float rowY = std::min(top, bottom - totalHeight) + m_messageScroll + 12 + introHeight;
         for (std::size_t i = 0; i < m_messages.size(); ++i) {
-          const float rowY = m_messageTops.at(m_messages[i].id);
+          if (unreadIndex && i == *unreadIndex)
+            rowY += unreadHeight;
           if (rowY + heights[i] > top && rowY < bottom)
             visibleAnchors.push_back({m_messages[i].id, rowY});
+          rowY += heights[i];
         }
         m_timelineAnchor.remember(std::move(visibleAnchors), m_messageScroll);
         if (!m_demo && !m_dmMode)
@@ -3056,7 +3110,7 @@ namespace app {
             && !m_loadingMessages
             && m_history.initialized()
             && !m_history.busy()
-            && !m_settingsOpen
+            && !settingsVisible()
             && m_viewImage.empty()
             && m_dialogKind.empty()) {
           const float threshold = std::max(240.0F, (bottom - top) * 0.6F);
@@ -3123,7 +3177,7 @@ namespace app {
           glyph(root, x + width - 28, y + 10, 16, "checks", foreground);
           m_hits.push_back({readX, y, readWidth, 36, Action::MarkRead, {}});
         }
-        if (!m_settingsOpen && m_viewImage.empty()) {
+        if (!settingsVisible() && m_viewImage.empty()) {
           const std::string id = "chat-scrollbar";
           std::unique_ptr<Node> owned;
           if (auto stored = m_detachedInputs.find(id); stored != m_detachedInputs.end()) {
@@ -3271,17 +3325,19 @@ namespace app {
       );
     if (m_resizingSidebar && !sidebarResizeAvailable())
       finishSidebarResize();
-    if (m_connected && !m_channelPanel.empty() && !m_settingsOpen) {
+    if (m_connected && !m_channelPanel.empty() && !settingsVisible()) {
       const float panel = channelPanelWidth();
       drawChannelPanel(root, w - panel, 102, panel, h - 102);
     }
-    if (m_settingsOpen)
+    if (m_serverSettings.open)
+      drawServerSettings(root, w, h);
+    else if (m_settingsOpen)
       drawSettings(root, w, h);
     else if (m_presenceMenu)
       drawPresenceMenu(root, h);
-    if (m_emojiMenu && !m_settingsOpen && m_viewImage.empty())
+    if (m_emojiMenu && !settingsVisible() && m_viewImage.empty())
       drawEmojiPicker(root, w, h);
-    if (m_gifMenu && !m_settingsOpen && m_viewImage.empty())
+    if (m_gifMenu && !settingsVisible() && m_viewImage.empty())
       drawGifPicker(root, w, h);
     if (!m_viewImage.empty())
       drawImageViewer(root, w, h);
@@ -3383,13 +3439,14 @@ namespace app {
     drawContext(root, w, h);
     drawGuildTooltip(root, w, h);
     drawTooltip(root, w, h);
+    drawSelectDropdown(root, w, h);
     finishControls();
     m_roleMotion.end();
     if (m_roleMotion.active())
       m_window.invalidate();
     updateCursor();
     m_window.context().renderScene(m_window.target(), m_scene.get());
-    if (!m_videoVisible || m_settingsOpen || !m_viewImage.empty()) {
+    if (!m_videoVisible || settingsVisible() || !m_viewImage.empty()) {
       m_videoPlayRequested = false;
       if (m_video.state().playing)
         m_video.pause(true);
@@ -3536,7 +3593,7 @@ namespace app {
         && channel == m_channelId
         && !forumView()
         && (m_window.active() || (m_demo && m_demoOverlay == "unread-cycle"))
-        && !m_settingsOpen
+        && !settingsVisible()
         && m_dialogKind.empty()
         && m_viewImage.empty()
         && m_history.atLatest()
@@ -4045,6 +4102,24 @@ namespace app {
   }
 
   void ClientApplication::tick() {
+    drainServerSettingsUploads();
+    if (m_soundPreview.drain())
+      m_window.invalidate();
+    if (!m_soundPreviewSource.empty()
+        && (!m_serverSettings.open || m_serverSettings.page != "soundboard" || (!m_demo && !m_window.active())))
+      stopServerSound();
+    if (m_soundPlayRequested
+        && !m_soundPreview.state().loading
+        && m_soundPreview.state().error.empty()
+        && m_soundPreview.state().hasAudio) {
+      m_soundPlayRequested = false;
+      if (m_soundPreview.state().duration > 6) {
+        stopServerSound();
+        m_serverSettings.error = "Sound previews must be no longer than 5.2 seconds.";
+      } else
+        m_soundPreview.pause(false);
+      m_window.invalidate();
+    }
     if (auto snapshot = m_themes.drain()) {
       m_themeSnapshot = std::move(*snapshot);
       m_window.invalidate();
@@ -4144,6 +4219,11 @@ namespace app {
       if (event.session != m_session || m_demo)
         continue;
       m_completionDirty = true;
+      if (event.operation == api::Operation::GuildSettings && !event.unauthorized) {
+        if (!event.live || !serverManagementResult(event))
+          serverSettingsResult(event);
+        continue;
+      }
       filterDeletedChannels(event);
       if (!event.unauthorized
           && event.operation == api::Operation::ChannelDetails
@@ -4165,6 +4245,7 @@ namespace app {
         m_roleMotion.clear();
         clearAccountSettings();
         m_emojiMenu = false;
+        closeServerSettings(true);
         m_settingsOpen = m_presenceMenu = m_savingProfile = m_loadingProfile = false;
         m_desiredPresence.clear();
         m_settingsFields.clear();
@@ -4289,6 +4370,7 @@ namespace app {
               m_liveChanges[message.id] = message;
             }
       } else if (event.operation == api::Operation::RoleStyles) {
+        serverSettingsRoleUpdate(event.roleUpdates);
         m_roleDirectory.apply(event.roleUpdates);
         if (event.roleUpdates.reset)
           m_roleMotion.clear();
@@ -4707,10 +4789,16 @@ namespace app {
 
   void ClientApplication::onKey(const Key& key) {
     finishSidebarResize();
+    if (selectDropdownKey(key))
+      return;
+    if (m_serverSettings.open && key.symbol == XKB_KEY_Escape) {
+      closeServerSettings();
+      return;
+    }
     if (key.symbol == XKB_KEY_Escape && completionKey(key))
       return;
     if (m_connected
-        && !m_settingsOpen
+        && !settingsVisible()
         && m_dialogKind.empty()
         && key.control
         && (key.symbol == XKB_KEY_f || key.symbol == XKB_KEY_F)) {
@@ -4812,6 +4900,8 @@ namespace app {
       m_window.invalidate();
       return;
     }
+    if (m_serverSettings.open)
+      return;
     if (m_settingsOpen) {
       settingsKey(key);
       return;
@@ -4914,6 +5004,8 @@ namespace app {
   }
 
   void ClientApplication::activate(const Hit& hit) {
+    if (serverSettingsAction(hit))
+      return;
     if (channelMenuAction(hit))
       return;
     if (videoAction(hit))
@@ -4926,6 +5018,9 @@ namespace app {
     if (interactionAction(hit))
       return;
     switch (hit.action) {
+    case Action::GuildMenu:
+      openServerContext(hit, m_pointerX, m_pointerY);
+      break;
     case Action::Settings:
       openSettings();
       break;
@@ -4934,7 +5029,7 @@ namespace app {
       m_settingsField.clear();
       break;
     case Action::SettingsPage:
-      if (!m_settingsOpen)
+      if (!settingsVisible())
         openSettings();
       selectSettingsPage(hit.id);
       break;
@@ -5212,6 +5307,7 @@ namespace app {
       if (!m_demo && !m_channelId.empty()) {
         focusControl("composer");
         m_pasteInput = "composer";
+        m_pasteServerScope = serverSettingsScope();
         m_pasteConnected = m_connected;
         m_pasteSession = m_session;
         m_pasteChannel = m_channelId;
@@ -5380,6 +5476,7 @@ namespace app {
       m_controlInput.setFocus(nullptr);
       m_focusedInput.clear();
       m_emojiMenu = false;
+      closeServerSettings(true);
       m_settingsOpen = m_presenceMenu = m_savingProfile = m_loadingProfile = false;
       m_desiredPresence.clear();
       m_settingsStatus.clear();

@@ -22,10 +22,18 @@ int main() {
         "History pages require authentication and validated cursors"
     );
     require(
-        !client.threads({api::ThreadList::Active, "1", "10"}),
-        "Disconnected thread browsing never performs requests"
+        !client.threads({api::ThreadList::Active, "1", "10"}), "Disconnected thread browsing never performs requests"
     );
     require(!client.channels("123"), "Channels require an authenticated session");
+    require(
+        !client.guildSettings({.guildId = "123"})
+            && !client.guildSettings(
+                {.section = api::GuildSettingsSection::DeleteGuild,
+                 .verb = api::GuildSettingsVerb::Delete,
+                 .guildId = "123"}
+            ),
+        "Server settings reads and explicit mutations require an authenticated session"
+    );
     require(!client.send("123", "hello"), "Sending requires an authenticated session");
     require(
         !client.interact({.kind = api::InteractionKind::Block, .user = "7"})

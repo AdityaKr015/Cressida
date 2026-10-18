@@ -331,9 +331,26 @@ namespace api {
         continue;
       auto path = value.substr(std::string_view(origin).size());
       for (auto prefix :
-           {"avatars/", "icons/", "emojis/", "embed/avatars/", "attachments/", "external/", "channel-icons/",
-            "banners/", "guilds/", "badge-icons/", "guild-tag-badges/", "clan-badges/", "role-icons/",
-            "avatar-decoration-presets/", "discovery-splashes/", "clan-banners/"})
+           {"avatars/",
+            "icons/",
+            "emojis/",
+            "embed/avatars/",
+            "attachments/",
+            "external/",
+            "channel-icons/",
+            "banners/",
+            "guilds/",
+            "badge-icons/",
+            "guild-tag-badges/",
+            "clan-badges/",
+            "role-icons/",
+            "avatar-decoration-presets/",
+            "discovery-splashes/",
+            "clan-banners/",
+            "stickers/",
+            "soundboard-sounds/",
+            "new-member-actions/",
+            "resource-channels/"})
         if (path.starts_with(prefix))
           return std::string(value);
     }

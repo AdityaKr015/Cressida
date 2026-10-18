@@ -656,7 +656,10 @@ namespace app {
     wl_surface_commit(m->surface);
   }
 
-  void Window::run(int wakeFd, std::function<void()> tick, int frameLimit, int assetFd, int videoFd, int themeFd) {
+  void Window::run(
+      int wakeFd, std::function<void()> tick, int frameLimit, int assetFd, int videoFd, int themeFd, int pickerFd,
+      int audioFd
+  ) {
     int frames = 0;
     while (m->running) {
       if (wl_display_dispatch_pending(m->display) < 0)
@@ -719,6 +722,8 @@ namespace app {
       descriptors.push_back({assetFd, POLLIN, 0});
       descriptors.push_back({videoFd, POLLIN, 0});
       descriptors.push_back({themeFd, POLLIN, 0});
+      descriptors.push_back({pickerFd, POLLIN, 0});
+      descriptors.push_back({audioFd, POLLIN, 0});
       const int ready = ::poll(descriptors.data(), descriptors.size(), timeout);
       if (ready > 0 && (descriptors[0].revents & POLLIN)) {
         if (wl_display_read_events(m->display) < 0)

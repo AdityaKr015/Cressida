@@ -135,6 +135,7 @@ int main() {
     );
     anchoredMotion.tick(start + 40ms);
     require(anchored >= beforeAppend + 80, "Content anchoring preserves ongoing wheel direction");
+
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

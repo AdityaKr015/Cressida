@@ -41,6 +41,7 @@ namespace media {
     mpv_render_context* renderer = nullptr;
     std::shared_ptr<VideoInput> input;
     std::atomic_bool redraw = false;
+    bool audioOnly = false;
     VideoState state;
     bool option(const char* name, const char* value) { return mpv_set_option_string(player, name, value) >= 0; }
     void flag(const char* name, bool value) {
@@ -51,13 +52,20 @@ namespace media {
   VideoPlayer::VideoPlayer() : m(std::make_unique<Impl>()) {}
   VideoPlayer::~VideoPlayer() { close(); }
   bool VideoPlayer::open(std::shared_ptr<VideoInput> input, GetProc getProc, bool silent) {
+    return openInternal(std::move(input), getProc, silent, false);
+  }
+  bool VideoPlayer::openAudio(std::shared_ptr<VideoInput> input, bool silent) {
+    return openInternal(std::move(input), nullptr, silent, true);
+  }
+  bool VideoPlayer::openInternal(std::shared_ptr<VideoInput> input, GetProc getProc, bool silent, bool audioOnly) {
     close();
+    m->audioOnly = audioOnly;
     m->state.loading = true;
     m->input = std::move(input);
     m->player = mpv_create();
     auto fail = [&] {
       close();
-      m->state.error = "Could not initialize video playback.";
+      m->state.error = audioOnly ? "Could not initialize the sound preview." : "Could not initialize video playback.";
       return false;
     };
     if (!m->input || !m->player)
@@ -78,7 +86,7 @@ namespace media {
           {"load-unsafe-playlists", "no"},
           {"resume-playback", "no"},
           {"save-position-on-quit", "no"},
-          {"vo", "libmpv"},
+          {"vo", audioOnly ? "null" : "libmpv"},
           {"keep-open", "yes"},
           {"loop-file", "no"},
           {"vd-lavc-threads", "2"},
@@ -95,12 +103,12 @@ namespace media {
     // The custom stream is the only input. Embedded playlists, tracks and
     // container references cannot open files or secondary URLs through FFmpeg.
     char protocol[] = "protocol_whitelist", formats[] = "format_whitelist";
-    char empty[] = "", allowed[] = "mov,matroska,webm";
+    char empty[] = "", videoFormats[] = "mov,matroska,webm", audioFormats[] = "ogg,mp3";
     char* keys[] = {protocol, formats};
     mpv_node values[2]{};
     values[0].format = values[1].format = MPV_FORMAT_STRING;
     values[0].u.string = empty;
-    values[1].u.string = allowed;
+    values[1].u.string = audioOnly ? audioFormats : videoFormats;
     mpv_node_list list{2, values, keys};
     mpv_node options{};
     options.format = MPV_FORMAT_NODE_MAP;
@@ -108,6 +116,8 @@ namespace media {
     if (mpv_set_option(m->player, "demuxer-lavf-o", MPV_FORMAT_NODE, &options) < 0)
       return fail();
     if (silent && !m->option("ao", "null"))
+      return fail();
+    if (audioOnly && !m->option("vid", "no"))
       return fail();
     if (mpv_initialize(m->player) < 0)
       return fail();
@@ -121,7 +131,9 @@ namespace media {
                 if (std::strcmp(uri, "cressida-video://current") != 0)
                   return MPV_ERROR_LOADING_FAILED;
                 auto input = static_cast<Impl*>(context)->input;
-                if (!input || input->size() <= 0 || input->size() > 512LL * 1024 * 1024)
+                if (!input
+                    || input->size() <= 0
+                    || input->size() > (static_cast<Impl*>(context)->audioOnly ? 8LL : 512LL) * 1024 * 1024)
                   return MPV_ERROR_LOADING_FAILED;
                 auto stream = std::make_unique<Stream>();
                 stream->input = std::move(input);
@@ -162,25 +174,27 @@ namespace media {
         )
         < 0)
       return fail();
-    mpv_opengl_init_params gl{getProc, nullptr};
-    int advanced = 1;
-    mpv_render_param params[] = {
-        {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(MPV_RENDER_API_TYPE_OPENGL)},
-        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl},
-        {MPV_RENDER_PARAM_ADVANCED_CONTROL, &advanced},
-        {}
-    };
-    if (mpv_render_context_create(&m->renderer, m->player, params) < 0)
-      return fail();
-    mpv_render_context_set_update_callback(
-        m->renderer,
-        [](void* context) {
-          auto& impl = *static_cast<Impl*>(context);
-          impl.redraw = true;
-          (void)impl.wake.signal();
-        },
-        m.get()
-    );
+    if (!audioOnly) {
+      mpv_opengl_init_params gl{getProc, nullptr};
+      int advanced = 1;
+      mpv_render_param params[] = {
+          {MPV_RENDER_PARAM_API_TYPE, const_cast<char*>(MPV_RENDER_API_TYPE_OPENGL)},
+          {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl},
+          {MPV_RENDER_PARAM_ADVANCED_CONTROL, &advanced},
+          {}
+      };
+      if (mpv_render_context_create(&m->renderer, m->player, params) < 0)
+        return fail();
+      mpv_render_context_set_update_callback(
+          m->renderer,
+          [](void* context) {
+            auto& impl = *static_cast<Impl*>(context);
+            impl.redraw = true;
+            (void)impl.wake.signal();
+          },
+          m.get()
+      );
+    }
     for (const char* name : {"time-pos", "duration", "volume"})
       mpv_observe_property(m->player, 0, name, MPV_FORMAT_DOUBLE);
     for (const char* name : {"pause", "paused-for-cache", "eof-reached", "mute"})
@@ -226,7 +240,8 @@ namespace media {
         const auto& end = *static_cast<mpv_event_end_file*>(event->data);
         m->state.loading = m->state.playing = false;
         if (end.reason == MPV_END_FILE_REASON_ERROR)
-          m->state.error = "Video unavailable or unsupported. Try Open original.";
+          m->state.error = m->audioOnly ? "This sound is unavailable or unsupported."
+                                        : "Video unavailable or unsupported. Try Open original.";
       }
       if (event->event_id != MPV_EVENT_PROPERTY_CHANGE)
         continue;

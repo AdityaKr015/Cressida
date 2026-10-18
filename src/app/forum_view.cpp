@@ -43,7 +43,7 @@ namespace app {
     if (!m_demo) {
       const auto channel = m_channelId, guild = m_guildId;
       m_forumSearchTimer.start(std::chrono::milliseconds(300), [this, channel, guild] {
-        if (forumView() && m_channelId == channel && m_guildId == guild && !m_settingsOpen)
+        if (forumView() && m_channelId == channel && m_guildId == guild && !settingsVisible())
           loadThreads();
       });
     }

@@ -55,7 +55,7 @@ namespace app {
   void ClientApplication::updateCompletion() {
     const auto field = m_inputs.find(m_focusedInput);
     if (!m_connected
-        || m_settingsOpen
+        || settingsVisible()
         || !m_dialogKind.empty()
         || m_contextOpen
         || m_presenceMenu

@@ -127,6 +127,11 @@ namespace app {
     m_profileDirty = false;
   }
   void ClientApplication::openSettings() {
+    if (m_serverSettings.open) {
+      closeServerSettings();
+      if (m_serverSettings.open)
+        return;
+    }
     closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();

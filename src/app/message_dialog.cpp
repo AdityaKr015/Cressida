@@ -51,7 +51,7 @@ namespace app {
 
   bool ClientApplication::messageEditKey(const Key& key) {
     if (!m_connected
-        || m_settingsOpen
+        || settingsVisible()
         || !m_dialogKind.empty()
         || m_contextOpen
         || m_emojiMenu

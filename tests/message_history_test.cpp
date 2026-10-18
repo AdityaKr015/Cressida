@@ -136,6 +136,7 @@ int main() {
     );
     anchor.reset();
     require(!anchor.correction({{"10", 100}}, 200), "Navigation clears prior anchors");
+
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

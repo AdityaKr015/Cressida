@@ -34,6 +34,7 @@ namespace media {
     VideoPlayer& operator=(const VideoPlayer&) = delete;
     using GetProc = void* (*)(void*, const char*);
     bool open(std::shared_ptr<VideoInput> input, GetProc getProc, bool silent = false);
+    bool openAudio(std::shared_ptr<VideoInput> input, bool silent = false);
     void close();
     bool drain();
     void update();
@@ -47,6 +48,7 @@ namespace media {
     int eventFd() const noexcept;
 
   private:
+    bool openInternal(std::shared_ptr<VideoInput> input, GetProc getProc, bool silent, bool audioOnly);
     struct Impl;
     std::unique_ptr<Impl> m;
   };

@@ -31,6 +31,7 @@
   libsecret,
   ffmpeg-headless,
   mpv-unwrapped,
+  rlottie,
 }:
 stdenv.mkDerivation {
   pname = "cressida";
@@ -84,6 +85,7 @@ stdenv.mkDerivation {
     libsecret
     ffmpeg-headless
     mpv-unwrapped
+    rlottie
     (curl.override { websocketSupport = true; })
     (callPackage ./stb.nix { })
   ];

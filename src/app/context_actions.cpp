@@ -73,7 +73,7 @@ namespace app {
       return;
     m_scrolling.stopAll();
     closeGifPicker();
-    if (!m_connected || m_settingsOpen || !m_viewImage.empty() || !m_dialogKind.empty())
+    if (!m_connected || settingsVisible() || m_serverSettings.open || !m_viewImage.empty() || !m_dialogKind.empty())
       return;
     const auto target = std::find_if(m_contextTargets.rbegin(), m_contextTargets.rend(), [&](const auto& hit) {
       return hit.contains(x, y);
@@ -90,7 +90,12 @@ namespace app {
     m_contextMessage.clear();
     m_contextUser.clear();
     m_contextChannel = m_channelId;
+    m_contextGuild.clear();
     m_contextEntries.clear();
+    if (target->action == Action::GuildMenu) {
+      openServerContext(*target, x, y);
+      return;
+    }
     if (target->action == Action::ChannelMenu || target->action == Action::ChannelListMenu) {
       openChannelContext(*target, x, y);
       return;
@@ -684,6 +689,22 @@ namespace app {
     return true;
   }
   void ClientApplication::contextAction(Action action) {
+    if (action == Action::ServerSettings || action == Action::CopyServerId || action == Action::ServerInvitePeople) {
+      const auto guild = m_contextGuild;
+      closeContext();
+      if (action == Action::ServerSettings)
+        openServerSettings(guild);
+      else if (action == Action::CopyServerId)
+        m_window.copy(guild);
+      else if (guild == m_guildId) {
+        const auto channel = std::ranges::find_if(m_channels, [&](const auto& value) {
+          return value.type != 4 && !value.isThread() && (channelPermissionsFor(value.id).value_or(0) & 1);
+        });
+        if (channel != m_channels.end())
+          openChannelInvite({.kind = api::InteractionKind::CreateInvite, .channel = channel->id, .guild = guild});
+      }
+      return;
+    }
     closeContext();
     const auto found = std::ranges::find(m_messages, m_contextMessage, &api::Message::id);
     if (found != m_messages.end()
@@ -1178,7 +1199,7 @@ namespace app {
         || m_channelId != action.channel
         || m_contextOpen
         || !m_dialogKind.empty()
-        || m_settingsOpen
+        || settingsVisible()
         || !m_viewImage.empty())
       return;
     const auto key = interactionKey(action);
@@ -1204,7 +1225,7 @@ namespace app {
   void ClientApplication::hoverReaction(const api::Message& message, const api::Reaction& reaction, const Hit& chip) {
     if (m_contextOpen
         || !m_dialogKind.empty()
-        || m_settingsOpen
+        || settingsVisible()
         || !m_viewImage.empty()
         || chip.y < 114
         || chip.y + chip.height > m_composerTop

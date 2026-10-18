@@ -8,7 +8,7 @@ with tempfile.TemporaryDirectory(prefix="cressida-animation-") as directory:
     colors = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 255),
               (255, 255, 0, 255), (0, 255, 255, 255), (255, 0, 255, 255)]
     frames = b"".join(bytes(color) * (32 * 24) for color in colors)
-    for extension, codec in [("gif", "gif"), ("webp", "libwebp_anim"), ("mp4", "libx264"), ("webm", "libvpx")]:
+    for extension, codec in [("gif", "gif"), ("apng", "apng"), ("webp", "libwebp_anim"), ("mp4", "libx264"), ("webm", "libvpx")]:
         codec_options = ["-pix_fmt", "yuv420p"] if extension in ("mp4", "webm") else []
         subprocess.run([
             sys.argv[1], "-v", "error", "-nostdin", "-f", "rawvideo", "-pixel_format", "rgba",
@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix="cressida-animation-") as directory:
     # Portraits and non-vector-aligned rows exercise conversion buffer boundaries.
     # Include native odd widths and downscaling that produces an odd output width.
     for width, height in [(10, 2), (26, 2), (18, 30), (34, 50), (17, 23), (31, 47), (174, 512)]:
-        for extension, codec in [("gif", "gif"), ("webp", "libwebp_anim"), ("mp4", "libx264"), ("webm", "libvpx")]:
+        for extension, codec in [("gif", "gif"), ("apng", "apng"), ("webp", "libwebp_anim"), ("mp4", "libx264"), ("webm", "libvpx")]:
             codec_options = ["-pix_fmt", "yuv444p" if width % 2 or height % 2 else "yuv420p"] if extension == "mp4" else []
             if extension == "webm":
                 codec_options = ["-pix_fmt", "yuv420p"]

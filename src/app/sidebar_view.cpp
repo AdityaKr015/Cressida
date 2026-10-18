@@ -19,7 +19,7 @@ namespace app {
   }
   bool ClientApplication::sidebarResizeAvailable() const {
     return m_connected
-        && !m_settingsOpen
+        && !settingsVisible()
         && m_dialogKind.empty()
         && !m_contextOpen
         && m_viewImage.empty()

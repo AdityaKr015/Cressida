@@ -74,7 +74,10 @@ namespace app {
     label(root, x + 10, y + 8, width - 20, m_tooltip, 12, theme::foreground, FontWeight::Normal, 0);
   }
   ClientApplication::~ClientApplication() {
+    closeSelectDropdown();
+    m_filePicker.cancel();
     closeVideo();
+    stopServerSound();
     m_animationTimer.stop();
     m_gifSearchTimer.stop();
     m_reactorHoverTimer.stop();
@@ -119,7 +122,7 @@ namespace app {
       });
     }
     for (const auto& [id, input] : m_inputs)
-      if (input->parent())
+      if (input->parent() && !id.starts_with("server-settings:picker:"))
         m_detachedInputs[id] = input->parent()->removeChild(input);
     for (const auto& [id, control] : m_widgets)
       if (control->parent())
@@ -132,7 +135,11 @@ namespace app {
   }
   void ClientApplication::focusControl(const std::string& id) {
     auto found = m_inputs.find(id);
-    if (found != m_inputs.end() && found->second->parent()) {
+    bool mounted = false;
+    if (found != m_inputs.end())
+      for (const auto* node = static_cast<Node*>(found->second); node; node = node->parent())
+        mounted |= node == m_scene.get();
+    if (mounted) {
       m_focusedInput = id;
       m_controlInput.setFocus(found->second->inputArea());
     }
@@ -168,7 +175,11 @@ namespace app {
     m_controlInput.setSceneRoot(m_scene.get());
     if (!m_focusedInput.empty()) {
       const auto input = m_inputs.find(m_focusedInput);
-      if (input != m_inputs.end() && input->second->parent())
+      bool mounted = false;
+      if (input != m_inputs.end())
+        for (const auto* node = static_cast<Node*>(input->second); node; node = node->parent())
+          mounted |= node == m_scene.get();
+      if (mounted)
         focusControl(m_focusedInput);
       else {
         m_controlInput.setFocus(nullptr);
@@ -179,9 +190,14 @@ namespace app {
   }
   void ClientApplication::pasteControl(const std::string& id, std::string text) {
     auto input = m_inputs.find(id);
-    if (input == m_inputs.end() || !input->second->parent() || !g_utf8_validate(text.data(), text.size(), nullptr))
+    bool mounted = false;
+    if (input != m_inputs.end())
+      for (const auto* node = static_cast<Node*>(input->second); node; node = node->parent())
+        mounted |= node == m_scene.get();
+    if (!mounted || !g_utf8_validate(text.data(), text.size(), nullptr))
       return;
-    const bool multiline = id == "composer"
+    const bool multiline = m_multilineInputs.contains(id)
+        || id == "composer"
         || id == "forum-body"
         || id == "channel-topic"
         || id == "settings:bio"
@@ -222,6 +238,7 @@ namespace app {
         if (((modifiers & KeyMod::Ctrl) && (key == XKB_KEY_v || key == XKB_KEY_V))
             || ((modifiers & KeyMod::Shift) && key == XKB_KEY_Insert)) {
           m_pasteInput = id;
+          m_pasteServerScope = serverSettingsScope();
           m_pasteDialogGeneration = m_dialogGeneration;
           m_pasteMessageEditGeneration = m_messageEdit ? m_messageEdit->generation : 0;
           m_pasteConnected = m_connected;
@@ -349,6 +366,10 @@ namespace app {
       node = std::move(field);
     }
     auto& input = *static_cast<Input*>(node.get());
+    if (multiline)
+      m_multilineInputs.insert(id);
+    else
+      m_multilineInputs.erase(id);
     input.setMultiline(multiline);
     input.setSubmitOnEnter(id == "composer" || id == "dialog" || id == "message-edit");
     if (input.value() != value)
@@ -357,6 +378,7 @@ namespace app {
     input.setFrameVisible(id != "composer");
     input.setEnabled(
         (m_dialogKind.empty() || id == "dialog")
+        && (!m_serverSettings.open || id.starts_with("server-settings:"))
         && (id == "dialog"             ? !m_dialogPending
                 : id == "message-edit" ? m_messageEdit && !m_messageEdit->request
                 : id == "token"        ? !m_connecting

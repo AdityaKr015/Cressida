@@ -80,6 +80,7 @@ control_source_paths = [
   'ui/controls/slider.cpp',
   'ui/controls/range_slider.cpp',
   'ui/controls/segmented.cpp',
+  'ui/controls/select.cpp',
   'ui/controls/stepper.cpp',
   'ui/controls/separator.cpp',
   'ui/controls/spacer.cpp',

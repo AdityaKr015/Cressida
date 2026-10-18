@@ -139,7 +139,7 @@ namespace app {
             state.status = event.error;
           else if (state.status == "Sending…")
             state.status.clear();
-          if (event.modal && event.modal->channel == m_channelId && !m_settingsOpen) {
+          if (event.modal && event.modal->channel == m_channelId && !settingsVisible()) {
             const auto source = std::ranges::find(m_messages, key.substr(0, key.find(':')), &api::Message::id);
             if (source != m_messages.end() && source->applicationId == event.modal->application) {
               closeDialog();

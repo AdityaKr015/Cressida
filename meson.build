@@ -73,8 +73,8 @@ render_dep = declare_dependency(
   dependencies: render_deps,
 )
 
-media_deps = [dependency('libavformat'), dependency('libavcodec'), dependency('libavutil'), dependency('libswscale'), dependency('libwebpdemux')]
-media_library = static_library('cressida-media', 'src/media/animation.cpp',
+media_deps = [dependency('libavformat'), dependency('libavcodec'), dependency('libavutil'), dependency('libswscale'), dependency('libwebpdemux'), dependency('rlottie'), dependency('nlohmann_json')]
+media_library = static_library('cressida-media', 'src/media/animation.cpp', 'src/media/lottie.cpp',
   include_directories: include_directories('src'), dependencies: media_deps)
 media_dep = declare_dependency(link_with: media_library, include_directories: include_directories('src'), dependencies: media_deps)
 video_library = static_library('cressida-video', 'src/media/video_player.cpp',
@@ -101,7 +101,7 @@ credentials = static_library('credentials', 'src/auth/credentials.cpp', 'src/aut
 credential_dep = declare_dependency(link_with: credentials,
   include_directories: include_directories('src'), dependencies: credential_deps)
 backend = static_library('cressida-backend', 'src/api/models.cpp', 'src/api/client.cpp',
-  'src/api/settings.cpp', 'src/api/gifs.cpp', 'src/api/emoji.cpp', 'src/api/read_state.cpp', 'src/api/role_styles.cpp', 'src/api/profile.cpp', 'src/api/threads.cpp', 'src/api/channel_features.cpp', 'src/api/user_directory.cpp', 'src/api/actions.cpp', 'src/api/assets.cpp', 'src/api/gateway.cpp', 'src/api/uploads.cpp', 'src/api/video_source.cpp',
+  'src/api/guild_settings.cpp', 'src/api/settings.cpp', 'src/api/gifs.cpp', 'src/api/emoji.cpp', 'src/api/read_state.cpp', 'src/api/role_styles.cpp', 'src/api/profile.cpp', 'src/api/threads.cpp', 'src/api/channel_features.cpp', 'src/api/user_directory.cpp', 'src/api/actions.cpp', 'src/api/assets.cpp', 'src/api/gateway.cpp', 'src/api/uploads.cpp', 'src/api/video_source.cpp',
   include_directories: include_directories('src'),
   dependencies: backend_deps + [credential_dep, media_dep],
 )
@@ -134,7 +134,7 @@ theme_library = static_library('cressida-themes', 'src/app/theme_catalog.cpp', '
   include_directories: include_directories('src'), dependencies: theme_deps)
 theme_dep = declare_dependency(link_with: theme_library, include_directories: include_directories('src'), dependencies: theme_deps)
 client = executable('cressida',
-  'src/main.cpp', 'src/app/window.cpp', 'src/app/font_catalog.cpp', 'src/app/autocomplete.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/system_message_view.cpp', 'src/app/message_log_view.cpp', 'src/app/message_dialog.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/server_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/channel_menu.cpp', 'src/app/channel_create.cpp', 'src/app/channel_create_demo.cpp', 'src/app/channel_invite.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
+  'src/main.cpp', 'src/app/window.cpp', 'src/app/font_catalog.cpp', 'src/app/autocomplete.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/system_message_view.cpp', 'src/app/message_log_view.cpp', 'src/app/message_dialog.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/server_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/channel_menu.cpp', 'src/app/channel_create.cpp', 'src/app/channel_create_demo.cpp', 'src/app/channel_invite.cpp', 'src/app/settings_color_picker.cpp', 'src/app/server_commands_demo.cpp', 'src/app/server_commands.cpp', 'src/app/server_commands_model.cpp', 'src/app/server_management.cpp', 'src/app/server_audio.cpp', 'src/app/server_audit.cpp', 'src/app/server_audit_model.cpp', 'src/app/server_expressions.cpp', 'src/app/server_image_crop.cpp', 'src/app/server_extra_forms.cpp', 'src/app/server_settings.cpp', 'src/app/server_settings_demo.cpp', 'src/app/server_menu.cpp', 'src/app/server_upload.cpp', 'src/app/file_picker.cpp', 'src/app/select_popup.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
   dependencies: [render_dep, backend_dep, browser_dep, markdown_dep, video_dep, theme_dep],
   link_with: [message_layout, emoji_catalog],
   cpp_args: client_args,
@@ -144,7 +144,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: ['app/channel_demo.cpp', 'app/channel_menu.cpp', 'app/channel_create.cpp', 'app/channel_create_demo.cpp', 'app/channel_invite.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'api/channel_features.cpp', 'api/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'api/emoji.cpp', 'api/role_styles.cpp', 'api/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/server_view.cpp', 'app/role_view.cpp', 'app/system_message_view.cpp', 'app/message_log_view.cpp', 'app/message_dialog.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'api/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/theme_catalog.cpp', 'app/theme_runtime.cpp', 'app/font_catalog.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'api/client.cpp', 'api/models.cpp', 'api/settings.cpp', 'api/gifs.cpp', 'api/read_state.cpp', 'api/user_directory.cpp', 'api/actions.cpp', 'api/assets.cpp', 'api/gateway.cpp', 'api/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
+  exclude_files: ['app/server_commands_demo.cpp', 'app/server_commands.cpp', 'app/server_commands_model.cpp', 'app/server_image_crop.cpp', 'media/lottie.cpp', 'app/server_extra_forms.cpp', 'app/server_expressions.cpp', 'app/server_audit_model.cpp', 'app/server_audit.cpp', 'app/server_audio.cpp', 'app/server_management.cpp', 'app/settings_color_picker.cpp', 'api/guild_settings.cpp', 'app/server_settings.cpp', 'app/server_settings_demo.cpp', 'app/server_menu.cpp', 'app/server_upload.cpp', 'app/file_picker.cpp', 'app/select_popup.cpp', 'app/channel_demo.cpp', 'app/channel_menu.cpp', 'app/channel_create.cpp', 'app/channel_create_demo.cpp', 'app/channel_invite.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'api/channel_features.cpp', 'api/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'api/emoji.cpp', 'api/role_styles.cpp', 'api/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/server_view.cpp', 'app/role_view.cpp', 'app/system_message_view.cpp', 'app/message_log_view.cpp', 'app/message_dialog.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'api/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/theme_catalog.cpp', 'app/theme_runtime.cpp', 'app/font_catalog.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'api/client.cpp', 'api/models.cpp', 'api/settings.cpp', 'api/gifs.cpp', 'api/read_state.cpp', 'api/user_directory.cpp', 'api/actions.cpp', 'api/assets.cpp', 'api/gateway.cpp', 'api/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -255,3 +255,21 @@ message_mentions_test = executable('message_mentions_test', 'tests/message_menti
 test('message_mentions', message_mentions_test)
 video_test = executable('video_player_test', 'tests/video_player_test.cpp', dependencies: [video_dep, dependency('egl'), dependency('glesv2')])
 test('video_player', find_program('python3'), args: [files('tests/video_fixture.py'), find_program('ffmpeg'), video_test], timeout: 40)
+
+guild_settings_test = executable('guild_settings_test', 'tests/guild_settings_test.cpp', dependencies: backend_dep)
+test('guild_settings', guild_settings_test)
+file_picker_test = executable('file_picker_test', 'tests/file_picker_test.cpp', 'src/app/file_picker.cpp',
+  include_directories: include_directories('src'), dependencies: [render_dep, dependency('gio-2.0'), dependency('threads')])
+test('file_picker', file_picker_test, timeout: 20)
+
+server_audit_test = executable('server_audit_test', 'tests/server_audit_test.cpp', 'src/app/server_audit_model.cpp', include_directories: include_directories('src'), dependencies: dependency('nlohmann_json'))
+test('server_audit', server_audit_test)
+audio_preview_test = executable('audio_preview_test', 'tests/audio_preview_test.cpp', dependencies: video_dep)
+test('audio_preview', find_program('python3'), args: [files('tests/audio_fixture.py'), find_program('ffmpeg'), audio_preview_test], timeout: 30)
+lottie_test = executable('lottie_test', 'tests/lottie_test.cpp', dependencies: media_dep)
+test('lottie', lottie_test)
+
+server_commands_test = executable('server_commands_test', 'tests/server_commands_test.cpp', 'src/app/server_commands_model.cpp', include_directories: include_directories('src'), dependencies: dependency('nlohmann_json'))
+test('server_commands', server_commands_test)
+server_recurrence_test = executable('server_recurrence_test', 'tests/server_recurrence_test.cpp', include_directories: include_directories('src'))
+test('server_recurrence', server_recurrence_test)

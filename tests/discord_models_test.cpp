@@ -246,6 +246,22 @@ int main() {
             && api::mediaUrl("file:///tmp/image.png").empty(),
         "Automatic media requests stay on fixed credential-free Discord origins"
     );
+    require(
+        api::mediaUrl("https://cdn.discordapp.com/stickers/123.png") == "https://cdn.discordapp.com/stickers/123.png"
+            && api::mediaUrl("https://media.discordapp.net/stickers/123.gif")
+                == "https://media.discordapp.net/stickers/123.gif"
+            && api::mediaUrl("https://cdn.discordapp.com/stickers/123.json")
+                == "https://cdn.discordapp.com/stickers/123.json"
+            && api::mediaUrl("https://cdn.discordapp.com/soundboard-sounds/123")
+                == "https://cdn.discordapp.com/soundboard-sounds/123"
+            && api::mediaUrl("https://cdn.discordapp.com/new-member-actions/123/abc.png")
+                == "https://cdn.discordapp.com/new-member-actions/123/abc.png"
+            && api::mediaUrl("https://cdn.discordapp.com/resource-channels/123/a_abc.gif")
+                == "https://cdn.discordapp.com/resource-channels/123/a_abc.gif"
+            && api::mediaUrl("https://cdn.discordapp.com.attacker.test/stickers/123.png").empty()
+            && api::mediaUrl("https://media.discordapp.net@attacker.test/soundboard-sounds/123").empty(),
+        "Expression previews use documented public sticker and sound routes without widening origin checks"
+    );
     api::Upload image{"paste.png", "image/png", {1, 2, 3}};
     require(api::validUploads({image}), "Accept bounded pasted images");
     image.filename = "../secret";

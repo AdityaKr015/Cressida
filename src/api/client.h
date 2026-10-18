@@ -5,6 +5,7 @@
 #include "api/emoji.h"
 #include "api/gateway.h"
 #include "api/gifs.h"
+#include "api/guild_settings.h"
 #include "api/history.h"
 #include "api/models.h"
 #include "api/profile.h"
@@ -69,7 +70,8 @@ namespace api {
     ChannelPage,
     ComponentResult,
     MemberSearch,
-    GuildMetadata
+    GuildMetadata,
+    GuildSettings
   };
 
   struct Event {
@@ -119,6 +121,12 @@ namespace api {
     std::vector<Gif> gifs;
     std::vector<Emoji> emojis;
     std::optional<EmojiPreferences> emojiPreferences;
+    std::optional<GuildSettingsRequest> guildSettingsRequest;
+    nlohmann::json guildSettings;
+    bool guildSettingsMore = false;
+    std::string guildSettingsCursor;
+    std::uint64_t guildSettingsMfaChallenge = 0;
+    std::vector<std::string> guildSettingsMfaMethods;
   };
 
   // One cancellable network worker. No rendering or window-system dependency.
@@ -141,6 +149,7 @@ namespace api {
     bool threads(ThreadQuery query);
     bool channelDetails(const std::string& channel);
     bool channelPage(ChannelPageQuery query);
+    bool guildSettings(GuildSettingsRequest request);
     bool acknowledge(const std::string& channel, const std::string& message);
     bool messages(const std::string& channelId, HistoryQuery query = {});
     bool send(
@@ -182,6 +191,7 @@ namespace api {
       std::optional<HistoryQuery> history;
       std::optional<ThreadQuery> threadQuery;
       std::optional<ChannelPageQuery> channelQuery;
+      std::optional<GuildSettingsRequest> guildSettings;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);

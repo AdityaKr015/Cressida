@@ -6,11 +6,16 @@
 #include "app/channel_invite.h"
 #include "app/channel_menu.h"
 #include "app/emoji_catalog.h"
+#include "app/file_picker.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
 #include "app/message_log.h"
 #include "app/role_motion.h"
 #include "app/scroll_motion.h"
+#include "app/server_audit.h"
+#include "app/server_commands.h"
+#include "app/server_settings.h"
+#include "app/server_settings_form.h"
 #include "app/session_store.h"
 #include "app/text_edit.h"
 #include "app/theme_runtime.h"
@@ -29,6 +34,7 @@
 #include "render/scene/node.h"
 #include "ui/controls/context_menu.h"
 #include "ui/controls/input.h"
+#include "ui/controls/select_popup_context.h"
 
 #include <EGL/egl.h>
 #include <chrono>
@@ -37,7 +43,7 @@
 
 namespace app {
 
-  class ClientApplication {
+  class ClientApplication : private SelectPopupContext {
   public:
     ClientApplication(bool demo, std::string token);
     ~ClientApplication();
@@ -46,6 +52,12 @@ namespace app {
   private:
     enum class Action {
       Settings,
+      GuildMenu,
+      CopyServerId,
+      ServerInvitePeople,
+      ServerSettings,
+      CloseServerSettings,
+      ServerSettingsAction,
       CloseSettings,
       SettingsPage,
       AccountPreference,
@@ -409,16 +421,75 @@ namespace app {
     void drawGuildTooltip(Node& root, float w, float h);
     void demoGuildHoverStep();
     void drawSettings(Node& root, float w, float h);
+    void openServerSettings(const std::string& guild = {});
+    void closeServerSettings(bool discard = false);
+    bool serverSettingsAction(const Hit& hit);
+    void drawServerSettings(Node& root, float width, float height);
+    void serverSettingsResult(const api::Event& event);
+    void serverSettingsRoleUpdate(const api::RoleUpdates& updates);
+    bool serverAuditAction(const std::string& action);
+    void loadServerAudit(bool more = false);
+    bool serverAuditResult(const api::Event& event);
+    float drawServerAudit(Node& parent, float width);
+    void resetServerAudit();
+    void prepareServerAuditDemo();
+    bool loadServerCommands(bool more = false);
+    bool serverCommandsResult(const api::Event& event);
+    bool serverCommandsAction(const std::string& action);
+    bool drawServerCommands(ServerSettingsForm& form);
+    void resetServerCommands();
+    void prepareServerCommandsDemo();
+    bool drawServerExtraForms(ServerSettingsForm& form, std::string_view part = {});
+    bool serverExtraAction(const std::string& action);
+    bool serverExtraResult(const api::Event& event);
+    void beginServerImageCrop(
+        const std::string& field, const std::string& mime, std::vector<std::uint8_t> bytes, DecodedRasterImage raster
+    );
+    bool drawServerImageCrop(ServerSettingsForm& form);
+    bool serverImageCropAction(const std::string& action);
+    void prepareServerManagementDemo();
+    void demoServerManagementStep();
+    bool drawServerManagementForms(ServerSettingsForm& form);
+    bool drawServerExpressions(ServerSettingsForm& form);
+    bool serverManagementAction(const std::string& action);
+    bool loadServerManagement(bool more = false);
+    bool serverManagementResult(const api::Event& event);
+    void playServerSound(const std::string& sound);
+    void stopServerSound();
+    void prepareServerSettingsDemo();
+    void demoServerSettingsStep();
+    void demoServerExpressionsStep();
+    void demoServerCommandsStep();
+    void selectServerSettingsPage(const std::string& page, bool discard = false);
+    void loadServerSettings(bool more = false);
+    bool requestServerSettings(api::GuildSettingsRequest request);
+    void setServerSettingsValue(const std::string& field, nlohmann::json value);
+    api::GuildSettingsAccess serverSettingsAccess(const std::string& resource = {}) const;
+    void serverSettingsUpload(const std::string& field, const std::string& mime, std::vector<std::uint8_t> bytes);
+    void startServerSettingsUpload(const std::string& field);
+    void drainServerSettingsUploads();
+    void stageServerEmojiUploads(std::vector<PickedFile> files);
+    std::string serverSettingsScope() const;
+    bool openServerContext(const Hit& target, float x, float y);
     Input& inputControl(
         Node& parent, float x, float y, float width, float height, const std::string& id, const std::string& value,
         const std::string& placeholder = {}, bool multiline = false, bool password = false
     );
     void beginControls();
     void finishControls();
+    void openSelectDropdown(const DropdownRequest&, DropdownCallbacks) override;
+    void closeSelectDropdown() override;
+    bool isSelectDropdownOpen() const override { return m_selectRequest.has_value(); }
+    void drawSelectDropdown(Node&, float, float);
+    bool selectDropdownClick(float, float);
+    bool selectDropdownKey(const Key&);
+    void selectDropdownChoose(std::size_t);
+    void selectDropdownReveal();
     void focusControl(const std::string& id);
     void pasteControl(const std::string& id, std::string text);
     void drawPresenceMenu(Node& root, float h);
     void openSettings();
+    bool settingsVisible() const { return m_settingsOpen || m_serverSettings.open; }
     void selectSettingsPage(const std::string& page);
     void clearAccountSettings();
     void resetProfile();
@@ -483,6 +554,9 @@ namespace app {
     api::Client m_client;
     api::Assets m_assets;
     media::VideoPlayer m_video;
+    media::VideoPlayer m_soundPreview;
+    std::string m_soundPreviewSource;
+    bool m_soundPlayRequested = false;
     EGLContext m_videoContext = EGL_NO_CONTEXT;
     GlesFramebuffer m_videoTarget;
     std::string m_videoSource;
@@ -495,6 +569,21 @@ namespace app {
     auth::BrowserLogin m_login;
     SessionStore m_sessionStore;
     ThemeRuntime m_themes;
+    FilePicker m_filePicker;
+    ServerSettingsState m_serverSettings;
+    ServerAuditState m_serverAudit;
+    ServerCommandsState m_serverCommands;
+    std::uint64_t m_serverManagementSession = 0;
+    std::map<std::string, nlohmann::json> m_serverManagementJobs;
+    std::optional<DropdownRequest> m_selectRequest;
+    DropdownCallbacks m_selectCallbacks;
+    std::string m_selectOwner;
+    ContextMenuControl* m_selectControl = nullptr;
+    Hit m_selectBounds{};
+    float m_selectScroll = 0, m_selectContent = 0;
+    bool m_selectDirty = false;
+    std::string m_serverUploadField, m_serverUploadGuild, m_serverUploadPage, m_serverUploadResource;
+    std::uint64_t m_serverUploadSerial = 0, m_serverUploadGeneration = 0, m_serverUploadSession = 0;
     ThemeSnapshot m_themeSnapshot;
     ChannelListPreferences m_channelListPreferences;
     std::vector<ChannelMenuCommand> m_channelMenuCommands;
@@ -534,12 +623,13 @@ namespace app {
     std::set<std::string> m_loadingSettingsLists;
     std::unique_ptr<Node> m_scene;
     std::map<std::string, Input*> m_inputs;
+    std::set<std::string> m_multilineInputs;
     std::map<std::string, Node*> m_widgets;
     std::map<std::string, std::unique_ptr<Node>> m_detachedInputs;
     InputDispatcher m_controlInput;
     std::uint64_t m_controlFontGeneration = 0;
     std::unique_ptr<TextClipboard> m_controlClipboard;
-    std::string m_focusedInput, m_pasteInput;
+    std::string m_focusedInput, m_pasteInput, m_pasteServerScope;
     bool m_buildingScene = false, m_emojiMenu = false;
     EmojiCatalog m_emojiCatalog;
     api::EmojiPreferences m_emojiPreferences;
@@ -575,6 +665,7 @@ namespace app {
     float m_contextX = 0, m_contextY = 0;
     Hit m_contextBounds{}, m_dialogBounds{};
     std::string m_contextMessage, m_contextUser, m_contextChannel;
+    std::string m_contextGuild;
     std::string m_dialogKind, m_dialogTitle, m_dialogText, m_dialogError;
     std::optional<api::Interaction> m_dialogAction;
     struct MessageEditState {

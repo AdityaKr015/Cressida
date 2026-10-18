@@ -19,6 +19,7 @@ namespace api {
     struct Failure {
       std::string message;
       bool unauthorized = false;
+      Json mfa;
     };
     struct Transfer {
       std::string body;
@@ -46,12 +47,42 @@ namespace api {
       return transfer.stop.stop_requested() || transfer.session->load() != transfer.expected;
     }
 
+    MessageMime makeStickerMime(CURL* curl, const Json& values) {
+      MessageMime mime(curl_mime_init(curl), curl_mime_free);
+      if (!mime)
+        throw std::runtime_error("Could not prepare the sticker upload");
+      for (const auto* name : {"name", "description", "tags"}) {
+        if (!values.contains(name) || values[name].is_null())
+          continue;
+        auto* part = curl_mime_addpart(mime.get());
+        const auto& field = values[name].get_ref<const std::string&>();
+        if (!part
+            || curl_mime_name(part, name) != CURLE_OK
+            || curl_mime_data(part, field.data(), field.size()) != CURLE_OK)
+          throw std::runtime_error("Could not prepare the sticker upload");
+      }
+      auto* part = curl_mime_addpart(mime.get());
+      const auto& bytes = values["file"].get_binary();
+      if (!part
+          || curl_mime_name(part, "file") != CURLE_OK
+          || curl_mime_filename(part, values["filename"].get_ref<const std::string&>().c_str()) != CURLE_OK
+          || curl_mime_type(part, values["content_type"].get_ref<const std::string&>().c_str()) != CURLE_OK
+          || curl_mime_data(part, reinterpret_cast<const char*>(bytes.data()), bytes.size()) != CURLE_OK)
+        throw std::runtime_error("Could not prepare the sticker upload");
+      return mime;
+    }
+
     // All requests are HTTPS to a fixed origin. Never log authorization or response bodies.
     std::expected<Json, Failure> request(
         const std::string& token, const std::string& path, const Json* payload, Transfer& transfer,
         std::chrono::steady_clock::time_point& cooldown, const std::vector<Upload>& uploads = {},
-        const char* method = nullptr
+        const char* method = nullptr, const GuildSettingsRequest* serverSettings = nullptr,
+        const std::string& mfaAuthorization = {}
     ) {
+      const bool stickerUpload = serverSettings
+          && serverSettings->section == GuildSettingsSection::Stickers
+          && serverSettings->verb == GuildSettingsVerb::Create
+          && path.ends_with("/stickers");
       for (int attempt = 0; attempt < 3; ++attempt) {
         while (std::chrono::steady_clock::now() < cooldown) {
           if (progress(&transfer, 0, 0, 0, 0))
@@ -74,8 +105,9 @@ namespace api {
         } curl{curlHandle};
         if (!curl)
           return std::unexpected(Failure{"Could not initialize the connection"});
-        curl_slist* raw =
-            curl_slist_append(nullptr, uploads.empty() ? "Content-Type: application/json" : "Accept: application/json");
+        curl_slist* raw = curl_slist_append(
+            nullptr, uploads.empty() && !stickerUpload ? "Content-Type: application/json" : "Accept: application/json"
+        );
         if (!raw)
           return std::unexpected(Failure{"Could not allocate request headers"});
         auto* extended = token.empty() ? raw : curl_slist_append(raw, ("Authorization: " + token).c_str());
@@ -84,8 +116,31 @@ namespace api {
           return std::unexpected(Failure{"Could not allocate request headers"});
         }
         std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(extended, curl_slist_free_all);
+        if (!mfaAuthorization.empty()) {
+          auto* next = curl_slist_append(headers.get(), ("X-Discord-MFA-Authorization: " + mfaAuthorization).c_str());
+          if (!next)
+            return std::unexpected(Failure{"Could not allocate verification headers"});
+          (void)headers.release();
+          headers.reset(next);
+        }
+        if (serverSettings && !serverSettings->reason.empty()) {
+          std::unique_ptr<char, decltype(&curl_free)> escaped(
+              curl_easy_escape(
+                  curl.get(), serverSettings->reason.c_str(), static_cast<int>(serverSettings->reason.size())
+              ),
+              curl_free
+          );
+          if (!escaped)
+            return std::unexpected(Failure{"Could not encode the audit log reason"});
+          auto* next = curl_slist_append(headers.get(), (std::string("X-Audit-Log-Reason: ") + escaped.get()).c_str());
+          if (!next)
+            return std::unexpected(Failure{"Could not allocate request headers"});
+          (void)headers.release();
+          headers.reset(next);
+        }
         const std::string url = "https://discord.com/api/v9" + path;
-        const std::string body = payload ? payload->dump() : std::string{};
+        const bool sticker = stickerUpload;
+        const std::string body = payload && !sticker ? payload->dump() : std::string{};
         transfer.body.clear();
         curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
@@ -104,7 +159,10 @@ namespace api {
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &transfer);
         std::unique_ptr<curl_mime, decltype(&curl_mime_free)> mime(nullptr, curl_mime_free);
-        if (!uploads.empty()) {
+        if (sticker) {
+          mime = makeStickerMime(curl.get(), serverSettings->values);
+          curl_easy_setopt(curl.get(), CURLOPT_MIMEPOST, mime.get());
+        } else if (!uploads.empty()) {
           mime = makeMessageMime(curl.get(), body, uploads);
           curl_easy_setopt(curl.get(), CURLOPT_MIMEPOST, mime.get());
         } else if (payload) {
@@ -117,7 +175,7 @@ namespace api {
         if (code != CURLE_OK)
           return std::unexpected(
               Failure{
-                  payload && !token.empty()
+                  !token.empty() && (payload || (method && std::string_view(method) != "GET"))
                       ? (method ? "The update could not be confirmed. Check your settings before retrying."
                                 : "Message delivery could not be confirmed. Check the conversation before retrying.")
                       : "Could not reach Discord. Try again."
@@ -140,6 +198,15 @@ namespace api {
             return std::unexpected(Failure{"Discord is rate limiting this connection. Try again later."});
           continue;
         }
+        if (serverSettings
+            && !json.is_discarded()
+            && json.is_object()
+            && json.contains("code")
+            && json["code"].is_number_integer()
+            && (json["code"] == 60003 || json["code"] == 60008 || json["code"] == 60009))
+          return std::unexpected(
+              Failure{"Discord requires two-factor verification for this action.", false, json.value("mfa", Json{})}
+          );
         if (status == 401 && !token.empty())
           return std::unexpected(Failure{"The account token was rejected. Reconnect with a valid token.", true});
         if ((status < 200 || status >= 300) && token.empty())
@@ -300,10 +367,13 @@ namespace api {
     }
     if (command.operation == Operation::GifSearch)
       std::erase_if(m_commands, [](const auto& pending) { return pending.operation == Operation::GifSearch; });
+    // Every accepted settings request receives its own scoped completion. The UI
+    // rejects stale search identities without leaving dropped requests pending.
     if (command.operation != Operation::Send
         && command.operation != Operation::Interaction
         && command.operation != Operation::Threads
         && command.operation != Operation::ChannelPage
+        && command.operation != Operation::GuildSettings
         && command.operation != Operation::SaveGifFavorite
         && command.operation != Operation::SaveEmojiFavorite
         && std::ranges::any_of(m_commands, [&](const auto& pending) {
@@ -326,6 +396,13 @@ namespace api {
       return false;
     Command command{Operation::ChannelPage, m_session, query.channel, {}};
     command.channelQuery = std::move(query);
+    return enqueue(std::move(command));
+  }
+  bool Client::guildSettings(GuildSettingsRequest requestData) {
+    if (!guildSettingsHttpRequest(requestData))
+      return false;
+    Command command{Operation::GuildSettings, m_session, requestData.guildId, {}};
+    command.guildSettings = std::move(requestData);
     return enqueue(std::move(command));
   }
   bool Client::threads(ThreadQuery query) {
@@ -468,6 +545,52 @@ namespace api {
             ? at->get<std::string>()
             : "";
         m_gatewaySessionGeneration = session;
+      }
+      if (type == "GUILD_BULK_BAN_UPDATE" || type == "GUILD_PRUNE_UPDATE") {
+        const auto guild = data.value("guild_id", std::string{});
+        const bool bans = type == "GUILD_BULK_BAN_UPDATE";
+        const auto field = bans ? "bulk_ban" : "prune";
+        if (validSnowflake(guild) && data.contains(field) && data[field].is_object()) {
+          const auto& payload = data[field];
+          Json result = Json::object();
+          if (bans) {
+            for (const auto key : {"banned_users", "failed_users"}) {
+              if (!payload.contains(key) || !payload[key].is_array() || payload[key].size() > 2000)
+                throw std::runtime_error("Invalid bulk moderation completion");
+              result[key] = Json::array();
+              for (const auto& user : payload[key]) {
+                if (!user.is_string() || !validSnowflake(user.get<std::string>()))
+                  throw std::runtime_error("Invalid bulk moderation member");
+                result[key].push_back(user);
+              }
+            }
+            result["complete"] = true;
+          } else {
+            for (const auto key : {"is_preview", "is_finished"}) {
+              if (payload.contains(key) && payload[key].is_boolean())
+                result[key] = payload[key];
+            }
+            for (const auto key : {"days", "prune_count"}) {
+              if (payload.contains(key) && payload[key].is_number_integer() && payload[key].get<std::int64_t>() >= 0)
+                result[key] = payload[key];
+            }
+            if (payload.contains("include_roles")
+                && payload["include_roles"].is_array()
+                && payload["include_roles"].size() <= 100) {
+              result["include_roles"] = Json::array();
+              for (const auto& role : payload["include_roles"])
+                if (role.is_string() && validSnowflake(role.get<std::string>()))
+                  result["include_roles"].push_back(role);
+            }
+            result["complete"] = result.value("is_finished", false);
+          }
+          Event event{.operation = Operation::GuildSettings, .session = session, .resource = guild, .live = true};
+          event.guildSettingsRequest = GuildSettingsRequest{
+              .section = bans ? GuildSettingsSection::BulkBans : GuildSettingsSection::Prune, .guildId = guild
+          };
+          event.guildSettings = std::move(result);
+          publish(std::move(event));
+        }
       }
       if (type == "INTERACTION_SUCCESS" || type == "INTERACTION_FAILURE" || type == "INTERACTION_MODAL_CREATE") {
         Event result{.operation = Operation::ComponentResult, .session = session};
@@ -772,7 +895,16 @@ namespace api {
 
   void Client::run(std::stop_token stop) {
     std::string token;
+    std::string authenticatedUser;
     std::uint64_t activeSession = 0;
+    struct PendingGuildMfa {
+      GuildSettingsRequest request;
+      std::string ticket;
+      std::vector<std::string> methods;
+      std::chrono::steady_clock::time_point expires;
+    };
+    std::map<std::uint64_t, PendingGuildMfa> guildMfa;
+    std::uint64_t nextGuildMfa = 0;
     auto cooldown = std::chrono::steady_clock::now();
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> connection(curl_easy_init(), curl_easy_cleanup);
     while (!stop.stop_requested()) {
@@ -784,6 +916,8 @@ namespace api {
           break;
         if (activeSession != m_session) {
           token.clear();
+          authenticatedUser.clear();
+          guildMfa.clear();
           activeSession = m_session;
         }
         if (m_commands.empty())
@@ -798,6 +932,9 @@ namespace api {
       event.history = command.history;
       event.threadQuery = command.threadQuery;
       event.channelQuery = command.channelQuery;
+      event.guildSettingsRequest = command.guildSettings;
+      if (event.guildSettingsRequest)
+        event.guildSettingsRequest->mfaCode.clear();
       if (command.operation == Operation::Acknowledge)
         event.messageId = command.content;
       Transfer transfer{{}, stop, &m_session, command.session, connection.get()};
@@ -829,7 +966,180 @@ namespace api {
         Json body;
         const char* method = nullptr;
         std::optional<InteractionRequest> interaction;
+        std::string guildMfaAuthorization;
+        Json accessGuildSnapshot;
+        std::optional<GuildAccessPlan> accessPlan;
+        bool accessFeatureMutation = false;
+        std::optional<std::uint64_t> accessPendingCount;
+        std::string accessPendingError;
         switch (command.operation) {
+        case Operation::GuildSettings: {
+          if (command.guildSettings->mfaChallenge) {
+            std::erase_if(guildMfa, [](const auto& item) {
+              return item.second.expires <= std::chrono::steady_clock::now();
+            });
+            auto pending = guildMfa.find(command.guildSettings->mfaChallenge);
+            auto original = *command.guildSettings;
+            original.mfaChallenge = 0;
+            original.mfaCode.clear();
+            original.mfaType.clear();
+            if (pending != guildMfa.end())
+              original.request = pending->second.request.request;
+            if (pending == guildMfa.end()
+                || original != pending->second.request
+                || std::ranges::find(pending->second.methods, command.guildSettings->mfaType)
+                    == pending->second.methods.end()
+                || command.guildSettings->mfaCode.empty()) {
+              event.error = "Verification expired or this action changed. Submit the action again.";
+              break;
+            }
+            event.guildSettingsMfaChallenge = pending->first;
+            event.guildSettingsMfaMethods = pending->second.methods;
+            const Json verification{
+                {"ticket", pending->second.ticket},
+                {"mfa_type", command.guildSettings->mfaType},
+                {"data", command.guildSettings->mfaCode}
+            };
+            auto verified =
+                request(token, "/mfa/finish", &verification, transfer, cooldown, {}, "POST", &*command.guildSettings);
+            std::fill(command.guildSettings->mfaCode.begin(), command.guildSettings->mfaCode.end(), '\0');
+            command.guildSettings->mfaCode.clear();
+            if (!verified) {
+              event.error = verified.error().unauthorized
+                  ? verified.error().message
+                  : "Discord could not verify that code or password. Try again.";
+              event.unauthorized = verified.error().unauthorized;
+              break;
+            }
+            if (!verified->is_object() || !verified->contains("token") || !(*verified)["token"].is_string())
+              throw std::runtime_error("Invalid verification response");
+            guildMfaAuthorization = (*verified)["token"].get<std::string>();
+            if (guildMfaAuthorization.empty()
+                || guildMfaAuthorization.size() > 8192
+                || std::ranges::any_of(guildMfaAuthorization, [](unsigned char c) { return c <= 32 || c == 127; }))
+              throw std::runtime_error("Invalid verification token");
+            guildMfa.erase(pending);
+            event.guildSettingsMfaChallenge = 0;
+            event.guildSettingsMfaMethods.clear();
+          }
+          auto routed = *command.guildSettings;
+          if (routed.section == GuildSettingsSection::Members
+              && routed.verb == GuildSettingsVerb::Update
+              && routed.resourceId == authenticatedUser
+              && routed.values.is_object()
+              && routed.values.size() == 1
+              && routed.values.contains("nick"))
+            routed.resourceId = "@me";
+          const auto settings = guildSettingsHttpRequest(routed);
+          if (!settings)
+            throw std::runtime_error("Invalid server settings request");
+          path = settings->path;
+          body = settings->body;
+          if (command.guildSettings->section == GuildSettingsSection::Discovery
+              && command.guildSettings->verb == GuildSettingsVerb::Update) {
+            auto snapshot = request(token, settings->path, nullptr, transfer, cooldown);
+            if (!snapshot) {
+              event.error = snapshot.error().message;
+              event.unauthorized = snapshot.error().unauthorized;
+              break;
+            }
+            body = guildDiscoveryPatch(*snapshot, command.guildSettings->values);
+          }
+          if (command.guildSettings->section == GuildSettingsSection::Access) {
+            auto guild = request(
+                token, "/guilds/" + command.guildSettings->guildId + "?with_counts=true", nullptr, transfer, cooldown
+            );
+            if (!guild) {
+              event.error = guild.error().message;
+              event.unauthorized = guild.error().unauthorized;
+              break;
+            }
+            accessGuildSnapshot = std::move(*guild);
+            const bool applicationsActive = guildAccessMode(accessGuildSnapshot) == "apply";
+            if (applicationsActive) {
+              auto applications = request(
+                  token, "/guilds/" + command.guildSettings->guildId + "/requests?status=SUBMITTED&limit=1", nullptr,
+                  transfer, cooldown
+              );
+              if (applications
+                  && applications->is_object()
+                  && applications->contains("total")
+                  && (*applications)["total"].is_number_integer()
+                  && (*applications)["total"].get<std::int64_t>() >= 0)
+                accessPendingCount = (*applications)["total"].get<std::uint64_t>();
+              else if (!applications) {
+                accessPendingError = applications.error().message;
+                if (applications.error().unauthorized) {
+                  event.error = accessPendingError;
+                  event.unauthorized = true;
+                  break;
+                }
+              } else
+                accessPendingError = "Could not verify the pending application count.";
+              if (command.guildSettings->verb == GuildSettingsVerb::Update
+                  && command.guildSettings->values["mode"] != "apply") {
+                if (!accessPendingCount)
+                  throw std::runtime_error(
+                      "Review access to pending applications before changing this access mode. " + accessPendingError
+                  );
+                if (*accessPendingCount > 0
+                    && (!command.guildSettings->values.contains("bulk_action")
+                        || command.guildSettings->values["bulk_action"].is_null()))
+                  throw std::runtime_error(
+                      "Choose whether to approve or reject pending applications before changing access mode."
+                  );
+                if (*accessPendingCount > 200
+                    && command.guildSettings->values.contains("bulk_action")
+                    && command.guildSettings->values["bulk_action"] == "APPROVED")
+                  throw std::runtime_error(
+                      "More than 200 pending applications must be reviewed individually or explicitly rejected."
+                  );
+              }
+            }
+            if (command.guildSettings->verb == GuildSettingsVerb::Update) {
+              auto screening = request(token, settings->path, nullptr, transfer, cooldown);
+              if (!screening) {
+                event.error = screening.error().message;
+                event.unauthorized = screening.error().unauthorized;
+                break;
+              }
+              accessPlan = guildAccessPlan(accessGuildSnapshot, *screening, *command.guildSettings);
+              if (!accessPlan->guildPatch.empty()) {
+                path = "/guilds/" + command.guildSettings->guildId;
+                body = accessPlan->guildPatch;
+                accessFeatureMutation = true;
+              } else
+                body = accessPlan->verificationPatch;
+            }
+          }
+          if (command.guildSettings->section == GuildSettingsSection::ServerGuide
+              && command.guildSettings->verb == GuildSettingsVerb::Update) {
+            auto snapshot = request(token, settings->path, nullptr, transfer, cooldown);
+            if (!snapshot) {
+              event.error = snapshot.error().message;
+              event.unauthorized = snapshot.error().unauthorized;
+              break;
+            }
+            body = guildGuidePatch(*snapshot, command.guildSettings->values);
+            body["guild_id"] = command.guildSettings->guildId;
+          }
+          if (command.guildSettings->section == GuildSettingsSection::JoinInterview) {
+            auto application =
+                request(token, "/join-requests/" + command.guildSettings->resourceId, nullptr, transfer, cooldown);
+            if (!application) {
+              event.error = application.error().message;
+              event.unauthorized = application.error().unauthorized;
+              break;
+            }
+            if (!application->is_object()
+                || application->value("guild_id", std::string{}) != command.guildSettings->guildId)
+              throw std::runtime_error("The application does not belong to this server.");
+          }
+          // Retain the storage for CURLOPT_CUSTOMREQUEST until request() returns.
+          command.content = accessFeatureMutation ? "PATCH" : settings->method;
+          method = command.content.c_str();
+          break;
+        }
         case Operation::GuildEmojis:
           path = "/guilds/" + command.resource + "/emojis";
           break;
@@ -1065,15 +1375,87 @@ namespace api {
         auto response = event.error.empty()
             ? request(
                   command.operation == Operation::GifSearch ? std::string{} : token, path,
-                  (interaction ? !body.is_null() : command.operation == Operation::Send || method) ? &body : nullptr,
-                  transfer, cooldown, command.uploads, method
+                  ((interaction || command.operation == Operation::GuildSettings)
+                       ? !body.is_null()
+                       : command.operation == Operation::Send || method)
+                      ? &body
+                      : nullptr,
+                  transfer, cooldown, command.uploads, method,
+                  command.guildSettings ? &*command.guildSettings : nullptr, guildMfaAuthorization
               )
             : std::expected<Json, Failure>(std::unexpected(Failure{event.error, event.unauthorized}));
+        if (response && accessFeatureMutation) {
+          response = request(
+              token, "/guilds/" + command.guildSettings->guildId + "/member-verification",
+              &accessPlan->verificationPatch, transfer, cooldown, {}, "PATCH", &*command.guildSettings,
+              guildMfaAuthorization
+          );
+          if (!response)
+            response.error().message =
+                "Server access changed, but the membership form could not be saved. " + response.error().message;
+        }
+        if (response && command.guildSettings && command.guildSettings->section == GuildSettingsSection::Access) {
+          if (accessPlan && accessFeatureMutation)
+            accessGuildSnapshot.update(accessPlan->guildPatch);
+          const auto mode = accessPlan ? accessPlan->mode : guildAccessMode(accessGuildSnapshot);
+          *response = Json{
+              {"guild", std::move(accessGuildSnapshot)},
+              {"screening", std::move(*response)},
+              {"mode", mode},
+              {"pending_application_count", accessPendingCount ? Json(*accessPendingCount) : Json{}},
+              {"pending_application_error", accessPendingError}
+          };
+        }
         if (!response) {
           event.error = response.error().message;
           event.unauthorized = response.error().unauthorized;
+          if (command.guildSettings && response.error().mfa.is_object()) {
+            const auto& challenge = response.error().mfa;
+            if (challenge.contains("ticket")
+                && challenge["ticket"].is_string()
+                && challenge["ticket"].get_ref<const std::string&>().size() <= 4096
+                && !challenge["ticket"].get_ref<const std::string&>().empty()
+                && challenge.contains("methods")
+                && challenge["methods"].is_array()) {
+              PendingGuildMfa pending;
+              pending.request = *command.guildSettings;
+              pending.request.mfaCode.clear();
+              pending.request.mfaType.clear();
+              pending.request.mfaChallenge = 0;
+              pending.ticket = challenge["ticket"].get<std::string>();
+              pending.expires = std::chrono::steady_clock::now() + std::chrono::minutes(5);
+              for (const auto& entry : challenge["methods"])
+                if (entry.is_object() && entry.contains("type") && entry["type"].is_string()) {
+                  const auto type = entry["type"].get<std::string>();
+                  if ((type == "totp" || type == "password")
+                      && std::ranges::find(pending.methods, type) == pending.methods.end())
+                    pending.methods.push_back(type);
+                }
+              if (!pending.methods.empty()) {
+                if (guildMfa.size() >= 8)
+                  guildMfa.erase(guildMfa.begin());
+                event.guildSettingsMfaChallenge = ++nextGuildMfa;
+                event.guildSettingsMfaMethods = pending.methods;
+                guildMfa.emplace(nextGuildMfa, std::move(pending));
+              }
+            }
+          }
         } else
           switch (command.operation) {
+          case Operation::GuildSettings: {
+            const auto settings = parseGuildSettings(*response, *command.guildSettings);
+            event.guildSettings = settings.data;
+            event.guildSettingsMore = settings.more;
+            event.guildSettingsCursor = settings.cursor;
+            if (command.guildSettings->section == GuildSettingsSection::JoinInterview) {
+              if (!response->is_object() || response->value("type", -1) != 3)
+                throw std::runtime_error("Invalid application interview channel.");
+              event.channels = parsePrivateChannels(Json::array({*response}));
+              if (event.channels.size() != 1)
+                throw std::runtime_error("Invalid application interview channel.");
+            }
+            break;
+          }
           case Operation::GuildEmojis:
             event.emojis = parseGuildEmojis(*response, command.resource);
             break;
@@ -1096,6 +1478,7 @@ namespace api {
             break;
           case Operation::Connect: {
             event.account = parseAccount(*response);
+            authenticatedUser = event.account.id;
             // Establish the live socket while REST bootstraps organization/settings.
             m_gateway->authenticate(command.session, token);
             // Page through servers instead of silently omitting accounts with over 200 guilds.
@@ -1278,6 +1661,7 @@ namespace api {
         forgetLogin(command.session);
       if (event.unauthorized || (command.operation == Operation::Connect && !event.error.empty())) {
         token.clear();
+        authenticatedUser.clear();
         m_authenticatedSession = 0;
         m_gateway->reset();
       } else if (command.operation == Operation::Connect && command.session == m_session) {

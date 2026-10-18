@@ -21,7 +21,7 @@ namespace {
 int main(int argc, char** argv) {
   try {
     require(argc == 2, "Animation fixture directory required");
-    for (const auto* name : {"clip.gif", "clip.webp", "clip.mp4", "clip.webm"}) {
+    for (const auto* name : {"clip.gif", "clip.apng", "clip.webp", "clip.mp4", "clip.webm"}) {
       const auto bytes = read(std::filesystem::path(argv[1]) / name);
       const auto animation = media::decodeAnimation(bytes);
       if (!animation)
@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
             << " frames\n";
       require(
           animation->width == 32 && animation->height == 24 && animation->frames.size() == 6,
-          "Decode all GIF/WebP/MP4/WebM frames at canvas size"
+          "Decode all GIF/APNG/WebP/MP4/WebM frames at canvas size"
       );
       require(
           animation->duration.count() >= 500 && animation->duration.count() <= 700,
@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
     }
     for (const auto& [width, height] :
          {std::pair{10, 2}, {26, 2}, {18, 30}, {34, 50}, {17, 23}, {31, 47}, {174, 512}}) {
-      for (const auto* extension : {"gif", "webp", "mp4", "webm"}) {
+      for (const auto* extension : {"gif", "webp", "apng", "mp4", "webm"}) {
         const auto bytes = read(
             std::filesystem::path(argv[1])
             / ("unaligned-" + std::to_string(width) + "x" + std::to_string(height) + "." + extension)

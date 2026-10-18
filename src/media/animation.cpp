@@ -1,5 +1,7 @@
 #include "media/animation.h"
 
+#include "media/lottie.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -171,7 +173,31 @@ namespace media {
       const bool gif = std::memcmp(bytes.data(), "GIF87a", 6) == 0 || std::memcmp(bytes.data(), "GIF89a", 6) == 0;
       const bool mp4 = std::memcmp(bytes.data() + 4, "ftyp", 4) == 0;
       const bool webm = bytes[0] == 0x1a && bytes[1] == 0x45 && bytes[2] == 0xdf && bytes[3] == 0xa3;
-      if (!gif && !webp && !mp4 && !webm)
+      bool apng = false;
+      if (std::memcmp(bytes.data(), "\x89PNG\r\n\x1a\n", 8) == 0) {
+        for (std::size_t offset = 8; offset + 12 <= bytes.size();) {
+          const auto length = (std::uint32_t(bytes[offset]) << 24)
+              | (std::uint32_t(bytes[offset + 1]) << 16)
+              | (std::uint32_t(bytes[offset + 2]) << 8)
+              | bytes[offset + 3];
+          if (length > bytes.size() - offset - 12)
+            return {};
+          if (std::memcmp(bytes.data() + offset + 4, "acTL", 4) == 0) {
+            if (length != 8)
+              return {};
+            const auto frames = (std::uint32_t(bytes[offset + 8]) << 24)
+                | (std::uint32_t(bytes[offset + 9]) << 16)
+                | (std::uint32_t(bytes[offset + 10]) << 8)
+                | bytes[offset + 11];
+            apng = frames > 1;
+            break;
+          }
+          if (std::memcmp(bytes.data() + offset + 4, "IDAT", 4) == 0)
+            break;
+          offset += length + 12;
+        }
+      }
+      if (!gif && !webp && !mp4 && !webm && !apng)
         return {};
       auto result = std::make_shared<Animation>();
       if (webp) {
@@ -267,14 +293,15 @@ namespace media {
       };
       AVDictionary* options = nullptr;
       av_dict_set(&options, "protocol_whitelist", "", 0);
-      av_dict_set(&options, "format_whitelist", gif ? "gif" : mp4 ? "mov" : "matroska,webm", 0);
+      av_dict_set(&options, "format_whitelist", gif ? "gif" : apng ? "apng" : mp4 ? "mov" : "matroska,webm", 0);
       av_dict_set(&options, "ignore_loop", "1", 0);
       const auto opened = avformat_open_input(
           &decoder.format, nullptr,
           av_find_input_format(
               gif ? "gif"
-                  : mp4 ? "mov"
-                        : "matroska,webm"
+                  : apng ? "apng"
+                  : mp4  ? "mov"
+                         : "matroska,webm"
           ),
           &options
       );
@@ -368,6 +395,10 @@ namespace media {
     }
   }
   std::shared_ptr<const Animation> decodeAnimation(std::span<const std::uint8_t> bytes, std::stop_token stop) {
+    const auto first =
+        std::ranges::find_if(bytes, [](std::uint8_t c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; });
+    if (first != bytes.end() && *first == '{')
+      return decodeLottie(bytes, stop);
     return decode(bytes, stop, false);
   }
   std::shared_ptr<const Animation> decodeVideoPoster(std::span<const std::uint8_t> bytes, std::stop_token stop) {

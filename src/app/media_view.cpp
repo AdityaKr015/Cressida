@@ -46,6 +46,10 @@ namespace app {
       const auto allowed = [&](const std::string& id) {
         if (!m_viewImage.empty() || m_videoExpanded || m_presenceMenu)
           return false;
+        if (m_selectRequest)
+          return id.starts_with("select-popup") && m_selectBounds.contains(m_pointerX, m_pointerY);
+        if (m_serverSettings.open)
+          return id.starts_with("server-");
         if (m_contextOpen)
           return id.starts_with("popup:")
               && (m_contextBounds.contains(m_pointerX, m_pointerY)

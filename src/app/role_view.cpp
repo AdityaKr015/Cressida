@@ -25,7 +25,7 @@ namespace app {
       const bool animate = over
           && m_preferences.animateRoleColors
           && (m_window.active() || m_demo)
-          && !m_settingsOpen
+          && !settingsVisible()
           && !m_contextOpen
           && !m_emojiMenu
           && !m_gifMenu
