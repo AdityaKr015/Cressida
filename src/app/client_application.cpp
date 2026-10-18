@@ -258,6 +258,94 @@ namespace app {
         demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
         demoHistoryStep();
+      if (m_demo && m_demoOverlay == "jump-latest-cycle") {
+        const auto step = m_demoInteractionStep++;
+        const auto jump = std::ranges::find(m_hits, Action::JumpLatest, &Hit::action);
+        auto require = [](bool value, const char* error) {
+          if (!value)
+            throw std::runtime_error(error);
+        };
+        if (step == 0) {
+          require(jump == m_hits.end(), "Latest-message view must hide the jump control");
+          m_drafts[m_channelId] = "Unsent draft";
+          m_messageScroll = 140;
+          m_scrolling.stop(m_messageScroll);
+          m_timelineAnchor.reset();
+          m_demoHistoryQuery = m_history.begin(api::HistoryDirection::Older, m_messages);
+        } else if (step == 1 || step == 3 || step == 5) {
+          require(jump != m_hits.end(), "Scroll-back and historical windows must offer Jump to latest");
+          const float right = m_window.width() - (m_showMembers ? 240 : 0);
+          require(
+              std::abs(jump->x + jump->width - (right - 24)) < 1 && jump->y + jump->height < m_messageViewportBottom,
+              "Jump to latest must sit at the bottom right of the conversation above the composer"
+          );
+          const float x = jump->x + jump->width / 2;
+          const float y = jump->y + jump->height / 2 + m_window.titlebarHeight() - 36;
+          m_window.motion(x, y);
+          m_window.click(x, y, 272);
+          m_window.released();
+        } else if (step == 2) {
+          require(
+              jump == m_hits.end()
+                  && m_messageScroll == 0
+                  && m_scrolling.target(m_messageScroll) == 0
+                  && m_messages.size() == 100
+                  && m_messages.back().id == "3099"
+                  && !m_history.busy(),
+              "Jumping within the latest window must retain messages and avoid a history request"
+          );
+          api::Event event;
+          event.resource = m_channelId;
+          event.history = std::exchange(m_demoHistoryQuery, {});
+          event.messages.push_back({"2900", m_channelId, "Maya", "Late older page.", "2026-10-17T09:41:00Z"});
+          applyHistory(event);
+          require(m_messages.size() == 100 && m_messages.front().id == "3000", "Jump must reject late older pages");
+          m_demoHistoryQuery = m_history.beginAround("3001");
+          m_loadingMessages = true;
+          m_seekMessage = "3001";
+          m_messageScroll = 140;
+          m_scrolling.stop(m_messageScroll);
+          m_timelineAnchor.reset();
+        } else if (step == 4) {
+          require(
+              !m_loadingMessages && !m_history.busy() && m_seekMessage.empty() && m_messageScroll == 0,
+              "A local jump must cancel a pending message search without retaining its loading or seek state"
+          );
+          api::Event event;
+          event.resource = m_channelId;
+          event.history = std::exchange(m_demoHistoryQuery, {});
+          event.messages.push_back({"2900", m_channelId, "Maya", "Late search page.", "2026-10-17T09:41:00Z"});
+          applyHistory(event);
+          require(m_messages.size() == 100 && m_messages.back().id == "3099", "Jump must reject late search pages");
+          event.history = m_history.beginAround("3001");
+          event.messages = m_messages;
+          applyHistory(event);
+          m_timelineAnchor.reset();
+        } else if (step == 6) {
+          require(
+              m_loadingMessages && m_demoHistoryQuery && m_demoHistoryQuery->direction == api::HistoryDirection::Latest,
+              "Jumping from an older window must request the current tail"
+          );
+          api::Event event;
+          event.resource = m_channelId;
+          event.history = std::exchange(m_demoHistoryQuery, {});
+          event.messages.push_back({"5000", m_channelId, "Maya", "The latest message.", "2026-10-17T09:41:00Z"});
+          applyHistory(event);
+        } else if (step == 7) {
+          require(
+              jump == m_hits.end()
+                  && m_history.atLatest()
+                  && !m_loadingMessages
+                  && m_messageScroll == 0
+                  && m_messages.size() == 1
+                  && m_messages.back().id == "5000",
+              "Latest history must replace the older window and hide the jump control"
+          );
+          std::clog << "Offline Jump to latest replay passed\n";
+        }
+        require(m_drafts[m_channelId] == "Unsent draft", "Jump to latest must preserve the composer draft");
+        m_window.invalidate();
+      }
       if (m_demo
           && (m_demoOverlay == "role-style-cycle"
               || m_demoOverlay == "role-members-cycle"
@@ -855,6 +943,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "role-style-cycle"                  ? 7
                          : m_demo && view && std::string_view(view) == "unread-badge-cycle"                ? 4
                          : m_demo && view && std::string_view(view) == "unread-cycle"                      ? 10
+                         : m_demo && view && std::string_view(view) == "jump-latest-cycle"                 ? 8
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
@@ -890,6 +979,8 @@ namespace app {
       throw std::runtime_error("Member role replay did not complete");
     if (m_demoOverlay == "sidebar-cycle" && m_demoInteractionStep != 10)
       throw std::runtime_error("Cursor/sidebar replay did not complete");
+    if (m_demoOverlay == "jump-latest-cycle" && m_demoInteractionStep != 8)
+      throw std::runtime_error("Jump to latest replay did not complete");
     if (m_demoOverlay == "channel-menu-scroll-cycle" && m_demoInteractionStep != 3)
       throw std::runtime_error("Compact channel menu replay did not finish");
     if (m_demoOverlay == "channel-create-cycle" && m_demoInteractionStep != 12)
@@ -1684,8 +1775,15 @@ namespace app {
           m_unreadTimeline.snapshot({});
           m_unreadTimeline.positioned();
           loadHistory(api::HistoryDirection::Latest);
-        } else if (view == "scroll-cycle") {
+        } else if (
+            view == "scroll-cycle"
+            || view == "jump-latest-cycle"
+            || view == "jump-latest"
+            || view == "jump-latest-light"
+        ) {
           m_demoOverlay = view;
+          if (view == "jump-latest-light")
+            m_preferences.theme = "light";
           m_messages.clear();
           for (int i = 0; i < 100; ++i)
             m_messages.push_back(
@@ -1695,6 +1793,8 @@ namespace app {
                  "2026-10-17T09:41:00Z"}
             );
           m_messageLayouts.clear();
+          if (view == "jump-latest" || view == "jump-latest-light")
+            m_messageScroll = 140;
         } else if (view == "emoji-sizing" || view == "emoji-sizing-compact") {
           m_preferences.compact = view == "emoji-sizing-compact";
           prepareEmojiPicker();
@@ -3119,12 +3219,13 @@ namespace app {
           else if (!m_history.atLatest() && m_messageScroll < threshold)
             loadHistory(api::HistoryDirection::Newer);
         }
+        const bool jumpLatestVisible = !m_history.atLatest() || m_messageScroll > 48;
         const auto pendingHistory = m_history.pending();
         if ((pendingHistory && pendingHistory->direction != api::HistoryDirection::Latest)
             || !m_history.error().empty()) {
           const auto direction = pendingHistory ? pendingHistory->direction : m_history.failedDirection();
           const bool older = direction == api::HistoryDirection::Older;
-          const float statusY = older ? top + 4 : bottom - 32;
+          const float statusY = older ? top + 4 : bottom - (jumpLatestVisible ? 74 : 32);
           const float width = std::min(360.0F, bodyWidth - 48), statusX = left + (bodyWidth - width) / 2;
           rectangle(root, statusX, statusY, width, 28, sidebar, 8);
           label(
@@ -3142,8 +3243,19 @@ namespace app {
             }
           }
         }
-        if (!m_history.atLatest()) {
-          button(root, {left + (bodyWidth - 160) / 2, bottom - 66, 160, 30, Action::JumpLatest, {}}, "Jump to latest");
+        if (jumpLatestVisible) {
+          constexpr float size = 32;
+          const float x = left + bodyWidth - size - 24, y = bottom - size - 8;
+          const bool over = hovered(x, y, size, size);
+          rectangle(root, x, y, size, size, lerpColor(panel, accent, over ? .4F : .2F), size / 2);
+          rectangle(root, x + 1, y + 1, size - 2, size - 2, over ? raised : panel, size / 2 - 1);
+          glyph(root, x + 8, y + 8, 16, "arrow-down", over ? foreground : muted);
+          m_hits.push_back({x, y, size, size, Action::JumpLatest, {}});
+          if (over) {
+            m_tooltip = "Jump to latest";
+            m_tooltipX = x + size / 2;
+            m_tooltipY = y;
+          }
         }
         if (m_unreadTimeline.unread()) {
           std::string caption = "New messages";
@@ -3896,7 +4008,10 @@ namespace app {
   }
 
   void ClientApplication::loadHistory(api::HistoryDirection direction, bool retry) {
-    if (forumView() || (m_demo && m_demoOverlay != "history-cycle") || !m_connected || m_channelId.empty())
+    if (forumView()
+        || (m_demo && m_demoOverlay != "history-cycle" && m_demoOverlay != "jump-latest-cycle")
+        || !m_connected
+        || m_channelId.empty())
       return;
     const auto query = m_history.begin(direction, m_messages, retry);
     if (!query)
@@ -5129,12 +5244,20 @@ namespace app {
       m_scrolling.stop(m_messageScroll);
       m_messageScroll = 0;
       m_timelineAnchor.reset();
+      m_keepHistoryAnchor = false;
+      m_seekMessage.clear();
       m_unreadTimeline.positioned();
-      m_history.reset();
-      m_messages.clear();
-      m_messageLayouts.clear();
-      if (!m_demo)
+      if (m_history.atLatest()) {
+        if (const auto& pending = m_history.pending(); pending && pending->direction != api::HistoryDirection::Latest) {
+          m_history.cancelPending();
+          m_loadingMessages = false;
+        }
+      } else {
+        m_history.reset();
+        m_messages.clear();
+        m_messageLayouts.clear();
         loadHistory(api::HistoryDirection::Latest);
+      }
       break;
     case Action::MarkRead:
       markChannelRead(true);

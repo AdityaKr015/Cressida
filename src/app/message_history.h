@@ -30,6 +30,10 @@ namespace app {
     const auto& pending() const { return m_pending; }
     const std::string& error() const { return m_error; }
     api::HistoryDirection failedDirection() const { return m_failed; }
+    void cancelPending() {
+      m_pending.reset();
+      m_patches.clear();
+    }
     std::optional<api::HistoryQuery>
     begin(api::HistoryDirection direction, std::span<const api::Message> messages, bool retry = false) {
       using enum api::HistoryDirection;
