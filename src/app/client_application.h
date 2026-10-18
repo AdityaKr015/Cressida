@@ -224,6 +224,9 @@ namespace app {
     void applyHistory(discord::Event& event);
     void demoHistoryStep();
     void demoRoleStep();
+    void
+    drawJoinNotice(Node& parent, const discord::Message& message, const MessageLayout& layout, float y, float width);
+    void demoJoinStep();
     void drawProfileCard(Node& root, float width, float height);
     bool profileAction(const Hit& hit);
     void demoProfileStep();
@@ -235,6 +238,7 @@ namespace app {
         Node& parent, float x, float y, const std::string& guild, const std::string& user,
         const std::optional<std::vector<std::string>>& roles = {}
     );
+    float drawRoleBadge(Node& parent, float x, float y, const discord::ColoredRole& role);
     void showGuildProfile(const std::string& guild);
     void drawGuildProfile(Node& root, float width, float height);
     void clearThreads();
@@ -378,7 +382,8 @@ namespace app {
     void drawDialog(Node& root, float w, float h);
     void submitDialog();
     void closeDialog();
-    float reactionStrip(Node* parent, const discord::Message& message, float x, float y, float width);
+    float
+    reactionStrip(Node* parent, const discord::Message& message, float x, float y, float width, bool addButton = false);
     bool blockedMessage(const discord::Message& message) const;
     bool interactionAction(const Hit& hit);
     void clearInteractions();

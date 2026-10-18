@@ -278,7 +278,10 @@ namespace app {
                                                                    : "unknown-user";
                   const auto previous = style.mention;
                   style.mention = true;
-                  word(std::string(token.starts_with('#') ? "#" : "@") + name);
+                  word(
+                      std::string((!options || options->mentionPrefix) ? (token.starts_with('#') ? "#" : "@") : "")
+                      + name
+                  );
                   style.mention = previous;
                   pos = end + 1;
                   continue;

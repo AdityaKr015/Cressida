@@ -23,6 +23,8 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   messages stay visible during refreshes.
 - **Conversation history:** older messages load as you scroll up, with a bounded
   sliding window, newer-page catch-up, retry controls and a jump to the present.
+- **Join notices:** server welcomes use compact inline text with colored names,
+  profile links, timestamps and working reactions.
 - **Message actions:** native context menus with icons, replies, editing/deleting
   your own messages, copy text/link/ID, and a hover emoji submenu. Four quick
   reactions adapt to successful local usage; hover a reaction to see who reacted.
@@ -30,9 +32,10 @@ Uranus's moons, Cressida builds and installs as `cressida`.
   badges, expandable bios, mutual counts and server role chips. Open DMs, edit
   your profile, manage friend nicknames and relationships, block/unblock people,
   and mute existing conversations.
-  Chat names show role colors, server tags and role icons, including authors loaded
-  from older messages as their member data arrives. Clicking a tag previews its server
-  and offers Join or Open Server.
+  Chat names show role colors, server tags and role icons; emoji retain their
+  original colors. The member list shows role icons beside group headings.
+  Role colors also resolve for authors in older messages as member data arrives.
+  Clicking a tag previews its server and offers Join or Open Server.
 - **Your servers:** saved server order and folders, icons, channel categories,
   collapsible sections and a member sidebar with role group counts. Drag the right
   edge of the channel list to resize it; Cressida remembers the width per account.

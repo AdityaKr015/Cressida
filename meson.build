@@ -130,7 +130,7 @@ message_layout = static_library('message-layout', 'src/app/message_layout.cpp', 
 message_layout_dep = declare_dependency(link_with: message_layout, dependencies: [render_dep, backend_dep, markdown_dep])
 emoji_catalog = static_library('emoji-catalog', 'src/app/emoji_catalog.cpp', dependencies: [backend_dep, markdown_dep])
 client = executable('cressida',
-  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
+  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/system_message_view.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
   dependencies: [render_dep, backend_dep, browser_dep, markdown_dep, video_dep],
   link_with: [message_layout, emoji_catalog],
   cpp_args: client_args,
@@ -140,7 +140,7 @@ client = executable('cressida',
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: ['app/channel_demo.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'discord/channel_features.cpp', 'discord/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'discord/emoji.cpp', 'discord/role_styles.cpp', 'discord/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/role_view.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'discord/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/gifs.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
+  exclude_files: ['app/channel_demo.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'discord/channel_features.cpp', 'discord/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'discord/emoji.cpp', 'discord/role_styles.cpp', 'discord/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/role_view.cpp', 'app/system_message_view.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'discord/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/window.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'discord/client.cpp', 'discord/models.cpp', 'discord/settings.cpp', 'discord/gifs.cpp', 'discord/read_state.cpp', 'discord/user_directory.cpp', 'discord/actions.cpp', 'discord/assets.cpp', 'discord/gateway.cpp', 'discord/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -234,6 +234,8 @@ message_history_test = executable('message_history_test', 'tests/message_history
 test('message_history', message_history_test)
 message_group_test = executable('message_group_test', 'tests/message_group_test.cpp', dependencies: backend_dep)
 test('message_group', message_group_test)
+system_message_test = executable('system_message_test', 'tests/system_message_test.cpp', dependencies: backend_dep)
+test('system_message', system_message_test)
 message_mentions_test = executable('message_mentions_test', 'tests/message_mentions_test.cpp', dependencies: backend_dep)
 test('message_mentions', message_mentions_test)
 video_test = executable('video_player_test', 'tests/video_player_test.cpp', dependencies: [video_dep, dependency('egl'), dependency('glesv2')])

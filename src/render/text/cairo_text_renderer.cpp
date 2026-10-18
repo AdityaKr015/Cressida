@@ -1019,11 +1019,20 @@ void CairoTextRenderer::draw(
     const float tileH = static_cast<float>(tile.pixelHeight) * invScale;
     const Mat3 tileWorld = baseWorld * Mat3::translation(0.0F, tileYLocal);
     if (gradient) {
-      m_backend->drawGlyph(RenderGlyphDraw{
-          .texture = tile.texture.id, .surfaceWidth = surfaceWidth, .surfaceHeight = surfaceHeight,
-          .width = quadW, .height = tileH, .opacity = color.a, .transform = tileWorld,
-          .gradient = *gradient, .gradientOffset = inkOffX, .gradientWidth = std::max(1.0F, entry->metrics.width)
-      });
+      m_backend->drawGlyph(
+          RenderGlyphDraw{
+              .texture = tile.texture.id,
+              .surfaceWidth = surfaceWidth,
+              .surfaceHeight = surfaceHeight,
+              .width = quadW,
+              .height = tileH,
+              .opacity = color.a,
+              .transform = tileWorld,
+              .gradient = *gradient,
+              .gradientOffset = inkOffX - gradient->offset,
+              .gradientWidth = std::max(1.0F, gradient->width > 0 ? gradient->width : entry->metrics.width)
+          }
+      );
     } else if (entry->tinted) {
       m_backend->drawGlyph(
           RenderGlyphDraw{

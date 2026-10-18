@@ -49,17 +49,20 @@ namespace app {
     const auto role = m_roleDirectory.icon(guild, user, roles);
     if (!role)
       return 0;
-    if (!role->icon.empty())
-      emojiImage(parent, x, y, 16, role->icon);
+    return drawRoleBadge(parent, x, y, *role);
+  }
+  float ClientApplication::drawRoleBadge(Node& parent, float x, float y, const discord::ColoredRole& role) {
+    if (!role.icon.empty())
+      emojiImage(parent, x, y, 16, role.icon);
     else
-      label(parent, x, y - 1, 20, role->unicodeEmoji, 15, foreground);
+      label(parent, x, y - 1, 20, role.unicodeEmoji, 15, foreground);
     float ox = 0, oy = 0;
     for (auto* node = &parent; node && node != m_scene.get(); node = node->parent()) {
       ox += node->x();
       oy += node->y();
     }
     if (hovered(x + ox, y + oy, 18, 18)) {
-      m_tooltip = role->name;
+      m_tooltip = role.name;
       m_tooltipX = x + ox + 8;
       m_tooltipY = y + oy;
     }
@@ -86,12 +89,27 @@ namespace app {
       message.authorTag = discord::GuildTag{"99", "MOON", "demo-profile-badge"};
       members.push_back({{"user_id", message.authorId}, {"roles", {message.authorId == "12" ? "502" : "501"}}});
     }
-    m_roleDirectory.apply(discord::parseRoleUpdates("READY", json{
-        {"guilds", json::array({{{"id", m_guildId}, {"roles", json::array({
-            {{"id", "501"}, {"name", "Artist"}, {"position", 5}, {"color", 0xBE95EC}, {"icon", hash}},
-            {{"id", "502"}, {"name", "Moonwarden"}, {"position", 4}, {"color", 0x72BFB2}, {"unicode_emoji", "🌙"}}
-        })}}})}, {"merged_members", json::array({members})}
-    }));
+    m_roleDirectory.apply(
+        discord::parseRoleUpdates(
+            "READY",
+            json{
+                {"guilds",
+                 json::array(
+                     {{{"id", m_guildId},
+                       {"roles",
+                        json::array(
+                            {{{"id", "501"}, {"name", "Artist"}, {"position", 5}, {"color", 0xBE95EC}, {"icon", hash}},
+                             {{"id", "502"},
+                              {"name", "Moonwarden"},
+                              {"position", 4},
+                              {"color", 0x72BFB2},
+                              {"unicode_emoji", "🌙"}}}
+                        )}}}
+                 )},
+                {"merged_members", json::array({members})}
+            }
+        )
+    );
     const auto icon = m_roleDirectory.icon(m_guildId, "11");
     if (!icon || icon->icon != rolePath || discord::mediaUrl(icon->icon) != "https://cdn.discordapp.com" + rolePath)
       throw std::runtime_error("Role icons must use Discord's documented role-icons CDN route");
@@ -126,8 +144,10 @@ namespace app {
       click(Action::JoinGuild);
     } else if (step == 2) {
       require(m_guildPreviewJoined && !m_dialogPending, "Join changes state only after its acknowledgement");
-      require(std::ranges::find(m_guilds, "99", &discord::Guild::id) != m_guilds.end(),
-              "An acknowledged public join adds the server to the rail");
+      require(
+          std::ranges::find(m_guilds, "99", &discord::Guild::id) != m_guilds.end(),
+          "An acknowledged public join adds the server to the rail"
+      );
       const auto old = *m_dialogAction;
       showGuildProfile("99");
       discord::Event stale;
@@ -171,22 +191,34 @@ namespace app {
       selectSettingsPage("cressida");
     } else if (step == 7 || step == 8) {
       require(m_settingsOpen && m_settingsPage == "cressida", "Client preferences share one General page");
-      require(m_widgets.contains("nav:cressida") && m_widgets.at("nav:cressida")->parent(),
-              "The consolidated client page is visible, including when searching its settings");
-      require(m_widgets.contains("toggle:fake_nitro_emojis") && m_widgets.contains("toggle:role_colors")
-                  && m_widgets.contains("toggle:animate_role_colors"), "Expression and name controls share the same page");
+      require(
+          m_widgets.contains("nav:cressida") && m_widgets.at("nav:cressida")->parent(),
+          "The consolidated client page is visible, including when searching its settings"
+      );
+      require(
+          m_widgets.contains("toggle:fake_nitro_emojis")
+              && m_widgets.contains("toggle:role_colors")
+              && m_widgets.contains("toggle:animate_role_colors"),
+          "Expression and name controls share the same page"
+      );
       const auto* toggle = m_widgets.at("toggle:guild_tags");
       float tx = 0, ty = 0;
       for (const auto* node = toggle; node && node != m_scene.get(); node = node->parent()) {
-        tx += node->x(); ty += node->y();
+        tx += node->x();
+        ty += node->y();
       }
       m_window.click(tx + 20, ty + 12 + m_window.titlebarHeight() - 36, 272);
       m_window.released();
-      require(m_preferences.showGuildTags == (step == 8), "Retained native settings toggles remain functional after consolidation");
+      require(
+          m_preferences.showGuildTags == (step == 8),
+          "Retained native settings toggles remain functional after consolidation"
+      );
       m_settingsFields["search"] = step == 7 ? "emoji" : "role";
     } else if (step == 9) {
-      require(m_widgets.at("nav:cressida")->parent() && m_preferences.showGuildTags,
-              "Search finds the General page by its role/emoji options without changing preferences");
+      require(
+          m_widgets.at("nav:cressida")->parent() && m_preferences.showGuildTags,
+          "Search finds the General page by its role/emoji options without changing preferences"
+      );
       std::clog << "Offline guild tag and settings replay passed\n";
     }
     m_window.invalidate();

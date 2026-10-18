@@ -556,7 +556,8 @@ namespace discord {
           {id(item), text(item, "channel_id"), std::move(author), std::move(content), text(item, "timestamp")}
       );
       parseMessagePatch(item).apply(result.back());
-      if (result.back().content.empty()
+      if (result.back().type != 7
+          && result.back().content.empty()
           && result.back().attachments.empty()
           && result.back().embeds.empty()
           && result.back().buttons.empty())

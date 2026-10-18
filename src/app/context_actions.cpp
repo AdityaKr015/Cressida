@@ -1,4 +1,5 @@
 #include "app/client_application.h"
+#include "app/system_message.h"
 #include "app/theme.h"
 #include "core/files/resource_paths.h"
 #include "render/scene/rect_node.h"
@@ -158,11 +159,15 @@ namespace app {
       m_contextUser = message->authorId;
       add(Action::AddReaction, "Add Reaction");
       separator();
-      if (message->authorId == m_account.id)
+      if (message->authorId == m_account.id && message->type != 7)
         add(Action::EditMessage, "Edit Message");
-      add(Action::Reply, "Reply");
+      if (message->type != 7)
+        add(Action::Reply, "Reply");
       const auto selected = std::ranges::find(m_channels, m_channelId, &discord::Channel::id);
-      if (!m_dmMode && selected != m_channels.end() && (selected->type == 0 || selected->type == 5))
+      if (message->type != 7
+          && !m_dmMode
+          && selected != m_channels.end()
+          && (selected->type == 0 || selected->type == 5))
         add(Action::CreateThread,
             message->hasThread || message->thread || m_threads.find(m_guildId, message->id) ? "Open Thread"
                                                                                             : "Create Thread");
@@ -621,7 +626,9 @@ namespace app {
       break;
     case Action::CopyMessage:
       if (found != m_messages.end())
-        m_window.copy(found->content);
+        m_window.copy(
+            found->type == 7 ? joinNoticeText(*found, userName(found->authorId, found->author)) : found->content
+        );
       break;
     case Action::CopyLink:
       if (found != m_messages.end())
@@ -1129,7 +1136,9 @@ namespace app {
     m_tooltipX = chip.x + chip.width / 2;
     m_tooltipY = chip.y;
   }
-  float ClientApplication::reactionStrip(Node* parent, const discord::Message& message, float x, float y, float width) {
+  float ClientApplication::reactionStrip(
+      Node* parent, const discord::Message& message, float x, float y, float width, bool addButton
+  ) {
     if (message.reactions.empty())
       return 0;
     float rx = 0, ry = 0;
@@ -1187,6 +1196,14 @@ namespace app {
         hoverReaction(message, reaction, hit);
       }
       rx += chip + 6;
+    }
+    if (addButton) {
+      if (rx + 28 > width) {
+        rx = 0;
+        ry += 32;
+      }
+      if (parent)
+        iconButton(*parent, {x + rx, y + ry, 28, 28, Action::AddReaction, message.id}, "mood-smile", "Add reaction");
     }
     return ry + 32;
   }

@@ -259,6 +259,17 @@ int main(int argc, char** argv) {
         layout.runs[1].x > layout.runs[0].x && layout.runs[3].y > layout.runs[1].y,
         "Preserve emoji positions and explicit line breaks"
     );
+    auto noticeOptions = emojiOptions;
+    noticeOptions.mentionPrefix = false;
+    const auto notice = app::layoutMessage(
+        "Welcome <@123>!", 1800, emojiMeasure, 14, {{"123", "Maya **literal** <b>name</b>"}}, noticeOptions
+    );
+    require(
+        notice.plainText.starts_with("Welcome Maya **literal** <b>name</b>!")
+            && !notice.plainText.contains("@")
+            && std::ranges::any_of(notice.runs, [](const auto& run) { return run.style.mention && !run.style.bold; }),
+        "Inline system names omit the mention prefix while remaining literal and styled"
+    );
     discord::Message mentionMessage;
     mentionMessage.content = "Hi <@123> and <@!123>, see <#456>. `literal <@123>`";
     mentionMessage.mentions = {{"123", "Maya **literal**"}, {"456", "general"}};

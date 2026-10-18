@@ -4,6 +4,7 @@
 #include "app/message_layout.h"
 #include "app/message_mentions.h"
 #include "app/reply_preview.h"
+#include "app/system_message.h"
 #include "app/theme.h"
 #include "core/deferred_call.h"
 #include "core/environment.h"
@@ -79,6 +80,8 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "join-cycle")
+        demoJoinStep();
       if (m_demo && m_demoOverlay == "sidebar-cycle")
         sidebarDemoFrame();
       if (m_demo && m_demoOverlay == "mentions-cycle") {
@@ -139,7 +142,10 @@ namespace app {
         demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
         demoHistoryStep();
-      if (m_demo && (m_demoOverlay == "role-style-cycle" || m_demoOverlay == "role-members-cycle"))
+      if (m_demo
+          && (m_demoOverlay == "role-style-cycle"
+              || m_demoOverlay == "role-members-cycle"
+              || m_demoOverlay == "role-emoji-cycle"))
         demoRoleStep();
       if (m_demo && m_demoOverlay == "profile-card-cycle")
         demoProfileStep();
@@ -637,7 +643,9 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "sidebar-cycle"            ? 10
+        smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"               ? 4
+                         : m_demo && view && std::string_view(view) == "sidebar-cycle"      ? 10
+                         : m_demo && view && std::string_view(view) == "role-emoji-cycle"   ? 3
                          : m_demo && view && std::string_view(view) == "role-members-cycle" ? 2
                          : m_demo && view && std::string_view(view) == "mentions-cycle"     ? 4
                          : m_demo && view && std::string_view(view) == "channel-cycle"      ? 18
@@ -653,6 +661,10 @@ namespace app {
                   : 0,
         m_assets.eventFd(), m_video.eventFd()
     );
+    if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
+      throw std::runtime_error("Server join replay did not complete");
+    if (m_demoOverlay == "role-emoji-cycle" && m_demoInteractionStep != 3)
+      throw std::runtime_error("Role emoji replay did not complete");
     if (m_demoOverlay == "role-members-cycle" && m_demoInteractionStep != 2)
       throw std::runtime_error("Member role replay did not complete");
     if (m_demoOverlay == "sidebar-cycle" && m_demoInteractionStep != 10)
@@ -705,6 +717,35 @@ namespace app {
           m_demoOverlay = view;
         if (view == "sidebar-wide")
           m_preferences.channelSidebarWidth = 420;
+        if (view == "joins" || view == "joins-light" || view == "joins-compact" || view == "join-cycle") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view == "joins-compact";
+          if (view == "joins-light")
+            m_preferences.theme = "light";
+          m_messages.clear();
+          const std::vector<std::string> people = {"NIRIXD", "ae", "lowvan", "nikusya", "Kyoka", "Telepuzik"};
+          for (std::size_t i = 0; i < people.size(); ++i) {
+            auto messages = discord::parseMessages(
+                nlohmann::json::array(
+                    {{{"id", std::to_string(9400 + i)},
+                      {"channel_id", m_channelId},
+                      {"type", 7},
+                      {"content", ""},
+                      {"timestamp", "2026-10-17T15:22:00.00" + std::to_string(i) + "Z"},
+                      {"author", {{"id", std::to_string(11 + i)}, {"username", people[i]}}},
+                      {"reactions", nlohmann::json::array({{{"count", 1}, {"me", true}, {"emoji", {{"name", "❤️"}}}}})}}}
+                )
+            );
+            m_messages.push_back(std::move(messages.front()));
+          }
+          discord::GuildRoleUpdate roles{.guild = m_guildId};
+          roles.roles = {{"50", 1, {0x5798D0}, "Nightling"}};
+          for (const auto& message : m_messages)
+            roles.members[message.authorId] = {"50"};
+          m_roleDirectory.apply({false, {roles}});
+          m_messageLayouts.clear();
+        }
         if (view == "categories") {
           for (auto& channel : m_channels)
             channel.parentId = "100";
@@ -753,11 +794,17 @@ namespace app {
             || view == "role-styles-light"
             || view == "role-style-cycle"
             || view == "role-members-cycle"
+            || view == "role-emoji"
+            || view == "role-emoji-cycle"
             || view == "role-style-settings") {
           m_demoOverlay = view;
           if (view == "role-styles-light")
             m_preferences.theme = "light";
-          const std::vector<std::string> names = {"⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "Prismatic member", "Amber member", "Default member"};
+          const std::vector<std::string> names = view.starts_with("role-emoji")
+              ? std::vector<
+                    std::
+                        string>{"Kitsune 🦊 Cat 🏳️‍🌈", "Amber 🇩🇪", "👩🏽‍💻 Ada 1️⃣✨", "Default member"}
+              : std::vector<std::string>{"⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "Prismatic member", "Amber member", "Default member"};
           discord::GuildRoleUpdate roles;
           roles.guild = "1";
           roles.replaceRoles = true;
@@ -785,6 +832,28 @@ namespace app {
           if (view == "role-members-cycle")
             roles.members.clear();
           m_roleDirectory.apply({true, {std::move(roles)}});
+          if (view.starts_with("role-emoji")) {
+            discord::GuildRoleUpdate headings{.guild = "1"};
+            headings.roles = {
+                {"50", 2, {0xF38BA8, 0x89DCEB, {}}, "Moonwarden", {}, "🌙"},
+                {"51", 3, {11127295, 16759788, 16761760}, "Prismatic", {}, "🔮"},
+                {"52", 1, {0xF5B76B, {}, {}}, "Amber"}
+            };
+            m_roleDirectory.apply({false, {headings}});
+            const auto people = m_members;
+            m_members.clear();
+            for (std::size_t i = 0; i < people.size(); ++i) {
+              discord::MemberRow header;
+              header.index = static_cast<int>(i * 2);
+              header.groupId = i < 3 ? std::to_string(50 + i) : "online";
+              header.group = i < 3 ? headings.roles[i].name : "Online";
+              header.count = 1;
+              m_members.push_back(std::move(header));
+              auto person = people[i];
+              person.index = static_cast<int>(i * 2 + 1);
+              m_members.push_back(std::move(person));
+            }
+          }
           m_memberCount = static_cast<int>(m_members.size());
           m_showMembers = true;
           if (view == "role-style-settings") {
@@ -1633,9 +1702,10 @@ namespace app {
           rectangle(root, 8, y - 6, 60, 60, panel, 10);
         const bool selected = guild.id == m_guildId;
         const bool over = hovered(14, y, 48, 48);
-        rectangle(root, 14, y, 48, 48, selected ? accent : over ? panel : raised, selected || over ? 16 : 23);
+        if (!selected)
+          rectangle(root, 14, y, 48, 48, over ? panel : raised, over ? 16 : 23);
         if (!image(root, 14, y, 48, guild.icon, selected || over ? 16 : 23))
-          label(root, 30, y + 12, 24, initial(guild.name), 19, selected ? ink : foreground, FontWeight::SemiBold);
+          label(root, 30, y + 12, 24, initial(guild.name), 19, selected ? accent : foreground, FontWeight::SemiBold);
         const bool unread = std::ranges::any_of(m_unreadGuilds, [&](const auto& state) {
           return state.second == guild.id
               && m_unreadChannels.contains(state.first)
@@ -1833,12 +1903,27 @@ namespace app {
             if (!m_preferences.showImages)
               for (auto& attachment : displayed.attachments)
                 attachment.image.url.clear();
-            cached.layout = layoutRichMessage(
-                displayed, textWidth, measure, m_preferences.messageSize,
-                {.fakeNitroEmojis = m_preferences.fakeNitroEmojis && m_preferences.showImages,
-                 .compact = m_preferences.compact,
-                 .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
-            );
+            if (message.type == 7) {
+              const auto notice = joinNotice(message);
+              const auto authorId = discord::validSnowflake(message.authorId) ? message.authorId : "1";
+              const auto text = std::string(notice.before) + "<@" + authorId + ">" + std::string(notice.after);
+              cached.layout = layoutMessage(
+                  text, std::max(32.0F, textWidth - 40), measure, m_preferences.messageSize,
+                  {{authorId, userName(message.authorId, message.author)}},
+                  {.compact = true,
+                   .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); },
+                   .mentionPrefix = false}
+              );
+              if (cached.layout.plainText.ends_with('\n'))
+                cached.layout.plainText.pop_back();
+            } else {
+              cached.layout = layoutRichMessage(
+                  displayed, textWidth, measure, m_preferences.messageSize,
+                  {.fakeNitroEmojis = m_preferences.fakeNitroEmojis && m_preferences.showImages,
+                   .compact = m_preferences.compact,
+                   .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
+              );
+            }
             cached.reply = message.reply
                 ? layoutReplyPreview(
                       *message.reply,
@@ -1856,7 +1941,10 @@ namespace app {
             cached.fonts = renderer.textMetricsGeneration();
           }
           const float height = blockedMessage(message) ? 36
-                                                       : std::max(22.0F, cached.layout.height)
+              : message.type == 7                      ? std::max(22.0F, cached.layout.height)
+                  + (m_preferences.compact ? 8 : 16)
+                  + (message.reactions.empty() ? 0 : 6 + reactionStrip(nullptr, message, 0, 0, textWidth, true))
+                                  : std::max(22.0F, cached.layout.height)
                   + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
                                       m_preferences.compact)
                   + (message.reply ? 24 : 0)
@@ -2014,266 +2102,279 @@ namespace app {
                 && missingAuthors.size() < 100
                 && std::ranges::find(missingAuthors, message.authorId) == missingAuthors.end())
               missingAuthors.push_back(message.authorId);
-            if (message.flags & 64) {
-              rectangle(*content, 0, y - 3, bodyWidth - 48, heights[i] - 4, lerpColor(background, accent, .06F), 6);
-              rectangle(*content, 0, y - 3, 3, heights[i] - 4, lerpColor(background, accent, .6F), 2);
-            }
-            if (messageMentions(
-                    message, m_account.id,
-                    ownRoles ? std::span<const std::string>{*ownRoles} : std::span<const std::string>{}
-                )) {
-              const bool over = hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop);
-              const float tint = (m_preferences.theme == "light" ? .10F : .07F) + (over ? .03F : 0.0F);
-              const float bottomGap =
-                  messageRowPadding(true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact);
-              const float inkHeight = std::max(continuations[i] ? 0.0F : 41.0F, heights[i] - bottomGap);
-              const float bandTop = std::max(top, top + y - 2);
-              const float bandBottom = std::min({bottom, top + y + inkHeight + 2, top + y + heights[i]});
-              if (bandBottom > bandTop) {
-                rectangle(
-                    root, left + 10, bandTop, bodyWidth - 34, bandBottom - bandTop, lerpColor(background, accent, tint)
-                );
-                rectangle(root, left + 10, bandTop, 3, bandBottom - bandTop, accent);
+            if (message.type == 7) {
+              drawJoinNotice(*content, message, *layouts[i], y, textWidth);
+            } else {
+              if (message.flags & 64) {
+                rectangle(*content, 0, y - 3, bodyWidth - 48, heights[i] - 4, lerpColor(background, accent, .06F), 6);
+                rectangle(*content, 0, y - 3, 3, heights[i] - 4, lerpColor(background, accent, .6F), 2);
               }
-            }
-            if (message.reply) {
-              const auto& reply = *message.reply;
-              auto preview = std::make_unique<Node>();
-              preview->setPosition(50, y);
-              preview->setSize(textWidth, 20);
-              preview->setClipChildren(true);
-              auto* previewNode = preview.get();
-              content->addChild(std::move(preview));
-              for (const auto& run : m_messageLayouts.at(message.id).reply.runs) {
-                if (run.style.spoiler) {
-                  rectangle(*previewNode, run.x, 2, run.width, 16, raised, 3);
-                } else if (!run.image.empty()) {
-                  if (!emojiImage(*previewNode, run.x, 2, 16, run.image))
-                    label(*previewNode, run.x, 3, 16, "…", 12, muted);
-                } else {
-                  const auto markup = messageMarkup(run.text, run.style);
-                  const auto metrics = m_window.target().renderer().measureText(
-                      markup, run.style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {}, TextEllipsize::End, true
+              if (messageMentions(
+                      message, m_account.id,
+                      ownRoles ? std::span<const std::string>{*ownRoles} : std::span<const std::string>{}
+                  )) {
+                const bool over = hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop);
+                const float tint = (m_preferences.theme == "light" ? .10F : .07F) + (over ? .03F : 0.0F);
+                const float bottomGap = messageRowPadding(
+                    true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact
+                );
+                const float inkHeight = std::max(continuations[i] ? 0.0F : 41.0F, heights[i] - bottomGap);
+                const float bandTop = std::max(top, top + y - 2);
+                const float bandBottom = std::min({bottom, top + y + inkHeight + 2, top + y + heights[i]});
+                if (bandBottom > bandTop) {
+                  rectangle(
+                      root, left + 10, bandTop, bodyWidth - 34, bandBottom - bandTop,
+                      lerpColor(background, accent, tint)
+                  );
+                  rectangle(root, left + 10, bandTop, 3, bandBottom - bandTop, accent);
+                }
+              }
+              if (message.reply) {
+                const auto& reply = *message.reply;
+                auto preview = std::make_unique<Node>();
+                preview->setPosition(50, y);
+                preview->setSize(textWidth, 20);
+                preview->setClipChildren(true);
+                auto* previewNode = preview.get();
+                content->addChild(std::move(preview));
+                for (const auto& run : m_messageLayouts.at(message.id).reply.runs) {
+                  if (run.style.spoiler) {
+                    rectangle(*previewNode, run.x, 2, run.width, 16, raised, 3);
+                  } else if (!run.image.empty()) {
+                    if (!emojiImage(*previewNode, run.x, 2, 16, run.image))
+                      label(*previewNode, run.x, 3, 16, "…", 12, muted);
+                  } else {
+                    const auto markup = messageMarkup(run.text, run.style);
+                    const auto metrics = m_window.target().renderer().measureText(
+                        markup, run.style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {}, TextEllipsize::End, true
+                    );
+                    label(
+                        *previewNode, run.x, (20 - (metrics.bottom - metrics.top)) / 2, run.width + 2, markup,
+                        run.style.size, muted, FontWeight::Normal, 1, true
+                    );
+                  }
+                }
+                const float previewTop = std::max(top, top + y);
+                const float previewBottom = std::min(bottom, top + y + 20);
+                if (previewBottom > previewTop)
+                  m_hits.push_back(
+                      {left + 74, previewTop, textWidth, previewBottom - previewTop, Action::JumpReply, reply.message}
+                  );
+                y += 24;
+              }
+              const bool continuation = continuations[i];
+              if (!continuation) {
+                const auto author = userName(message.authorId, message.author);
+                const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
+                const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
+                const float timestampWidth = m_window.target().renderer().measureText(timestamp, 10).width;
+                const float headerWidth = std::max(24.0F, textWidth - (timestamp.empty() ? 0 : timestampWidth + 10));
+                const float roleSpace =
+                    !m_dmMode && m_roleDirectory.icon(m_guildId, message.authorId, message.memberRoles) ? 22 : 0;
+                const float tagSpace = m_preferences.showGuildTags && authorTag
+                    ? std::min(
+                          104.0F,
+                          std::ceil(
+                              m_window.target().renderer().measureText(authorTag->tag, 11, FontWeight::Medium).width
+                          ) + 32
+                      ) + 6
+                    : 0;
+                const bool tagFits = headerWidth >= tagSpace + roleSpace + 38;
+                const float nameMax = std::max(24.0F, headerWidth - (tagFits ? tagSpace : 0) - roleSpace - 6);
+                const float authorWidth = std::min(
+                    nameMax, m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4
+                );
+                avatar(*content, 0, y + 1, 40, message.avatar, author);
+                float groupBottom = originalY + heights[i];
+                for (std::size_t next = i + 1; next < m_messages.size() && continuations[next]; ++next)
+                  groupBottom += heights[next];
+                roleLabel(
+                    *content, 50, y, nameMax, author, 13, foreground, FontWeight::SemiBold, message.authorId,
+                    "message:" + message.id,
+                    y + 18 >= 0
+                        && y < bottom - top
+                        && hovered(
+                            left + 24, rowTop, bodyWidth - 48,
+                            std::max(0.0F, std::min(bottom, top + groupBottom) - rowTop)
+                        ),
+                    message.memberRoles
+                );
+                const float tagUsed = m_preferences.showGuildTags && tagFits
+                    ? drawGuildTag(
+                          *content, 50 + authorWidth + 4, y - 2, headerWidth - authorWidth - roleSpace - 4, authorTag
+                      )
+                    : 0;
+                const float roleUsed = !m_dmMode && headerWidth - authorWidth - tagUsed >= 22
+                    ? drawRoleIcon(
+                          *content, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId, message.memberRoles
+                      )
+                    : 0;
+                if (!message.authorId.empty()) {
+                  const auto avatarY = std::max(top, top + y);
+                  const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 41) - avatarY);
+                  const auto nameWidth = authorWidth;
+                  m_contextTargets.push_back({left + 24, avatarY, 40, avatarH, Action::UserMenu, message.authorId});
+                  m_contextTargets.push_back(
+                      {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
+                  );
+                  m_hits.push_back({left + 24, avatarY, 40, avatarH, Action::UserProfile, message.authorId});
+                  m_hits.push_back(
+                      {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserProfile, message.authorId}
+                  );
+                }
+                const float timestampX = 50 + authorWidth + tagUsed + roleUsed + 6;
+                const float timestampAvailable = 50 + textWidth - timestampX;
+                if (!timestamp.empty() && timestampAvailable > 0)
+                  label(
+                      *content, timestampX, y + 3, std::min(timestampWidth + 2, timestampAvailable), timestamp, 10,
+                      muted
+                  );
+              } else if (hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop)) {
+                const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
+                label(*content, 0, y + 4, 42, timestamp, 9, muted);
+              }
+              const auto& layout = *layouts[i];
+              const float bodyY = y + (continuation ? 0 : 18);
+              const float componentHeight =
+                  messageButtons(content.get(), message, 50, bodyY + layout.height + 6, textWidth);
+              const float reactionHeight =
+                  reactionStrip(content.get(), message, 50, bodyY + layout.height + 6 + componentHeight, textWidth);
+              threadStrip(
+                  content.get(), message, 50, bodyY + layout.height + 6 + componentHeight + reactionHeight, textWidth
+              );
+              m_messageText[message.id] = layout.plainText;
+              m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
+              // Card backgrounds precede nested code/quote decoration.
+              for (const auto& box : layout.boxes) {
+                rectangle(
+                    *content, 50 + box.x, bodyY + box.y, box.width, box.height,
+                    box.quote       ? muted
+                        : box.embed ? sidebar
+                                    : rgbHex(0x111318),
+                    box.quote ? 0 : 6
+                );
+                if (box.embed)
+                  rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
+                if (!box.code.empty()) {
+                  const float bx = left + 74 + box.x + box.width - 54, by = top + bodyY + box.y + 4;
+                  if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
+                    button(
+                        *content, {50 + box.x + box.width - 54, bodyY + box.y + 4, 50, 24, Action::CopyCode, box.code},
+                        "Copy"
+                    );
+                    // Scene-local button geometry must be translated for input.
+                    m_hits.back().x = bx;
+                    m_hits.back().y = by;
+                  }
+                }
+              }
+              for (const auto& run : layout.runs) {
+                const float rx = 50 + run.x, ry = bodyY + run.y;
+                const bool hidden = run.style.spoiler && !m_revealedSpoilers.contains(message.id);
+                if (hidden) {
+                  rectangle(*content, rx, ry, run.width, run.height, raised, 3);
+                  m_hits.push_back(
+                      {left + 24 + rx, top + ry, run.width, run.height, Action::RevealSpoiler, message.id}
+                  );
+                  continue;
+                }
+                if (m_selectedMessage == message.id && m_selectedText == layout.plainText && m_chatEdit.selected()) {
+                  const auto from = std::max(std::min(m_chatEdit.caret, m_chatEdit.anchor), run.offset);
+                  const auto to = std::min(std::max(m_chatEdit.caret, m_chatEdit.anchor), run.offset + run.text.size());
+                  if (to > from) {
+                    const auto offset = run.image.empty()
+                        ? measure(std::string_view(run.text).substr(0, from - run.offset), run.style)
+                        : 0;
+                    const auto length = run.image.empty()
+                        ? measure(std::string_view(run.text).substr(from - run.offset, to - from), run.style)
+                        : run.width;
+                    rectangle(*content, rx + offset, ry, length, run.height, rgbHex(0x574D70), 2);
+                  }
+                }
+                if (run.image.empty())
+                  label(
+                      *content, rx, ry, std::max(1.0F, run.width + 2), messageMarkup(run.text, run.style),
+                      run.style.size, run.style.link.empty() && !run.style.mention ? foreground : accent,
+                      FontWeight::Normal, 1, true
+                  );
+                else if (!emojiImage(*content, rx, ry, run.width, run.image))
+                  label(*content, rx, ry, 22, "…", 14, muted);
+                m_textAreas.push_back({run, message.id, left + 24 + rx, top + ry});
+                if (!run.style.link.empty())
+                  m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link});
+              }
+              if (layout.edited) {
+                const auto& marker = *layout.edited;
+                label(*content, 50 + marker.x, bodyY + marker.y, marker.width + 2, "(edited)", marker.size, muted);
+              }
+              for (const auto& pic : layout.pictures) {
+                if (!pic.videoSource.empty()) {
+                  m_videoPosters[pic.videoSource] = pic.media.url;
+                  drawVideo(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.videoSource, pic.media.url);
+                  continue;
+                }
+                if (pic.video)
+                  rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
+                picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6, true);
+                const float px = left + 74 + pic.x, py = top + bodyY + pic.y;
+                if (pic.video) {
+                  rectangle(
+                      *content, 50 + pic.x + pic.width / 2 - 25, bodyY + pic.y + pic.height / 2 - 20, 50, 40,
+                      hovered(px, py, pic.width, pic.height) ? accent : panel, 10
                   );
                   label(
-                      *previewNode, run.x, (20 - (metrics.bottom - metrics.top)) / 2, run.width + 2, markup,
-                      run.style.size, muted, FontWeight::Normal, 1, true
+                      *content, 50 + pic.x + pic.width / 2 - 7, bodyY + pic.y + pic.height / 2 - 11, 24, "▶", 20,
+                      foreground
                   );
-                }
-              }
-              const float previewTop = std::max(top, top + y);
-              const float previewBottom = std::min(bottom, top + y + 20);
-              if (previewBottom > previewTop)
-                m_hits.push_back(
-                    {left + 74, previewTop, textWidth, previewBottom - previewTop, Action::JumpReply, reply.message}
-                );
-              y += 24;
-            }
-            const bool continuation = continuations[i];
-            if (!continuation) {
-              const auto author = userName(message.authorId, message.author);
-              const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
-              const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
-              const float timestampWidth = m_window.target().renderer().measureText(timestamp, 10).width;
-              const float headerWidth = std::max(24.0F, textWidth - (timestamp.empty() ? 0 : timestampWidth + 10));
-              const float roleSpace =
-                  !m_dmMode && m_roleDirectory.icon(m_guildId, message.authorId, message.memberRoles) ? 22 : 0;
-              const float tagSpace = m_preferences.showGuildTags && authorTag
-                  ? std::min(
-                        104.0F,
-                        std::ceil(
-                            m_window.target().renderer().measureText(authorTag->tag, 11, FontWeight::Medium).width
-                        ) + 32
-                    ) + 6
-                  : 0;
-              const bool tagFits = headerWidth >= tagSpace + roleSpace + 38;
-              const float nameMax = std::max(24.0F, headerWidth - (tagFits ? tagSpace : 0) - roleSpace - 6);
-              const float authorWidth = std::min(
-                  nameMax, m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4
-              );
-              avatar(*content, 0, y + 1, 40, message.avatar, author);
-              float groupBottom = originalY + heights[i];
-              for (std::size_t next = i + 1; next < m_messages.size() && continuations[next]; ++next)
-                groupBottom += heights[next];
-              roleLabel(
-                  *content, 50, y, nameMax, author, 13, foreground, FontWeight::SemiBold, message.authorId,
-                  "message:" + message.id,
-                  y + 18 >= 0
-                      && y < bottom - top
-                      && hovered(
-                          left + 24, rowTop, bodyWidth - 48,
-                          std::max(0.0F, std::min(bottom, top + groupBottom) - rowTop)
-                      ),
-                  message.memberRoles
-              );
-              const float tagUsed = m_preferences.showGuildTags && tagFits
-                  ? drawGuildTag(
-                        *content, 50 + authorWidth + 4, y - 2, headerWidth - authorWidth - roleSpace - 4, authorTag
-                    )
-                  : 0;
-              const float roleUsed = !m_dmMode && headerWidth - authorWidth - tagUsed >= 22
-                  ? drawRoleIcon(
-                        *content, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId, message.memberRoles
-                    )
-                  : 0;
-              if (!message.authorId.empty()) {
-                const auto avatarY = std::max(top, top + y);
-                const auto avatarH = std::max(0.0F, std::min(bottom, top + y + 41) - avatarY);
-                const auto nameWidth = authorWidth;
-                m_contextTargets.push_back({left + 24, avatarY, 40, avatarH, Action::UserMenu, message.authorId});
-                m_contextTargets.push_back(
-                    {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
-                );
-                m_hits.push_back({left + 24, avatarY, 40, avatarH, Action::UserProfile, message.authorId});
-                m_hits.push_back(
-                    {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserProfile, message.authorId}
-                );
-              }
-              const float timestampX = 50 + authorWidth + tagUsed + roleUsed + 6;
-              const float timestampAvailable = 50 + textWidth - timestampX;
-              if (!timestamp.empty() && timestampAvailable > 0)
-                label(
-                    *content, timestampX, y + 3, std::min(timestampWidth + 2, timestampAvailable), timestamp, 10, muted
-                );
-            } else if (hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop)) {
-              const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
-              label(*content, 0, y + 4, 42, timestamp, 9, muted);
-            }
-            const auto& layout = *layouts[i];
-            const float bodyY = y + (continuation ? 0 : 18);
-            const float componentHeight =
-                messageButtons(content.get(), message, 50, bodyY + layout.height + 6, textWidth);
-            const float reactionHeight =
-                reactionStrip(content.get(), message, 50, bodyY + layout.height + 6 + componentHeight, textWidth);
-            threadStrip(
-                content.get(), message, 50, bodyY + layout.height + 6 + componentHeight + reactionHeight, textWidth
-            );
-            m_messageText[message.id] = layout.plainText;
-            m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
-            // Card backgrounds precede nested code/quote decoration.
-            for (const auto& box : layout.boxes) {
-              rectangle(
-                  *content, 50 + box.x, bodyY + box.y, box.width, box.height,
-                  box.quote       ? muted
-                      : box.embed ? sidebar
-                                  : rgbHex(0x111318),
-                  box.quote ? 0 : 6
-              );
-              if (box.embed)
-                rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
-              if (!box.code.empty()) {
-                const float bx = left + 74 + box.x + box.width - 54, by = top + bodyY + box.y + 4;
-                if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
-                  button(
-                      *content, {50 + box.x + box.width - 54, bodyY + box.y + 4, 50, 24, Action::CopyCode, box.code},
-                      "Copy"
-                  );
-                  // Scene-local button geometry must be translated for input.
-                  m_hits.back().x = bx;
-                  m_hits.back().y = by;
-                }
-              }
-            }
-            for (const auto& run : layout.runs) {
-              const float rx = 50 + run.x, ry = bodyY + run.y;
-              const bool hidden = run.style.spoiler && !m_revealedSpoilers.contains(message.id);
-              if (hidden) {
-                rectangle(*content, rx, ry, run.width, run.height, raised, 3);
-                m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::RevealSpoiler, message.id});
-                continue;
-              }
-              if (m_selectedMessage == message.id && m_selectedText == layout.plainText && m_chatEdit.selected()) {
-                const auto from = std::max(std::min(m_chatEdit.caret, m_chatEdit.anchor), run.offset);
-                const auto to = std::min(std::max(m_chatEdit.caret, m_chatEdit.anchor), run.offset + run.text.size());
-                if (to > from) {
-                  const auto offset = run.image.empty()
-                      ? measure(std::string_view(run.text).substr(0, from - run.offset), run.style)
-                      : 0;
-                  const auto length = run.image.empty()
-                      ? measure(std::string_view(run.text).substr(from - run.offset, to - from), run.style)
-                      : run.width;
-                  rectangle(*content, rx + offset, ry, length, run.height, rgbHex(0x574D70), 2);
-                }
-              }
-              if (run.image.empty())
-                label(
-                    *content, rx, ry, std::max(1.0F, run.width + 2), messageMarkup(run.text, run.style), run.style.size,
-                    run.style.link.empty() && !run.style.mention ? foreground : accent, FontWeight::Normal, 1, true
-                );
-              else if (!emojiImage(*content, rx, ry, run.width, run.image))
-                label(*content, rx, ry, 22, "…", 14, muted);
-              m_textAreas.push_back({run, message.id, left + 24 + rx, top + ry});
-              if (!run.style.link.empty())
-                m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link});
-            }
-            if (layout.edited) {
-              const auto& marker = *layout.edited;
-              label(*content, 50 + marker.x, bodyY + marker.y, marker.width + 2, "(edited)", marker.size, muted);
-            }
-            for (const auto& pic : layout.pictures) {
-              if (!pic.videoSource.empty()) {
-                m_videoPosters[pic.videoSource] = pic.media.url;
-                drawVideo(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.videoSource, pic.media.url);
-                continue;
-              }
-              if (pic.video)
-                rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
-              picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6, true);
-              const float px = left + 74 + pic.x, py = top + bodyY + pic.y;
-              if (pic.video) {
-                rectangle(
-                    *content, 50 + pic.x + pic.width / 2 - 25, bodyY + pic.y + pic.height / 2 - 20, 50, 40,
-                    hovered(px, py, pic.width, pic.height) ? accent : panel, 10
-                );
-                label(
-                    *content, 50 + pic.x + pic.width / 2 - 7, bodyY + pic.y + pic.height / 2 - 11, 24, "▶", 20,
-                    foreground
-                );
-                m_hits.push_back({px, py, pic.width, pic.height, Action::OpenUrl, pic.link});
-              } else {
-                if (m_viewImage.empty())
-                  m_viewerImages.push_back(
-                      {pic.media.url, pic.link.empty() ? pic.media.url : pic.link, static_cast<float>(pic.media.width),
-                       static_cast<float>(pic.media.height)}
-                  );
-                m_hits.push_back({px, py, pic.width, pic.height, Action::ViewImage, pic.media.url});
-                const auto cachedImage = m_images.find(pic.media.url);
-                const bool animated = pic.animated
-                    || pic.media.url.contains(".gif")
-                    || (cachedImage != m_images.end()
-                        && cachedImage->second.animation
-                        && cachedImage->second.animation->frames.size() > 1);
-                if (animated && hovered(px, py, pic.width, pic.height) && py >= top && py + 36 <= bottom) {
-                  if (!m_demo && !m_gifFavoritesLoaded && !m_loadingGifFavorites)
-                    m_loadingGifFavorites = m_client.gifFavorites();
-                  discord::Gif gif;
-                  gif.url = pic.link.empty() ? discord::mediaUrl(pic.media.url) : pic.link;
-                  gif.src = discord::mediaUrl(pic.media.url);
-                  gif.width = pic.media.width;
-                  gif.height = pic.media.height;
-                  gif.format = pic.media.url.contains(".mp4") || pic.media.url.contains(".webm") ? 2 : 1;
-                  const bool favorite =
-                      std::ranges::find(m_gifFavorites, gif.url, &discord::Gif::url) != m_gifFavorites.end();
-                  m_gifTargets[gif.url] = gif;
-                  rectangle(*content, 50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30, sidebar, 7);
-                  iconButton(
-                      *content,
-                      {50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30,
-                       m_pendingGifFavorites.contains(gif.url) ? Action::None : Action::FavoriteGif, gif.url},
-                      favorite ? "star-filled" : "star", favorite ? "Remove GIF from favorites" : "Favorite GIF",
-                      favorite
-                  );
+                  m_hits.push_back({px, py, pic.width, pic.height, Action::OpenUrl, pic.link});
+                } else {
+                  if (m_viewImage.empty())
+                    m_viewerImages.push_back(
+                        {pic.media.url, pic.link.empty() ? pic.media.url : pic.link,
+                         static_cast<float>(pic.media.width), static_cast<float>(pic.media.height)}
+                    );
+                  m_hits.push_back({px, py, pic.width, pic.height, Action::ViewImage, pic.media.url});
+                  const auto cachedImage = m_images.find(pic.media.url);
+                  const bool animated = pic.animated
+                      || pic.media.url.contains(".gif")
+                      || (cachedImage != m_images.end()
+                          && cachedImage->second.animation
+                          && cachedImage->second.animation->frames.size() > 1);
+                  if (animated && hovered(px, py, pic.width, pic.height) && py >= top && py + 36 <= bottom) {
+                    if (!m_demo && !m_gifFavoritesLoaded && !m_loadingGifFavorites)
+                      m_loadingGifFavorites = m_client.gifFavorites();
+                    discord::Gif gif;
+                    gif.url = pic.link.empty() ? discord::mediaUrl(pic.media.url) : pic.link;
+                    gif.src = discord::mediaUrl(pic.media.url);
+                    gif.width = pic.media.width;
+                    gif.height = pic.media.height;
+                    gif.format = pic.media.url.contains(".mp4") || pic.media.url.contains(".webm") ? 2 : 1;
+                    const bool favorite =
+                        std::ranges::find(m_gifFavorites, gif.url, &discord::Gif::url) != m_gifFavorites.end();
+                    m_gifTargets[gif.url] = gif;
+                    rectangle(*content, 50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30, sidebar, 7);
+                    iconButton(
+                        *content,
+                        {50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30,
+                         m_pendingGifFavorites.contains(gif.url) ? Action::None : Action::FavoriteGif, gif.url},
+                        favorite ? "star-filled" : "star", favorite ? "Remove GIF from favorites" : "Favorite GIF",
+                        favorite
+                    );
+                  }
                 }
               }
             }
             if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
-              rectangle(*content, bodyWidth - 190, y - 8, 124, 34, panel, 7);
+              const float toolbarWidth = message.type == 7 ? 94 : 124;
+              rectangle(*content, bodyWidth - 66 - toolbarWidth, y - 8, toolbarWidth, 34, panel, 7);
               iconButton(
-                  *content, {bodyWidth - 186, y - 4, 28, 26, Action::CopyMessage, message.id}, "copy", "Copy text"
+                  *content, {bodyWidth - 62 - toolbarWidth, y - 4, 28, 26, Action::CopyMessage, message.id}, "copy",
+                  "Copy text"
               );
-              iconButton(
-                  *content, {bodyWidth - 156, y - 4, 28, 26, Action::Reply, message.id}, "corner-up-left", "Reply"
-              );
+              if (message.type != 7)
+                iconButton(
+                    *content, {bodyWidth - 156, y - 4, 28, 26, Action::Reply, message.id}, "corner-up-left", "Reply"
+                );
               iconButton(
                   *content, {bodyWidth - 126, y - 4, 28, 26, Action::AddReaction, message.id}, "mood-smile",
                   "Add reaction"
@@ -2507,17 +2608,24 @@ namespace app {
           members->setPosition(memberX, 148);
           members->setSize(memberWidth, h - 158);
           members->setClipChildren(true);
+          const auto guildRoles = m_dmMode ? std::vector<discord::ColoredRole>{} : m_roleDirectory.allRoles(m_guildId);
           for (const auto& member : m_members) {
             const float rowY = member.index * 44.0F - m_memberScroll;
             if (rowY < -44 || rowY > h - 148)
               continue;
-            if (!member.group.empty())
+            if (!member.group.empty()) {
+              // Keep spacing above groups while bringing their heading closer to
+              // the first avatar; member rows and subscription indices stay stable.
+              const auto role = std::ranges::find(guildRoles, member.groupId, &discord::ColoredRole::id);
+              const float iconWidth = role != guildRoles.end() && (!role->icon.empty() || !role->unicodeEmoji.empty())
+                  ? drawRoleBadge(*members, 18, rowY + 24, *role)
+                  : 0;
               label(
-                  *members, 18, rowY + 12, memberWidth - 36,
+                  *members, 18 + iconWidth, rowY + 26, memberWidth - 36 - iconWidth,
                   member.group + (member.count >= 0 ? " — " + std::to_string(member.count) : ""), 11, muted,
                   FontWeight::SemiBold
               );
-            else if (!member.user.id.empty()) {
+            } else if (!member.user.id.empty()) {
               if (hovered(memberX + 8, 148 + rowY, memberWidth - 16, 42))
                 rectangle(*members, 8, rowY, memberWidth - 16, 42, panel, 6);
               const auto name = userName(member.user.id, member.user.name);
@@ -2525,16 +2633,10 @@ namespace app {
               avatar(*members, 16, rowY + 5, 32, member.user.avatar, name);
               statusBadge(*members, 38, rowY + 27, status, sidebar);
               roleLabel(
-                  *members, 60, rowY + 12,
-                  memberWidth - 78 - (!m_dmMode && m_roleDirectory.icon(m_guildId, member.user.id) ? 22 : 0), name, 13,
-                  status == "offline" ? muted : foreground, FontWeight::Normal, member.user.id,
-                  "member:" + member.user.id, hovered(memberX + 8, 148 + rowY, memberWidth - 16, 42)
+                  *members, 60, rowY + 12, memberWidth - 78, name, 13, status == "offline" ? muted : foreground,
+                  FontWeight::Normal, member.user.id, "member:" + member.user.id,
+                  hovered(memberX + 8, 148 + rowY, memberWidth - 16, 42)
               );
-              if (!m_dmMode) {
-                const float nameWidth =
-                    std::min(memberWidth - 100, m_window.target().renderer().measureText(name, 13).width);
-                drawRoleIcon(*members, 66 + nameWidth, rowY + 12, m_guildId, member.user.id);
-              }
               const auto rowTop = std::max(148.0F, 148 + rowY), rowBottom = std::min(h - 10, 148 + rowY + 42);
               m_contextTargets.push_back(
                   {memberX + 8, rowTop, memberWidth - 16, std::max(0.0F, rowBottom - rowTop), Action::UserMenu,
