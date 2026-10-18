@@ -235,6 +235,44 @@ namespace app {
     } catch (...) {
     }
   }
+  ChannelListPreferences SessionStore::channelList(const std::string& account, const std::string& guild) const {
+    ChannelListPreferences result;
+    try {
+      const auto all = readState(m_path, m_legacyPath);
+      if (!all.contains(account)
+          || !all[account].contains("channel_lists")
+          || !all[account]["channel_lists"].contains(guild))
+        return result;
+      const auto& value = all[account]["channel_lists"][guild];
+      result.hideMuted = value.value("hide_muted", false);
+      if (value.contains("pinned") && value["pinned"].is_array())
+        for (const auto& item : value["pinned"])
+          if (item.is_string()
+              && api::validSnowflake(item.get<std::string>())
+              && result.pinned.size() < 200
+              && std::ranges::find(result.pinned, item.get<std::string>()) == result.pinned.end())
+            result.pinned.push_back(item.get<std::string>());
+    } catch (...) {
+      return {};
+    }
+    return result;
+  }
+  void SessionStore::saveChannelList(
+      const std::string& account, const std::string& guild, const ChannelListPreferences& preferences
+  ) const {
+    if (m_path.empty() || !api::validSnowflake(account) || !api::validSnowflake(guild))
+      return;
+    try {
+      auto all = readState(m_path, m_legacyPath);
+      std::vector<std::string> pinned;
+      for (const auto& id : preferences.pinned)
+        if (api::validSnowflake(id) && pinned.size() < 200 && std::ranges::find(pinned, id) == pinned.end())
+          pinned.push_back(id);
+      all[account]["channel_lists"][guild] = {{"hide_muted", preferences.hideMuted}, {"pinned", pinned}};
+      writeState(m_path, all);
+    } catch (...) {
+    }
+  }
   std::vector<std::string> SessionStore::frequentEmojis(const std::string& account) const {
     std::vector<std::pair<int, std::string>> ranked;
     try {

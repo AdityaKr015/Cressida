@@ -255,7 +255,11 @@ namespace app {
             m_channelSearchText = text;
         } else if (id == "channel-name")
           m_channelFormName = text;
-        else if (id == "channel-topic")
+        else if (id == "channel-create-access") {
+          m_channelCreateFilter = text;
+          m_scrolling.stop(m_channelCreateScroll);
+          m_channelCreateScroll = 0;
+        } else if (id == "channel-topic")
           m_channelFormTopic = text;
         else if (id == "channel-access-filter") {
           m_channelAccessFilter = text;
@@ -315,6 +319,7 @@ namespace app {
           searchChannel();
         else if (
             id == "channel-access-filter"
+            || id == "channel-create-access"
             || id == "channel-name"
             || id == "channel-topic"
             || id.starts_with("application-field:")

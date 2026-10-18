@@ -198,6 +198,13 @@ namespace api {
     return first == std::string::npos ? "0" : decimal.substr(first);
   }
   void parseChannelDetails(Channel& channel, const nlohmann::json& value) {
+    if (value.contains("nsfw") && value["nsfw"].is_boolean())
+      channel.nsfw = value["nsfw"].get<bool>();
+    if (value.contains("rate_limit_per_user") && value["rate_limit_per_user"].is_number_integer()) {
+      const auto limit = value["rate_limit_per_user"].get<std::int64_t>();
+      if (limit >= 0 && limit <= 21600)
+        channel.rateLimitPerUser = static_cast<int>(limit);
+    }
     if (value.contains("topic")) {
       if (value["topic"].is_null())
         channel.topic = "";

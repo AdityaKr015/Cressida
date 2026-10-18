@@ -51,14 +51,21 @@ namespace app {
               && (m_contextBounds.contains(m_pointerX, m_pointerY)
                   || (m_reactionSubmenu && m_reactionSubmenuBounds.contains(m_pointerX, m_pointerY)));
         if (!m_dialogKind.empty())
-          return m_dialogBounds.contains(m_pointerX, m_pointerY)
-              && (id == "dialog"
-                  || id == "channel-name"
-                  || id == "channel-topic"
-                  || id == "channel-access-filter"
-                  || id.starts_with("application-")
-                  || id.starts_with("forum-")
-                  || id == "profile-scrollbar");
+          return (id == "invite:options"
+                  && m_channelInvite.dropdown
+                  && m_channelInvite.dropdownBounds.contains(m_pointerX, m_pointerY))
+              || (m_dialogBounds.contains(m_pointerX, m_pointerY)
+                  && (id == "dialog"
+                      || id == "channel-name"
+                      || id == "channel-topic"
+                      || id == "channel-access-filter"
+                      || id.starts_with("channel-create")
+                      || id.starts_with("toggle:channel-create")
+                      || id.starts_with("channel-edit:")
+                      || id.starts_with("invite:")
+                      || id.starts_with("application-")
+                      || id.starts_with("forum-")
+                      || id == "profile-scrollbar"));
         if (m_emojiMenu)
           return id == "emoji-search" && m_emojiBounds.contains(m_pointerX, m_pointerY);
         if (m_gifMenu)

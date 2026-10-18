@@ -1,6 +1,10 @@
 #include "api/user_directory.h"
 
+#include <charconv>
+#include <ctime>
+#include <iomanip>
 #include <nlohmann/json.hpp>
+#include <sstream>
 
 namespace api {
   namespace {
@@ -10,6 +14,68 @@ namespace api {
       return field != value.end() && field->is_string() ? field->get<std::string>() : std::string{};
     }
   } // namespace
+  std::optional<std::chrono::system_clock::time_point> muteDeadline(std::string_view text) {
+    if (text.size() < 20 || text.size() > 64)
+      return {};
+    std::tm utc{};
+    std::istringstream input(std::string(text.substr(0, 19)));
+    input >> std::get_time(&utc, "%Y-%m-%dT%H:%M:%S");
+    if (input.fail())
+      return {};
+    std::size_t zone = 19;
+    if (text[zone] == '.') {
+      ++zone;
+      while (zone < text.size() && text[zone] >= '0' && text[zone] <= '9')
+        ++zone;
+    }
+    int offset = 0;
+    if (text.substr(zone) != "Z") {
+      if (text.size() - zone != 6 || (text[zone] != '+' && text[zone] != '-') || text[zone + 3] != ':')
+        return {};
+      int hours = 0, minutes = 0;
+      const auto a = std::from_chars(text.data() + zone + 1, text.data() + zone + 3, hours);
+      const auto b = std::from_chars(text.data() + zone + 4, text.data() + zone + 6, minutes);
+      if (a.ec != std::errc{}
+          || b.ec != std::errc{}
+          || a.ptr != text.data() + zone + 3
+          || b.ptr != text.data() + zone + 6
+          || hours > 23
+          || minutes > 59)
+        return {};
+      offset = (hours * 3600 + minutes * 60) * (text[zone] == '-' ? -1 : 1);
+    }
+    return std::chrono::system_clock::from_time_t(timegm(&utc) - offset);
+  }
+  std::map<std::string, ChannelNotification> channelNotifications(const nlohmann::json& settings) {
+    std::map<std::string, ChannelNotification> result;
+    const auto list = settings.find("channel_overrides");
+    if (list == settings.end() || !list->is_array())
+      return result;
+    for (const auto& row : *list) {
+      const auto id = text(row, "channel_id");
+      if (!validSnowflake(id) || result.size() >= maxUsers)
+        continue;
+      ChannelNotification update;
+      if (const auto at = row.find("message_notifications");
+          at != row.end() && at->is_number_integer() && *at >= 0 && *at <= 3)
+        update.level = at->get<int>();
+      if (const auto at = row.find("muted"); at != row.end() && at->is_boolean())
+        update.muted = at->get<bool>();
+      if (const auto config = row.find("mute_config"); config != row.end()) {
+        if (config->is_null())
+          update.muteUntil = "";
+        else if (config->is_object() && config->contains("end_time")) {
+          const auto& end = (*config)["end_time"];
+          if (end.is_null())
+            update.muteUntil = "";
+          else if (end.is_string() && muteDeadline(end.get<std::string>()))
+            update.muteUntil = end.get<std::string>();
+        }
+      }
+      result.emplace(id, std::move(update));
+    }
+    return result;
+  }
 
   void UserDirectory::apply(const UserUpdates& update) {
     if (update.reset) {
@@ -17,6 +83,8 @@ namespace api {
       m_statuses.clear();
       m_relationships.clear();
       m_mutedChannels.clear();
+      m_notifications.clear();
+      m_notificationRevisions.clear();
       m_tags.clear();
     }
     for (const auto& [id, user] : update.users) {
@@ -38,6 +106,20 @@ namespace api {
     for (const auto& [id, muted] : update.mutedChannels)
       if (validSnowflake(id) && (m_mutedChannels.contains(id) || m_mutedChannels.size() < maxUsers))
         m_mutedChannels[id] = muted;
+    for (const auto& [id, patch] : update.notifications) {
+      if (!validSnowflake(id) || (!m_notifications.contains(id) && m_notifications.size() >= maxUsers))
+        continue;
+      auto& target = m_notifications[id];
+      if (patch.level)
+        target.level = patch.level;
+      if (patch.muted) {
+        target.muted = patch.muted;
+        m_mutedChannels[id] = *patch.muted;
+      }
+      if (patch.muteUntil)
+        target.muteUntil = patch.muteUntil;
+      m_notificationRevisions[id] = ++m_notificationSerial;
+    }
   }
 
   std::string UserDirectory::name(const std::string& user, const std::string& fallback) const {
@@ -54,9 +136,33 @@ namespace api {
   }
   bool UserDirectory::muted(const std::string& channel) const {
     const auto found = m_mutedChannels.find(channel);
-    return found != m_mutedChannels.end() && found->second;
+    if (found == m_mutedChannels.end() || !found->second)
+      return false;
+    const auto at = m_notifications.find(channel);
+    if (at != m_notifications.end() && at->second.muteUntil)
+      if (const auto end = muteDeadline(*at->second.muteUntil); end && *end <= std::chrono::system_clock::now())
+        return false;
+    return true;
   }
-  std::optional<GuildTag> UserDirectory::guildTag(const std::string& user, const std::optional<GuildTag>& fallback) const {
+  int UserDirectory::notificationLevel(const std::string& channel) const {
+    const auto at = m_notifications.find(channel);
+    return at == m_notifications.end() ? 3 : at->second.level.value_or(3);
+  }
+  std::uint64_t UserDirectory::notificationRevision(const std::string& channel) const {
+    const auto at = m_notificationRevisions.find(channel);
+    return at == m_notificationRevisions.end() ? 0 : at->second;
+  }
+  std::optional<std::chrono::system_clock::time_point> UserDirectory::nextMuteExpiry() const {
+    std::optional<std::chrono::system_clock::time_point> result;
+    const auto now = std::chrono::system_clock::now();
+    for (const auto& [id, value] : m_notifications)
+      if (muted(id) && value.muteUntil)
+        if (const auto end = muteDeadline(*value.muteUntil); end && *end > now && (!result || *end < *result))
+          result = end;
+    return result;
+  }
+  std::optional<GuildTag>
+  UserDirectory::guildTag(const std::string& user, const std::optional<GuildTag>& fallback) const {
     const auto at = m_tags.find(user);
     return at == m_tags.end() ? fallback : at->second;
   }
@@ -80,15 +186,20 @@ namespace api {
       else if (const auto tag = parseGuildTag(user))
         changes.users[id].guildTag.emplace(tag);
     };
-    if (type == "USER_UPDATE") recordTag(data);
-    if (data.contains("user")) recordTag(data["user"]);
-    if (data.contains("author")) recordTag(data["author"]);
+    if (type == "USER_UPDATE")
+      recordTag(data);
+    if (data.contains("user"))
+      recordTag(data["user"]);
+    if (data.contains("author"))
+      recordTag(data["author"]);
     if ((type == "READY" || type == "READY_SUPPLEMENTAL") && data.contains("users") && data["users"].is_array())
-      for (const auto& user : data["users"]) recordTag(user);
+      for (const auto& user : data["users"])
+        recordTag(user);
     auto relationship = [&](const nlohmann::json& item, bool removed = false) {
       if (!item.is_object())
         return;
-      if (item.contains("user")) recordTag(item["user"]);
+      if (item.contains("user"))
+        recordTag(item["user"]);
       auto id = text(item, "id");
       if (!validSnowflake(id) || changes.users.size() >= maxUsers)
         return;
@@ -105,7 +216,8 @@ namespace api {
     auto presence = [&](const nlohmann::json& item, const std::string& guild = std::string{}) {
       if (!item.is_object())
         return;
-      if (item.contains("user")) recordTag(item["user"]);
+      if (item.contains("user"))
+        recordTag(item["user"]);
       auto id = text(item, "user_id");
       if (const auto user = item.find("user"); user != item.end() && user->is_object())
         id = text(*user, "id");
@@ -150,19 +262,10 @@ namespace api {
         changes.users[id].status = status;
     };
     auto notificationSettings = [&](const nlohmann::json& settings) {
-      if (!settings.is_object() || !settings.contains("channel_overrides") || !settings["channel_overrides"].is_array())
-        return;
-      for (const auto& channel : settings["channel_overrides"]) {
-        const auto id = text(channel, "channel_id");
-        if (validSnowflake(id)
-            && channel.contains("muted")
-            && channel["muted"].is_boolean()
-            && changes.mutedChannels.size() < maxUsers) {
-          bool muted = channel["muted"].get<bool>();
-          // Expiring mutes are reconciled by subsequent settings updates; an
-          // indefinite mute from this client uses end_time=null.
-          changes.mutedChannels[id] = muted;
-        }
+      for (const auto& [id, patch] : channelNotifications(settings)) {
+        changes.notifications[id] = patch;
+        if (patch.muted)
+          changes.mutedChannels[id] = *patch.muted;
       }
     };
     if (type == "READY" || type == "READY_SUPPLEMENTAL") {

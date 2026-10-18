@@ -113,6 +113,7 @@ namespace api {
     std::optional<UserProfile> profile;
     std::optional<GuildProfile> guildProfile;
     bool guildVerificationRequired = false;
+    std::string inviteUrl;
     bool noSavedLogin = false, restoredLogin = false;
     std::optional<auth::CredentialOperation> credentialOperation;
     std::vector<Gif> gifs;

@@ -22,6 +22,10 @@ namespace app {
     std::string guild, channel;
     float scale = 1;
   };
+  struct ChannelListPreferences {
+    bool hideMuted = false;
+    std::vector<std::string> pinned;
+  };
   // UI state only, keyed by account ID. Never stores tokens or passwords.
   class SessionStore {
   public:
@@ -33,6 +37,10 @@ namespace app {
     // Only color mode/palette are shared with the signed-out UI.
     Preferences startupPreferences() const;
     void saveAppearance(const Preferences& preferences) const;
+    ChannelListPreferences channelList(const std::string& account, const std::string& guild) const;
+    void saveChannelList(
+        const std::string& account, const std::string& guild, const ChannelListPreferences& preferences
+    ) const;
     void savePreferences(const std::string& account, const Preferences& preferences) const;
     std::vector<std::string> frequentReactions(const std::string& account) const;
     void recordReaction(const std::string& account, const std::string& emoji) const;

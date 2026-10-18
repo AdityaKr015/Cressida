@@ -54,8 +54,34 @@ namespace app {
       if (view == "channel-empty-light")
         m_preferences.theme = "light";
     }
-    if (view == "channel-edit")
+    if (view.starts_with("channel-edit")) {
+      if (view.contains("category")) {
+        m_channels.front().type = 4;
+        m_channels.front().name = "Community";
+        m_guildChannels[m_guildId] = m_channels;
+      }
       openChannelDialog("channel-edit");
+      if (view.contains("permissions") || view.contains("advanced")) {
+        m_channelEditPage = "permissions";
+        m_focusedInput.clear();
+      }
+      if (view.contains("advanced"))
+        m_channelDialogScroll = 300;
+      if (view.contains("access")) {
+        m_channelEditPage = "access";
+        m_channelReturnToPermissions = true;
+        m_focusedInput = "channel-access-filter";
+      }
+      if (view.contains("light"))
+        m_preferences.theme = "light";
+      if (view.contains("narrow"))
+        m_window.setUiScale(1.8F);
+      if (view.contains("dirty")) {
+        m_channelFormName = "community-chat";
+        m_channelFormNsfw = true;
+        m_channelFormRateLimit = 30;
+      }
+    }
     if (view == "channel-search") {
       m_channelPanel = "search";
       m_channelSearchText = "help";
@@ -172,9 +198,12 @@ namespace app {
       channelFeatureInteraction(event, true);
     } else if (step == 4) {
       require(
-          m_dialogKind.empty() && selectedChannel()->topic == "A saved channel description.",
-          "Acknowledged edits update the channel topic"
+          m_dialogKind == "channel-edit"
+              && !m_dialogPending
+              && selectedChannel()->topic == "A saved channel description.",
+          "Acknowledged edits update the topic while retaining channel settings"
       );
+      closeDialog();
       click(Action::AddChannelAccess);
     } else if (step == 5) {
       require(m_dialogKind == "channel-access", "Channel access management has a dedicated explicit-save dialog");
@@ -183,7 +212,50 @@ namespace app {
           m_channelAccessTarget == "52" && !m_dialogPending, "Choosing an access target must not mutate the account"
       );
       closeDialog();
+      openChannelDialog("channel-edit");
+      m_channelEditPage = "permissions";
+      m_focusedInput.clear();
     } else if (step == 6) {
+      require(m_widgets.contains("channel-edit:private"), "Permissions mount the retained native privacy toggle");
+      auto* toggle = m_widgets.at("channel-edit:private");
+      float x = 0, y = 0;
+      for (auto* node = toggle; node && node != m_scene.get(); node = node->parent()) {
+        x += node->x();
+        y += node->y();
+      }
+      m_window.click(x + 15, y + 9 + m_window.titlebarHeight() - 36, 272);
+      m_window.released();
+      require(
+          m_channelPermissionDraft.contains(api::viewChannel)
+              && m_channelPermissionDraft.at(api::viewChannel) == 0
+              && !m_dialogPending
+              && selectedChannel()->overwrites->front().deny == "1024",
+          "Changing privacy changes only the selected permission draft before Save Changes"
+      );
+      require(
+          channelEditClose() && m_dialogKind == "channel-edit" && !m_dialogError.empty(),
+          "Closing settings retains unsaved permission changes and shows save feedback"
+      );
+      api::Interaction permission{.kind = Kind::EditChannelPermission, .channel = "101", .user = "1", .guild = "1"};
+      permission.permissionBit = api::viewChannel;
+      permission.permissionValue = 0;
+      m_channelPermissionPending = m_channelPermissionDraft;
+      m_dialogPending = true;
+      m_dialogAction = permission;
+      api::Event saved;
+      saved.operation = api::Operation::Interaction;
+      saved.interaction = permission;
+      saved.channels = {*selectedChannel()};
+      saved.channels.front().overwrites->front().deny = "0";
+      channelFeatureInteraction(saved, true);
+      require(
+          m_dialogKind == "channel-edit"
+              && !m_dialogPending
+              && m_channelPermissionDraft.empty()
+              && selectedChannel()->overwrites->front().deny == "0",
+          "Permission acknowledgements update channel access and keep settings open"
+      );
+      closeDialog();
       click(Action::ChannelPins);
       api::ChannelPageQuery query{api::ChannelPage::Pins, "1", "101", {}, {}, 0, ++m_channelFeatureSerial};
       m_channelPageRequest = query;

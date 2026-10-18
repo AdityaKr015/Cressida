@@ -123,6 +123,8 @@ namespace api {
     bool requireTag = false;
     std::optional<std::string> topic;
     std::optional<std::vector<PermissionOverwrite>> overwrites;
+    std::optional<bool> nsfw;
+    std::optional<int> rateLimitPerUser;
     bool isThread() const { return type == 10 || type == 11 || type == 12; }
     bool isForum() const { return type == 15 || type == 16; }
   };
@@ -240,6 +242,7 @@ namespace api {
   Account parseAccount(const nlohmann::json& value);
   std::vector<Guild> parseGuilds(const nlohmann::json& value);
   std::vector<Channel> parseChannels(const nlohmann::json& value);
+  std::vector<Channel> orderChannels(std::vector<Channel> channels);
   std::vector<Channel>
   parsePrivateChannels(const nlohmann::json& value, const std::map<std::string, Account>& users = {});
   std::vector<Message> parseMessages(const nlohmann::json& value);

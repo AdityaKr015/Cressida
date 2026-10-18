@@ -33,6 +33,8 @@ namespace app {
         key += ":" + action.guild + ":" + std::to_string(action.revision);
       if (action.kind == api::InteractionKind::MessageButton || action.kind == api::InteractionKind::SubmitModal)
         key += ":" + action.customId + ":" + action.nonce;
+      if (static_cast<int>(action.kind) >= static_cast<int>(api::InteractionKind::CreateChannel))
+        key += ":" + action.guild + ":" + std::to_string(action.revision);
       if (action.kind == api::InteractionKind::EditChannel || action.kind == api::InteractionKind::GrantChannelAccess)
         key += ":" + std::to_string(action.revision);
       return key;
@@ -58,6 +60,11 @@ namespace app {
   }
   void ClientApplication::closeContext() {
     m_contextOpen = false;
+    m_scrolling.stop(m_contextScroll);
+    if (m_channelSubmenu)
+      m_reactionChoices.clear();
+    m_channelSubmenu = false;
+    m_channelSubmenuEntries.clear();
     m_reactionSubmenu = m_reactionSubmenuFocus = false;
     m_window.invalidate();
   }
@@ -77,11 +84,18 @@ namespace app {
     }
     m_reactionSubmenu = m_reactionSubmenuFocus = false;
     m_reactionChoices.clear();
+    m_channelSubmenu = false;
+    m_channelSubmenuEntries.clear();
     m_contextQuickIndex = -1;
     m_contextMessage.clear();
     m_contextUser.clear();
     m_contextChannel = m_channelId;
     m_contextEntries.clear();
+    if (target->action == Action::ChannelMenu || target->action == Action::ChannelListMenu) {
+      openChannelContext(*target, x, y);
+      return;
+    }
+    m_channelMenuCommands.clear();
     auto add = [&](Action action, std::string title) {
       ContextMenuControlEntry entry{static_cast<int>(action), std::move(title)};
       switch (action) {
@@ -240,6 +254,7 @@ namespace app {
     m_emojiMenu = m_presenceMenu = false;
     m_contextX = x;
     m_contextY = y;
+    m_contextScroll = 0;
     m_contextOpen = m_contextDirty = true;
     m_window.invalidate();
   }
@@ -252,13 +267,16 @@ namespace app {
       m_detachedInputs.erase(stored);
     } else {
       auto control = std::make_unique<ContextMenuControl>();
-      control->setMaxVisible(20);
+      control->setMaxVisible(64);
       control->setRedrawCallback([this] { m_window.invalidate(); });
       control->setOnActivate([this](const ContextMenuControlEntry& entry) {
-        contextAction(static_cast<Action>(entry.id));
+        if (!channelMenuEntry(entry.id))
+          contextAction(static_cast<Action>(entry.id));
       });
       control->setOnSubmenuOpen([this](const ContextMenuControlEntry& entry, float center) {
-        if (static_cast<Action>(entry.id) == Action::AddReaction)
+        if (entry.id >= channelMenuBase)
+          openChannelSubmenu(entry.id, center);
+        else if (static_cast<Action>(entry.id) == Action::AddReaction)
           openReactionSubmenu(center);
       });
       m_contextControl = control.get();
@@ -275,7 +293,10 @@ namespace app {
         m_contextMessage.empty() ? 210.0F : 230.0F, std::max(230.0F, w - 16)
     );
     const float header = m_contextMessage.empty() || m_messageLog.known(m_contextChannel, m_contextMessage) ? 0 : 58;
-    const auto height = m_contextControl->preferredHeight() + header;
+    const auto fullHeight = m_contextControl->preferredHeight();
+    const float height = std::min(fullHeight + header, h - 48);
+    m_contextFullHeight = fullHeight + header;
+    m_scrolling.limit(m_contextScroll, std::max(0.0F, fullHeight - (height - header)));
     if (m_contextControl->width() != width)
       m_contextControl->setMenuWidth(width);
     const auto x = std::clamp(m_contextX, 8.0F, std::max(8.0F, w - width - 8));
@@ -300,8 +321,18 @@ namespace app {
         m_hits.push_back({bx, by, cell, 42, Action::QuickReaction, emoji});
       }
     }
-    node->setPosition(x, y + header);
-    root.addChild(std::move(node));
+    auto viewport = std::make_unique<Node>();
+    viewport->setPosition(x, y + header);
+    viewport->setSize(width, std::max(0.0F, height - header));
+    viewport->setClipChildren(true);
+    node->setPosition(0, -m_contextScroll);
+    viewport->addChild(std::move(node));
+    root.addChild(std::move(viewport));
+    if (fullHeight > height - header)
+      settingsScrollbar(
+          root, "popup:context-scrollbar", {x + width - 7, y + header, 5, height - header, Action::None, {}},
+          fullHeight, m_contextScroll
+      );
     if (m_reactionSubmenu) {
       const std::size_t visible = std::min<std::size_t>(11, std::max(1, static_cast<int>((h - 64) / 32)));
       const auto maxOffset = m_reactionChoices.size() > visible ? m_reactionChoices.size() - visible : 0;
@@ -319,7 +350,9 @@ namespace app {
         control->setRedrawCallback([this] { m_window.invalidate(); });
         control->setOnActivate([this](const ContextMenuControlEntry& entry) {
           const auto index = static_cast<std::size_t>(entry.id);
-          if (index < m_reactionChoices.size())
+          if (m_channelSubmenu && index < m_channelSubmenuEntries.size())
+            channelMenuEntry(m_channelSubmenuEntries[index].id);
+          else if (index < m_reactionChoices.size())
             chooseReaction(m_reactionChoices[index].first);
         });
         child = std::move(control);
@@ -328,10 +361,16 @@ namespace app {
       if (m_reactionSubmenuDirty) {
         const auto highlighted = m_reactionControl->highlightedIndex();
         std::vector<ContextMenuControlEntry> entries;
-        for (auto i = offset; i < std::min(m_reactionChoices.size(), offset + visible); ++i)
-          entries.push_back(
-              {.id = static_cast<int>(i), .label = m_reactionChoices[i].second, .emoji = m_reactionChoices[i].first}
-          );
+        for (auto i = offset; i < std::min(m_reactionChoices.size(), offset + visible); ++i) {
+          if (m_channelSubmenu && i < m_channelSubmenuEntries.size()) {
+            auto entry = m_channelSubmenuEntries[i];
+            entry.id = static_cast<int>(i);
+            entries.push_back(std::move(entry));
+          } else
+            entries.push_back(
+                {.id = static_cast<int>(i), .label = m_reactionChoices[i].second, .emoji = m_reactionChoices[i].first}
+            );
+        }
         m_reactionControl->setEntries(std::move(entries));
         m_reactionControl->setHighlightedIndex(std::min(highlighted, visible - 1));
         m_reactionSubmenuDirty = false;
@@ -342,7 +381,8 @@ namespace app {
       const auto sh = m_reactionControl->preferredHeight();
       m_reactionSubmenuHeight = sh;
       const float sx = x + width + sw + 8 <= w ? x + width + 3 : std::max(8.0F, x - sw - 3);
-      const float sy = std::clamp(y + header + m_reactionSubmenuAnchor - 22, 40.0F, std::max(40.0F, h - sh - 8));
+      const float sy =
+          std::clamp(y + header + m_reactionSubmenuAnchor - m_contextScroll - 22, 40.0F, std::max(40.0F, h - sh - 8));
       m_reactionSubmenuBounds = {sx, sy, sw, sh, Action::None, {}};
       rectangle(root, sx - 1, sy - 1, sw + 2, sh + 2, raised, 9);
       rectangle(root, sx, sy, sw, sh, panel, 8);
@@ -359,6 +399,10 @@ namespace app {
     m_tooltip.clear();
   }
   void ClientApplication::openReactionSubmenu(float center) {
+    if (m_channelSubmenu)
+      m_reactionChoices.clear();
+    m_channelSubmenu = false;
+    m_channelSubmenuEntries.clear();
     if (m_reactionChoices.empty()) {
       // Common choices lead the complete bundled Unicode catalog. Labels are
       // plain text, so emoji names can never become Pango markup.
@@ -427,7 +471,8 @@ namespace app {
     else if (m_contextBounds.contains(x, y)) {
       m_reactionSubmenuFocus = false;
       const auto index = m_contextControl->highlightedIndex();
-      if (y < m_contextBounds.y + 58 || (index < m_contextEntries.size() && !m_contextEntries[index].hasSubmenu))
+      if (y < m_contextBounds.y + (m_contextMessage.empty() ? 0 : 58)
+          || (index < m_contextEntries.size() && !m_contextEntries[index].hasSubmenu))
         m_reactionSubmenu = false;
     }
   }
@@ -458,6 +503,12 @@ namespace app {
     closeContext();
   }
   bool ClientApplication::overlayClick(float x, float y) {
+    if (m_dialogKind == "sidebar-invite" && m_channelInvite.dropdown) {
+      if (m_channelInvite.dropdownBounds.contains(x, y))
+        return false;
+      channelInviteAction({0, 0, 0, 0, Action::InviteDropdown, "close"});
+      return true;
+    }
     if (m_contextOpen) {
       if (m_reactionSubmenu && m_reactionSubmenuBounds.contains(x, y)) {
         m_reactionSubmenuFocus = true;
@@ -496,13 +547,20 @@ namespace app {
       return true;
     }
     if (!m_dialogKind.empty() && !m_dialogBounds.contains(x, y)) {
-      if (!m_dialogPending || m_dialogKind == "profile" || m_dialogKind == "guild-profile")
+      if (channelEditClose())
+        return true;
+      if (!m_dialogPending
+          || m_dialogKind == "profile"
+          || m_dialogKind == "guild-profile"
+          || m_dialogKind == "sidebar-invite")
         closeDialog();
       return true;
     }
     return false;
   }
   bool ClientApplication::overlayKey(const Key& key) {
+    if (channelInviteKey(key))
+      return true;
     if (m_contextOpen) {
       if (key.control && (key.symbol == XKB_KEY_q || key.symbol == XKB_KEY_Q))
         return false;
@@ -554,6 +612,16 @@ namespace app {
           m_window.invalidate();
         } else {
           (void)menu->moveHighlight(down ? 1 : -1);
+          if (menu == m_contextControl) {
+            const float header =
+                m_contextMessage.empty() || m_messageLog.known(m_contextChannel, m_contextMessage) ? 0 : 58;
+            const auto top = menu->rowTop(menu->highlightedIndex()), bottom = menu->rowBottom(menu->highlightedIndex());
+            if (top < m_contextScroll)
+              m_contextScroll = top;
+            else if (bottom > m_contextScroll + m_contextBounds.height - header)
+              m_contextScroll = bottom - (m_contextBounds.height - header);
+            m_scrolling.stop(m_contextScroll);
+          }
           if (menu == m_contextControl
               && menu->highlightedIndex() < m_contextEntries.size()
               && !m_contextEntries[menu->highlightedIndex()].hasSubmenu)
@@ -567,6 +635,8 @@ namespace app {
       return true;
     }
     if (!m_dialogKind.empty() && key.symbol == XKB_KEY_Escape) {
+      if (channelEditClose())
+        return true;
       if (!m_dialogPending || m_dialogKind == "profile" || m_dialogKind == "guild-profile")
         closeDialog();
       return true;
@@ -601,6 +671,8 @@ namespace app {
       m_status = "Demo mode is read-only.";
       return false;
     }
+    if (action.kind == Kind::Mute || action.kind == Kind::Unmute || action.kind == Kind::ChannelNotifications)
+      action.stateRevision = m_userDirectory.notificationRevision(action.channel);
     const auto key = interactionKey(action);
     if (m_pendingInteractions.contains(key))
       return false;
@@ -771,6 +843,13 @@ namespace app {
       m_dialogError = m_status;
   }
   void ClientApplication::closeDialog() {
+    m_scrolling.stop(m_channelInvite.scroll);
+    m_scrolling.stop(m_channelInvite.formScroll);
+    m_channelInvite = {};
+    m_channelCreateAccessStep = false;
+    m_channelCreateFilter.clear();
+    m_scrolling.stop(m_channelCreateScroll);
+    m_channelCreateScroll = 0;
     m_applicationModal.reset();
     m_applicationValues.clear();
     m_modalNonce.clear();
@@ -795,11 +874,14 @@ namespace app {
     m_profileScroll = 0;
     if (m_inputs.contains("dialog"))
       m_inputs["dialog"]->setValue("");
+    if (m_inputs.contains("channel-create-access"))
+      m_inputs["channel-create-access"]->setValue("");
     m_controlInput.setFocus(nullptr);
     m_focusedInput.clear();
     m_window.invalidate();
   }
   void ClientApplication::clearInteractions() {
+    m_channelInviteSettings.clear();
     closeCompletion();
     cancelMessageEdit(false);
     closeContext();
@@ -818,6 +900,10 @@ namespace app {
   void ClientApplication::drawDialog(Node& root, float w, float h) {
     if (m_dialogKind.empty())
       return;
+    if (m_dialogKind.starts_with("sidebar-")) {
+      drawSidebarDialog(root, w, h);
+      return;
+    }
     if (m_dialogKind == "application-modal") {
       drawApplicationModal(root, w, h);
       return;
@@ -894,6 +980,10 @@ namespace app {
     m_tooltip.clear();
   }
   void ClientApplication::submitDialog() {
+    if (m_dialogKind.starts_with("sidebar-")) {
+      submitSidebarDialog();
+      return;
+    }
     if (!m_dialogAction || m_dialogPending)
       return;
     auto action = *m_dialogAction;
@@ -941,6 +1031,8 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
+    if (channelInviteResult(event))
+      return;
     if (m_messageEdit
         && m_messageEdit->request
         && interactionKey(*m_messageEdit->request) == key
@@ -961,12 +1053,16 @@ namespace app {
     const bool dialog = m_dialogAction && interactionKey(*m_dialogAction) == key;
     if (!event.error.empty()) {
       if (dialog) {
+        if (m_dialogKind.empty())
+          m_dialogKind = "sidebar-error";
         m_dialogPending = false;
         m_dialogError = event.error;
       }
       m_status = event.error;
       return;
     }
+    if (sidebarInteraction(event, dialog))
+      return;
     if (channelFeatureInteraction(event, dialog))
       return;
     if (threadInteraction(event, dialog))
@@ -1288,7 +1384,12 @@ namespace app {
       submitDialog();
       break;
     case Action::CloseDialog:
-      if (!m_dialogPending || m_dialogKind == "profile" || m_dialogKind == "guild-profile")
+      if (channelEditClose())
+        break;
+      if (!m_dialogPending
+          || m_dialogKind == "profile"
+          || m_dialogKind == "guild-profile"
+          || m_dialogKind == "sidebar-invite")
         closeDialog();
       break;
     case Action::RevealBlocked:

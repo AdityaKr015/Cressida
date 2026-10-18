@@ -40,6 +40,24 @@ int main() {
   };
   try {
     {
+      app::SessionStore store(std::filesystem::path(directory) / "channel-lists.json");
+      store.savePreferences("123", {.theme = "light", .colorTheme = "fen"});
+      store.saveChannelList("123", "10", {true, {"20", "20", "bad", "21"}});
+      const auto value = store.channelList("123", "10");
+      require(
+          value.hideMuted && value.pinned == std::vector<std::string>{"20", "21"},
+          "Pinned channels and hide-muted persist with bounded valid unique IDs"
+      );
+      require(
+          !store.channelList("123", "11").hideMuted && store.channelList("456", "10").pinned.empty(),
+          "Channel-list preferences stay scoped to account and server"
+      );
+      require(
+          store.preferences("123").colorTheme == "fen" && store.startupPreferences().theme == "light",
+          "Sidebar saves preserve account and startup appearance"
+      );
+    }
+    {
       const auto appearancePath = std::filesystem::path(directory) / "appearance.json";
       app::SessionStore store(appearancePath);
       require(store.startupPreferences().colorTheme == "cressida", "Fresh startup uses the default palette");

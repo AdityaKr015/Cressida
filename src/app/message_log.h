@@ -125,6 +125,10 @@ namespace app {
       std::erase_if(m_deadOrder, [&](const auto& key) { return key.first == channel; });
     }
     void reset() { *this = {}; }
+    void clearChannelContent(const std::string& channel) {
+      std::erase_if(m_records, [&](const auto& entry) { return entry.first.first == channel; });
+      std::erase_if(m_edits, [&](const auto& entry) { return entry.first.first == channel; });
+    }
 
   private:
     static bool less(const std::string& a, const std::string& b) {

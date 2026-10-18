@@ -188,12 +188,13 @@ namespace api {
     std::vector<Channel> result;
     for (const auto& item : value) {
       const int type = item.value("type", 0);
-      if (type != 0 && type != 5 && type != 4 && type != 15 && type != 16)
+      if (type != 0 && type != 2 && type != 5 && type != 4 && type != 15 && type != 16)
         continue; // Threads have their own directory and lifecycle.
       result.push_back(
           {id(item), text(item, "name", "unnamed"), type, item.value("position", 0), text(item, "parent_id")}
       );
       auto& channel = result.back();
+      channel.lastMessageId = text(item, "last_message_id");
       parseChannelDetails(channel, item);
       if (channel.isForum()) {
         if (item.contains("flags") && item["flags"].is_number_integer())
@@ -208,6 +209,9 @@ namespace api {
           }
       }
     }
+    return orderChannels(std::move(result));
+  }
+  std::vector<Channel> orderChannels(std::vector<Channel> result) {
     std::ranges::stable_sort(result, {}, &Channel::position);
     std::vector<Channel> ordered;
     std::set<std::string> placed;

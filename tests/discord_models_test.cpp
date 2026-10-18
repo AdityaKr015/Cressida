@@ -88,14 +88,15 @@ int main() {
     auto channels = api::parseChannels(
         json::array({
             {{"id", "4"}, {"name", "voice"}, {"type", 2}},
+            {{"id", "99"}, {"name", "unsupported"}, {"type", 99}},
             {{"id", "3"}, {"name", "news"}, {"type", 5}, {"position", 2}},
             {{"id", "2"}, {"name", "general"}, {"type", 0}, {"position", 1}},
             {{"id", "1"}, {"name", "category"}, {"type", 4}},
         })
     );
     require(
-        channels.size() == 3 && channels.front().id == "2" && channels.back().type == 4,
-        "Filter unsupported channel types and preserve position order"
+        channels.size() == 4 && channels.front().id == "4" && channels.front().type == 2 && channels.back().type == 4,
+        "Retain voice channel text chats, filter unsupported channel types and preserve position order"
     );
     auto messages = api::parseMessages(
         json::array({

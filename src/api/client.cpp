@@ -531,7 +531,7 @@ namespace api {
       auto users = m_userDirectory.consume(type, data);
       if (type != "READY")
         m_readState.context(type, data, m_self);
-      if (users.reset || !users.users.empty() || !users.mutedChannels.empty()) {
+      if (users.reset || !users.users.empty() || !users.mutedChannels.empty() || !users.notifications.empty()) {
         Event event{.operation = Operation::UserState, .session = session};
         event.users = std::move(users);
         publish(std::move(event));
@@ -874,6 +874,13 @@ namespace api {
           path = interaction->path;
           body = interaction->body;
           method = interaction->method.c_str();
+          if (command.interaction->kind == InteractionKind::Mute
+              || command.interaction->kind == InteractionKind::Unmute
+              || command.interaction->kind == InteractionKind::ChannelNotifications) {
+            auto overrideData = body["channel_overrides"][command.resource];
+            overrideData["channel_id"] = command.resource;
+            event.users.notifications = channelNotifications(Json{{"channel_overrides", Json::array({overrideData})}});
+          }
           if (command.interaction->kind == InteractionKind::MessageButton
               || command.interaction->kind == InteractionKind::SubmitModal) {
             std::lock_guard lock(m_mutex);
@@ -881,11 +888,83 @@ namespace api {
               event.error = "Wait for the live connection before using application buttons.";
             else
               body["session_id"] = m_gatewaySessionId;
-          } else if (command.interaction->kind == InteractionKind::GrantChannelAccess) {
+          } else if (command.interaction->kind == InteractionKind::CreateChannel) {
+            std::optional<Json> parent;
+            if (command.interaction->privateChannel
+                && command.interaction->parentId
+                && !command.interaction->parentId->empty()) {
+              auto snapshot =
+                  request(token, "/channels/" + *command.interaction->parentId, nullptr, transfer, cooldown);
+              if (!snapshot) {
+                event.error = snapshot.error().message;
+                event.unauthorized = snapshot.error().unauthorized;
+                break;
+              }
+              parent = std::move(*snapshot);
+            }
+            body = createChannelBody(*command.interaction, parent);
+          } else if (
+              command.interaction->kind == InteractionKind::MoveChannel && command.interaction->syncPermissions
+          ) {
+            auto parent = request(token, "/channels/" + *command.interaction->parentId, nullptr, transfer, cooldown);
+            if (!parent) {
+              event.error = parent.error().message;
+              event.unauthorized = parent.error().unauthorized;
+              break;
+            }
+            body = moveChannelBody(*parent, *command.interaction);
+          } else if (command.interaction->kind == InteractionKind::SendInvite && command.interaction->channel.empty()) {
+            auto dm = request(token, path, &body, transfer, cooldown, {}, "POST");
+            if (!dm) {
+              event.error = dm.error().message;
+              event.unauthorized = dm.error().unauthorized;
+              break;
+            }
+            const auto channel = dm->value("id", "");
+            if (!validSnowflake(channel) || dm->value("type", -1) != 1)
+              throw std::runtime_error("Unexpected direct message identity");
+            const auto recipients = dm->find("recipients");
+            if (recipients == dm->end()
+                || !recipients->is_array()
+                || std::ranges::none_of(*recipients, [&](const auto& recipient) {
+                     return recipient.is_object() && recipient.value("id", "") == command.interaction->user;
+                   }))
+              throw std::runtime_error("Unexpected direct message recipient");
+            path = "/channels/" + channel + "/messages";
+            body = messageBody(command.interaction->text);
+          } else if (command.interaction->kind == InteractionKind::DuplicateChannel) {
             auto snapshot = request(token, "/channels/" + command.resource, nullptr, transfer, cooldown);
             if (!snapshot) {
               event.error = snapshot.error().message;
               event.unauthorized = snapshot.error().unauthorized;
+              break;
+            }
+            body = duplicateChannelBody(*snapshot, *command.interaction);
+          } else if (
+              command.interaction->kind == InteractionKind::GrantChannelAccess
+              || command.interaction->kind == InteractionKind::EditChannelPermission
+          ) {
+            auto snapshot = request(token, "/channels/" + command.resource, nullptr, transfer, cooldown);
+            if (!snapshot) {
+              event.error = snapshot.error().message;
+              event.unauthorized = snapshot.error().unauthorized;
+              break;
+            }
+            if (command.interaction->kind == InteractionKind::EditChannelPermission) {
+              body = channelPermissionBody(*snapshot, *command.interaction);
+              auto projected = *snapshot;
+              auto& entries = projected["permission_overwrites"];
+              auto entry = std::ranges::find_if(entries, [&](const auto& value) {
+                return value["id"] == command.interaction->user && value["type"] == command.interaction->overwriteType;
+              });
+              auto changed = body;
+              changed["id"] = command.interaction->user;
+              if (entry == entries.end())
+                entries.push_back(std::move(changed));
+              else
+                *entry = std::move(changed);
+              // Keep the acknowledged edit available even if the optional read-back fails.
+              event.channels = parseChannels(Json::array({projected}));
               break;
             }
             Channel fresh;
@@ -1057,11 +1136,32 @@ namespace api {
             break;
           }
           case Operation::Interaction:
-            if (command.interaction->kind == InteractionKind::EditChannel) {
+            if (command.interaction->kind == InteractionKind::CreateInvite) {
+              const auto code = response->value("code", std::string{});
+              if (code.empty() || code.size() > 128 || !std::ranges::all_of(code, [](unsigned char c) {
+                    return std::isalnum(c) || c == '-' || c == '_';
+                  }))
+                throw std::runtime_error("Discord returned an invalid invite.");
+              event.inviteUrl = "https://discord.gg/" + code;
+            } else if (
+                command.interaction->kind == InteractionKind::CreateChannel
+                || command.interaction->kind == InteractionKind::DuplicateChannel
+                || command.interaction->kind == InteractionKind::MoveChannel
+            ) {
+              event.channels = parseChannels(Json::array({*response}));
+              if (event.channels.size() != 1
+                  || response->value("guild_id", "") != command.interaction->guild
+                  || (command.interaction->kind == InteractionKind::MoveChannel
+                      && event.channels.front().id != command.resource))
+                throw std::runtime_error("Unexpected channel identity");
+            } else if (command.interaction->kind == InteractionKind::EditChannel) {
               event.channels = parseChannels(Json::array({*response}));
               if (event.channels.size() != 1 || event.channels[0].id != command.resource)
                 throw std::runtime_error("Unexpected channel identity");
-            } else if (command.interaction->kind == InteractionKind::GrantChannelAccess) {
+            } else if (
+                command.interaction->kind == InteractionKind::GrantChannelAccess
+                || command.interaction->kind == InteractionKind::EditChannelPermission
+            ) {
               auto updated = request(token, "/channels/" + command.resource, nullptr, transfer, cooldown);
               if (updated)
                 event.channels = parseChannels(Json::array({*updated}));

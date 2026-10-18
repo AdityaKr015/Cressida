@@ -14,6 +14,55 @@ namespace {
 int main() {
   using nlohmann::json;
   try {
+    {
+      api::UserDirectory notifications;
+      auto state = notifications.consume(
+          "USER_GUILD_SETTINGS_UPDATE",
+          json{
+              {"channel_overrides",
+               json::array(
+                   {{{"channel_id", "10"},
+                     {"message_notifications", 1},
+                     {"muted", true},
+                     {"mute_config", {{"end_time", "2035-01-01T00:00:00+00:00"}}}}}
+               )}
+          }
+      );
+      require(
+          state.notifications.size() == 1
+              && notifications.notificationLevel("10") == 1
+              && notifications.muted("10")
+              && notifications.nextMuteExpiry(),
+          "Live notification preferences and mute expiry are retained"
+      );
+      const auto revision = notifications.notificationRevision("10");
+      notifications.consume(
+          "USER_GUILD_SETTINGS_UPDATE",
+          json{{"channel_overrides", json::array({{{"channel_id", "10"}, {"message_notifications", 2}}})}}
+      );
+      require(
+          notifications.notificationLevel("10") == 2
+              && notifications.muted("10")
+              && notifications.notificationRevision("10") > revision,
+          "Partial notification changes retain mute state and invalidate older acknowledgements"
+      );
+      notifications.consume(
+          "USER_GUILD_SETTINGS_UPDATE",
+          json{
+              {"channel_overrides",
+               json::array({{{"channel_id", "10"}, {"mute_config", {{"end_time", "2020-01-01T00:00:00Z"}}}}})}
+          }
+      );
+      require(
+          !notifications.muted("10") && !notifications.nextMuteExpiry(),
+          "Expired mutes stop filtering channels without a new Gateway event"
+      );
+      require(
+          api::muteDeadline("2035-01-01T01:00:00+01:00") == api::muteDeadline("2035-01-01T00:00:00.000Z")
+              && !api::muteDeadline("invalid"),
+          "Mute deadlines accept UTC fractions and timezone offsets"
+      );
+    }
     api::UserDirectory gateway, view;
     auto dispatch = [&](const auto& type, const auto& data) { view.apply(gateway.consume(type, data)); };
     dispatch(

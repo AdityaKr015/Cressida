@@ -31,7 +31,15 @@ namespace api {
     MessageButton,
     EditChannel,
     GrantChannelAccess,
-    SubmitModal
+    SubmitModal,
+    CreateChannel,
+    DuplicateChannel,
+    DeleteChannel,
+    MoveChannel,
+    CreateInvite,
+    ChannelNotifications,
+    SendInvite,
+    EditChannelPermission
   };
   struct Interaction {
     InteractionKind kind = InteractionKind::AddReaction;
@@ -47,6 +55,17 @@ namespace api {
     int overwriteType = 0;
     std::optional<ApplicationModal> modal;
     std::vector<std::string> values;
+    std::optional<std::string> parentId;
+    int channelType = 0, notificationLevel = 3, muteDuration = -1;
+    bool privateChannel = false;
+    int inviteMaxAge = 604800, inviteMaxUses = 0;
+    bool inviteTemporary = false, inviteUnique = false;
+    std::vector<PermissionOverwrite> channelAccess;
+    std::uint64_t permissionBit = 0;
+    int permissionValue = 0;
+    std::optional<bool> channelNsfw;
+    std::optional<int> channelRateLimit;
+    bool syncPermissions = false;
   };
   struct InteractionRequest {
     std::string path, method;
@@ -58,4 +77,9 @@ namespace api {
   std::string reactionKey(const Reaction& reaction);
   nlohmann::json decodeRestBody(long status, std::string_view bytes);
   std::vector<Account> parseReactors(const nlohmann::json& value);
+  // A private child channel requires a fresh parent snapshot so inherited permissions are preserved.
+  nlohmann::json createChannelBody(const Interaction& action, const std::optional<nlohmann::json>& parent = {});
+  nlohmann::json duplicateChannelBody(const nlohmann::json& source, const Interaction& action);
+  nlohmann::json channelPermissionBody(const nlohmann::json& source, const Interaction& action);
+  nlohmann::json moveChannelBody(const nlohmann::json& parent, const Interaction& action);
 } // namespace api

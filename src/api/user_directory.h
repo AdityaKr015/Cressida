@@ -2,7 +2,16 @@
 
 #include "api/models.h"
 
+#include <chrono>
+
 namespace api {
+  struct ChannelNotification {
+    std::optional<int> level;
+    std::optional<bool> muted;
+    std::optional<std::string> muteUntil;
+  };
+  std::map<std::string, ChannelNotification> channelNotifications(const nlohmann::json& settings);
+  std::optional<std::chrono::system_clock::time_point> muteDeadline(std::string_view text);
   struct UserUpdate {
     std::optional<std::string> nickname, status;
     std::optional<int> relationship;
@@ -12,6 +21,7 @@ namespace api {
     bool reset = false;
     std::map<std::string, UserUpdate> users;
     std::map<std::string, bool> mutedChannels;
+    std::map<std::string, ChannelNotification> notifications;
   };
 
   // Gateway-owned protocol tracking, or an event-loop-owned view of typed updates.
@@ -25,6 +35,9 @@ namespace api {
     std::string status(const std::string& user, const std::string& fallback = "offline") const;
     int relationship(const std::string& user) const;
     bool muted(const std::string& channel) const;
+    int notificationLevel(const std::string& channel) const;
+    std::uint64_t notificationRevision(const std::string& channel) const;
+    std::optional<std::chrono::system_clock::time_point> nextMuteExpiry() const;
     std::optional<GuildTag> guildTag(const std::string& user, const std::optional<GuildTag>& fallback = {}) const;
 
   private:
@@ -33,5 +46,8 @@ namespace api {
     std::map<std::string, int> m_relationships;
     std::map<std::string, std::optional<GuildTag>> m_tags;
     std::map<std::string, bool> m_mutedChannels;
+    std::map<std::string, ChannelNotification> m_notifications;
+    std::map<std::string, std::uint64_t> m_notificationRevisions;
+    std::uint64_t m_notificationSerial = 0;
   };
 } // namespace api

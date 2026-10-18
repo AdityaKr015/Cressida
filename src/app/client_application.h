@@ -3,6 +3,8 @@
 #include "api/assets.h"
 #include "api/client.h"
 #include "app/autocomplete.h"
+#include "app/channel_invite.h"
+#include "app/channel_menu.h"
 #include "app/emoji_catalog.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
@@ -117,6 +119,27 @@ namespace app {
       MessageMenu,
       UserMenu,
       ConversationMenu,
+      ChannelMenu,
+      ChannelListMenu,
+      SidebarSubmit,
+      SidebarCopyInvite,
+      ChannelCreateType,
+      ChannelCreatePrivate,
+      ChannelCreateBack,
+      ChannelCreateAccess,
+      ChannelMoveSync,
+      InviteEditLink,
+      InviteBack,
+      InviteGenerate,
+      InviteCopy,
+      InviteRecipient,
+      InviteOption,
+      InviteTemporary,
+      InviteDropdown,
+      ChannelEditPage,
+      ResetChannelEdit,
+      ChannelEditOption,
+      ChannelPermissionTarget,
       UserProfile,
       Reply,
       CancelReply,
@@ -272,6 +295,30 @@ namespace app {
     std::optional<std::uint64_t> selectedChannelPermissions() const;
     void clearChannelFeatures();
     void closeChannelPanel();
+    std::optional<std::uint64_t> channelPermissionsFor(const std::string& channel) const;
+    std::optional<std::uint64_t> guildPermissions() const;
+    bool openChannelContext(const Hit& target, float x, float y);
+    bool channelMenuEntry(int id);
+    void openChannelSubmenu(int id, float center);
+    bool channelMenuAction(const Hit& hit);
+    void drawSidebarDialog(Node& root, float width, float height);
+    void drawChannelCreate(Node& root, float width, float height);
+    bool channelCreateAction(const Hit& hit);
+    bool channelMuted(const std::string& channel) const;
+    void openChannelInvite(const api::Interaction& action);
+    void drawChannelInvite(Node& root, float width, float height);
+    bool channelInviteAction(const Hit& hit);
+    bool channelInviteKey(const Key& key);
+    bool channelInviteResult(const api::Event& event);
+    void generateChannelInvite();
+    void prepareChannelInviteDemo(const std::string& view);
+    void demoChannelInviteStep();
+    void demoChannelCreateStep();
+    bool sidebarInteraction(const api::Event& event, bool dialog);
+    void submitSidebarDialog();
+    void scheduleMuteExpiry();
+    void demoChannelMenuStep();
+    void prepareChannelMenuDemo(const std::string& view);
     void drawChannelHeader(Node& root, float width);
     float channelIntro(Node* root, float x, float y, float width);
     float messageButtons(Node* root, const api::Message& message, float x, float y, float width);
@@ -286,7 +333,8 @@ namespace app {
     void removeGuildChannels(const api::Event& event);
     void filterDeletedChannels(api::Event& event) const;
     void drawChannelPanel(Node& root, float x, float y, float width, float height);
-    void openChannelDialog(const std::string& kind);
+    void openChannelDialog(const std::string& kind, const std::string& channel = {});
+    bool channelEditClose();
     void requestChannelPage(bool next = false, bool previous = false);
     void searchChannel();
     void jumpToMessage(const std::string& channel, const std::string& message);
@@ -448,6 +496,18 @@ namespace app {
     SessionStore m_sessionStore;
     ThemeRuntime m_themes;
     ThemeSnapshot m_themeSnapshot;
+    ChannelListPreferences m_channelListPreferences;
+    std::vector<ChannelMenuCommand> m_channelMenuCommands;
+    std::vector<ContextMenuControlEntry> m_channelSubmenuEntries;
+    bool m_channelSubmenu = false;
+    std::string m_sidebarInviteUrl;
+    ChannelInviteState m_channelInvite;
+    std::map<std::string, api::Interaction> m_channelInviteSettings;
+    bool m_channelCreateAccessStep = false;
+    std::string m_channelCreateFilter;
+    float m_channelCreateScroll = 0;
+    Timer m_channelMuteTimer;
+    float m_contextScroll = 0, m_contextFullHeight = 0;
     std::map<std::string, api::GuildUpdate> m_guildUpdates;
     Hit m_guildTooltipBounds{};
     std::string m_restoreChannel;
@@ -633,6 +693,13 @@ namespace app {
     std::string m_channelFormName, m_channelFormTopic, m_channelAccessFilter, m_channelAccessTarget;
     int m_channelAccessMode = 0;
     api::Channel m_channelEditOriginal;
+    std::string m_channelEditPage = "overview";
+    bool m_channelFormNsfw = false;
+    int m_channelFormRateLimit = 0;
+    std::string m_channelPermissionTarget;
+    int m_channelPermissionType = 0;
+    std::map<std::uint64_t, int> m_channelPermissionDraft, m_channelPermissionPending;
+    bool m_channelReturnToPermissions = false;
     std::uint64_t m_channelFeatureSerial = 0;
     std::string m_seekMessage;
     std::optional<std::pair<std::string, std::string>> m_pendingMessageJump;
