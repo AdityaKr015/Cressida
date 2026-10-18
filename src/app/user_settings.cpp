@@ -116,6 +116,7 @@ namespace app {
     m_profileDirty = false;
   }
   void ClientApplication::openSettings() {
+    cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();
     m_forumSearchTimer.stop();

@@ -155,8 +155,8 @@ namespace app {
         || id == "forum-body"
         || id == "channel-topic"
         || id == "settings:bio"
-        || (id.starts_with("application-field:") && m_dialogKind == "application-modal")
-        || (id == "dialog" && m_dialogKind == "edit");
+        || id == "message-edit"
+        || (id.starts_with("application-field:") && m_dialogKind == "application-modal");
     std::erase_if(text, [&](unsigned char c) {
       return (c < 32 && !(multiline && (c == '\n' || c == '\t'))) || c == 127;
     });
@@ -193,6 +193,7 @@ namespace app {
             || ((modifiers & KeyMod::Shift) && key == XKB_KEY_Insert)) {
           m_pasteInput = id;
           m_pasteDialogGeneration = m_dialogGeneration;
+          m_pasteMessageEditGeneration = m_messageEdit ? m_messageEdit->generation : 0;
           m_pasteConnected = m_connected;
           m_pasteSession = m_session;
           m_pasteChannel = m_channelId;
@@ -206,6 +207,11 @@ namespace app {
           if (text.size() <= 8000) {
             m_drafts[m_channelId] = text;
             m_edit.end(text);
+          }
+        } else if (id == "message-edit") {
+          if (m_messageEdit && !m_messageEdit->request && text.size() <= 8000) {
+            m_messageEdit->text = text;
+            m_messageEdit->error.clear();
           }
         } else if (id == "emoji-search") {
           if (text.size() <= 256) {
@@ -267,6 +273,8 @@ namespace app {
       field->setOnSubmit([this, id](const std::string&) {
         if (id == "composer")
           send();
+        else if (id == "message-edit")
+          submitMessageEdit();
         else if (id == "emoji-search") {
           // Selection is explicit; Enter must not submit account settings.
         } else if (id == "channel-search" || id == "channel-search-panel")
@@ -297,16 +305,17 @@ namespace app {
     }
     auto& input = *static_cast<Input*>(node.get());
     input.setMultiline(multiline);
-    input.setSubmitOnEnter(id == "composer" || id == "dialog");
+    input.setSubmitOnEnter(id == "composer" || id == "dialog" || id == "message-edit");
     if (input.value() != value)
       input.setValue(value);
     input.setPlaceholder(placeholder);
     input.setFrameVisible(id != "composer");
     input.setEnabled(
         (m_dialogKind.empty() || id == "dialog")
-        && (id == "dialog"         ? !m_dialogPending
-                : id == "token"    ? !m_connecting
-                : id == "composer" ? !m_demo || m_demoOverlay == "sidebar-cycle"
+        && (id == "dialog"             ? !m_dialogPending
+                : id == "message-edit" ? m_messageEdit && !m_messageEdit->request
+                : id == "token"        ? !m_connecting
+                : id == "composer" ? !m_demo || m_demoOverlay == "sidebar-cycle" || m_demoOverlay == "inline-edit-cycle"
                                    : !m_savingProfile)
     );
     input.setControlHeight(height);

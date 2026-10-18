@@ -159,7 +159,11 @@ namespace app {
         add(Action::AddReaction, "Add Reaction");
         separator();
       }
-      if (!message->deleted && message->authorId == m_account.id && message->type != 7)
+      if (!message->deleted
+          && message->authorId == m_account.id
+          && message->webhookId.empty()
+          && (message->type == 0 || message->type == 19)
+          && !(message->flags & 64))
         add(Action::EditMessage, "Edit Message");
       if (!message->deleted && message->type != 7)
         add(Action::Reply, "Reply");
@@ -700,33 +704,31 @@ namespace app {
       startInteraction(request);
       break;
     case Action::SetNickname:
-    case Action::EditMessage:
     case Action::DeleteMessage:
     case Action::BlockUser:
     case Action::RemoveFriend:
-      if ((action == Action::EditMessage || action == Action::DeleteMessage)
-          && (found == m_messages.end() || found->authorId != m_account.id))
+      if (action == Action::DeleteMessage && (found == m_messages.end() || found->authorId != m_account.id))
         break;
       request.kind = action == Action::SetNickname ? Kind::Nickname
-          : action == Action::EditMessage          ? Kind::EditMessage
           : action == Action::DeleteMessage        ? Kind::DeleteMessage
           : action == Action::BlockUser            ? Kind::Block
                                                    : Kind::RemoveFriend;
-      m_dialogKind = action == Action::SetNickname ? "nickname" : action == Action::EditMessage ? "edit" : "confirm";
+      m_dialogKind = action == Action::SetNickname ? "nickname" : "confirm";
       ++m_dialogGeneration;
       m_dialogTitle = action == Action::SetNickname ? "Change friend nickname"
-          : action == Action::EditMessage           ? "Edit message"
           : action == Action::DeleteMessage         ? "Delete message?"
           : action == Action::BlockUser             ? "Block " + userName(user.id, user.name) + "?"
                                                     : "Remove " + userName(user.id, user.name) + " as a friend?";
-      m_dialogText = action == Action::EditMessage ? found->content
-          : action == Action::SetNickname          ? m_userDirectory.name(user.id, "")
-                                                   : "";
+      m_dialogText = action == Action::SetNickname ? m_userDirectory.name(user.id, "") : "";
       m_dialogError.clear();
       m_dialogPending = false;
       m_dialogAction = request;
       if (m_dialogKind != "confirm")
         m_focusedInput = "dialog";
+      break;
+    case Action::EditMessage:
+      if (m_contextChannel == m_channelId)
+        beginMessageEdit(m_contextMessage);
       break;
     default:
       break;
@@ -796,6 +798,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::clearInteractions() {
+    cancelMessageEdit(false);
     closeContext();
     closeDialog();
     m_pendingInteractions.clear();
@@ -836,14 +839,11 @@ namespace app {
       drawProfileCard(root, w, h);
       return;
     }
-    if (m_dialogKind == "edit"
-        || (m_dialogKind == "confirm"
-            && m_dialogAction
-            && m_dialogAction->kind == api::InteractionKind::DeleteMessage)) {
+    if (m_dialogKind == "confirm" && m_dialogAction && m_dialogAction->kind == api::InteractionKind::DeleteMessage) {
       drawMessageDialog(root, w, h);
       return;
     }
-    const float width = std::min(500.0F, w - 32), height = m_dialogKind == "edit" ? 328 : 230;
+    const float width = std::min(500.0F, w - 32), height = 230;
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
     rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.65F});
     m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
@@ -862,13 +862,10 @@ namespace app {
         "x", "Close"
     );
     {
-      if (m_dialogKind == "edit" || m_dialogKind == "nickname" || m_dialogKind == "thread-create")
+      if (m_dialogKind == "nickname" || m_dialogKind == "thread-create")
         inputControl(
-            root, x + 24, y + 70, width - 48, m_dialogKind == "edit" ? 142 : 44, "dialog", m_dialogText,
-            m_dialogKind == "nickname"            ? "Nickname (leave empty to clear)"
-                : m_dialogKind == "thread-create" ? "Thread name"
-                                                  : "Message",
-            m_dialogKind == "edit"
+            root, x + 24, y + 70, width - 48, 44, "dialog", m_dialogText,
+            m_dialogKind == "nickname" ? "Nickname (leave empty to clear)" : "Thread name"
         );
       else
         label(
@@ -897,14 +894,6 @@ namespace app {
     if (!m_dialogAction || m_dialogPending)
       return;
     auto action = *m_dialogAction;
-    if (action.kind == api::InteractionKind::EditMessage) {
-      const auto found = std::ranges::find(m_messages, action.message, &api::Message::id);
-      if (found == m_messages.end()
-          || found->deleted
-          || found->content == m_dialogText
-          || (m_dialogText.empty() && found->attachments.empty()))
-        return;
-    }
     action.text = m_dialogText;
     if (action.kind == api::InteractionKind::CreateThread || action.kind == api::InteractionKind::CreateForumPost)
       action.stateRevision = m_threads.revision();
@@ -922,10 +911,6 @@ namespace app {
       );
       action.tags = m_forumPostTag.empty() ? std::vector<std::string>{} : std::vector{m_forumPostTag};
     }
-    if (action.kind == api::InteractionKind::EditMessage)
-      action.text = m_emojiCatalog.messageContent(
-          action.text, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
-      );
     if (startInteraction(action)) {
       m_dialogAction = action;
       m_dialogPending = true;
@@ -953,6 +938,18 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
+    if (m_messageEdit
+        && m_messageEdit->request
+        && interactionKey(*m_messageEdit->request) == key
+        && m_messageEdit->request->revision == action.revision) {
+      if (!event.error.empty()) {
+        m_messageEdit->request.reset();
+        m_messageEdit->error = event.error;
+        m_window.invalidate();
+        return;
+      }
+      cancelMessageEdit();
+    }
     if (action.kind == api::InteractionKind::MessageButton || action.kind == api::InteractionKind::SubmitModal) {
       componentResult(event);
       return;

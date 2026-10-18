@@ -86,6 +86,8 @@ namespace app {
       });
       if (m_dialogAction && m_dialogAction->channel == channel && m_dialogAction->message == id)
         closeDialog();
+      if (m_messageEdit && m_messageEdit->channel == channel && m_messageEdit->message == id)
+        cancelMessageEdit();
       if (m_contextChannel == channel && m_contextMessage == id)
         closeContext();
       if (m_reactionChannel == channel && m_reactionMessage == id) {

@@ -83,6 +83,8 @@ namespace app {
       draw();
       if (m_demo && m_demoOverlay == "deleted-cycle" && m_demoInteractionStep < 3)
         demoDeletedStep();
+      if (m_demo && m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep < 8)
+        demoMessageEditStep();
       if (m_demo && m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep < 5) {
         const auto step = m_demoInteractionStep++;
         if (step > 0) {
@@ -486,6 +488,9 @@ namespace app {
         return;
       if (!m_pasteInput.empty()) {
         auto id = std::exchange(m_pasteInput, {});
+        if (id == "message-edit"
+            && (!m_messageEdit || m_messageEdit->generation != m_pasteMessageEditGeneration || m_messageEdit->request))
+          return;
         if ((id == "dialog"
              || id == "forum-body"
              || id == "channel-name"
@@ -669,6 +674,7 @@ namespace app {
         m_client.eventFd(), [this] { tick(); },
         smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"                ? 4
                          : m_demo && view && std::string_view(view) == "deleted-cycle"       ? 3
+                         : m_demo && view && std::string_view(view) == "inline-edit-cycle"   ? 8
                          : m_demo && view && std::string_view(view) == "message-hover-cycle" ? 5
                          : m_demo && view && std::string_view(view) == "sidebar-cycle"       ? 10
                          : m_demo && view && std::string_view(view) == "role-emoji-cycle"    ? 3
@@ -689,6 +695,8 @@ namespace app {
     );
     if (m_demoOverlay == "deleted-cycle" && m_demoInteractionStep != 3)
       throw std::runtime_error("Deleted-message replay did not finish");
+    if (m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep != 8)
+      throw std::runtime_error("Inline message editing replay did not finish");
     if (m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep != 5)
       throw std::runtime_error("Message hover replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
@@ -747,6 +755,44 @@ namespace app {
           m_demoOverlay = view;
         if (view == "sidebar-wide")
           m_preferences.channelSidebarWidth = 420;
+        if (view == "inline-edit"
+            || view == "inline-edit-light"
+            || view == "inline-edit-compact"
+            || view == "inline-edit-short"
+            || view == "inline-edit-cycle") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view == "inline-edit-compact";
+          m_preferences.logEditHistory = true;
+          if (view == "inline-edit-light")
+            m_preferences.theme = "light";
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9801","author":{"id":"1","username":"Alex"},"timestamp":"2026-10-18T12:00:00Z","content":"An earlier message from me."},
+            {"id":"9802","author":{"id":"12","username":"Maya"},"timestamp":"2026-10-18T12:01:00Z","content":"You can edit that message in the conversation."},
+            {"id":"9803","author":{"id":"1","username":"Alex"},"timestamp":"2026-10-18T12:02:00Z","content":"The latest message from me.\nThis second line remains editable."}
+          ])JSON"));
+          for (auto& message : m_messages)
+            message.channelId = m_channelId;
+          if (view == "inline-edit-short")
+            m_messages.back().content = "Two";
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          if (view == "inline-edit-cycle") {
+            auto system = m_messages.back();
+            system.id = "9804";
+            system.type = 7;
+            system.content.clear();
+            m_messages.push_back(system);
+            system.id = "9805";
+            system.type = 0;
+            system.deleted = true;
+            system.content = "Deleted messages cannot be edited.";
+            m_messages.push_back(std::move(system));
+            m_focusedInput = "composer";
+          } else
+            beginMessageEdit("9803");
+        }
         if (view == "syntax"
             || view == "syntax-light"
             || view == "syntax-compact"
@@ -920,8 +966,8 @@ namespace app {
             m_contextChannel = m_channelId;
             m_contextUser = m_account.id;
             contextAction(view == "message-edit" ? Action::EditMessage : Action::DeleteMessage);
-            if (view == "message-edit")
-              m_dialogText += " Keep the animation smooth.";
+            if (view == "message-edit" && m_messageEdit)
+              m_messageEdit->text += " Keep the animation smooth.";
           }
         }
         if (view == "channel"
@@ -1059,6 +1105,8 @@ namespace app {
           const std::vector<std::string> authors{"11", "12", "1", "11", "12", "1"};
           for (std::size_t i = 0; i < m_messages.size() && i < authors.size(); ++i)
             m_messages[i].authorId = authors[i];
+          if (view == "edit-message")
+            beginMessageEdit("3");
           m_messages[2].reactions = {{"", "👍", 3, true}, {"", "🎉", 2}, {"", "❤️", 5}};
           m_messages[1].reply = api::MessageReference{"1", m_channelId, "11", "Maya", m_messages.front().content};
           api::UserUpdates users;
@@ -1994,6 +2042,10 @@ namespace app {
       const float memberWidth =
           !forum && m_channelPanel.empty() && m_showMembers && w >= 1000 && w - chatLeft() >= 600 ? 240 : 0;
       const float left = chatLeft(), bodyWidth = w - left - memberWidth - panelWidth;
+      if (m_messageEdit
+          && (m_messageEdit->channel != m_channelId
+              || std::ranges::find(m_messages, m_messageEdit->message, &api::Message::id) == m_messages.end()))
+        cancelMessageEdit(false);
       drawChannelHeader(root, w);
       rectangle(root, left, 101, bodyWidth, 1, raised);
       if (forum)
@@ -2111,11 +2163,14 @@ namespace app {
             cached.scale = renderer.renderScale();
             cached.fonts = renderer.textMetricsGeneration();
           }
+          const float bodyHeight = m_messageEdit && m_messageEdit->message == message.id
+              ? messageEditHeight(textWidth)
+              : std::max(22.0F, cached.layout.height);
           const float height = blockedMessage(message) ? 36
               : message.type == 7                      ? std::max(22.0F, cached.layout.height)
                   + (m_preferences.compact ? 8 : 16)
                   + (message.reactions.empty() ? 0 : 6 + reactionStrip(nullptr, message, 0, 0, textWidth, true))
-                                  : std::max(22.0F, cached.layout.height)
+                                  : bodyHeight
                   + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
                                       m_preferences.compact)
                   + (message.reply ? 24 : 0)
@@ -2228,6 +2283,7 @@ namespace app {
         }
         for (std::size_t i = 0; i < m_messages.size(); ++i) {
           const auto& message = m_messages[i];
+          const bool editing = m_messageEdit && m_messageEdit->message == message.id;
           if (unreadIndex && i == *unreadIndex) {
             if (y + unreadHeight >= 0 && y < bottom - top) {
               const float width = bodyWidth - 48;
@@ -2419,142 +2475,153 @@ namespace app {
               }
               const auto& layout = *layouts[i];
               const float bodyY = y + (continuation ? 0 : 18);
+              const float bodyHeight = editing ? messageEditHeight(textWidth) : layout.height;
               const float componentHeight =
-                  messageButtons(content.get(), message, 50, bodyY + layout.height + 6, textWidth);
+                  messageButtons(content.get(), message, 50, bodyY + bodyHeight + 6, textWidth);
               const float reactionHeight =
-                  reactionStrip(content.get(), message, 50, bodyY + layout.height + 6 + componentHeight, textWidth);
+                  reactionStrip(content.get(), message, 50, bodyY + bodyHeight + 6 + componentHeight, textWidth);
               threadStrip(
-                  content.get(), message, 50, bodyY + layout.height + 6 + componentHeight + reactionHeight, textWidth
+                  content.get(), message, 50, bodyY + bodyHeight + 6 + componentHeight + reactionHeight, textWidth
               );
-              m_messageText[message.id] = layout.plainText;
-              m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
-              // Card backgrounds precede nested code/quote decoration.
-              for (const auto& box : layout.boxes) {
-                if (box.inlineCode) {
-                  rectangle(*content, 50 + box.x, bodyY + box.y, box.width, box.height, withAlpha(muted, .2F), 3);
-                  rectangle(*content, 51 + box.x, bodyY + box.y + 1, box.width - 2, box.height - 2, panel, 2);
-                  continue;
-                }
-                rectangle(
-                    *content, 50 + box.x, bodyY + box.y, box.width, box.height,
-                    box.quote                            ? muted
-                        : box.embed                      ? sidebar
-                        : m_preferences.theme == "light" ? panel
-                                                         : rgbHex(0x111318),
-                    box.quote ? 0 : 6
-                );
-                if (box.embed)
-                  rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
-                if (!box.code.empty()) {
-                  if (hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
-                    iconButton(
-                        *content, {50 + box.x + box.width - 26, bodyY + box.y + 4, 22, 22, Action::CopyCode, box.code},
-                        "copy", "Copy code"
-                    );
+              if (editing)
+                drawMessageEdit(*content, 50, bodyY, textWidth);
+              else {
+                m_messageText[message.id] = layout.plainText;
+                m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
+                // Card backgrounds precede nested code/quote decoration.
+                for (const auto& box : layout.boxes) {
+                  if (box.inlineCode) {
+                    rectangle(*content, 50 + box.x, bodyY + box.y, box.width, box.height, withAlpha(muted, .2F), 3);
+                    rectangle(*content, 51 + box.x, bodyY + box.y + 1, box.width - 2, box.height - 2, panel, 2);
+                    continue;
                   }
-                }
-              }
-              for (const auto& run : layout.runs) {
-                const float rx = 50 + run.x, ry = bodyY + run.y;
-                const bool hidden = run.style.spoiler && !m_revealedSpoilers.contains(message.id);
-                if (hidden) {
-                  rectangle(*content, rx, ry, run.width, run.height, raised, 3);
-                  m_hits.push_back(
-                      {left + 24 + rx, top + ry, run.width, run.height, Action::RevealSpoiler, message.id}
-                  );
-                  continue;
-                }
-                if (m_selectedMessage == message.id && m_selectedText == layout.plainText && m_chatEdit.selected()) {
-                  const auto from = std::max(std::min(m_chatEdit.caret, m_chatEdit.anchor), run.offset);
-                  const auto to = std::min(std::max(m_chatEdit.caret, m_chatEdit.anchor), run.offset + run.text.size());
-                  if (to > from) {
-                    const auto offset = run.image.empty()
-                        ? measure(std::string_view(run.text).substr(0, from - run.offset), run.style)
-                        : 0;
-                    const auto length = run.image.empty()
-                        ? measure(std::string_view(run.text).substr(from - run.offset, to - from), run.style)
-                        : run.width;
-                    rectangle(*content, rx + offset, ry, length, run.height, rgbHex(0x574D70), 2);
-                  }
-                }
-                if (run.image.empty())
-                  label(
-                      *content, rx, ry, std::max(1.0F, run.width + 2), messageMarkup(run.text, run.style),
-                      run.style.size,
-                      run.style.historical                               ? muted
-                          : run.style.syntax != CodeToken::Plain         ? syntaxColor(run.style.syntax)
-                          : run.style.link.empty() && !run.style.mention ? foreground
-                                                                         : accent,
-                      FontWeight::Normal, 1, true
-                  );
-                else if (!emojiImage(*content, rx, ry, run.width, run.image))
-                  label(*content, rx, ry, 22, "…", 14, muted);
-                m_textAreas.push_back({run, message.id, left + 24 + rx, top + ry});
-                if (!run.style.link.empty())
-                  m_hits.push_back({left + 24 + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link});
-              }
-              if (layout.edited) {
-                const auto& marker = *layout.edited;
-                label(*content, 50 + marker.x, bodyY + marker.y, marker.width + 2, "(edited)", marker.size, muted);
-              }
-              for (const auto& pic : layout.pictures) {
-                if (!pic.videoSource.empty()) {
-                  m_videoPosters[pic.videoSource] = pic.media.url;
-                  drawVideo(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.videoSource, pic.media.url);
-                  continue;
-                }
-                if (pic.video)
-                  rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
-                picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6, true);
-                const float px = left + 74 + pic.x, py = top + bodyY + pic.y;
-                if (pic.video) {
                   rectangle(
-                      *content, 50 + pic.x + pic.width / 2 - 25, bodyY + pic.y + pic.height / 2 - 20, 50, 40,
-                      hovered(px, py, pic.width, pic.height) ? accent : panel, 10
+                      *content, 50 + box.x, bodyY + box.y, box.width, box.height,
+                      box.quote                            ? muted
+                          : box.embed                      ? sidebar
+                          : m_preferences.theme == "light" ? panel
+                                                           : rgbHex(0x111318),
+                      box.quote ? 0 : 6
                   );
-                  label(
-                      *content, 50 + pic.x + pic.width / 2 - 7, bodyY + pic.y + pic.height / 2 - 11, 24, "▶", 20,
-                      foreground
-                  );
-                  m_hits.push_back({px, py, pic.width, pic.height, Action::OpenUrl, pic.link});
-                } else {
-                  if (m_viewImage.empty())
-                    m_viewerImages.push_back(
-                        {pic.media.url, pic.link.empty() ? pic.media.url : pic.link,
-                         static_cast<float>(pic.media.width), static_cast<float>(pic.media.height)}
+                  if (box.embed)
+                    rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
+                  if (!box.code.empty()) {
+                    if (hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
+                      iconButton(
+                          *content,
+                          {50 + box.x + box.width - 26, bodyY + box.y + 4, 22, 22, Action::CopyCode, box.code}, "copy",
+                          "Copy code"
+                      );
+                    }
+                  }
+                }
+                for (const auto& run : layout.runs) {
+                  const float rx = 50 + run.x, ry = bodyY + run.y;
+                  const bool hidden = run.style.spoiler && !m_revealedSpoilers.contains(message.id);
+                  if (hidden) {
+                    rectangle(*content, rx, ry, run.width, run.height, raised, 3);
+                    m_hits.push_back(
+                        {left + 24 + rx, top + ry, run.width, run.height, Action::RevealSpoiler, message.id}
                     );
-                  m_hits.push_back({px, py, pic.width, pic.height, Action::ViewImage, pic.media.url});
-                  const auto cachedImage = m_images.find(pic.media.url);
-                  const bool animated = pic.animated
-                      || pic.media.url.contains(".gif")
-                      || (cachedImage != m_images.end()
-                          && cachedImage->second.animation
-                          && cachedImage->second.animation->frames.size() > 1);
-                  if (animated && hovered(px, py, pic.width, pic.height) && py >= top && py + 36 <= bottom) {
-                    if (!m_demo && !m_gifFavoritesLoaded && !m_loadingGifFavorites)
-                      m_loadingGifFavorites = m_client.gifFavorites();
-                    api::Gif gif;
-                    gif.url = pic.link.empty() ? api::mediaUrl(pic.media.url) : pic.link;
-                    gif.src = api::mediaUrl(pic.media.url);
-                    gif.width = pic.media.width;
-                    gif.height = pic.media.height;
-                    gif.format = pic.media.url.contains(".mp4") || pic.media.url.contains(".webm") ? 2 : 1;
-                    const bool favorite =
-                        std::ranges::find(m_gifFavorites, gif.url, &api::Gif::url) != m_gifFavorites.end();
-                    m_gifTargets[gif.url] = gif;
-                    rectangle(*content, 50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30, sidebar, 7);
-                    iconButton(
-                        *content,
-                        {50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30,
-                         m_pendingGifFavorites.contains(gif.url) ? Action::None : Action::FavoriteGif, gif.url},
-                        favorite ? "star-filled" : "star", favorite ? "Remove GIF from favorites" : "Favorite GIF",
-                        favorite
+                    continue;
+                  }
+                  if (m_selectedMessage == message.id && m_selectedText == layout.plainText && m_chatEdit.selected()) {
+                    const auto from = std::max(std::min(m_chatEdit.caret, m_chatEdit.anchor), run.offset);
+                    const auto to =
+                        std::min(std::max(m_chatEdit.caret, m_chatEdit.anchor), run.offset + run.text.size());
+                    if (to > from) {
+                      const auto offset = run.image.empty()
+                          ? measure(std::string_view(run.text).substr(0, from - run.offset), run.style)
+                          : 0;
+                      const auto length = run.image.empty()
+                          ? measure(std::string_view(run.text).substr(from - run.offset, to - from), run.style)
+                          : run.width;
+                      rectangle(*content, rx + offset, ry, length, run.height, rgbHex(0x574D70), 2);
+                    }
+                  }
+                  if (run.image.empty())
+                    label(
+                        *content, rx, ry, std::max(1.0F, run.width + 2), messageMarkup(run.text, run.style),
+                        run.style.size,
+                        run.style.historical                               ? muted
+                            : run.style.syntax != CodeToken::Plain         ? syntaxColor(run.style.syntax)
+                            : run.style.link.empty() && !run.style.mention ? foreground
+                                                                           : accent,
+                        FontWeight::Normal, 1, true
                     );
+                  else if (!emojiImage(*content, rx, ry, run.width, run.image))
+                    label(*content, rx, ry, 22, "…", 14, muted);
+                  m_textAreas.push_back({run, message.id, left + 24 + rx, top + ry});
+                  if (!run.style.link.empty())
+                    m_hits.push_back(
+                        {left + 24 + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link}
+                    );
+                }
+                if (layout.edited) {
+                  const auto& marker = *layout.edited;
+                  label(*content, 50 + marker.x, bodyY + marker.y, marker.width + 2, "(edited)", marker.size, muted);
+                }
+                for (const auto& pic : layout.pictures) {
+                  if (!pic.videoSource.empty()) {
+                    m_videoPosters[pic.videoSource] = pic.media.url;
+                    drawVideo(
+                        *content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.videoSource, pic.media.url
+                    );
+                    continue;
+                  }
+                  if (pic.video)
+                    rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, 6);
+                  picture(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 6, true);
+                  const float px = left + 74 + pic.x, py = top + bodyY + pic.y;
+                  if (pic.video) {
+                    rectangle(
+                        *content, 50 + pic.x + pic.width / 2 - 25, bodyY + pic.y + pic.height / 2 - 20, 50, 40,
+                        hovered(px, py, pic.width, pic.height) ? accent : panel, 10
+                    );
+                    label(
+                        *content, 50 + pic.x + pic.width / 2 - 7, bodyY + pic.y + pic.height / 2 - 11, 24, "▶", 20,
+                        foreground
+                    );
+                    m_hits.push_back({px, py, pic.width, pic.height, Action::OpenUrl, pic.link});
+                  } else {
+                    if (m_viewImage.empty())
+                      m_viewerImages.push_back(
+                          {pic.media.url, pic.link.empty() ? pic.media.url : pic.link,
+                           static_cast<float>(pic.media.width), static_cast<float>(pic.media.height)}
+                      );
+                    m_hits.push_back({px, py, pic.width, pic.height, Action::ViewImage, pic.media.url});
+                    const auto cachedImage = m_images.find(pic.media.url);
+                    const bool animated = pic.animated
+                        || pic.media.url.contains(".gif")
+                        || (cachedImage != m_images.end()
+                            && cachedImage->second.animation
+                            && cachedImage->second.animation->frames.size() > 1);
+                    if (animated && hovered(px, py, pic.width, pic.height) && py >= top && py + 36 <= bottom) {
+                      if (!m_demo && !m_gifFavoritesLoaded && !m_loadingGifFavorites)
+                        m_loadingGifFavorites = m_client.gifFavorites();
+                      api::Gif gif;
+                      gif.url = pic.link.empty() ? api::mediaUrl(pic.media.url) : pic.link;
+                      gif.src = api::mediaUrl(pic.media.url);
+                      gif.width = pic.media.width;
+                      gif.height = pic.media.height;
+                      gif.format = pic.media.url.contains(".mp4") || pic.media.url.contains(".webm") ? 2 : 1;
+                      const bool favorite =
+                          std::ranges::find(m_gifFavorites, gif.url, &api::Gif::url) != m_gifFavorites.end();
+                      m_gifTargets[gif.url] = gif;
+                      rectangle(*content, 50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30, sidebar, 7);
+                      iconButton(
+                          *content,
+                          {50 + pic.x + pic.width - 36, bodyY + pic.y + 4, 30, 30,
+                           m_pendingGifFavorites.contains(gif.url) ? Action::None : Action::FavoriteGif, gif.url},
+                          favorite ? "star-filled" : "star", favorite ? "Remove GIF from favorites" : "Favorite GIF",
+                          favorite
+                      );
+                    }
                   }
                 }
               }
             }
-            if (hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
+            if (!editing && hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
               const float toolbarWidth = message.deleted ? 64 : message.type == 7 ? 94 : 124;
               rectangle(*content, bodyWidth - 66 - toolbarWidth, y - 8, toolbarWidth, 34, panel, 7);
               iconButton(
@@ -2883,11 +2950,11 @@ namespace app {
           if (m_demoOverlay == "reaction-submenu")
             openReactionSubmenu(22);
         }
-      } else if (m_demoOverlay == "edit-message" || m_demoOverlay == "block-user") {
+      } else if (m_demoOverlay == "block-user") {
         m_contextMessage = "3";
         m_contextUser = "11";
         m_contextChannel = m_channelId;
-        contextAction(m_demoOverlay == "edit-message" ? Action::EditMessage : Action::BlockUser);
+        contextAction(Action::BlockUser);
       } else if (m_demoOverlay == "user-profile" || m_demoOverlay.starts_with("profile-card"))
         showProfile(m_demoOverlay == "profile-card-self" ? m_account.id : "11");
       else if (m_demoOverlay == "guild-profile")
@@ -3136,6 +3203,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();
     m_roleMotion.clear();
@@ -3197,6 +3265,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();
     m_roleMotion.clear();
@@ -3232,6 +3301,7 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(std::string id) {
+    cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();
     m_seekMessage.clear();
@@ -4241,7 +4311,10 @@ namespace app {
       }
       return;
     }
-    if (key.symbol == XKB_KEY_Escape && m_dialogKind.empty() && !m_channelPanel.empty()) {
+    if (key.symbol == XKB_KEY_Escape
+        && m_dialogKind.empty()
+        && !m_channelPanel.empty()
+        && m_focusedInput != "message-edit") {
       closeChannelPanel();
       return;
     }
@@ -4315,6 +4388,8 @@ namespace app {
       m_window.invalidate();
       return;
     }
+    if (messageEditKey(key))
+      return;
     if (key.symbol != XKB_KEY_Escape && m_controlInput.focusedArea()) {
       const auto unicode = key.text.empty() ? 0U : static_cast<std::uint32_t>(g_utf8_get_char(key.text.c_str()));
       m_controlInput.keyEvent(
@@ -4834,6 +4909,13 @@ namespace app {
       break;
     case Action::CopyMessage:
       m_window.copy(m_messageText[hit.id]);
+      break;
+    case Action::SaveMessageEdit:
+      submitMessageEdit();
+      break;
+    case Action::CancelMessageEdit:
+      if (m_messageEdit && !m_messageEdit->request)
+        cancelMessageEdit();
       break;
     case Action::CopyCode:
       m_window.copy(hit.id);

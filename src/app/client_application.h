@@ -122,6 +122,8 @@ namespace app {
       AddReaction,
       ToggleReaction,
       EditMessage,
+      SaveMessageEdit,
+      CancelMessageEdit,
       DeleteMessage,
       CopyLink,
       CopyId,
@@ -194,6 +196,13 @@ namespace app {
       bool contains(float px, float py) const { return px >= x && py >= y && px < x + width && py < y + height; }
     };
     void draw();
+    bool beginMessageEdit(const std::string& message);
+    void cancelMessageEdit(bool restoreComposer = true);
+    void submitMessageEdit();
+    bool messageEditKey(const Key& key);
+    float messageEditHeight(float width);
+    void drawMessageEdit(Node& parent, float x, float y, float width);
+    void demoMessageEditStep();
     void closeVideo();
     void openVideo(const std::string& source);
     void drawVideo(
@@ -476,6 +485,13 @@ namespace app {
     std::string m_contextMessage, m_contextUser, m_contextChannel;
     std::string m_dialogKind, m_dialogTitle, m_dialogText, m_dialogError;
     std::optional<api::Interaction> m_dialogAction;
+    struct MessageEditState {
+      std::string channel, message, text, error;
+      std::optional<api::Interaction> request;
+      std::uint64_t generation = 0;
+    };
+    std::optional<MessageEditState> m_messageEdit;
+    std::uint64_t m_messageEditGeneration = 0, m_pasteMessageEditGeneration = 0;
     api::Account m_dialogAccount;
     api::UserProfile m_profileCard;
     api::GuildProfile m_guildProfile;
