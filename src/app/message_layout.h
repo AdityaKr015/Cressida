@@ -45,6 +45,11 @@ namespace app {
     struct EditedMarker {
       float x, y, width, height, size;
     };
+    struct ForwardedCard {
+      float y, height;
+      std::string guild, channel, message, timestamp;
+    };
+    std::vector<ForwardedCard> forwards;
     std::vector<MessageRun> runs;
     std::vector<MessageBox> boxes;
     std::vector<MessagePicture> pictures;
@@ -57,6 +62,7 @@ namespace app {
     std::function<bool(std::string_view)> unicodeEmoji;
     bool discordTimestamps = false;
     bool mentionPrefix = true;
+    bool attachmentGallery = false;
   };
   MessageLayout layoutRichMessage(
       const api::Message& message, float width,

@@ -8,10 +8,12 @@
 #include <string_view>
 
 namespace app {
-  inline float messageRowPadding(bool continuation, bool nextContinuation, bool compact, int spacing = 16) {
+  inline float
+  messageRowPadding(bool continuation, bool nextContinuation, bool compact, int spacing = 16, bool last = false) {
     // Rich text already reserves a full line height. A second row gap would
     // make separate messages looser than wrapping/newlines within one message.
-    return (continuation ? 0.0F : 18.0F) + (nextContinuation ? 0.0F : (compact ? std::min(8, spacing) : spacing));
+    return (continuation ? 0.0F : 18.0F)
+        + (nextContinuation || last ? 0.0F : (compact ? std::min(8, spacing) : spacing));
   }
   inline std::optional<std::chrono::sys_time<std::chrono::milliseconds>> messageTime(std::string_view value) {
     using namespace std::chrono;
@@ -79,6 +81,8 @@ namespace app {
         || current.type != 0
         || previous.reply
         || current.reply
+        || previous.forwarded
+        || current.forwarded
         || ((previous.flags | current.flags) & 64))
       return false;
     const auto before = messageTime(previous.timestamp), after = messageTime(current.timestamp);

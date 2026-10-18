@@ -13,6 +13,8 @@ namespace app {
     void clearGuilds();
     const api::Emoji* find(const std::string& key) const;
     bool isUnicode(std::string_view text) const;
+    std::vector<std::string>
+    frequentKeys(const std::vector<std::string>& local, const std::vector<std::string>& remote) const;
     std::string
     messageContent(std::string_view content, const std::string& guild, int premiumType, bool fallback) const;
     const std::vector<std::string>& unicode() const { return m_unicode; }

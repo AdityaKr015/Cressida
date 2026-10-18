@@ -13,6 +13,7 @@ namespace app {
     if (message == m_messages.end()
         || message->authorId != m_account.id
         || message->deleted
+        || message->forwarded
         || !message->webhookId.empty()
         || (message->flags & 64)
         || (message->type != 0 && message->type != 19)

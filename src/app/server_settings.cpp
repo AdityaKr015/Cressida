@@ -2,6 +2,7 @@
 #include "api/role_styles.h"
 #include "app/client_application.h"
 #include "app/settings_color_picker.h"
+#include "app/settings_style.h"
 #include "app/theme.h"
 #include "core/input/key_modifiers.h"
 #include "render/scene/rect_node.h"
@@ -1774,7 +1775,7 @@ namespace app {
           saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
       m_widgets[controlId] = control.get();
       control->setText(caption);
-      control->setFontSize(12);
+      control->setFontSize(settings::control.size);
       control->setVariant(variant);
       control->setPosition(x, y);
       control->setControlHeight(26);
@@ -1824,7 +1825,10 @@ namespace app {
     const auto guildAt = std::ranges::find(m_guilds, state.guild, &api::Guild::id);
     const auto guildName =
         string(state.overview, "name", guildAt == m_guilds.end() ? "Server settings" : guildAt->name);
-    label(root, frameX + 12, 56, navWidth - 24, guildName, 12, foreground, FontWeight::SemiBold);
+    label(
+        root, frameX + 12, 56, navWidth - 24, guildName, settings::navigationTitle.size, foreground,
+        settings::navigationTitle.weight
+    );
     auto& search = inputControl(
         root, frameX + 4, 82, navWidth - 8, 32, "server-settings:nav-search", state.filter, "Search settings"
     );
@@ -1889,7 +1893,7 @@ namespace app {
       if (group != page.group) {
         group = page.group;
         label(
-            *nav, 12, navY - state.navScroll + 8, navWidth - 24, page.group, 10,
+            *nav, 12, navY - state.navScroll + 8, navWidth - 24, page.group, settings::navigationHeading.size,
             std::string_view(page.group) == "DANGER ZONE" ? danger : muted, FontWeight::SemiBold
         );
         navY += 26;
@@ -1900,7 +1904,7 @@ namespace app {
           saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
       m_widgets[controlId] = control.get();
       control->setText(page.name);
-      control->setFontSize(12);
+      control->setFontSize(settings::control.size);
       control->setVariant(state.page == page.id ? ButtonVariant::TabActive : ButtonVariant::Tab);
       control->setContentAlign(ButtonContentAlign::Start);
       control->setPosition(4, navY - state.navScroll);
@@ -1923,7 +1927,10 @@ namespace app {
         root, "server-settings-nav-scrollbar", {frameX + navWidth - 4, 124, 8, navH}, navY, state.navScroll
     );
     iconButton(root, {w - 56, 52, 30, 30, Action::CloseServerSettings, {}}, "x", "Close server settings (Esc)");
-    label(root, contentLeft, 63, contentWidth, selected->name, 22, foreground, FontWeight::Bold);
+    label(
+        root, contentLeft, 63, contentWidth, selected->name, settings::pageTitle.size, foreground,
+        settings::pageTitle.weight
+    );
     const bool dirty = state.dirty();
     const bool retryRead = !state.error.empty() && !state.dirty() && !state.saving && !state.mfaRequest;
     const auto feedback = !state.error.empty() && !state.mfaRequest ? state.error : state.status;
@@ -1972,7 +1979,7 @@ namespace app {
       p.addChild(std::move(card));
       cursor += 12;
       if (!caption.empty()) {
-        cursor += label(p, 0, cursor, width, caption, 12, muted, FontWeight::SemiBold, 0);
+        cursor += label(p, 0, cursor, width, caption, settings::section.size, muted, settings::section.weight, 0);
         cursor += 8;
       }
     };
@@ -1990,10 +1997,11 @@ namespace app {
     const auto detail = [&](const std::string& title, const std::string& description) {
       ensure();
       cursor += 8;
-      cursor += label(p, 0, cursor, width, title, 13, foreground, FontWeight::SemiBold, 0);
+      cursor += label(p, 0, cursor, width, title, settings::rowTitle.size, foreground, settings::rowTitle.weight, 0);
       if (!description.empty()) {
         cursor += 4;
-        cursor += label(p, 0, cursor, width, description, 12, muted, FontWeight::Normal, 0);
+        cursor +=
+            label(p, 0, cursor, width, description, settings::description.size, muted, settings::description.weight, 0);
       }
       cursor += 10;
     };
@@ -2001,12 +2009,18 @@ namespace app {
       ensure();
       const auto top = cursor;
       const auto available = std::max(48.0F, width - trailing);
-      const auto th = textHeight(title, 13, available, FontWeight::SemiBold);
+      const auto th = textHeight(title, settings::rowTitle.size, available, settings::rowTitle.weight);
       const auto dh = description.empty() ? 0 : textHeight(description, 12, available) + 4;
       const auto height = std::max(46.0F, th + dh + 20);
-      label(p, 0, top + (height - th - dh) / 2, available, title, 13, foreground, FontWeight::SemiBold, 0);
+      label(
+          p, 0, top + (height - th - dh) / 2, available, title, settings::rowTitle.size, foreground,
+          settings::rowTitle.weight, 0
+      );
       if (!description.empty())
-        label(p, 0, top + (height - th - dh) / 2 + th + 4, available, description, 12, muted, FontWeight::Normal, 0);
+        label(
+            p, 0, top + (height - th - dh) / 2 + th + 4, available, description, settings::description.size, muted,
+            settings::description.weight, 0
+        );
       cursor += height;
       return std::pair{top, height};
     };
@@ -2052,7 +2066,8 @@ namespace app {
                                             : std::string{};
       auto& input =
           inputControl(p, 0, cursor, width, height, "server-settings:" + state.page + ":" + key, text, {}, height > 40);
-      input.setFontSize(13);
+      input.setFontSize(settings::control.size);
+      input.setFontWeight(settings::control.weight);
       input.setHorizontalPadding(10);
       input.setFrameRadius(5);
       input.setEnabled(!state.saving && !state.mfaRequest && fieldEditable(key));
@@ -2107,7 +2122,7 @@ namespace app {
           saved ? std::unique_ptr<Select>(static_cast<Select*>(saved.release())) : std::make_unique<Select>();
       m_widgets[controlId] = control.get();
       control->setOptions(std::move(names));
-      control->setFontSize(12);
+      control->setFontSize(settings::control.size);
       control->setControlHeight(30);
       control->setHorizontalPadding(10);
       control->setPosition(0, cursor);

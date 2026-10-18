@@ -18,6 +18,11 @@ int main() {
       const float firstGap = firstRowHeight - firstBodyTop - lineHeight;
       const float nextGap = nextRowHeight - lineHeight;
       require(firstGap == nextGap, "The first-to-second message gap matches all subsequent gaps in the group");
+      require(
+          app::messageRowPadding(false, false, compact, 64, true) == firstBodyTop
+              && app::messageRowPadding(true, false, compact, 64, true) == 0,
+          "A final row never reserves the following group margin, even at maximum spacing"
+      );
       require(nextGap == 0, "Consecutive messages use the same line spacing as wrapped lines without an extra row gap");
       require(
           app::messageRowPadding(true, false, compact) > nextGap,

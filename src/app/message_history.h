@@ -99,6 +99,7 @@ namespace app {
       merge(combined.mentionRoles, patch.mentionRoles);
       merge(combined.mentionEveryone, patch.mentionEveryone);
       merge(combined.reply, patch.reply);
+      merge(combined.forwarded, patch.forwarded);
       merge(combined.reactions, patch.reactions);
     }
     // Apply only contiguous pages. Existing live patches/tombstones win over

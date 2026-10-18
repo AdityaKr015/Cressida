@@ -1,5 +1,6 @@
 #include "app/client_application.h"
 #include "app/font_catalog.h"
+#include "app/settings_style.h"
 #include "app/theme.h"
 #include "app/user_settings_form.h"
 #include "render/scene/input_area.h"
@@ -388,7 +389,7 @@ namespace app {
           saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
       m_widgets[id] = control.get();
       control->setText(caption);
-      control->setFontSize(12);
+      control->setFontSize(settings::control.size);
       control->setPosition(hit.x, hit.y);
       control->setFrameSize(hit.width, 26);
       control->setControlHeight(26);
@@ -420,7 +421,10 @@ namespace app {
     };
     m_settingsNavRight = frameX + navWidth + 4;
     rectangle(root, 0, 36, m_settingsNavRight, h - 36, sidebar);
-    label(root, frameX + 12, 58, navWidth - 24, "SETTINGS", 11, muted, FontWeight::SemiBold);
+    label(
+        root, frameX + 12, 58, navWidth - 24, "SETTINGS", settings::navigationTitle.size, muted,
+        settings::navigationTitle.weight
+    );
     auto& search = inputControl(
         root, frameX + 4, 82, navWidth - 8, 32, "settings:search", m_settingsFields["search"], "Search settings"
     );
@@ -457,7 +461,10 @@ namespace app {
       if (y < 0 || y + navRowHeight > navH)
         continue;
       if (row.heading)
-        label(*nav, 12, y + 8, navWidth - 24, row.page->group, 10, muted, FontWeight::SemiBold);
+        label(
+            *nav, 12, y + 8, navWidth - 24, row.page->group, settings::navigationHeading.size, muted,
+            settings::navigationHeading.weight
+        );
       else {
         const auto controlId = "nav:" + std::string(row.page->id);
         std::unique_ptr<Node> saved;
@@ -468,7 +475,7 @@ namespace app {
         auto item = saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
         m_widgets[controlId] = item.get();
         item->setText(row.page->name);
-        item->setFontSize(12);
+        item->setFontSize(settings::control.size);
         item->setVariant(m_settingsPage == row.page->id ? ButtonVariant::TabActive : ButtonVariant::Tab);
         item->setContentAlign(ButtonContentAlign::Start);
         item->setPosition(4, y);
@@ -493,7 +500,7 @@ namespace app {
     iconButton(root, {w - 56, 52, 30, 30, Action::CloseSettings, {}}, "x", "Close settings (Esc)");
     const auto selected = std::ranges::find_if(pages, [&](const auto& entry) { return m_settingsPage == entry.id; });
     const std::string title = selected == std::end(pages) ? "Settings" : selected->name;
-    label(root, contentLeft, 63, contentWidth, title, 22, foreground, FontWeight::Bold);
+    label(root, contentLeft, 63, contentWidth, title, settings::pageTitle.size, foreground, settings::pageTitle.weight);
     const bool unsaved = m_settingsDraft != m_accountSettings && m_settingsLoaded;
     const float saveHeight = unsaved ? (width < 420 ? 82 : 48) : 0;
     const float statusHeight =
@@ -537,7 +544,7 @@ namespace app {
       p.addChild(std::move(card));
       cursor += caption.empty() ? 4 : 12;
       if (!caption.empty()) {
-        cursor += label(p, 0, cursor, width, caption, 12, muted, FontWeight::SemiBold, 0);
+        cursor += label(p, 0, cursor, width, caption, settings::section.size, muted, settings::section.weight, 0);
         cursor += 8;
       }
     };
@@ -551,13 +558,14 @@ namespace app {
       ensureCategory();
       const float below = stackControl && width < 420 ? 44 : 0;
       const float top = cursor, textWidth = std::max(48.0F, width - (below ? 0 : trailing));
-      const float heading = textHeight(name, 13, FontWeight::SemiBold, textWidth);
+      const float heading = textHeight(name, settings::rowTitle.size, settings::rowTitle.weight, textWidth);
       const float detail = description.empty() ? 0 : textHeight(description, 12, FontWeight::Normal, textWidth) + 4;
       const float height = std::max(minimum, heading + detail + 20 + below);
       if (interactive && hovered(contentX, viewportY - previousScroll + top, width, height))
         rectangle(p, -6, top, width + 12, height - 1, withAlpha(raised, .45F), 5);
       label(
-          p, 0, top + (height - below - heading - detail) / 2, textWidth, name, 13, foreground, FontWeight::SemiBold, 0
+          p, 0, top + (height - below - heading - detail) / 2, textWidth, name, settings::rowTitle.size, foreground,
+          settings::rowTitle.weight, 0
       );
       if (!description.empty())
         label(
@@ -610,9 +618,10 @@ namespace app {
                            const std::string& description) {
       ensureCategory();
       cursor += 8;
-      cursor += label(p, 0, cursor, width, name, 13, foreground, FontWeight::SemiBold);
+      cursor += label(p, 0, cursor, width, name, settings::rowTitle.size, foreground, settings::rowTitle.weight);
       cursor += 4;
-      cursor += label(p, 0, cursor, width, description, 12, muted, FontWeight::Normal, 0);
+      cursor +=
+          label(p, 0, cursor, width, description, settings::description.size, muted, settings::description.weight, 0);
       cursor += 8;
       auto& input =
           inputControl(p, 0, cursor, width, height, "settings:" + key, m_settingsFields[key], {}, key == "bio");
@@ -623,10 +632,11 @@ namespace app {
     const auto formDetail = [&](const std::string& title, const std::string& description) {
       ensureCategory();
       cursor += 8;
-      cursor += label(p, 0, cursor, width, title, 13, foreground, FontWeight::SemiBold, 0);
+      cursor += label(p, 0, cursor, width, title, settings::rowTitle.size, foreground, settings::rowTitle.weight, 0);
       if (!description.empty()) {
         cursor += 4;
-        cursor += label(p, 0, cursor, width, description, 12, muted, FontWeight::Normal, 0);
+        cursor +=
+            label(p, 0, cursor, width, description, settings::description.size, muted, settings::description.weight, 0);
       }
       cursor += 8;
     };
@@ -638,7 +648,7 @@ namespace app {
           saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
       m_widgets[id] = control.get();
       control->setText(caption);
-      control->setFontSize(12);
+      control->setFontSize(settings::control.size);
       control->setVariant(variant);
       control->setPosition(x, y);
       control->setFrameSize(buttonWidth, 26);
@@ -657,7 +667,8 @@ namespace app {
                                float height, bool password, bool enabled) {
       formDetail(title, description);
       auto& input = inputControl(p, 0, cursor, width, height, id, initial, {}, height > 40, password);
-      input.setFontSize(12);
+      input.setFontSize(settings::control.size);
+      input.setFontWeight(settings::control.weight);
       input.setFrameRadius(5);
       input.setHorizontalPadding(10);
       input.setEnabled(enabled);
@@ -678,7 +689,7 @@ namespace app {
       control->setOnSelectionChanged({});
       control->setOptions(std::move(choices));
       control->setSelectedIndexSilently(selected);
-      control->setFontSize(12);
+      control->setFontSize(settings::control.size);
       control->setControlHeight(30);
       control->setHorizontalPadding(10);
       control->setFrameSize(width, 30);
@@ -832,7 +843,9 @@ namespace app {
             {.fill = panel, .border = selected ? accent : withAlpha(muted, .18F), .radius = 7, .borderWidth = 1}
         );
         auto* card = p.addChild(std::move(tile));
-        label(*card, 12, 10, cardWidth - 24, value.name, 13, foreground, FontWeight::SemiBold);
+        label(
+            *card, 12, 10, cardWidth - 24, value.name, settings::rowTitle.size, foreground, settings::rowTitle.weight
+        );
         label(*card, 12, 30, cardWidth - 24, value.description, 11, muted);
         const float previewWidth = (cardWidth - 30) / 2;
         for (const auto light : {false, true}) {
@@ -1436,7 +1449,10 @@ namespace app {
     }
     if (statusHeight) {
       rectangle(root, contentX, h - 24 - statusHeight, width, statusHeight, panel, 7);
-      label(root, contentX + 12, h - 14 - statusHeight, width - 24, m_settingsStatus, 12, muted, FontWeight::Normal, 0);
+      label(
+          root, contentX + 12, h - 14 - statusHeight, width - 24, m_settingsStatus, settings::description.size, muted,
+          settings::description.weight, 0
+      );
     }
     drawFontPicker(root, w, h);
   }

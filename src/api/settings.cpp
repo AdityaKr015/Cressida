@@ -166,19 +166,25 @@ namespace api {
         } else {
           Wire entry(fields.data);
           std::string key;
-          std::uint64_t uses = 0;
+          std::uint64_t uses = 0, frecency = 0, score = 0;
           while (entry.next()) {
             if (entry.field == 1 && entry.type == 2)
               key = entry.data;
             if (entry.field == 2 && entry.type == 2) {
               Wire counts(entry.data);
-              while (counts.next())
+              while (counts.next()) {
                 if (counts.field == 1 && counts.type == 0)
                   uses = counts.number;
+                else if (counts.field == 3 && counts.type == 0 && counts.number <= 2147483647)
+                  frecency = counts.number;
+                else if (counts.field == 4 && counts.type == 0 && counts.number <= 2147483647)
+                  score = counts.number;
+              }
             }
           }
-          if (uses && validEmojiKey(key) && usage.size() < 4096)
-            usage.emplace_back(uses, std::move(key));
+          const auto rank = score ? score : frecency ? frecency : uses;
+          if (rank && validEmojiKey(key) && usage.size() < 4096)
+            usage.emplace_back(rank, std::move(key));
         }
       }
     }

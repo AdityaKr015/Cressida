@@ -285,8 +285,16 @@ int main() {
     {
       app::DesktopNotifications notifications;
       notifications.start();
-      const std::vector<std::uint8_t> rgba{220, 40, 60, 255, 30, 120, 200, 127};
-      const auto png = encodePng(rgba.data(), 2, 1);
+      std::vector<std::uint8_t> rgba(32 * 32 * 4);
+      for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 32; ++x) {
+          const auto pixel = (y * 32 + x) * 4;
+          rgba[pixel] = 220;
+          rgba[pixel + 1] = 40;
+          rgba[pixel + 2] = 60;
+          rgba[pixel + 3] = x < 16 ? 255 : 127;
+        }
+      const auto png = encodePng(rgba.data(), 32, 32);
       require(!png.empty(), "Build an isolated avatar fixture with transparency");
       std::size_t expected = service.captures.size();
       const auto awaitNotice = [&] {
@@ -296,15 +304,34 @@ int main() {
       const auto checkImage = [&] {
         const auto& image = service.captures.back();
         require(
-            image.width == 2
-                && image.height == 1
-                && image.rowstride == 8
+            image.width == 32
+                && image.height == 32
+                && image.rowstride == 128
                 && image.alpha
                 && image.bits == 8
                 && image.channels == 4
-                && image.image == rgba
+                && image.image.size() == rgba.size()
                 && image.icon == "cressida",
-            "Standard image-data preserves sender RGBA pixels and the separate application icon"
+            "Standard image-data carries the sender avatar and separate application icon"
+        );
+        bool antialiased = false;
+        for (std::size_t pixel = 0; pixel < rgba.size(); pixel += 4) {
+          require(
+              image.image[pixel] == rgba[pixel]
+                  && image.image[pixel + 1] == rgba[pixel + 1]
+                  && image.image[pixel + 2] == rgba[pixel + 2]
+                  && image.image[pixel + 3] <= rgba[pixel + 3],
+              "Circular masking preserves RGB and never increases the source opacity"
+          );
+          antialiased |= image.image[pixel + 3] > 0 && image.image[pixel + 3] < rgba[pixel + 3];
+        }
+        require(
+            image.image[3] == 0
+                && image.image[(31 * 32 + 31) * 4 + 3] == 0
+                && image.image[(16 * 32 + 15) * 4 + 3] == 255
+                && image.image[(16 * 32 + 16) * 4 + 3] == 127
+                && antialiased,
+            "Notification avatars have transparent corners, smooth circular edges and unchanged center alpha"
         );
       };
       auto cached = notice("Cached avatar");

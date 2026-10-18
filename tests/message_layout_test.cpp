@@ -19,6 +19,51 @@ int main(int argc, char** argv) {
     const app::MessageMeasure editMeasure = [](std::string_view text, const app::MessageStyle& style) {
       return static_cast<float>(text.size()) * style.size * .5F;
     };
+    api::Message forwardedMessage;
+    forwardedMessage.id = "900";
+    forwardedMessage.forwarded = api::ForwardedMessage{"800", "20", "1", "2026-10-18T18:50:00Z", "", {}, {}, {}, true};
+    for (int i = 0; i < 4; ++i)
+      forwardedMessage.forwarded->attachments.push_back(
+          {std::to_string(700 + i),
+           "image.png",
+           "https://cdn.discordapp.com/attachments/20/700/image.png",
+           "image/png",
+           {"demo-image", 800, 600}}
+      );
+    auto gallery = app::layoutRichMessage(forwardedMessage, 700, editMeasure);
+    require(
+        gallery.forwards.size() == 1
+            && gallery.pictures.size() == 4
+            && gallery.pictures[0].y == gallery.pictures[1].y
+            && gallery.pictures[2].y == gallery.pictures[3].y
+            && gallery.pictures[2].y > gallery.pictures[0].y
+            && gallery.pictures[1].x >= gallery.pictures[0].x + gallery.pictures[0].width,
+        "Four forwarded images use a measured two-column gallery rather than a system message or vertical stack"
+    );
+    for (const auto width : {160.0F, 320.0F}) {
+      const auto narrow = app::layoutRichMessage(forwardedMessage, width, editMeasure);
+      for (const auto& image : narrow.pictures)
+        require(
+            image.x >= 0 && image.x + image.width <= width && image.y + image.height <= narrow.height,
+            "Forwarded galleries remain inside narrow message bounds"
+        );
+    }
+    forwardedMessage.forwarded->attachments.resize(1);
+    require(
+        app::layoutRichMessage(forwardedMessage, 500, editMeasure).pictures.size() == 1,
+        "A single forwarded image retains its actual media preview"
+    );
+    forwardedMessage.forwarded->attachments.clear();
+    forwardedMessage.forwarded->content = "Saved **formatted** text <@43>";
+    forwardedMessage.forwarded->mentions["43"] = "Friend";
+    const auto forwardedText = app::layoutRichMessage(forwardedMessage, 500, editMeasure);
+    require(
+        forwardedText.plainText.contains("formatted")
+            && forwardedText.plainText.contains("@Friend")
+            && !forwardedText.plainText.contains("Forwarded")
+            && forwardedText.forwards.size() == 1,
+        "Forwarded text preserves Markdown and mention resolution without adding UI labels to copied content"
+    );
     api::Message editedMessage{"900", "10", "Maya", "Hello", "2026-10-17T09:00:00Z"};
     const auto originalLayout = app::layoutRichMessage(editedMessage, 400, editMeasure);
     require(!originalLayout.edited, "Unedited messages have no marker");

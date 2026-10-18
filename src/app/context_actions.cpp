@@ -191,6 +191,7 @@ namespace app {
       if (!message->deleted
           && message->authorId == m_account.id
           && message->webhookId.empty()
+          && !message->forwarded
           && (message->type == 0 || message->type == 19)
           && !(message->flags & 64))
         add(Action::EditMessage, "Edit Message");
@@ -1164,6 +1165,8 @@ namespace app {
     if (action.kind == Kind::AddReaction) {
       m_sessionStore.recordReaction(m_account.id, action.emoji);
       m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
+      const auto colon = action.emoji.find(':');
+      recordEmojiUse(colon == std::string::npos ? action.emoji : action.emoji.substr(colon + 1));
     }
     if (action.kind == Kind::AddReaction || action.kind == Kind::RemoveReaction || action.kind == Kind::DeleteMessage)
       invalidateReactors(action.channel, action.message);

@@ -266,6 +266,46 @@ int main() {
     require(api::validUploads({image}), "Accept bounded pasted images");
     image.filename = "../secret";
     require(!api::validUploads({image}), "Reject path-like upload names");
+    auto forwardedJson =
+        json::parse(R"({"id":"900","channel_id":"10","type":0,"content":"","author":{"id":"42","username":"sender"},
+      "message_reference":{"type":1,"guild_id":"1","channel_id":"20","message_id":"800"},
+      "message_snapshots":[{"message":{"content":"Saved **text** <@43>","timestamp":"2026-10-18T18:50:00Z",
+        "author":{"id":"999","username":"must-not-be-attributed"},
+        "mentions":[{"id":"43","username":"friend"}],
+        "attachments":[{"id":"700","filename":"image.png","url":"https://cdn.discordapp.com/attachments/20/700/image.png","content_type":"image/png","width":800,"height":600}],
+        "message_snapshots":[{"message":{"content":"nested content must not recurse"}}]}}]})");
+    auto forwarded = api::parseMessages(json::array({forwardedJson})).front();
+    require(
+        forwarded.forwarded
+            && forwarded.forwarded->available
+            && !forwarded.reply
+            && forwarded.content.empty()
+            && forwarded.authorId == "42"
+            && forwarded.forwarded->content == "Saved **text** <@43>"
+            && forwarded.forwarded->attachments.size() == 1
+            && forwarded.forwarded->mentions.at("43") == "friend",
+        "Forward snapshots retain independent content/media and the forwarding sender without a fake reply"
+    );
+    api::parseMessagePatch({{"reactions", json::array()}, {"content", "A note"}}).apply(forwarded);
+    require(
+        forwarded.forwarded && forwarded.forwarded->attachments.size() == 1 && forwarded.content == "A note",
+        "Partial updates preserve immutable forwarded content separately from outer text"
+    );
+    auto missing = forwardedJson;
+    missing.erase("message_snapshots");
+    auto unavailable = api::parseMessages(json::array({missing})).front();
+    require(
+        unavailable.forwarded && !unavailable.forwarded->available && unavailable.content.empty(),
+        "Missing snapshots retain explicit forward identity instead of a system-message placeholder"
+    );
+    api::parseMessagePatch({{"message_reference", nullptr}}).apply(forwarded);
+    require(!forwarded.forwarded && !forwarded.reply, "Explicit null references clear old forward/reply metadata");
+    auto ordinary = forwardedJson;
+    ordinary["message_reference"]["type"] = 0;
+    require(
+        !api::parseMessages(json::array({ordinary})).front().forwarded,
+        "Snapshot payloads without a FORWARD reference cannot spoof a forwarded card"
+    );
     bool rejected = false;
     try {
       (void)api::parseAccount(json{{"id", "bad"}});

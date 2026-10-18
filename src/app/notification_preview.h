@@ -24,6 +24,8 @@ namespace app {
       if (!people.empty())
         return name('@', message.authorId) + (message.type == 1 ? " added " : " removed ") + people + '.';
     }
+    if (message.forwarded && message.content.empty())
+      return message.forwarded->attachments.empty() ? "Forwarded a message" : "Forwarded an attachment";
     if (message.content.empty())
       return message.attachments.empty() && message.embeds.empty() ? "New message" : "Sent an attachment";
     const auto text = notificationMessagePreview(message.content);

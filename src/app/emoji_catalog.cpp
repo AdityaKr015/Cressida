@@ -118,6 +118,20 @@ namespace app {
     }
     return item == m_items.end() ? nullptr : &item->second;
   }
+  std::vector<std::string>
+  EmojiCatalog::frequentKeys(const std::vector<std::string>& local, const std::vector<std::string>& remote) const {
+    std::vector<std::string> result;
+    std::set<std::string> seen;
+    const auto append = [&](const auto& keys) {
+      for (const auto& key : keys)
+        if (const auto* emoji = find(key);
+            emoji && emoji->available && result.size() < 64 && seen.insert(emoji->key()).second)
+          result.push_back(emoji->key());
+    };
+    append(local);
+    append(remote);
+    return result;
+  }
   std::string EmojiCatalog::messageContent(
       std::string_view content, const std::string& guild, int premiumType, bool fallback
   ) const {

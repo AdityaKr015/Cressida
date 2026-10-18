@@ -171,6 +171,14 @@ namespace api {
     int burstCount = 0;
     bool meBurst = false;
   };
+  struct ForwardedMessage {
+    std::string message, channel, guild, timestamp, content;
+    std::vector<Attachment> attachments;
+    std::vector<Embed> embeds;
+    std::map<std::string, std::string> mentions;
+    bool available = false;
+    bool operator==(const ForwardedMessage&) const = default;
+  };
   struct MessageReference {
     std::string message, channel, authorId, author, content;
     bool deleted = false;
@@ -216,6 +224,7 @@ namespace api {
     std::string editedTimestamp;
     // Local session-only retention state; never read from or sent to Discord.
     bool deleted = false;
+    std::optional<ForwardedMessage> forwarded;
   };
 
   struct MessagePatch {
@@ -237,6 +246,7 @@ namespace api {
     std::optional<std::vector<std::string>> mentionRoles;
     std::optional<bool> mentionEveryone;
     std::optional<std::string> editedTimestamp;
+    std::optional<std::optional<ForwardedMessage>> forwarded;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

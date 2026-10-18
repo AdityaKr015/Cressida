@@ -25,6 +25,10 @@ namespace app {
         box.y += y;
         result.boxes.push_back(std::move(box));
       }
+      for (auto card : part.forwards) {
+        card.y += y;
+        result.forwards.push_back(std::move(card));
+      }
       for (auto picture : part.pictures) {
         picture.y += y;
         result.pictures.push_back(std::move(picture));

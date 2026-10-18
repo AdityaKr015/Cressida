@@ -1,5 +1,5 @@
-#include "app/emoji_catalog.h"
 #include "api/models.h"
+#include "app/emoji_catalog.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -46,6 +46,25 @@ int main(int argc, char** argv) {
         "Parse custom emoji availability/animation and reject invalid tags"
     );
     catalog.setGuild("456", emojis);
+    auto duplicate = emojis.front();
+    duplicate.id = "123456789012345681";
+    duplicate.guild = "789";
+    catalog.setGuild("789", {duplicate});
+    require(
+        catalog.frequentKeys(
+            {"thumbsup", "+1", "❤️", "heart", duplicate.id},
+            {"heart", emojis.front().id, emojis[1].id, duplicate.id, "unknown-emoji"}
+        )
+            == std::vector<
+                std::
+                    string>{catalog.find("thumbsup")->key(), catalog.find("heart")->key(), duplicate.id, emojis.front().id},
+        "Usage ranking canonicalizes Unicode aliases, preserves distinct same-name server IDs and skips unavailable "
+        "emoji"
+    );
+    require(
+        catalog.frequentKeys(std::vector<std::string>(80, "heart"), {duplicate.id}).size() == 2,
+        "Duplicate usage keys never exhaust the frequent-result bound before distinct emoji"
+    );
     const auto tag = emojis[0].token(), image = api::emojiImageLink(emojis[0]);
     require(catalog.messageContent(tag, "789", 0, false) == tag, "Emoji image links are opt-in");
     require(

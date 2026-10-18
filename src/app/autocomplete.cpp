@@ -121,6 +121,12 @@ namespace app {
         m_completionSelected < m_completionItems.size() ? m_completionItems[m_completionSelected].insert : "";
     m_completionItems.clear();
     const auto search = folded(query->text);
+    if (query->trigger == ':' && !m_demo)
+      prepareEmojiPicker();
+    std::map<std::string, std::size_t> usageRanks;
+    const auto frequent = m_emojiCatalog.frequentKeys(m_recentEmojis, m_emojiPreferences.frequent);
+    for (std::size_t i = 0; i < frequent.size(); ++i)
+      usageRanks[frequent[i]] = i;
     if (query->trigger == '@') {
       std::set<std::string> seen;
       const auto member = [&](api::Account user) {
@@ -178,7 +184,7 @@ namespace app {
         }
       }
     } else {
-      const auto emoji = [&](const std::string& key, const std::string& origin, int priority) {
+      const auto emoji = [&](const std::string& key, const std::string& origin) {
         const auto* value = m_emojiCatalog.find(key);
         if (!value || !value->available)
           return;
@@ -193,14 +199,14 @@ namespace app {
           return;
         m_completionItems.push_back(
             {CompletionItem::Emoji, key, ":" + value->name + ":", origin, value->token(),
-             value->id.empty() ? "" : api::emojiPath(value->id, value->animated), score * 4 + priority}
+             value->id.empty() ? "" : api::emojiPath(value->id, value->animated), score}
         );
       };
       for (const auto& key : m_emojiCatalog.unicode())
-        emoji(key, "Unicode", 2);
+        emoji(key, "Unicode");
       for (const auto& guild : m_guilds)
         for (const auto& key : m_emojiCatalog.guild(guild.id))
-          emoji(key, guild.name, guild.id == m_guildId ? 0 : 1);
+          emoji(key, guild.name);
       // READY supplies most catalogs. Fill missing snapshots one guild at a time.
       if (!m_demo && m_loadingEmojiGuilds.empty())
         for (const auto& guild : m_guilds)
@@ -210,12 +216,26 @@ namespace app {
             break;
           }
     }
-    std::stable_sort(m_completionItems.begin(), m_completionItems.end(), [](const auto& a, const auto& b) {
+    std::stable_sort(m_completionItems.begin(), m_completionItems.end(), [&](const auto& a, const auto& b) {
       if (a.score != b.score)
         return a.score < b.score;
       if (a.kind != b.kind)
         return a.kind < b.kind;
-      return a.name < b.name;
+      if (a.kind == CompletionItem::Emoji) {
+        const auto rank = [&](const auto& item) {
+          const auto at = usageRanks.find(item.id);
+          return at == usageRanks.end() ? std::size_t{64} : at->second;
+        };
+        if (rank(a) != rank(b))
+          return rank(a) < rank(b);
+        const auto priority = [&](const auto& item) {
+          const auto* emoji = m_emojiCatalog.find(item.id);
+          return !emoji || emoji->id.empty() ? 2 : emoji->guild == m_guildId ? 0 : 1;
+        };
+        if (priority(a) != priority(b))
+          return priority(a) < priority(b);
+      }
+      return a.name != b.name ? a.name < b.name : a.id < b.id;
     });
     if (m_completionItems.size() > 50)
       m_completionItems.resize(50);
@@ -258,6 +278,7 @@ namespace app {
     if (completionQuery(field->second->value(), cursor.cursor, cursor.anchor) != m_completionQuery)
       return;
     const auto query = *m_completionQuery;
+    const auto picked = m_completionItems[index];
     auto text = m_completionItems[index].insert;
     if (query.end == m_completionSnapshot.size() || !g_ascii_isspace(m_completionSnapshot[query.end]))
       text += ' ';
@@ -270,6 +291,8 @@ namespace app {
     edit.commitText = std::move(text);
     closeCompletion();
     field->second->textInputApplyEdit(edit);
+    if (picked.kind == CompletionItem::Emoji)
+      recordEmojiUse(picked.id);
     focusControl(id);
     m_window.invalidate();
   }

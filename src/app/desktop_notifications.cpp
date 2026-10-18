@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <deque>
 #include <gio/gio.h>
 #include <map>
@@ -34,7 +35,7 @@ namespace app {
       const auto width = dimension(16), height = dimension(20);
       if (!width || !height || width > 512 || height > 512)
         return nullptr;
-      const auto image = decodeRasterImage(bytes.data(), bytes.size());
+      auto image = decodeRasterImage(bytes.data(), bytes.size());
       if (!image
           || image->width <= 0
           || image->height <= 0
@@ -42,6 +43,17 @@ namespace app {
           || image->height > 512
           || image->pixels.size() != std::size_t(image->width) * image->height * 4)
         return nullptr;
+      // The notification service receives straight RGBA, so shape the avatar
+      // here rather than relying on the desktop's image corner treatment.
+      const float centerX = image->width / 2.0F, centerY = image->height / 2.0F;
+      const float radius = std::min(centerX, centerY);
+      for (int y = 0; y < image->height; ++y)
+        for (int x = 0; x < image->width; ++x) {
+          const float coverage =
+              std::clamp(radius + .5F - std::hypot(x + .5F - centerX, y + .5F - centerY), 0.0F, 1.0F);
+          auto& alpha = image->pixels[(std::size_t(y) * image->width + x) * 4 + 3];
+          alpha = static_cast<std::uint8_t>(std::lround(alpha * coverage));
+        }
       return g_variant_new(
           "(iiibii@ay)", image->width, image->height, image->width * 4, true, 8, 4,
           g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, image->pixels.data(), image->pixels.size(), 1)

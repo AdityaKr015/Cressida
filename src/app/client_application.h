@@ -441,6 +441,7 @@ namespace app {
     void clearEmojiState();
     void emojiEvent(api::Event& event);
     void pickEmoji(const std::string& key);
+    void recordEmojiUse(const std::string& key);
     void favoriteEmoji(const std::string& key);
     std::string favoriteEmojiKey(const api::Emoji& emoji) const;
     void drawGifPicker(Node& root, float w, float h);

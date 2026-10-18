@@ -776,7 +776,34 @@ namespace app {
       result.pictures.push_back({media, x, atY, w, h, std::move(link)});
       return h;
     };
+    const auto galleryCount = options.attachmentGallery
+        ? std::ranges::count_if(
+              message.attachments,
+              [](const auto& attachment) {
+                return !attachment.image.url.empty() && !attachment.contentType.starts_with("video/");
+              }
+          )
+        : 0;
+    if (galleryCount > 1) {
+      const int columns = width >= 240 ? 2 : 1;
+      const float galleryWidth = std::min(width, 600.0F), gap = 4;
+      const float cellWidth = (galleryWidth - gap * (columns - 1)) / columns;
+      const float cellHeight = std::min(190.0F, cellWidth * .75F);
+      int index = 0;
+      y += y > 0 ? 8 : 0;
+      for (const auto& attachment : message.attachments)
+        if (!attachment.image.url.empty() && !attachment.contentType.starts_with("video/")) {
+          result.pictures.push_back(
+              {attachment.image, (index % columns) * (cellWidth + gap), y + (index / columns) * (cellHeight + gap),
+               cellWidth, cellHeight, attachment.url}
+          );
+          ++index;
+        }
+      y += ((index + columns - 1) / columns) * (cellHeight + gap) - gap;
+    }
     for (const auto& attachment : message.attachments) {
+      if (galleryCount > 1 && !attachment.image.url.empty() && !attachment.contentType.starts_with("video/"))
+        continue;
       y += 8;
       const bool videoAttachment = attachment.contentType.starts_with("video/")
           || (attachment.contentType.empty()
@@ -858,6 +885,45 @@ namespace app {
     if (!message.editedTimestamp.empty() && !result.edited) {
       result.edited = MessageLayout::EditedMarker{0, y + 2, editedWidth, editedHeight, editedStyle.size};
       y += 2 + editedHeight;
+    }
+    if (message.forwarded) {
+      const auto& forward = *message.forwarded;
+      api::Message captured;
+      captured.content = forward.available ? forward.content : "Forwarded message unavailable";
+      captured.attachments = forward.attachments;
+      captured.embeds = forward.embeds;
+      captured.mentions = forward.mentions;
+      if (forward.available && captured.content.empty() && captured.attachments.empty() && captured.embeds.empty())
+        captured.content = "Forwarded message";
+      auto settings = options;
+      settings.attachmentGallery = true;
+      auto part = layoutRichMessage(captured, std::max(32.0F, width - 12), measure, fontSize, settings);
+      if (y > 0)
+        y += 8;
+      const float start = y;
+      y += 22;
+      if (!result.plainText.empty() && !result.plainText.ends_with('\n'))
+        result.plainText += '\n';
+      const auto offset = result.plainText.size();
+      for (auto& run : part.runs) {
+        run.x += 12;
+        run.y += y;
+        run.offset += offset;
+        result.runs.push_back(std::move(run));
+      }
+      for (auto& box : part.boxes) {
+        box.x += 12;
+        box.y += y;
+        result.boxes.push_back(std::move(box));
+      }
+      for (auto& image : part.pictures) {
+        image.x += 12;
+        image.y += y;
+        result.pictures.push_back(std::move(image));
+      }
+      result.plainText += part.plainText;
+      y += part.height + 26;
+      result.forwards.push_back({start, y - start, forward.guild, forward.channel, forward.message, forward.timestamp});
     }
     result.height = y;
     return result;

@@ -158,6 +158,20 @@ namespace app {
     } else
       m_emojiError = "Could not update emoji favorites. Try again.";
   }
+  void ClientApplication::recordEmojiUse(const std::string& key) {
+    const auto* emoji = m_emojiCatalog.find(key);
+    const auto identity = emoji ? emoji->key() : key;
+    if (!api::validEmojiKey(identity))
+      return;
+    if (!m_demo) {
+      m_sessionStore.recordEmoji(m_account.id, identity);
+      m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
+    } else {
+      std::erase(m_recentEmojis, identity);
+      m_recentEmojis.insert(m_recentEmojis.begin(), identity);
+    }
+    m_completionDirty = true;
+  }
   void ClientApplication::pickEmoji(const std::string& key) {
     const auto* emoji = m_emojiCatalog.find(key);
     if (!emoji || (!emoji->available && (!m_reactionMessage.empty() || !m_preferences.emojiImageLinks)))
@@ -167,7 +181,8 @@ namespace app {
         && api::emojiNeedsImage(*emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0)))
       return;
     const auto picked = *emoji;
-    if (!m_reactionMessage.empty()) {
+    const bool reaction = !m_reactionMessage.empty();
+    if (reaction) {
       startInteraction(
           {.kind = api::InteractionKind::AddReaction,
            .channel = m_reactionChannel,
@@ -182,13 +197,8 @@ namespace app {
       if (!m_demo)
         pasteControl("composer", picked.token());
     }
-    if (!m_demo) {
-      m_sessionStore.recordEmoji(m_account.id, picked.key());
-      m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
-    } else {
-      std::erase(m_recentEmojis, picked.key());
-      m_recentEmojis.insert(m_recentEmojis.begin(), picked.key());
-    }
+    if (!reaction)
+      recordEmojiUse(picked.key());
     closeEmojiPicker();
   }
   void ClientApplication::drawEmojiPicker(Node& root, float w, float h) {
@@ -286,12 +296,10 @@ namespace app {
       groups.push_back(std::move(group));
     };
     appendKeys("favorites", "Favorites", m_emojiPreferences.favorites);
-    auto recent = m_recentEmojis;
-    recent.insert(recent.end(), m_emojiPreferences.frequent.begin(), m_emojiPreferences.frequent.end());
+    auto accountFrequent = m_emojiPreferences.frequent;
     for (const auto* key : {"heart", "+1", "joy", "fire", "sob", "eyes", "tada", "100"})
-      recent.emplace_back(key);
-    if (recent.size() > 64)
-      recent.resize(64);
+      accountFrequent.emplace_back(key);
+    const auto recent = m_emojiCatalog.frequentKeys(m_recentEmojis, accountFrequent);
     appendKeys("recent", "Frequently used", recent);
     for (const auto* guild : guilds)
       if (!m_emojiCatalog.guild(guild->id).empty() || guild->id == m_emojiSection)

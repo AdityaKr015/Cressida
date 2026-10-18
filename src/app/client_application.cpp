@@ -150,6 +150,49 @@ namespace app {
           throw std::runtime_error("Empty channels must show one welcome view without a duplicate placeholder");
         std::clog << "Offline empty-channel welcome check passed\n";
       }
+      if (m_demo && m_demoOverlay.starts_with("forwarded")) {
+        const auto& message = m_messages.front();
+        const auto& layout = m_messageLayouts.at(message.id).layout;
+        const std::size_t expected = m_demoOverlay.find("text") != std::string::npos ? 0
+            : m_demoOverlay.find("single") != std::string::npos                      ? 1
+                                                                                     : 4;
+        if (message.reply
+            || message.content == "[System message]"
+            || layout.forwards.size() != 1
+            || layout.pictures.size() != expected)
+          throw std::runtime_error(
+              "Forwarded messages must show the snapshot and every image with explicit attribution"
+          );
+        const bool sourceLink = std::ranges::any_of(m_hits, [&](const auto& hit) {
+          return hit.action == Action::OpenUrl && hit.id.ends_with("/800");
+        });
+        if (sourceLink == (m_demoOverlay.find("private") != std::string::npos))
+          throw std::runtime_error("Forward source links must require known channel visibility");
+        std::clog << "Offline forwarded snapshot, media gallery and source permission check passed\n";
+      }
+      if (m_demo && m_demoOverlay.starts_with("chat-spacing")) {
+        const auto& last = m_messages.back();
+        const float messageEnd =
+            m_messageTops.at(last.id) + 18 + std::max(22.0F, m_messageLayouts.at(last.id).layout.height);
+        if (std::abs(m_composerTop - messageEnd - 12) > .5F)
+          throw std::runtime_error(
+              "The final message must retain a compact composer gutter without another group's margin"
+          );
+        std::clog << "Offline final-message composer spacing check passed\n";
+      }
+      if (m_demo && m_demoOverlay.starts_with("autocomplete-frequent")) {
+        if (m_completionItems.size() < 3
+            || m_completionItems[0].id != "800000000000000005"
+            || m_completionItems[1].id != "800000000000000101"
+            || m_completionItems[2].id != "800000000000000001")
+          throw std::runtime_error(
+              "Emoji suggestions must rank usage across different names and same-name server duplicates"
+          );
+        chooseCompletion(1);
+        if (m_recentEmojis.front() != "800000000000000101")
+          throw std::runtime_error("Choosing an emoji suggestion must feed subsequent usage ranking");
+        std::clog << "Offline emoji usage ranking and insertion check passed\n";
+      }
       if (m_demo && m_demoOverlay == "deleted-cycle" && m_demoInteractionStep < 3)
         demoDeletedStep();
       if (m_demo && m_demoOverlay == "dm-compose-cycle" && m_demoInteractionStep < 16)
@@ -186,10 +229,19 @@ namespace app {
         demoGuildHoverStep();
       if (m_demo && m_demoOverlay == "themes-cycle" && m_demoInteractionStep < 11)
         demoThemeStep();
-      if (m_demo && m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep < 5) {
+      if (m_demo && m_demoOverlay.starts_with("message-hover-cycle") && m_demoInteractionStep < 10) {
         const auto step = m_demoInteractionStep++;
-        if (step > 0) {
+        if (step > 0 && step < 5) {
           const bool expectActions = step == 1 || step == 3;
+          int hoverBands = 0;
+          const auto hoverColor = lerpColor(theme::background, theme::foreground, theme::lightTheme ? .035F : .04F);
+          for (const auto& node : m_scene->children())
+            if (node->type() == NodeType::Rect
+                && static_cast<const RectNode&>(*node).style().fill == hoverColor
+                && node->x() >= chatLeft())
+              ++hoverBands;
+          if ((hoverBands > 0) != expectActions)
+            throw std::runtime_error("Message hover backgrounds must follow the same clipped viewport as actions");
           for (const auto action : {Action::Reply, Action::CopyCode, Action::CopyMessage, Action::MessageMenu})
             if (std::ranges::any_of(m_hits, [&](const auto& hit) { return hit.action == action; }) != expectActions)
               throw std::runtime_error("Message hover actions must stay inside the conversation viewport");
@@ -202,10 +254,62 @@ namespace app {
               throw std::runtime_error("Code Copy uses a compact glyph target with unchanged source text");
           }
         }
+        if (step >= 6) {
+          const RectNode* band = nullptr;
+          const auto hoverColor = lerpColor(theme::background, theme::foreground, theme::lightTheme ? .035F : .04F);
+          for (const auto& node : m_scene->children())
+            if (node->type() == NodeType::Rect
+                && static_cast<const RectNode&>(*node).style().fill == hoverColor
+                && node->x() >= chatLeft()) {
+              if (band)
+                throw std::runtime_error("Only the pointed message may have a hover background");
+              band = static_cast<const RectNode*>(node.get());
+            }
+          if (step == 8) {
+            if (band || std::ranges::any_of(m_hits, [](const auto& hit) { return hit.action == Action::Reply; }))
+              throw std::runtime_error("The gap between message groups must not activate hover styling or actions");
+          } else {
+            const std::size_t index = step == 6 ? 0 : step == 7 ? 1 : 2;
+            const float messageTop = m_messageTops.at(m_messages[index].id);
+            const auto reply = std::ranges::find(m_hits, Action::Reply, &Hit::action);
+            if (!band
+                || reply == m_hits.end()
+                || reply->id != m_messages[index].id
+                || band->y() < m_messageViewportTop
+                || band->y() + band->height() > m_messageViewportBottom)
+              throw std::runtime_error("Hover backgrounds and actions must follow one clipped message");
+            if (index != 1 && band->y() > messageTop - 3)
+              throw std::runtime_error("Author hover backgrounds must enclose the guild tag above the header");
+            if (index == 0 && band->y() + band->height() > m_messageTops.at(m_messages[1].id))
+              throw std::runtime_error("The first message hover must stop before its continuation");
+            if (index == 1
+                && (band->y() != messageTop || band->y() + band->height() > m_messageTops.at(m_messages[2].id) - 6))
+              throw std::runtime_error("Continuation hover must leave the next author's spacing clear");
+            if (index == 2
+                && band->y() + band->height()
+                    < messageTop + 18 + std::max(22.0F, m_messageLayouts.at(m_messages[index].id).layout.height) + 3.5F)
+              throw std::runtime_error("Standalone message hover must leave padding below its last text line");
+          }
+        }
         if (step == 2)
           m_channelPanel = "pins";
-        m_pointerX = step == 0 || step == 2 ? chatLeft() + 100 : m_window.width() - 20;
-        m_pointerY = m_messageTops.at(m_messages.front().id) + 24;
+        if (step < 4) {
+          m_pointerX = step == 0 || step == 2 ? chatLeft() + 100 : m_window.width() - 20;
+          m_pointerY = m_messageTops.at(m_messages.front().id) + 24;
+        } else {
+          m_channelPanel.clear();
+          m_pointerX = chatLeft() + 100;
+          if (step == 4)
+            m_pointerY = 0; // Let the layout settle after closing the pins panel.
+          else if (step == 5)
+            m_pointerY = m_messageTops.at(m_messages[0].id) - 3;
+          else if (step == 6)
+            m_pointerY = m_messageTops.at(m_messages[1].id) + 4;
+          else if (step == 7)
+            m_pointerY = m_messageTops.at(m_messages[2].id) - 6;
+          else
+            m_pointerY = m_messageTops.at(m_messages[2].id) - 3;
+        }
         m_window.invalidate();
       }
       if (m_demo && m_demoOverlay == "join-cycle")
@@ -959,7 +1063,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "settings-font-cycle"               ? 12
                          : m_demo && view && std::string_view(view) == "server-hover-cycle"                ? 7
                          : m_demo && view && std::string_view(view) == "themes-cycle"                      ? 11
-                         : m_demo && view && std::string_view(view) == "message-hover-cycle"               ? 5
+                         : m_demo && view && std::string_view(view).starts_with("message-hover-cycle")     ? 10
                          : m_demo && view && std::string_view(view) == "sidebar-cycle"                     ? 10
                          : m_demo && view && std::string_view(view) == "role-emoji-cycle"                  ? 3
                          : m_demo && view && std::string_view(view) == "role-members-cycle"                ? 2
@@ -1008,7 +1112,7 @@ namespace app {
       throw std::runtime_error("Server hover replay did not finish");
     if (m_demoOverlay == "themes-cycle" && m_demoInteractionStep != 11)
       throw std::runtime_error("Theme settings replay did not finish");
-    if (m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep != 5)
+    if (m_demoOverlay.starts_with("message-hover-cycle") && m_demoInteractionStep != 10)
       throw std::runtime_error("Message hover replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
       throw std::runtime_error("Server join replay did not complete");
@@ -1084,7 +1188,55 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
-        if (view.starts_with("server-hover")) {
+        if (view.starts_with("forwarded")) {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view.find("compact") != std::string::npos;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          nlohmann::json attachments = nlohmann::json::array();
+          const int count = view.find("single") != std::string::npos ? 1 : 4;
+          for (int i = 0; i < count; ++i) {
+            const auto url = "https://cdn.discordapp.com/attachments/100/" + std::to_string(700 + i) + "/image.png";
+            attachments.push_back(
+                {{"id", std::to_string(700 + i)},
+                 {"filename", "image.png"},
+                 {"url", url},
+                 {"content_type", "image/png"},
+                 {"width", 640},
+                 {"height", 360}}
+            );
+            m_images[api::mediaUrl(url)].texture =
+                m_window.context().textureManager().loadFromRgba(pixels.data(), 640, 360);
+          }
+          auto source =
+              nlohmann::json{{"type", 1}, {"guild_id", m_guildId}, {"channel_id", m_channelId}, {"message_id", "800"}};
+          m_messages = api::parseMessages(
+              nlohmann::json::array(
+                  {{{"id", "900"},
+                    {"channel_id", m_channelId},
+                    {"author", {{"id", "1"}, {"username", "Alex"}}},
+                    {"timestamp", "2026-10-18T18:50:00Z"},
+                    {"content", ""},
+                    {"message_reference", source},
+                    {"message_snapshots",
+                     nlohmann::json::array(
+                         {{{"message",
+                            {{"timestamp", "2026-10-18T18:49:00Z"},
+                             {"content", view.find("text") != std::string::npos ? "Saved **formatted** text." : ""},
+                             {"attachments",
+                              view.find("text") != std::string::npos ? nlohmann::json::array() : attachments}}}}}
+                     )}}}
+              )
+          );
+          m_guildChannels[m_guildId] = m_channels;
+          api::GuildRoleUpdate owner{.guild = m_guildId};
+          owner.owner = view.find("private") == std::string::npos ? m_account.id : "999";
+          m_roleDirectory.apply({false, {owner}});
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          m_messageLayouts.clear();
+        } else if (view.starts_with("server-hover")) {
           m_demoOverlay = view;
           m_openFolders.clear();
           m_folders = {{{}, {}, 0, {"1", "2", "3"}}};
@@ -1148,9 +1300,16 @@ namespace app {
           roles.roles = {{"50", 2, {0xC6B5F5}, "Moonwarden"}, {"51", 1, {0x82AAFF}, "Helpers"}};
           roles.members["11"] = {"50"};
           m_roleDirectory.apply({false, {roles}});
-          m_drafts[m_channelId] = view == "autocomplete-emoji" ? ":umb"
-              : view == "autocomplete-roles"                   ? "@moon"
-                                                               : "Hello @ma";
+          if (view.starts_with("autocomplete-frequent")) {
+            m_recentEmojis = {"800000000000000005"};
+            m_emojiPreferences.frequent = {"800000000000000101", "800000000000000001"};
+            if (view.ends_with("light"))
+              m_preferences.theme = "light";
+          }
+          m_drafts[m_channelId] = view.starts_with("autocomplete-frequent") ? ":pro"
+              : view == "autocomplete-emoji"                                ? ":umb"
+              : view == "autocomplete-roles"                                ? "@moon"
+                                                                            : "Hello @ma";
           m_focusedInput = "composer";
           m_messageLayouts.clear();
           m_unreadTimeline.snapshot({});
@@ -1250,20 +1409,23 @@ namespace app {
         if (view == "inline-code"
             || view == "inline-code-light"
             || view == "inline-code-compact"
-            || view == "message-hover-cycle") {
+            || view.starts_with("message-hover-cycle")) {
           m_demoOverlay = view;
-          m_showMembers = view == "message-hover-cycle";
-          m_preferences.compact = view == "inline-code-compact";
-          if (view == "inline-code-light")
+          m_showMembers = view.starts_with("message-hover-cycle");
+          m_preferences.compact = view.ends_with("compact");
+          if (view.ends_with("light"))
             m_preferences.theme = "light";
           m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
             {"id":"9601","author":{"id":"11","username":"Lysec"},"timestamp":"2026-10-18T09:26:00Z","content":"`~/.cache/noctalia/noctalia.log`"},
             {"id":"9602","author":{"id":"11","username":"Lysec"},"timestamp":"2026-10-18T09:26:10Z","content":"Check `a < b` and `two words` in this line. 🙂 `aligned code`","edited_timestamp":"2026-10-18T09:27:00Z"},
             {"id":"9603","author":{"id":"12","username":"Maya"},"timestamp":"2026-10-18T09:28:00Z","content":"A long path: `~/.cache/noctalia/a-long-directory-name/another-directory/noctalia.log`\n```text\nFenced code keeps its own layout.\n```"}
           ])JSON"));
-          if (view == "message-hover-cycle") {
-            m_messages.resize(1);
+          if (view.starts_with("message-hover-cycle")) {
             m_messages.front().content = "Inline `two words`.\n```text\nFenced code with a Copy action.\n```";
+            m_messages[1].content = "A continuation before the next author.";
+            m_messages[2].content = "A different author starts a new group.";
+            for (auto& message : m_messages)
+              message.authorTag = api::GuildTag{m_guildId, "NOCT", {}};
           }
           for (auto& message : m_messages)
             message.channelId = m_channelId;
@@ -1859,6 +2021,31 @@ namespace app {
           m_messageLayouts.clear();
           if (view == "jump-latest" || view == "jump-latest-light")
             m_messageScroll = 140;
+        } else if (view.starts_with("chat-spacing")) {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view.find("compact") != std::string::npos;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          m_messages.clear();
+          const int count = view.find("short") != std::string::npos ? 1 : 60;
+          for (int i = 0; i < count; ++i) {
+            api::Message message{
+                std::to_string(3000 + i), m_channelId, "Maya", "An ordinary message in the conversation.",
+                "2026-10-18T12:00:00Z",   "11"
+            };
+            if (i + 1 == count) {
+              message.authorId = "12";
+              message.author = "Noah";
+              message.content = view.find("emoji") != std::string::npos ? "😭" : "The latest message.";
+            }
+            m_messages.push_back(std::move(message));
+          }
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          m_messageLayouts.clear();
+          m_pointerX = chatLeft() + 140;
+          m_pointerY = m_window.height() + 36 - m_window.titlebarHeight() - 130;
         } else if (view == "emoji-sizing" || view == "emoji-sizing-compact") {
           m_preferences.compact = view == "emoji-sizing-compact";
           prepareEmojiPicker();
@@ -2763,7 +2950,8 @@ namespace app {
         const float composerHeight = m_draftHeight + 24 + attachmentHeight + replyHeight;
         const float composerY = h - 30 - composerHeight;
         float top = m_unreadTimeline.unread() ? 166 : 122;
-        const float bottom = composerY - 16, textWidth = std::max(32.0F, bodyWidth - 104);
+        constexpr float timelineTopPadding = 12, timelineBottomPadding = 4;
+        const float bottom = composerY - 8, textWidth = std::max(32.0F, bodyWidth - 104);
         const MessageMeasure measure = [&](std::string_view text, const MessageStyle& style) {
           return m_window.target()
               .renderer()
@@ -2814,6 +3002,15 @@ namespace app {
             if (!m_preferences.showImages)
               for (auto& attachment : displayed.attachments)
                 attachment.image.url.clear();
+            if (displayed.forwarded) {
+              if (!m_preferences.showEmbeds)
+                displayed.forwarded->embeds.clear();
+              if (!m_preferences.showImages)
+                for (auto& attachment : displayed.forwarded->attachments)
+                  attachment.image.url.clear();
+              for (auto& [id, name] : displayed.forwarded->mentions)
+                name = userName(id, name);
+            }
             if (message.type == 7) {
               const auto notice = joinNotice(message);
               const auto authorId = api::validSnowflake(message.authorId) ? message.authorId : "1";
@@ -2864,14 +3061,16 @@ namespace app {
               : std::max(22.0F, cached.layout.height);
           const float height = blockedMessage(message) ? 36
               : message.type == 7                      ? std::max(22.0F, cached.layout.height)
-                  + (m_preferences.compact ? std::min(8, m_preferences.messageGroupSpacing)
-                                           : m_preferences.messageGroupSpacing)
+                  + (i + 1 == m_messages.size()  ? 0
+                         : m_preferences.compact ? std::min(8, m_preferences.messageGroupSpacing)
+                                                 : m_preferences.messageGroupSpacing)
                   + (!m_preferences.showReactions || message.reactions.empty()
                          ? 0
                          : 6 + reactionStrip(nullptr, message, 0, 0, textWidth, true))
                                   : bodyHeight
                   + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
-                                      m_preferences.compact, m_preferences.messageGroupSpacing)
+                                      m_preferences.compact, m_preferences.messageGroupSpacing,
+                                      i + 1 == m_messages.size())
                   + (message.reply ? 24 : 0)
                   + reactionStrip(nullptr, message, 0, 0, textWidth)
                   + threadStrip(nullptr, message, 0, 0, textWidth)
@@ -2879,7 +3078,7 @@ namespace app {
           layouts.push_back(&cached.layout);
           heights.push_back(height);
         }
-        float totalHeight = 24 + introHeight;
+        float totalHeight = timelineTopPadding + timelineBottomPadding + introHeight;
         for (const auto height : heights)
           totalHeight += height;
         if (unreadIndex)
@@ -2891,7 +3090,7 @@ namespace app {
              || m_keepHistoryAnchor)
             && !m_unreadTimeline.positionPending()) {
           std::vector<TimelineAnchor::Row> positions;
-          float rowY = std::min(top, bottom - totalHeight) + m_messageScroll + 12 + introHeight;
+          float rowY = (bottom - totalHeight) + m_messageScroll + timelineTopPadding + introHeight;
           for (std::size_t i = 0; i < m_messages.size(); ++i) {
             if (unreadIndex && i == *unreadIndex)
               rowY += unreadHeight;
@@ -2904,7 +3103,7 @@ namespace app {
         m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
         m_keepHistoryAnchor = false;
         if (!m_seekMessage.empty() && !m_loadingMessages) {
-          float preceding = 12 + introHeight;
+          float preceding = timelineTopPadding + introHeight;
           for (std::size_t i = 0; i < m_messages.size(); ++i) {
             if (unreadIndex && i == *unreadIndex)
               preceding += unreadHeight;
@@ -2923,7 +3122,7 @@ namespace app {
         }
         if (m_unreadTimeline.positionPending() && !m_unreadTimeline.waiting() && !m_loadingMessages) {
           if (unreadIndex) {
-            float preceding = 12 + introHeight;
+            float preceding = timelineTopPadding + introHeight;
             for (std::size_t i = 0; i < *unreadIndex; ++i)
               preceding += heights[i];
             m_scrolling.stop(m_messageScroll);
@@ -2950,7 +3149,7 @@ namespace app {
               heights[i - 1] -= savedGap;
             }
             unreadIndex.reset();
-            totalHeight = 24 + introHeight;
+            totalHeight = timelineTopPadding + timelineBottomPadding + introHeight;
             for (const auto height : heights)
               totalHeight += height;
           }
@@ -2978,7 +3177,7 @@ namespace app {
         content->setPosition(left + 24, top);
         content->setSize(bodyWidth - 48, std::max(0.0F, bottom - top));
         std::vector<std::string> missingAuthors;
-        float y = std::min(0.0F, bottom - top - totalHeight) + m_messageScroll + 12;
+        float y = (bottom - top - totalHeight) + m_messageScroll + timelineTopPadding;
         if (introHeight > 0) {
           channelIntro(content.get(), 50, y, textWidth);
           y += introHeight;
@@ -3028,6 +3227,42 @@ namespace app {
               y += heights[i];
               continue;
             }
+            const float bottomGap = messageRowPadding(
+                true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact,
+                m_preferences.messageGroupSpacing, i + 1 == m_messages.size()
+            );
+            // Tags sit above the header baseline. The following group's margin
+            // belongs to neither message's hover background or action target.
+            const float hoverTop = std::max(top, top + y - (continuations[i] || message.type == 7 ? 0 : 4));
+            // Even zero group spacing must leave the next header's upper edge
+            // to that message, so a pointer can never highlight both rows.
+            const bool nextHeader = i + 1 < m_messages.size()
+                && !continuations[i + 1]
+                && m_messages[i + 1].type != 7
+                && !blockedMessage(m_messages[i + 1]);
+            const bool nextContinuation = i + 1 < continuations.size() && continuations[i + 1];
+            // Give the last line a little breathing room without covering a
+            // continuation or closing the gap before the next author header.
+            const float hoverPadding = nextContinuation ? 0.0F
+                : i + 1 == m_messages.size()            ? 4.0F
+                                             : std::min(4.0F, std::max(0.0F, bottomGap - (nextHeader ? 6.0F : 2.0F)));
+            const float hoverBottom =
+                std::min(bottom, top + y + heights[i] - std::max(bottomGap, nextHeader ? 4.0F : 0.0F) + hoverPadding);
+            const bool messageHovered = !editing
+                && m_dialogKind.empty()
+                && !m_contextOpen
+                && !m_emojiMenu
+                && !m_gifMenu
+                && !m_presenceMenu
+                && m_viewImage.empty()
+                && !m_videoExpanded
+                && (!m_completionQuery || !m_completionBounds.contains(m_pointerX, m_pointerY))
+                && hovered(left, hoverTop, bodyWidth, std::max(0.0F, hoverBottom - hoverTop));
+            if (messageHovered)
+              rectangle(
+                  root, left + 10, hoverTop, bodyWidth - 34, hoverBottom - hoverTop,
+                  lerpColor(background, foreground, theme::lightTheme ? .035F : .04F)
+              );
             if (!m_dmMode
                 && message.webhookId.empty()
                 && !message.memberRoles
@@ -3038,8 +3273,9 @@ namespace app {
               missingAuthors.push_back(message.authorId);
             if (message.deleted) {
               const auto red = theme::danger;
-              const float gap =
-                  messageRowPadding(true, false, m_preferences.compact, m_preferences.messageGroupSpacing);
+              const float gap = messageRowPadding(
+                  true, false, m_preferences.compact, m_preferences.messageGroupSpacing, i + 1 == m_messages.size()
+              );
               const float bandTop = std::max(top, top + y - 2);
               const float bandBottom = std::min(bottom, top + y + heights[i] - gap + 2);
               if (bandBottom > bandTop) {
@@ -3060,11 +3296,11 @@ namespace app {
                       message, m_account.id,
                       ownRoles ? std::span<const std::string>{*ownRoles} : std::span<const std::string>{}
                   )) {
-                const bool over = hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop);
+                const bool over = messageHovered;
                 const float tint = (theme::lightTheme ? .10F : .07F) + (over ? .03F : 0.0F);
                 const float bottomGap = messageRowPadding(
                     true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact,
-                    m_preferences.messageGroupSpacing
+                    m_preferences.messageGroupSpacing, i + 1 == m_messages.size()
                 );
                 const float inkHeight = std::max(continuations[i] ? 0.0F : 41.0F, heights[i] - bottomGap);
                 const float bandTop = std::max(top, top + y - 2);
@@ -3189,7 +3425,7 @@ namespace app {
                       *content, timestampX, y + 3, std::min(timestampWidth + 2, timestampAvailable), timestamp, 10,
                       message.deleted ? theme::danger : muted
                   );
-              } else if (hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop)) {
+              } else if (messageHovered) {
                 const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
                 label(*content, 0, y + 4, 42, timestamp, 9, muted);
               }
@@ -3208,6 +3444,44 @@ namespace app {
               else {
                 m_messageText[message.id] = layout.plainText;
                 m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
+                for (const auto& card : layout.forwards) {
+                  const float cardY = bodyY + card.y;
+                  rectangle(*content, 50, cardY + 22, 3, card.height - 22, lerpColor(background, muted, .4F), 1.5F);
+                  glyph(*content, 50, cardY + 2, 14, "corner-up-right", muted);
+                  label(*content, 70, cardY + 2, textWidth - 20, "Forwarded", 12, muted);
+                  const float footerY = cardY + card.height - 19;
+                  std::string source;
+                  const auto guild = std::ranges::find(m_guilds, card.guild, &api::Guild::id);
+                  const auto channels = m_guildChannels.find(card.guild);
+                  const api::Channel* origin = nullptr;
+                  if (guild != m_guilds.end() && channels != m_guildChannels.end()) {
+                    const auto at = std::ranges::find(channels->second, card.channel, &api::Channel::id);
+                    if (at != channels->second.end()) {
+                      const auto permissions = api::channelPermissions(
+                          card.guild, m_account.id, m_roleDirectory.owner(card.guild),
+                          m_roleDirectory.allRoles(card.guild), m_roleDirectory.memberships(card.guild, m_account.id),
+                          *at
+                      );
+                      if (permissions && (*permissions & api::viewChannel))
+                        origin = &*at;
+                    }
+                  }
+                  if (origin)
+                    source = guild->name + " · #" + origin->name;
+                  const auto time = card.timestamp.size() >= 16 ? card.timestamp.substr(11, 5) : std::string{};
+                  if (!time.empty())
+                    source += (source.empty() ? "" : " · ") + time;
+                  if (!source.empty()) {
+                    const auto footerHeight = label(*content, 62, footerY, textWidth - 12, source, 11, muted);
+                    const float linkTop = std::max(top, top + footerY),
+                                linkBottom = std::min(bottom, top + footerY + footerHeight);
+                    if (origin && linkBottom > linkTop)
+                      m_hits.push_back(
+                          {left + 86, linkTop, textWidth - 12, linkBottom - linkTop, Action::OpenUrl,
+                           "https://discord.com/channels/" + card.guild + "/" + card.channel + "/" + card.message}
+                      );
+                  }
+                }
                 // Card backgrounds precede nested code/quote decoration.
                 for (const auto& box : layout.boxes) {
                   if (box.inlineCode) {
@@ -3225,8 +3499,7 @@ namespace app {
                   if (box.embed)
                     rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
                   if (!box.code.empty()) {
-                    if ((!m_completionQuery || !m_completionBounds.contains(m_pointerX, m_pointerY))
-                        && hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
+                    if (messageHovered) {
                       iconButton(
                           *content,
                           {50 + box.x + box.width - 26, bodyY + box.y + 4, 22, 22, Action::CopyCode, box.code}, "copy",
@@ -3341,9 +3614,7 @@ namespace app {
                 }
               }
             }
-            if (!editing
-                && (!m_completionQuery || !m_completionBounds.contains(m_pointerX, m_pointerY))
-                && hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
+            if (messageHovered) {
               const float toolbarWidth = message.deleted ? 64 : message.type == 7 ? 94 : 124;
               rectangle(*content, bodyWidth - 66 - toolbarWidth, y - 8, toolbarWidth, 34, panel, 7);
               iconButton(
@@ -3416,7 +3687,7 @@ namespace app {
           );
         }
         std::vector<TimelineAnchor::Row> visibleAnchors;
-        float rowY = std::min(top, bottom - totalHeight) + m_messageScroll + 12 + introHeight;
+        float rowY = (bottom - totalHeight) + m_messageScroll + timelineTopPadding + introHeight;
         for (std::size_t i = 0; i < m_messages.size(); ++i) {
           if (unreadIndex && i == *unreadIndex)
             rowY += unreadHeight;

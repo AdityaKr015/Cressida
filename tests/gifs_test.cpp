@@ -79,9 +79,7 @@ int main() {
          {"https://static.klipy.com@127.0.0.1/clip.gif", "http://media.tenor.com/clip.gif",
           "https://media.giphy.com.attacker.test/a"})
       require(api::mediaUrl(url).empty(), "Reject confusing hosts and insecure schemes");
-    require(
-        api::mediaUrl(std::string("https://static.klipy.com/a\0.gif", 31)).empty(), "Reject embedded NULs in URLs"
-    );
+    require(api::mediaUrl(std::string("https://static.klipy.com/a\0.gif", 31)).empty(), "Reject embedded NULs in URLs");
     require(
         api::gifSearchPath("a &é").ends_with("&q=a%20%26%C3%A9")
             && api::gifSearchPath("").starts_with("/gifs/trending-gifs?"),
@@ -153,6 +151,26 @@ int main() {
         api::parseEmojiPreferences({{"settings", encode(version + usage)}}).frequent
             == std::vector<std::string>{"fire", "heart"},
         "Import frequent account emoji by total use count"
+    );
+    const auto scoredUsage = field(
+        6,
+        field(1, field(1, "heart") + field(2, scalar(1, 1000) + scalar(3, 2) + scalar(4, 1)))
+            + field(1, field(1, "fire") + field(2, scalar(1, 2) + scalar(3, 1) + scalar(4, 20)))
+    );
+    require(
+        api::parseEmojiPreferences({{"settings", encode(version + scoredUsage)}}).frequent
+            == std::vector<std::string>{"fire", "heart"},
+        "Discord's provided recency/frequency score takes precedence over lifetime usage"
+    );
+    const auto decayedUsage = field(
+        6,
+        field(1, field(1, "heart") + field(2, scalar(1, 1000) + scalar(3, 1)))
+            + field(1, field(1, "fire") + field(2, scalar(1, 2) + scalar(3, 10)))
+    );
+    require(
+        api::parseEmojiPreferences({{"settings", encode(version + decayedUsage)}}).frequent
+            == std::vector<std::string>{"fire", "heart"},
+        "Frecency works when no precomputed score is present"
     );
     rejects(
         [&] { api::emojiFavoritePatch({{"settings", ""}}, "heart", true); },

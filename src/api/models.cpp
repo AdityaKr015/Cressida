@@ -474,7 +474,44 @@ namespace api {
       patch.memberRoles = parseMemberRoles(value["member"]);
     if (value.contains("message_reference")) {
       patch.reply.emplace();
-      if (value["message_reference"].is_object()) {
+      patch.forwarded.emplace();
+      const auto& source = value["message_reference"];
+      const int referenceType = source.is_object() && source.contains("type") && source["type"].is_number_integer()
+          ? source["type"].get<int>()
+          : 0;
+      if (source.is_object() && referenceType == 1) {
+        ForwardedMessage forward;
+        forward.message = text(source, "message_id");
+        forward.channel = text(source, "channel_id");
+        forward.guild = text(source, "guild_id");
+        if (!validSnowflake(forward.guild))
+          forward.guild.clear();
+        if (validSnowflake(forward.message) && validSnowflake(forward.channel)) {
+          const auto snapshots = value.find("message_snapshots");
+          if (snapshots != value.end()
+              && snapshots->is_array()
+              && snapshots->size() == 1
+              && (*snapshots)[0].is_object()
+              && (*snapshots)[0].contains("message")
+              && (*snapshots)[0]["message"].is_object()) {
+            const auto& snapshot = (*snapshots)[0]["message"];
+            // Snapshot data deliberately excludes author and nested references.
+            nlohmann::json rendering = nlohmann::json::object();
+            for (const auto* key : {"content", "attachments", "embeds", "mentions"})
+              if (snapshot.contains(key))
+                rendering[key] = snapshot[key];
+            Message captured;
+            parseMessagePatch(rendering).apply(captured);
+            forward.content = captured.content.substr(0, 16000);
+            forward.attachments = std::move(captured.attachments);
+            forward.embeds = std::move(captured.embeds);
+            forward.mentions = std::move(captured.mentions);
+            forward.timestamp = text(snapshot, "timestamp").substr(0, 64);
+            forward.available = true;
+          }
+          *patch.forwarded = std::move(forward);
+        }
+      } else if (source.is_object() && referenceType == 0) {
         const auto& reference = value["message_reference"];
         MessageReference reply{text(reference, "message_id"), text(reference, "channel_id", text(value, "channel_id"))};
         if (validSnowflake(reply.message)) {
@@ -609,6 +646,8 @@ namespace api {
       message.memberRoles = *memberRoles;
     if (reply)
       message.reply = *reply;
+    if (forwarded)
+      message.forwarded = *forwarded;
     if (reactions)
       message.reactions = *reactions;
     if (content)
@@ -705,7 +744,8 @@ namespace api {
           && result.back().content.empty()
           && result.back().attachments.empty()
           && result.back().embeds.empty()
-          && result.back().buttons.empty())
+          && result.back().buttons.empty()
+          && !result.back().forwarded)
         result.back().content = "[System message]";
       if (const auto it = item.find("author"); it != item.end() && it->is_object()) {
         result.back().authorId = text(*it, "id");
