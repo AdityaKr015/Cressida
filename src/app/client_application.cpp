@@ -258,6 +258,8 @@ namespace app {
         demoVideoStep();
       if (m_demo && m_demoOverlay == "history-cycle")
         demoHistoryStep();
+      if (m_demo && m_demoOverlay == "connection-cycle")
+        demoConnectionStep();
       if (m_demo && m_demoOverlay == "jump-latest-cycle") {
         const auto step = m_demoInteractionStep++;
         const auto jump = std::ranges::find(m_hits, Action::JumpLatest, &Hit::action);
@@ -944,6 +946,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "unread-badge-cycle"                ? 4
                          : m_demo && view && std::string_view(view) == "unread-cycle"                      ? 10
                          : m_demo && view && std::string_view(view) == "jump-latest-cycle"                 ? 8
+                         : m_demo && view && std::string_view(view) == "connection-cycle"                  ? 8
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
@@ -981,6 +984,8 @@ namespace app {
       throw std::runtime_error("Cursor/sidebar replay did not complete");
     if (m_demoOverlay == "jump-latest-cycle" && m_demoInteractionStep != 8)
       throw std::runtime_error("Jump to latest replay did not complete");
+    if (m_demoOverlay == "connection-cycle" && m_demoInteractionStep != 8)
+      throw std::runtime_error("Staged connection replay did not complete");
     if (m_demoOverlay == "channel-menu-scroll-cycle" && m_demoInteractionStep != 3)
       throw std::runtime_error("Compact channel menu replay did not finish");
     if (m_demoOverlay == "channel-create-cycle" && m_demoInteractionStep != 12)
@@ -1768,6 +1773,19 @@ namespace app {
             m_messages.push_back(std::move(message));
           }
           m_messageLayouts.clear();
+        } else if (view == "connection-cycle") {
+          m_demoOverlay = view;
+          m_guilds.clear();
+          m_guildUpdates.clear();
+          resetGuildBootstrap();
+          m_folders.clear();
+          m_guildId = m_startupGuild = "2";
+          m_channelId.clear();
+          m_channels.clear();
+          m_messages.clear();
+          m_members.clear();
+          m_memberCount = 0;
+          m_loadingChannels = true;
         } else if (view == "history-cycle") {
           m_demoOverlay = view;
           m_messages.clear();
@@ -3635,6 +3653,7 @@ namespace app {
     m_restoringLogin = m_retrySavedLogin = false;
     m_connecting = true;
     m_guildUpdates.clear();
+    resetGuildBootstrap();
     m_session = m_client.connect(std::move(m_token));
     m_token.clear();
     if (m_inputs.contains("token"))
@@ -3653,6 +3672,7 @@ namespace app {
     m_retrySavedLogin = false;
     m_status = "Your desktop keyring may ask you to unlock it.";
     m_guildUpdates.clear();
+    resetGuildBootstrap();
     m_session = m_client.restoreLogin();
     m_window.invalidate();
   }
@@ -3751,6 +3771,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    m_startupGuild.clear();
     closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();
@@ -3815,6 +3836,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    m_startupGuild.clear();
     closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();
@@ -3924,15 +3946,17 @@ namespace app {
       m_window.invalidate();
       return;
     }
-    if (!m_demo && !m_dmMode && !m_channelDetailsLoaded.contains(id)) {
-      const auto channel = selectedChannel();
-      if (channel
-          && !channel->isThread()
-          && (!channel->topic || !channel->overwrites)
-          && !m_channelDetailRequests.contains(id)
-          && m_client.channelDetails(id))
-        m_channelDetailRequests.insert(id);
-    }
+    const auto loadDetails = [&] {
+      if (!m_demo && !m_dmMode && !m_channelDetailsLoaded.contains(id)) {
+        const auto channel = selectedChannel();
+        if (channel
+            && !channel->isThread()
+            && (!channel->topic || !channel->overwrites)
+            && !m_channelDetailRequests.contains(id)
+            && m_client.channelDetails(id))
+          m_channelDetailRequests.insert(id);
+      }
+    };
     if (forum) {
       m_threadParent = id;
       m_threadTab = api::ThreadList::Active;
@@ -3947,6 +3971,7 @@ namespace app {
       if (!m_demo) {
         m_client.subscribe(m_guildId, id);
         loadThreads();
+        loadDetails();
         saveSelection();
       }
       m_window.invalidate();
@@ -3990,6 +4015,7 @@ namespace app {
         }
       m_client.subscribe(m_guildId, id);
       refresh();
+      loadDetails();
       saveSelection();
     }
     m_window.invalidate();
@@ -4323,6 +4349,7 @@ namespace app {
         m_token.clear();
         m_status = "Connecting to your account…";
         m_guildUpdates.clear();
+        resetGuildBootstrap();
         m_session = m_client.connectHandoff(std::move(login->key), std::move(login->handoffToken));
         m_window.invalidate();
       } else if (!login->error.empty()) {
@@ -4344,9 +4371,12 @@ namespace app {
           && event.operation == api::Operation::ChannelDetails
           && m_deletedChannels.contains(event.resource))
         continue;
-      if (!event.unauthorized
-          && ((event.operation == api::Operation::Channels && event.resource != m_guildId)
-              || (event.operation == api::Operation::Messages && event.resource != m_channelId)))
+      if (!event.unauthorized && event.operation == api::Operation::Channels && event.resource != m_guildId) {
+        if (event.error.empty())
+          m_guildChannels[event.resource] = std::move(event.channels);
+        continue;
+      }
+      if (!event.unauthorized && event.operation == api::Operation::Messages && event.resource != m_channelId)
         continue;
       if (event.unauthorized) {
         closeVideo();
@@ -4386,6 +4416,7 @@ namespace app {
         m_timelineAnchor.reset();
         m_guilds.clear();
         m_guildUpdates.clear();
+        resetGuildBootstrap();
         m_channels.clear();
         m_messages.clear();
         m_messageLayouts.clear();
@@ -4417,11 +4448,13 @@ namespace app {
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
           m_presence = event.presence.value_or(api::Presence{});
+          resetGuildBootstrap();
           m_guilds = std::move(event.guilds);
+          m_guildLayout = std::move(event.layout);
           for (auto& guild : m_guilds)
             if (const auto at = m_guildUpdates.find(guild.id); at != m_guildUpdates.end())
               at->second.apply(guild);
-          m_folders = api::arrangeGuilds(m_guilds, event.layout);
+          m_folders = api::arrangeGuilds(m_guilds, m_guildLayout);
           m_connected = true;
           if (!m_live)
             m_gatewayStatus = "Connecting…";
@@ -4430,13 +4463,14 @@ namespace app {
           m_restoreChannel = last ? last->channel : "";
           if (last)
             m_window.setUiScale(last->scale);
-          if (last
-              && !last->guild.empty()
-              && std::ranges::find(m_guilds, last->guild, &api::Guild::id) != m_guilds.end()) {
+          if (last && api::validSnowflake(last->channel))
+            m_lastChannels[last->guild.empty() ? "@me" : last->guild] = last->channel;
+          if (last && api::validSnowflake(last->guild)) {
             for (const auto& folder : m_folders)
               if (!folder.id.empty() && std::ranges::find(folder.guildIds, last->guild) != folder.guildIds.end())
                 m_openFolders.insert(folder.id);
             selectGuild(last->guild);
+            m_startupGuild = last->guild;
           } else
             showDirectMessages();
         }
@@ -4496,20 +4530,10 @@ namespace app {
               return item.second.nickname.has_value();
             }))
           m_messageLayouts.clear();
+      } else if (event.operation == api::Operation::Guilds) {
+        guildListEvent(event);
       } else if (event.operation == api::Operation::ChannelSnapshot) {
-        m_guildChannels[event.resource] = event.channels;
-        if (!m_dmMode && event.resource == m_guildId && !m_channels.empty())
-          rebuildThreadChannels();
-        if (!m_dmMode && event.resource == m_guildId && m_channels.empty()) {
-          m_channels = std::move(event.channels);
-          rebuildThreadChannels();
-          auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
-          if (selected == m_channels.end())
-            selected = std::ranges::find_if(m_channels, [](const auto& c) { return c.type != 4; });
-          if (selected != m_channels.end())
-            selectChannel(selected->id);
-          m_restoreChannel.clear();
-        }
+        channelSnapshotEvent(event);
       } else if (event.operation == api::Operation::InvalidateChannels) {
         if (!event.removed.empty()) {
           removeGuildChannels(event);
@@ -4599,20 +4623,7 @@ namespace app {
         }
       } else if (event.operation == api::Operation::Channels && event.resource == m_guildId) {
         m_loadingChannels = false;
-        if (event.error.empty()) {
-          m_channels = std::move(event.channels);
-          m_guildChannels[m_guildId] = m_channels;
-          rebuildThreadChannels();
-          const auto restore = m_restoreChannel;
-          auto first = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
-          if (first == m_channels.end())
-            first = std::ranges::find_if(m_channels, [](const auto& channel) { return channel.type != 4; });
-          m_restoreChannel.clear();
-          if (first != m_channels.end())
-            selectChannel(first->id);
-          if (!restore.empty() && std::ranges::find(m_channels, restore, &api::Channel::id) == m_channels.end())
-            openThread(restore);
-        }
+        channelSnapshotEvent(event);
       } else if (event.operation == api::Operation::Messages && event.resource == m_channelId) {
         applyHistory(event);
       } else if (
@@ -4666,7 +4677,7 @@ namespace app {
             update.apply(*guild);
         }
       } else if (event.operation == api::Operation::Layout) {
-        m_folders = api::arrangeGuilds(m_guilds, event.layout);
+        guildLayoutEvent(event);
       } else if (event.operation == api::Operation::Members && event.resource == m_channelId) {
         m_members = std::move(event.members);
         m_memberCount = event.memberCount;
@@ -5640,6 +5651,7 @@ namespace app {
       m_account = {};
       m_guilds.clear();
       m_guildUpdates.clear();
+      resetGuildBootstrap();
       m_channels.clear();
       m_messages.clear();
       m_messageLayouts.clear();

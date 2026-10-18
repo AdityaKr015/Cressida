@@ -16,6 +16,31 @@ namespace api {
     using namespace std::chrono_literals;
     using Json = nlohmann::json;
     using Clock = std::chrono::steady_clock;
+    constexpr std::string_view gatewayQuery = "?v=9&encoding=json";
+
+    std::optional<std::string> loopbackResumeEndpoint(std::string_view endpoint, std::string_view address) {
+      // A test peer can use a second route on its explicitly injected origin.
+      // Production resume URLs never take this branch.
+      if (!endpoint.starts_with("ws://127.0.0.1:"))
+        return {};
+      const auto path = endpoint.find('/', 5);
+      if (path == std::string_view::npos)
+        return {};
+      const auto origin = endpoint.substr(0, path);
+      if (!address.starts_with(origin) || address.size() <= origin.size() || address[origin.size()] != '/')
+        return {};
+      const auto route = address.substr(origin.size());
+      if (route.size() > 128 || !std::ranges::all_of(route, [](unsigned char c) {
+            return (c >= 'a' && c <= 'z')
+                || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9')
+                || c == '/'
+                || c == '-'
+                || c == '_';
+          }))
+        return {};
+      return std::string(address) + std::string(gatewayQuery);
+    }
     struct GatewayFailure : std::runtime_error {
       using std::runtime_error::runtime_error;
     };
@@ -52,6 +77,29 @@ namespace api {
     }
   } // namespace
 
+  std::optional<std::string> gatewayResumeEndpoint(std::string_view address) {
+    if (address.size() > 256 || !address.starts_with("wss://"))
+      return {};
+    auto host = address.substr(6);
+    if (host.ends_with('/'))
+      host.remove_suffix(1);
+    constexpr std::string_view suffix = ".discord.gg";
+    if (host != "gateway.discord.gg") {
+      if (!host.starts_with("gateway-") || !host.ends_with(suffix))
+        return {};
+      const auto label = host.substr(0, host.size() - suffix.size());
+      if (label.size() <= 8
+          || label.size() > 63
+          || label[8] == '-'
+          || label.back() == '-'
+          || !std::ranges::all_of(label, [](unsigned char c) {
+               return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+             }))
+        return {};
+    }
+    return "wss://" + std::string(host) + "/" + std::string(gatewayQuery);
+  }
+
   Gateway::Gateway(const std::atomic<std::uint64_t>& generation, Dispatch dispatch, std::string endpoint)
       : m_generation(generation), m_dispatch(std::move(dispatch)), m_endpoint(std::move(endpoint)),
         m_worker([this](std::stop_token stop) { run(stop); }) {}
@@ -70,6 +118,8 @@ namespace api {
       m_memberPending.clear();
       m_memberPendingCount = 0;
       m_memberSearch.reset();
+      m_presenceChosen = false;
+      m_presenceRestored = false;
     }
     m_session = session;
     m_token = std::move(token);
@@ -88,6 +138,8 @@ namespace api {
     m_memberSearch.reset();
     m_presence = {};
     m_presenceVersion = 0;
+    m_presenceChosen = false;
+    m_presenceRestored = false;
     m_guild.clear();
     m_channel.clear();
     ++m_subscriptionVersion;
@@ -141,6 +193,9 @@ namespace api {
     std::lock_guard lock(m_mutex);
     if (session != m_generation || session != m_session || m_token.empty())
       return false;
+    // Even choosing the already active status is an explicit choice. A late
+    // bootstrap read must not subsequently replace its custom status.
+    m_presenceChosen = true;
     if (m_presence.status == status
         && (!customText
             || (m_presence.text == *customText && m_presence.emojiId.empty() && m_presence.emojiName.empty())))
@@ -155,9 +210,33 @@ namespace api {
     return true;
   }
 
+  bool Gateway::restorePresence(std::uint64_t session, Presence presence) {
+    if ((presence.status != "unknown" && !validStatus(presence.status))
+        || utf8Length(presence.text) > 128
+        || (!presence.emojiId.empty() && !validSnowflake(presence.emojiId))
+        || presence.emojiName.size() > 256)
+      return false;
+    std::lock_guard lock(m_mutex);
+    if (session != m_generation || session != m_session || m_token.empty() || m_presenceChosen || m_presenceRestored)
+      return false;
+    m_presenceRestored = true;
+    // READY has the current session's status; the optional settings read can be
+    // older. Restore custom text/emoji without replacing that live status.
+    if (validStatus(m_presence.status))
+      presence.status = m_presence.status;
+    if (m_presence.status != presence.status
+        || m_presence.text != presence.text
+        || m_presence.emojiId != presence.emojiId
+        || m_presence.emojiName != presence.emojiName) {
+      m_presence = std::move(presence);
+      ++m_presenceVersion;
+    }
+    return true;
+  }
+
   void Gateway::run(std::stop_token stop) {
     int backoff = 1;
-    std::string resumeId;
+    std::string resumeId, resumeEndpoint;
     std::int64_t sequence = -1;
     std::uint64_t activeSession = 0;
     while (!stop.stop_requested()) {
@@ -174,12 +253,14 @@ namespace api {
       if (activeSession != session) {
         activeSession = session;
         resumeId.clear();
+        resumeEndpoint.clear();
         sequence = -1;
         backoff = 1;
       }
       Connection connection{stop, m_generation, session};
       bool fatal = false;
       bool authenticationFailed = false;
+      bool reconnectImmediately = false;
       std::string failure = "Live connection interrupted";
       try {
         std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
@@ -189,7 +270,9 @@ namespace api {
         const bool loopback = m_endpoint.starts_with("ws://127.0.0.1:");
         if (!loopback && m_endpoint != "wss://gateway.discord.gg/?v=9&encoding=json")
           throw std::runtime_error("Invalid Gateway origin");
-        curl_easy_setopt(curl.get(), CURLOPT_URL, m_endpoint.c_str());
+        const auto& endpoint =
+            !resumeId.empty() && sequence >= 0 && !resumeEndpoint.empty() ? resumeEndpoint : m_endpoint;
+        curl_easy_setopt(curl.get(), CURLOPT_URL, endpoint.c_str());
         curl_easy_setopt(curl.get(), CURLOPT_CONNECT_ONLY, 2L);
         curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, loopback ? "ws" : "wss");
         if (loopback)
@@ -373,6 +456,7 @@ namespace api {
               fatal = true;
             if (closeCode == 4007 || closeCode == 4009) {
               resumeId.clear();
+              resumeEndpoint.clear();
               sequence = -1;
             }
             throw GatewayFailure("Gateway closed (" + std::to_string(closeCode) + ")");
@@ -428,11 +512,13 @@ namespace api {
           else if (op == 1) {
             send(curl.get(), Json{{"op", 1}, {"d", sequence < 0 ? Json(nullptr) : Json(sequence)}}, connection);
             awaitingAck = true;
-          } else if (op == 7)
+          } else if (op == 7) {
+            reconnectImmediately = true;
             throw GatewayFailure("Gateway requested reconnect");
-          else if (op == 9) {
+          } else if (op == 9) {
             if (!data.is_boolean() || !data.get<bool>()) {
               resumeId.clear();
+              resumeEndpoint.clear();
               sequence = -1;
             }
             throw GatewayFailure("Gateway session invalidated");
@@ -444,13 +530,19 @@ namespace api {
             }
             if (type == "READY") {
               resumeId = data.value("session_id", std::string{});
+              resumeEndpoint.clear();
+              if (const auto address = data.find("resume_gateway_url"); address != data.end() && address->is_string()) {
+                const auto& url = address->get_ref<const std::string&>();
+                resumeEndpoint = (loopback ? loopbackResumeEndpoint(m_endpoint, url) : gatewayResumeEndpoint(url))
+                                     .value_or(std::string{});
+              }
               {
                 std::lock_guard lock(m_mutex);
-                if (m_presence.status == "unknown" && data.contains("sessions") && data["sessions"].is_array())
+                if (!m_presenceChosen && data.contains("sessions") && data["sessions"].is_array())
                   for (const auto& own : data["sessions"])
                     if (own.value("session_id", "") == resumeId) {
                       const auto state = own.value("status", "unknown");
-                      if (validStatus(state)) {
+                      if (validStatus(state) && m_presence.status != state) {
                         m_presence.status = state;
                         ++m_presenceVersion;
                       }
@@ -481,6 +573,9 @@ namespace api {
           m_token.clear();
         continue;
       }
+      // Opcode 7 is an explicit handoff, not a failed connection attempt.
+      if (reconnectImmediately)
+        continue;
       const auto retryAt = Clock::now() + std::chrono::seconds(backoff);
       while (!connection.cancelled() && Clock::now() < retryAt)
         std::this_thread::sleep_for(50ms);

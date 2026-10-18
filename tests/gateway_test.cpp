@@ -8,11 +8,105 @@
 #include <nlohmann/json.hpp>
 #include <set>
 
+namespace {
+  bool checkPresenceRestore(const std::string& endpoint, int phase) {
+    std::atomic<std::uint64_t> generation{1};
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool complete = false, valid = true;
+    api::Gateway* active = nullptr;
+    api::Gateway gateway(
+        generation,
+        [&](auto, const auto& type, const auto&) {
+          std::lock_guard lock(mutex);
+          if (type == "RESTORE_PRESENCE") {
+            if (phase == 1)
+              valid = active->restorePresence(1, {"online", "late custom status", "", "🌙"}) && valid;
+            else if (phase == 2) {
+              valid = active->setPresence(1, "online") && valid;
+              valid = !active->restorePresence(1, {"idle", "stale", "77", "wave"}) && valid;
+            }
+          }
+          if (type == "RESTORE_COMPLETE") {
+            valid = !active->restorePresence(1, {"idle", "second restore", "", ""}) && valid;
+            complete = true;
+            changed.notify_all();
+          }
+        },
+        endpoint
+    );
+    active = &gateway;
+    gateway.authenticate(1, "synthetic-token");
+    gateway.subscribe("1", "2", 0);
+    if (phase == 0) {
+      std::lock_guard lock(mutex);
+      valid = !gateway.restorePresence(2, {"online", "stale session", "", ""}) && valid;
+      valid = !gateway.restorePresence(1, {"invalid", "", "", ""}) && valid;
+      valid = !gateway.restorePresence(1, {"online", "", "invalid", "wave"}) && valid;
+      valid = gateway.restorePresence(1, {"idle", "early custom status", "77", "wave"}) && valid;
+    }
+    std::unique_lock lock(mutex);
+    if (!changed.wait_for(lock, std::chrono::seconds(3), [&] { return complete; })) {
+      std::cerr << "Gateway presence restoration did not complete phase " << phase << '\n';
+      valid = false;
+    }
+    const bool result = valid;
+    lock.unlock();
+    ++generation;
+    gateway.reset();
+    return result;
+  }
+} // namespace
+
 int main(int argc, char** argv) {
   if (argc != 2)
     return 2;
   // Initialize libcurl through the same process runtime as the actual client.
   api::Client runtime;
+  for (const auto* address :
+       {"wss://gateway.discord.gg", "wss://gateway.discord.gg/", "wss://gateway-us-east1-b.discord.gg"})
+    if (!api::gatewayResumeEndpoint(address)) {
+      std::cerr << "Trusted Gateway resume route was rejected\n";
+      return 1;
+    }
+  if (api::gatewayResumeEndpoint("wss://gateway-us-east1-b.discord.gg/")
+      != "wss://gateway-us-east1-b.discord.gg/?v=9&encoding=json") {
+    std::cerr << "Gateway resume route did not retain the protocol version and encoding\n";
+    return 1;
+  }
+  for (const auto* address :
+       {"ws://gateway.discord.gg",
+        "https://gateway.discord.gg",
+        "wss://gateway.discord.gg.example.com",
+        "wss://gateway-us-east1-b.discord.gg.example.com",
+        "wss://gateway.discord.gg@evil.example",
+        "wss://user@gateway.discord.gg",
+        "wss://gateway.discord.gg:443",
+        "wss://gateway.discord.gg/private",
+        "wss://gateway.discord.gg?token=secret",
+        "wss://gateway.discord.gg#fragment",
+        "wss://gateway.discord.gg//",
+        "wss://gateway-.discord.gg",
+        "wss://gateway--us-east1-b.discord.gg",
+        "wss://gateway-us-.discord.gg",
+        "wss://gateway-us.evil.discord.gg",
+        "wss://gateway%2dus.discord.gg",
+        "wss://gateway-us\\.discord.gg",
+        "wss://gateway-us\n.discord.gg",
+        "wss://127.0.0.1:8765",
+        "wss://cdn.discord.gg",
+        ""})
+    if (api::gatewayResumeEndpoint(address)) {
+      std::cerr << "Untrusted Gateway resume route was accepted\n";
+      return 1;
+    }
+  if (api::gatewayResumeEndpoint("wss://gateway-" + std::string(64, 'x') + ".discord.gg")) {
+    std::cerr << "Overlong Gateway hostname label was accepted\n";
+    return 1;
+  }
+  for (int phase = 0; phase < 3; ++phase)
+    if (!checkPresenceRestore(argv[1], phase))
+      return 1;
   std::atomic<std::uint64_t> generation{1};
   std::mutex mutex;
   std::condition_variable changed;

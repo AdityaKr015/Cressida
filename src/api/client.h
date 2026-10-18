@@ -29,6 +29,8 @@ namespace api {
 
   enum class Operation {
     Connect,
+    Guilds,
+    BootstrapSettings,
     ReadState,
     ChannelSnapshot,
     InvalidateChannels,
@@ -82,6 +84,7 @@ namespace api {
     bool unauthorized = false;
     Account account;
     std::vector<Guild> guilds;
+    bool guildsComplete = false;
     std::vector<GuildUpdate> guildUpdates;
     std::vector<Channel> channels;
     std::vector<Message> messages;
@@ -192,6 +195,8 @@ namespace api {
       std::optional<ThreadQuery> threadQuery;
       std::optional<ChannelPageQuery> channelQuery;
       std::optional<GuildSettingsRequest> guildSettings;
+      bool background = false;
+      std::size_t guildsLoaded = 0;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);
@@ -202,10 +207,13 @@ namespace api {
     void gatewayEvent(std::uint64_t session, const std::string& type, const nlohmann::json& data);
 
     process::WakeEvent m_wake;
+    process::WakeEvent m_requestWake;
     std::atomic<std::uint64_t> m_session{0};
     std::atomic<std::uint64_t> m_authenticatedSession{0};
     std::atomic<std::uint64_t> m_restoringSession{0};
     std::atomic<std::uint64_t> m_presenceRevision{0};
+    std::atomic<std::uint64_t> m_foregroundRevision{0};
+    std::atomic<std::uint64_t> m_guildsReadySession{0};
     std::mutex m_mutex;
     std::condition_variable_any m_ready;
     std::deque<Command> m_commands;

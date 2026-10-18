@@ -11,10 +11,14 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 namespace api {
+  // Server-issued resume routes may change the Gateway shard, never its service.
+  std::optional<std::string> gatewayResumeEndpoint(std::string_view address);
+
   // One persistent TLS WebSocket worker, independent of REST/media requests.
   class Gateway {
   public:
@@ -30,6 +34,7 @@ namespace api {
     bool
     searchMembers(std::uint64_t session, const std::string& guild, const std::string& query, const std::string& nonce);
     bool setPresence(std::uint64_t session, std::string status, std::optional<std::string> customText = {});
+    bool restorePresence(std::uint64_t session, Presence presence);
     void subscribe(std::string guild, std::string channel, int first, bool force = false);
 
   private:
@@ -42,6 +47,7 @@ namespace api {
     std::uint64_t m_session = 0, m_subscriptionVersion = 0;
     std::string m_token, m_guild, m_channel;
     Presence m_presence;
+    bool m_presenceChosen = false, m_presenceRestored = false;
     std::uint64_t m_presenceVersion = 0;
     int m_first = 0;
     std::set<std::pair<std::string, std::string>> m_memberRequested;

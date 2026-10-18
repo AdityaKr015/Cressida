@@ -7,6 +7,7 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 
 
 def exact(connection, size):
@@ -45,12 +46,13 @@ def packet(connection, op, data, kind=None, sequence=None):
     frame(connection, {"op": op, "d": data, "t": kind, "s": sequence})
 
 
-def upgrade(listener):
+def upgrade(listener, path="/?v=9&encoding=json"):
     connection, _ = listener.accept()
     connection.settimeout(4)
     request = b""
     while b"\r\n\r\n" not in request:
         request += exact(connection, 1)
+    assert request.split(b"\r\n", 1)[0] == f"GET {path} HTTP/1.1".encode(), "wrong Gateway route"
     headers = dict(line.split(b": ", 1) for line in request.split(b"\r\n")[1:] if b": " in line)
     key = next(value for name, value in headers.items() if name.lower() == b"sec-websocket-key")
     accept = base64.b64encode(hashlib.sha1(key + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
@@ -69,13 +71,46 @@ def wait_for(connection, wanted):
     raise AssertionError("expected Gateway opcode was not received")
 
 
+def presence_restore(listener, phase):
+    with upgrade(listener) as connection:
+        wait_for(connection, 2)
+        session = f"presence-{phase}"
+        status = ["dnd", "idle", "online"][phase]
+        packet(connection, 0, {"session_id": session, "sessions": [{"session_id": session, "status": status}]}, "READY", 1)
+        presence = wait_for(connection, 3)
+        assert presence["d"]["status"] == status, "READY status must win over the settings read"
+        if phase == 0:
+            assert presence["d"]["activities"] == [{"name": "Custom Status", "type": 4, "state": "early custom status", "emoji": {"id": "77", "name": "wave"}}]
+        else:
+            assert presence["d"]["activities"] == []
+        wait_for(connection, 37)
+        if phase:
+            packet(connection, 0, {}, "RESTORE_PRESENCE", 2)
+            if phase == 1:
+                # A late restore changes only presence, without repeating the
+                # subscription or reconnecting an already established socket.
+                while True:
+                    presence = receive(connection)
+                    if presence["op"] == 1:
+                        packet(connection, 11, None)
+                        continue
+                    assert presence["op"] == 3, "presence restoration changed the subscription"
+                    break
+                assert presence["d"]["status"] == "idle"
+                assert presence["d"]["activities"] == [{"name": "Custom Status", "type": 4, "state": "late custom status", "emoji": {"name": "🌙"}}]
+        packet(connection, 0, {}, "RESTORE_COMPLETE", 3)
+
+
 def serve(listener, errors):
     try:
+        for phase in range(3):
+            presence_restore(listener, phase)
         with upgrade(listener) as connection:
             identify = wait_for(connection, 2)
             assert identify["d"]["token"] == "synthetic-token"
             assert identify["d"]["compress"] is False
-            packet(connection, 0, {"session_id": "synthetic-session", "relationships": [{"id": "7", "nickname": "Initial"}]}, "READY", 1)
+            resume_url = f"ws://127.0.0.1:{listener.getsockname()[1]}/resume"
+            packet(connection, 0, {"session_id": "synthetic-session", "resume_gateway_url": resume_url, "relationships": [{"id": "7", "nickname": "Initial"}]}, "READY", 1)
             presence = wait_for(connection, 3)
             assert presence["d"]["status"] == "dnd"
             assert presence["d"]["activities"] == [{"name": "Custom Status", "type": 4, "state": "working", "emoji": {"id": "77", "name": "wave"}}]
@@ -97,8 +132,13 @@ def serve(listener, errors):
             frame(connection, data[17:], opcode=0)
             packet(connection, 0, {}, "MESSAGE_UPDATE", 7)
             packet(connection, 0, {}, "GUILD_MEMBER_LIST_UPDATE", 8)
+            reconnect_at = time.monotonic()
             packet(connection, 7, None)
-        with upgrade(listener) as connection:
+        # Explicit Gateway handoffs should not incur transport-failure backoff.
+        # The original unconditional backoff waits at least one second here.
+        listener.settimeout(0.85)
+        with upgrade(listener, "/resume?v=9&encoding=json") as connection:
+            assert time.monotonic() - reconnect_at < 0.85, "Gateway delayed an explicit reconnect"
             resume = wait_for(connection, 6)
             assert resume["d"] == {"token": "synthetic-token", "session_id": "synthetic-session", "seq": 8}
             packet(connection, 0, {}, "RESUMED", 9)

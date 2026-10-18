@@ -1,5 +1,7 @@
 #include "api/client.h"
 
+#include "api/rest_schedule.h"
+#include "api/rest_transfer.h"
 #include "api/uploads.h"
 
 #include <algorithm>
@@ -9,12 +11,12 @@
 #include <expected>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <poll.h>
 #include <stdexcept>
 #include <utility>
 
 namespace api {
   namespace {
-    using namespace std::chrono_literals;
     using Json = nlohmann::json;
     struct Failure {
       std::string message;
@@ -23,10 +25,11 @@ namespace api {
     };
     struct Transfer {
       std::string body;
-      std::stop_token stop;
-      const std::atomic<std::uint64_t>* session;
-      std::uint64_t expected;
+      RestRequestScope scope;
       CURL* connection = nullptr;
+      CURLM* multi = nullptr;
+      const process::WakeEvent* wake = nullptr;
+      RestCancellation interrupted = RestCancellation::None;
     };
 
     size_t receive(char* bytes, size_t size, size_t count, void* context) noexcept {
@@ -43,8 +46,11 @@ namespace api {
     }
 
     int progress(void* context, curl_off_t, curl_off_t, curl_off_t, curl_off_t) noexcept {
-      const auto& transfer = *static_cast<Transfer*>(context);
-      return transfer.stop.stop_requested() || transfer.session->load() != transfer.expected;
+      auto& transfer = *static_cast<Transfer*>(context);
+      const auto reason = transfer.scope.cancellation();
+      if (reason != RestCancellation::None)
+        transfer.interrupted = reason;
+      return reason != RestCancellation::None;
     }
 
     MessageMime makeStickerMime(CURL* curl, const Json& values) {
@@ -83,12 +89,20 @@ namespace api {
           && serverSettings->section == GuildSettingsSection::Stickers
           && serverSettings->verb == GuildSettingsVerb::Create
           && path.ends_with("/stickers");
+      if (transfer.scope.foregroundRevision && (payload || (method && std::string_view(method) != "GET")))
+        throw std::runtime_error("Only optional reads may yield to user work");
       for (int attempt = 0; attempt < 3; ++attempt) {
         while (std::chrono::steady_clock::now() < cooldown) {
           if (progress(&transfer, 0, 0, 0, 0))
             return std::unexpected(Failure{"Request cancelled"});
-          std::this_thread::sleep_for(50ms);
+          const auto remaining =
+              std::chrono::ceil<std::chrono::milliseconds>(cooldown - std::chrono::steady_clock::now());
+          pollfd descriptor{transfer.wake->fd(), POLLIN, 0};
+          (void)::poll(&descriptor, 1, static_cast<int>(std::clamp<std::int64_t>(remaining.count(), 0, 86400100)));
+          transfer.wake->drain();
         }
+        if (progress(&transfer, 0, 0, 0, 0))
+          return std::unexpected(Failure{"Request cancelled"});
         // Reusing the easy handle retains its TLS/HTTP connection and DNS cache.
         auto* curlHandle = transfer.connection;
         if (curlHandle)
@@ -171,7 +185,8 @@ namespace api {
         }
         if (method)
           curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, method);
-        const auto code = curl_easy_perform(curl.get());
+        const auto code =
+            performRestTransfer(curl.get(), transfer.multi, *transfer.wake, transfer.scope, transfer.interrupted);
         if (code != CURLE_OK)
           return std::unexpected(
               Failure{
@@ -234,7 +249,7 @@ namespace api {
       ~CurlRuntime() { curl_global_cleanup(); }
     };
     static CurlRuntime runtime;
-    if (!m_wake.valid())
+    if (!m_wake.valid() || !m_requestWake.valid())
       throw std::runtime_error("Could not create the network event pipe");
     m_gateway = std::make_unique<Gateway>(m_session, [this](auto session, const auto& type, const auto& data) {
       gatewayEvent(session, type, data);
@@ -245,6 +260,7 @@ namespace api {
   Client::~Client() {
     ++m_session;
     m_worker.request_stop();
+    (void)m_requestWake.signal();
     m_credentials->shutdown();
     m_ready.notify_all();
     if (m_worker.joinable())
@@ -271,6 +287,7 @@ namespace api {
       m_commands.push_back({Operation::Connect, session, {}, std::move(credential), std::move(handoffKey)});
     }
     m_ready.notify_all();
+    (void)m_requestWake.signal();
     return session;
   }
 
@@ -285,6 +302,7 @@ namespace api {
     m_events.clear();
     // Wake the worker to clear its credential even when no further commands arrive.
     m_ready.notify_all();
+    (void)m_requestWake.signal();
     return session;
   }
 
@@ -309,6 +327,7 @@ namespace api {
         m_commands.push_back(std::move(command));
       }
       m_ready.notify_all();
+      (void)m_requestWake.signal();
     });
     return session;
   }
@@ -343,6 +362,8 @@ namespace api {
   bool Client::enqueue(Command command) {
     if (command.session == 0 || m_authenticatedSession != command.session)
       return false;
+    command.background =
+        command.operation == Operation::ChannelDetails || command.operation == Operation::PrivateChannels;
     if ((command.operation == Operation::Channels
          || command.operation == Operation::Messages
          || command.operation == Operation::Send)
@@ -383,6 +404,10 @@ namespace api {
            }))
       return true;
     m_commands.push_back(std::move(command));
+    if (!m_commands.back().background) {
+      ++m_foregroundRevision;
+      (void)m_requestWake.signal();
+    }
     m_ready.notify_all();
     return true;
   }
@@ -697,6 +722,15 @@ namespace api {
             m_self = data["user"].value("id", "");
           m_readState.ready(data);
           publishReads("reset");
+          if (data.contains("guilds") && data["guilds"].is_array() && data["guilds"].size() <= 10000) {
+            Event event{.operation = Operation::Guilds, .session = session};
+            event.guilds = parseGuilds(data["guilds"]);
+            event.guildsComplete = true;
+            event.live = true;
+            m_guildsReadySession = session;
+            (void)m_requestWake.signal();
+            publish(std::move(event));
+          }
         }
         publish(Event{.operation = Operation::Gateway, .session = session, .live = true});
         if (data.contains("users"))
@@ -728,12 +762,12 @@ namespace api {
           publish(std::move(event));
         }
         if (data.contains("user_settings_proto")) {
-          Event event{.operation = Operation::Layout, .session = session};
+          Event event{.operation = Operation::Layout, .session = session, .live = true};
           event.layout = parseGuildLayout(Json{{"proto", data["user_settings_proto"]}});
           if (!event.layout.folders.empty() || !event.layout.positions.empty())
             publish(std::move(event));
         } else if (data.contains("user_settings")) {
-          Event event{.operation = Operation::Layout, .session = session};
+          Event event{.operation = Operation::Layout, .session = session, .live = true};
           event.layout = parseGuildLayout(data["user_settings"]);
           if (!event.layout.folders.empty() || !event.layout.positions.empty())
             publish(std::move(event));
@@ -761,7 +795,7 @@ namespace api {
           auto layout = parseGuildLayout(data["settings"]);
           // Partial updates unrelated to guild organization must not reset it.
           if (!layout.folders.empty() || !layout.positions.empty() || !data.value("partial", true)) {
-            Event event{.operation = Operation::Layout, .session = session};
+            Event event{.operation = Operation::Layout, .session = session, .live = true};
             event.layout = std::move(layout);
             publish(std::move(event));
           }
@@ -907,8 +941,10 @@ namespace api {
     std::uint64_t nextGuildMfa = 0;
     auto cooldown = std::chrono::steady_clock::now();
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> connection(curl_easy_init(), curl_easy_cleanup);
+    std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> multi(curl_multi_init(), curl_multi_cleanup);
     while (!stop.stop_requested()) {
       Command command;
+      std::uint64_t foregroundRevision = 0;
       {
         std::unique_lock lock(m_mutex);
         m_ready.wait(lock, stop, [&] { return !m_commands.empty() || activeSession != m_session; });
@@ -922,13 +958,19 @@ namespace api {
         }
         if (m_commands.empty())
           continue;
-        command = std::move(m_commands.front());
-        m_commands.pop_front();
+        const auto next = nextRestWork(m_commands, [](const auto& pending) { return pending.background; });
+        command = std::move(*next);
+        m_commands.erase(next);
+        foregroundRevision = m_foregroundRevision;
       }
       if (command.session != m_session
+          || (command.operation != Operation::Connect && command.session != m_authenticatedSession)
+          || (command.operation == Operation::Guilds && m_guildsReadySession == command.session)
           || (command.operation == Operation::SavePresence && command.presenceRevision != m_presenceRevision))
         continue;
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
+      if (command.operation == Operation::BootstrapSettings)
+        event.operation = Operation::Layout;
       event.history = command.history;
       event.threadQuery = command.threadQuery;
       event.channelQuery = command.channelQuery;
@@ -937,9 +979,17 @@ namespace api {
         event.guildSettingsRequest->mfaCode.clear();
       if (command.operation == Operation::Acknowledge)
         event.messageId = command.content;
-      Transfer transfer{{}, stop, &m_session, command.session, connection.get()};
+      Transfer transfer{
+          {},
+          {stop, &m_session, command.session, command.background ? &m_foregroundRevision : nullptr, foregroundRevision,
+           command.operation == Operation::Guilds ? &m_guildsReadySession : nullptr},
+          connection.get(),
+          multi.get(),
+          &m_requestWake
+      };
       event.restoredLogin = command.restoredLogin;
       bool saveCredential = false;
+      std::optional<Command> continuation;
       try {
         if (command.operation == Operation::Connect) {
           token = std::move(command.content);
@@ -1303,6 +1353,11 @@ namespace api {
         case Operation::Connect:
           path = "/users/@me";
           break;
+        case Operation::Guilds:
+          path = "/users/@me/guilds?limit=200&with_counts=true"
+              + (command.resource.empty() ? "" : "&after=" + command.resource);
+          break;
+        case Operation::BootstrapSettings:
         case Operation::AccountSettings:
           path = "/users/@me/settings-proto/1";
           break;
@@ -1478,46 +1533,33 @@ namespace api {
             break;
           case Operation::Connect: {
             event.account = parseAccount(*response);
+            if (!validSnowflake(event.account.id))
+              throw std::runtime_error("Unexpected account identity");
             authenticatedUser = event.account.id;
-            // Establish the live socket while REST bootstraps organization/settings.
-            m_gateway->authenticate(command.session, token);
-            // Page through servers instead of silently omitting accounts with over 200 guilds.
-            std::string after;
-            for (;;) {
-              auto guilds = request(
-                  token, "/users/@me/guilds?limit=200&with_counts=true" + (after.empty() ? "" : "&after=" + after),
-                  nullptr, transfer, cooldown
-              );
-              if (!guilds) {
-                event.error = guilds.error().message;
-                event.unauthorized = guilds.error().unauthorized;
-                break;
-              }
-              auto page = parseGuilds(*guilds);
-              const auto count = page.size();
-              if (count == 0)
-                break;
-              const auto next = page.back().id;
-              event.guilds.insert(event.guilds.end(), page.begin(), page.end());
-              if (count < 200)
-                break;
-              if (next == after || event.guilds.size() > 10000)
-                throw std::runtime_error("Could not finish loading the server list.");
-              after = next;
-            }
-            if (event.error.empty()) {
-              // User settings, rather than snowflake order, define the server rail.
-              auto settings = request(token, "/users/@me/settings-proto/1", nullptr, transfer, cooldown);
-              if (settings) {
-                try {
-                  event.layout = parseGuildLayout(*settings);
-                  event.presence = parsePresenceSettings(*settings);
-                } catch (...) {
-                }
-              }
+            break;
+          }
+          case Operation::Guilds: {
+            if (!response->is_array() || response->size() > 200)
+              throw std::runtime_error("Unexpected server page");
+            event.guilds = parseGuilds(*response);
+            event.guildsComplete = response->size() < 200;
+            if (!event.guildsComplete) {
+              const auto& next = event.guilds.back().id;
+              if (!validSnowflake(next)
+                  || next == command.resource
+                  || command.guildsLoaded + event.guilds.size() >= 10000)
+                throw std::runtime_error("Could not finish loading the server list");
+              continuation = command;
+              continuation->resource = next;
+              continuation->guildsLoaded += event.guilds.size();
             }
             break;
           }
+          case Operation::BootstrapSettings:
+            event.layout = parseGuildLayout(*response);
+            if (command.presenceRevision == m_presenceRevision)
+              event.presence = parsePresenceSettings(*response);
+            break;
           case Operation::Interaction:
             if (command.interaction->kind == InteractionKind::CreateInvite) {
               const auto code = response->value("code", std::string{});
@@ -1655,6 +1697,22 @@ namespace api {
         // Do not expose arbitrary JSON/transport exceptions, which can contain account data.
         event.error = "Could not read Discord's response. Reconnect or try again.";
       }
+      if (transfer.interrupted == RestCancellation::ForegroundReady) {
+        std::lock_guard lock(m_mutex);
+        if (command.session == m_session
+            && command.session == m_authenticatedSession
+            && !(command.operation == Operation::Guilds && m_guildsReadySession == command.session)
+            && !std::ranges::any_of(m_commands, [&](const auto& pending) {
+                 return pending.operation == command.operation && pending.resource == command.resource;
+               })) {
+          // One suspended read can be returned beside the bounded accepted
+          // queue. It never duplicates itself or silently drops a UI completion.
+          m_commands.push_back(std::move(command));
+        }
+        continue;
+      }
+      if (transfer.interrupted == RestCancellation::Superseded)
+        continue;
       if (event.unauthorized
           && command.session == m_session
           && (command.restoredLogin || m_authenticatedSession == command.session))
@@ -1664,8 +1722,6 @@ namespace api {
         authenticatedUser.clear();
         m_authenticatedSession = 0;
         m_gateway->reset();
-      } else if (command.operation == Operation::Connect && command.session == m_session) {
-        m_authenticatedSession = command.session;
       }
       const bool startGateway =
           command.operation == Operation::Connect && event.error.empty() && command.session == m_session;
@@ -1673,13 +1729,41 @@ namespace api {
           && command.presenceRevision != m_presenceRevision
           && !event.unauthorized)
         continue;
-      const auto initialPresence = event.presence.value_or(Presence{});
       const bool remember = (startGateway && !command.restoredLogin) || (saveCredential && event.error.empty());
-      publish(std::move(event));
+      if (command.operation == Operation::BootstrapSettings && event.presence) {
+        if (command.presenceRevision != m_presenceRevision
+            || !m_gateway->restorePresence(command.session, *event.presence))
+          event.presence.reset();
+      }
+      if (startGateway) {
+        std::lock_guard lock(m_mutex);
+        if (command.session != m_session)
+          continue;
+        Command guilds{Operation::Guilds, command.session, {}, {}};
+        guilds.background = true;
+        Command settings{Operation::BootstrapSettings, command.session, {}, {}};
+        settings.background = true;
+        settings.presenceRevision = m_presenceRevision;
+        m_commands.push_back(std::move(guilds));
+        m_commands.push_back(std::move(settings));
+        // Gateway publication takes this same mutex: Connect must be delivered
+        // first, with authentication and socket state ready for immediate UI work.
+        m_gateway->authenticate(command.session, token);
+        m_authenticatedSession = command.session;
+        if (m_events.size() >= 2048)
+          m_events.erase(m_events.begin());
+        m_events.push_back(std::move(event));
+        (void)m_wake.signal();
+      } else {
+        publish(std::move(event));
+      }
+      if (continuation && m_guildsReadySession != command.session) {
+        std::lock_guard lock(m_mutex);
+        if (command.session == m_session && command.session == m_authenticatedSession)
+          m_commands.push_back(std::move(*continuation));
+      }
       if (remember)
         saveLogin(command.session, token);
-      if (startGateway)
-        m_gateway->authenticate(command.session, token, initialPresence);
     }
   }
 } // namespace api

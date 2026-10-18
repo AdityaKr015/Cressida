@@ -272,6 +272,12 @@ namespace app {
     void restoreLogin();
     void demo();
     void prepareDemo();
+    void resetGuildBootstrap();
+    void arrangeGuildFolders();
+    void guildListEvent(api::Event& event);
+    void guildLayoutEvent(api::Event& event);
+    void channelSnapshotEvent(api::Event& event);
+    void demoConnectionStep();
     void selectGuild(const std::string& id);
     void showDirectMessages();
     void selectChannel(std::string id);
@@ -825,6 +831,9 @@ namespace app {
     };
     std::map<std::string, CachedMessageLayout> m_messageLayouts;
     std::vector<api::GuildFolder> m_folders;
+    api::GuildLayout m_guildLayout;
+    bool m_gatewayGuildsReady = false, m_gatewayLayoutReady = false;
+    std::string m_startupGuild;
     std::set<std::string> m_openFolders;
     std::vector<api::MemberRow> m_members;
     int m_memberCount = 0;
