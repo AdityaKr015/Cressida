@@ -1326,7 +1326,11 @@ namespace app {
           openSettings();
           m_settingsPage = "appearance";
         } else if (
-            view == "account"
+            view.starts_with("settings:")
+            || view.starts_with("settings-narrow")
+            || view == "settings-feedback"
+            || view == "cressida-settings-light"
+            || view == "account"
             || view == "profile"
             || view == "appearance"
             || view == "text"
@@ -1343,7 +1347,21 @@ namespace app {
             || view == "search"
         ) {
           openSettings();
-          selectSettingsPage(view.starts_with("cressida-settings") ? "cressida" : view == "search" ? "privacy" : view);
+          if (view.starts_with("settings-narrow"))
+            m_window.setUiScale(1.8F);
+          if (view == "cressida-settings-light")
+            m_preferences.theme = "light";
+          selectSettingsPage(
+              view.starts_with("settings:")                                                      ? view.substr(9)
+                  : view == "settings-narrow-appearance"                                         ? "appearance"
+                  : view.starts_with("settings-narrow") || view.starts_with("cressida-settings") ? "cressida"
+                  : view == "search" || view == "settings-feedback"                              ? "privacy"
+                                                                                                 : view
+          );
+          if (view == "settings-feedback") {
+            m_settingsDraft["restrict_new_guild_dms"] ^= 1;
+            m_settingsStatus = "Could not save changes. Try again.";
+          }
           if (view == "cressida-settings-search")
             m_settingsFields["search"] = "role";
           if (view == "search")

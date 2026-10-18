@@ -351,7 +351,6 @@ namespace app {
     void selectSettingsPage(const std::string& page);
     void clearAccountSettings();
     void resetProfile();
-    void settingsInput(Node& parent, float x, float y, float width, float height, std::string caption, std::string id);
     void settingsKey(const Key& key);
     void savePreferences();
     void setPresence(const std::string& status, bool custom = false);
@@ -425,7 +424,7 @@ namespace app {
     api::Presence m_presence;
     bool m_presenceMenu = false, m_settingsOpen = false, m_savingProfile = false, m_loadingProfile = false,
          m_profileDirty = false;
-    std::string m_settingsPage = "account", m_settingsField, m_settingsStatus, m_desiredPresence;
+    std::string m_settingsPage = "cressida", m_settingsField, m_settingsStatus, m_desiredPresence;
     std::map<std::string, std::string> m_settingsFields;
     float m_settingsScroll = 0, m_settingsNavScroll = 0, m_settingsNavRight = 0;
     api::SettingValues m_accountSettings, m_settingsDraft;
