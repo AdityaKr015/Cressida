@@ -249,6 +249,7 @@ namespace app {
         || m_loadingMessages
         || !(
             m_demo ? m_demoOverlay == "channel"
+                    || m_demoOverlay.starts_with("channel-empty")
                     || m_demoOverlay == "channel-cycle"
                     || m_demoOverlay == "channel-edit"
                     || m_demoOverlay == "channel-search"

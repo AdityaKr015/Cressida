@@ -43,6 +43,17 @@ namespace app {
     ])JSON"));
     m_messageLayouts.clear();
     m_messageScroll = 0;
+    if (view.starts_with("channel-empty")) {
+      m_messages.clear();
+      m_loadingMessages = false;
+      m_channels.front().name = "📕-rules";
+      m_channels.front().topic.reset();
+      if (view != "channel-empty-private")
+        m_channels.front().overwrites = std::vector<api::PermissionOverwrite>{};
+      m_guildChannels[m_guildId] = m_channels;
+      if (view == "channel-empty-light")
+        m_preferences.theme = "light";
+    }
     if (view == "channel-edit")
       openChannelDialog("channel-edit");
     if (view == "channel-search") {
@@ -198,8 +209,7 @@ namespace app {
       require(m_channelSearchText == "help", "Search fields retain standard native text editing");
       m_window.key({.symbol = XKB_KEY_Return});
       require(m_status.empty(), "Search Enter must not submit unrelated account settings");
-      api::ChannelPageQuery query{api::ChannelPage::Search, "1", "101", "help", {}, 0,
-                                      ++m_channelFeatureSerial};
+      api::ChannelPageQuery query{api::ChannelPage::Search, "1", "101", "help", {}, 0, ++m_channelFeatureSerial};
       m_channelPageRequest = query;
       api::Event event;
       event.operation = api::Operation::ChannelPage;
@@ -264,9 +274,7 @@ namespace app {
           .modal = m_applicationModal,
           .values = m_applicationValues
       };
-      require(
-          api::interactionRequest(action).has_value(), "Completed forms construct validated type-5 submissions"
-      );
+      require(api::interactionRequest(action).has_value(), "Completed forms construct validated type-5 submissions");
       m_dialogPending = true;
       m_modalNonce = "789";
       api::Event event;

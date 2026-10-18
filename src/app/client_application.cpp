@@ -81,6 +81,22 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay.starts_with("channel-empty")) {
+        int welcome = 0, generic = 0;
+        const auto inspect = [&](auto&& self, const Node& node) -> void {
+          if (node.type() == NodeType::Text) {
+            const auto& text = static_cast<const TextNode&>(node).text();
+            welcome += text.starts_with("Welcome to #");
+            generic += text == "The conversation starts here." || text == "Send the first message.";
+          }
+          for (const auto& child : node.children())
+            self(self, *child);
+        };
+        inspect(inspect, *m_scene);
+        if (welcome != 1 || generic != 0)
+          throw std::runtime_error("Empty channels must show one welcome view without a duplicate placeholder");
+        std::clog << "Offline empty-channel welcome check passed\n";
+      }
       if (m_demo && m_demoOverlay == "deleted-cycle" && m_demoInteractionStep < 3)
         demoDeletedStep();
       if (m_demo && m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep < 8)
@@ -1078,6 +1094,7 @@ namespace app {
           }
         }
         if (view == "channel"
+            || view.starts_with("channel-empty")
             || view == "channel-cycle"
             || view == "channel-search"
             || view == "channel-edit"
@@ -2835,7 +2852,7 @@ namespace app {
             }
             rowY += 25 + count * 20 + (m_preferences.compact ? 12 : 22);
           }
-        } else if (m_messages.empty()) {
+        } else if (m_messages.empty() && introHeight <= 0) {
           label(
               *content, 18, 36, bodyWidth - 88,
               m_channelId.empty() ? "Make yourself at home." : "The conversation starts here.", 25, foreground,
