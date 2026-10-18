@@ -13,6 +13,7 @@
 #include "api/role_styles.h"
 #include "api/threads.h"
 #include "api/user_directory.h"
+#include "api/user_settings.h"
 #include "auth/credentials.h"
 #include "core/process/wake_event.h"
 
@@ -73,7 +74,8 @@ namespace api {
     ComponentResult,
     MemberSearch,
     GuildMetadata,
-    GuildSettings
+    GuildSettings,
+    UserSettings
   };
 
   struct Event {
@@ -130,6 +132,13 @@ namespace api {
     std::string guildSettingsCursor;
     std::uint64_t guildSettingsMfaChallenge = 0;
     std::vector<std::string> guildSettingsMfaMethods;
+    std::optional<UserSettingsRequest> userSettingsRequest;
+    nlohmann::json userSettings;
+    bool userSettingsMore = false;
+    std::string userSettingsCursor;
+    std::uint64_t userSettingsMfaChallenge = 0;
+    std::vector<std::string> userSettingsMfaMethods;
+    bool userSettingsSessionEnded = false, userSettingsSensitive = false;
   };
 
   // One cancellable network worker. No rendering or window-system dependency.
@@ -153,6 +162,8 @@ namespace api {
     bool channelDetails(const std::string& channel);
     bool channelPage(ChannelPageQuery query);
     bool guildSettings(GuildSettingsRequest request);
+    bool userSettings(UserSettingsRequest request);
+    void clearUserSettingsSecrets();
     bool acknowledge(const std::string& channel, const std::string& message);
     bool messages(const std::string& channelId, HistoryQuery query = {});
     bool send(
@@ -197,6 +208,7 @@ namespace api {
       std::optional<GuildSettingsRequest> guildSettings;
       bool background = false;
       std::size_t guildsLoaded = 0;
+      std::optional<UserSettingsRequest> userSettings;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);
@@ -214,6 +226,7 @@ namespace api {
     std::atomic<std::uint64_t> m_presenceRevision{0};
     std::atomic<std::uint64_t> m_foregroundRevision{0};
     std::atomic<std::uint64_t> m_guildsReadySession{0};
+    std::atomic<std::uint64_t> m_userSettingsSecretsEpoch{0};
     std::mutex m_mutex;
     std::condition_variable_any m_ready;
     std::deque<Command> m_commands;
@@ -223,6 +236,8 @@ namespace api {
     std::string m_selectedGuild, m_selectedChannel;
     // Private Gateway session identity is only read by the REST worker for explicit component actions.
     std::string m_gatewaySessionId;
+    std::string m_authSessionIdHash;
+    std::optional<bool> m_authTotpEnabled;
     std::uint64_t m_gatewaySessionGeneration = 0;
     int m_selectedMemberFirst = 0;
     // These caches belong exclusively to the Gateway worker.

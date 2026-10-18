@@ -115,6 +115,39 @@ int main() {
     require(
         view.name("7", "Original") == "<b>literal</b> **name**", "Display aliases remain raw data for the UI to escape"
     );
+    const auto revision = view.relationshipRevision();
+    dispatch("RELATIONSHIP_UPDATE", json{{"id", "7"}, {"user_ignored", true}});
+    require(
+        view.ignored("7") && view.relationshipRevision() > revision,
+        "Ignored state arrives as a typed relationship update"
+    );
+    dispatch("RELATIONSHIP_UPDATE", json{{"id", "7"}, {"type", 1}});
+    require(view.ignored("7"), "Unrelated relationship changes preserve ignored state");
+    dispatch("RELATIONSHIP_UPDATE", json{{"id", "7"}, {"user_ignored", nullptr}});
+    require(view.ignored("7"), "Malformed ignored state cannot clear a valid preference");
+    dispatch("RELATIONSHIP_UPDATE", json{{"id", "7"}, {"user_ignored", false}});
+    require(!view.ignored("7"), "Explicit false immediately clears ignored state");
+    dispatch("RELATIONSHIP_ADD", json{{"id", "7"}, {"user_ignored", true}});
+    dispatch("RELATIONSHIP_REMOVE", json{{"id", "7"}});
+    require(
+        !view.ignored("7") && view.status("7") == "idle",
+        "Removing a relationship clears ignore without losing presence"
+    );
+    dispatch("RELATIONSHIP_UPDATE", json{{"id", "7"}, {"nickname", "Replacement"}, {"user_ignored", true}});
+    api::UserUpdates replacement;
+    replacement.relationshipsReset = true;
+    replacement.users["8"].relationship = 1;
+    replacement.users["8"].nickname = "Fresh friend";
+    replacement.users["8"].ignored = true;
+    view.apply(replacement);
+    require(
+        view.name("7", "Original") == "Original"
+            && !view.ignored("7")
+            && view.ignored("8")
+            && view.name("8", "") == "Fresh friend"
+            && view.status("7") == "idle",
+        "Fresh REST relationships replace aliases and ignores without resetting unrelated presence"
+    );
     dispatch("RESUMED", json::object());
     require(view.status("7") == "idle", "Resume retains state until changed by a live event");
     dispatch("READY", json{{"relationships", json::array()}});
@@ -125,12 +158,12 @@ int main() {
     dispatch(
         "READY",
         json{
-            {"relationships", json::array({{{"id", "9"}, {"nickname", "Legacy"}}})},
+            {"relationships", json::array({{{"id", "9"}, {"nickname", "Legacy"}, {"user_ignored", true}}})},
             {"presences", json::array({{{"user", {{"id", "9"}}}, {"status", "online"}}})}
         }
     );
     require(
-        view.name("9", "Original") == "Legacy" && view.status("9") == "online",
+        view.name("9", "Original") == "Legacy" && view.status("9") == "online" && view.ignored("9"),
         "Support non-versioned relationships and legacy bootstrap presences"
     );
     dispatch("PRESENCE_UPDATE", json{{"user_id", "9"}, {"status", "invisible"}});

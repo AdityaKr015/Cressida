@@ -15,15 +15,21 @@ namespace app {
   ) {
     const auto colors =
         m_preferences.roleColors && !m_dmMode ? m_roleDirectory.colors(m_guildId, user, roles) : std::nullopt;
+    if (colors && m_preferences.roleColorMode == 1) {
+      rectangle(parent, x, y + size * .4F, 7, 7, theme::accessible(rgbHex(colors->primary)), 3.5F);
+      return label(parent, x + 12, y, std::max(1.0F, width - 12), text, size, fallback, weight);
+    }
     std::optional<TextGradient> gradient;
     if (colors && colors->secondary) {
       gradient.emplace();
       gradient->colors = {
-          rgbHex(colors->primary), rgbHex(*colors->secondary), rgbHex(colors->tertiary.value_or(*colors->secondary))
+          theme::accessible(rgbHex(colors->primary)), theme::accessible(rgbHex(*colors->secondary)),
+          theme::accessible(rgbHex(colors->tertiary.value_or(*colors->secondary)))
       };
       gradient->count = colors->tertiary ? 3 : 2;
       const bool animate = over
           && m_preferences.animateRoleColors
+          && !m_preferences.reducedMotion
           && (m_window.active() || m_demo)
           && !settingsVisible()
           && !m_contextOpen
@@ -42,7 +48,9 @@ namespace app {
       hasEmoji |=
           m_emojiCatalog.isUnicode(std::string_view(text).substr(positions[i - 1], positions[i] - positions[i - 1]));
     if (!hasEmoji) {
-      const float height = label(parent, x, y, width, text, size, colors ? rgbHex(colors->primary) : fallback, weight);
+      const float height = label(
+          parent, x, y, width, text, size, colors ? theme::accessible(rgbHex(colors->primary)) : fallback, weight
+      );
       if (gradient)
         static_cast<TextNode*>(parent.children().back().get())->setGradient(gradient);
       return height;
@@ -90,7 +98,7 @@ namespace app {
       // All fragments share the full name's baseline, including color-font fallbacks.
       label(
           *row, offset, 0, fragment.width + 1, fragment.text, size,
-          fragment.emoji ? theme::foreground : rgbHex(colors->primary), weight
+          fragment.emoji ? theme::foreground : theme::accessible(rgbHex(colors->primary)), weight
       );
       auto& node = static_cast<TextNode&>(*row->children().back());
       node.setPosition(offset, -metrics.top);

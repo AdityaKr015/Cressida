@@ -2,15 +2,16 @@
 
 #include "api/models.h"
 
+#include <algorithm>
 #include <chrono>
 #include <optional>
 #include <string_view>
 
 namespace app {
-  inline float messageRowPadding(bool continuation, bool nextContinuation, bool compact) {
+  inline float messageRowPadding(bool continuation, bool nextContinuation, bool compact, int spacing = 16) {
     // Rich text already reserves a full line height. A second row gap would
     // make separate messages looser than wrapping/newlines within one message.
-    return (continuation ? 0.0F : 18.0F) + (nextContinuation ? 0.0F : (compact ? 8.0F : 16.0F));
+    return (continuation ? 0.0F : 18.0F) + (nextContinuation ? 0.0F : (compact ? std::min(8, spacing) : spacing));
   }
   inline std::optional<std::chrono::sys_time<std::chrono::milliseconds>> messageTime(std::string_view value) {
     using namespace std::chrono;

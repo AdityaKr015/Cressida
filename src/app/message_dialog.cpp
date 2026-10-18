@@ -1,4 +1,5 @@
 #include "app/client_application.h"
+#include "app/message_preferences.h"
 #include "app/theme.h"
 
 #include <algorithm>
@@ -105,8 +106,8 @@ namespace app {
         .channel = m_channelId,
         .message = message->id,
         .text = m_emojiCatalog.messageContent(
-            m_messageEdit->text, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0),
-            m_preferences.emojiImageLinks
+            m_preferences.convertEmoticons ? convertMessageEmoticons(m_messageEdit->text) : m_messageEdit->text,
+            m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
         ),
         .revision = ++m_messageEditGeneration
     };

@@ -3,6 +3,7 @@
 #include "app/theme_catalog.h"
 #include "render/core/color.h"
 
+#include <algorithm>
 #include <string_view>
 
 namespace app::theme {
@@ -10,51 +11,67 @@ namespace app::theme {
   inline Color railBackground, danger, destructive, success;
   inline ThemePalette palette = defaultThemePalette(false);
   inline bool lightTheme = false;
-  inline void apply(const ThemePalette& colors, bool light) {
+  inline float saturation = 1;
+  inline Color accessible(Color color) {
+    if (saturation >= 1)
+      return color;
+    const float gray = .2126F * color.r + .7152F * color.g + .0722F * color.b;
+    color.r = gray + (color.r - gray) * saturation;
+    color.g = gray + (color.g - gray) * saturation;
+    color.b = gray + (color.b - gray) * saturation;
+    return color;
+  }
+  inline void apply(const ThemePalette& colors, bool light, float colorSaturation = 1) {
+    saturation = std::clamp(colorSaturation, 0.0F, 1.0F);
     palette = colors;
     lightTheme = light;
-    background = rgbHex(colors.background);
-    sidebar = rgbHex(colors.sidebar);
-    panel = rgbHex(colors.panel);
-    raised = rgbHex(colors.raised);
-    foreground = rgbHex(colors.foreground);
-    muted = rgbHex(colors.muted);
-    accent = rgbHex(colors.accent);
-    ink = rgbHex(colors.ink);
-    railBackground = rgbHex(colors.rail);
-    danger = rgbHex(colors.danger);
-    destructive = rgbHex(colors.destructive);
-    success = rgbHex(colors.success);
+    background = accessible(rgbHex(colors.background));
+    sidebar = accessible(rgbHex(colors.sidebar));
+    panel = accessible(rgbHex(colors.panel));
+    raised = accessible(rgbHex(colors.raised));
+    foreground = accessible(rgbHex(colors.foreground));
+    muted = accessible(rgbHex(colors.muted));
+    accent = accessible(rgbHex(colors.accent));
+    ink = accessible(rgbHex(colors.ink));
+    railBackground = accessible(rgbHex(colors.rail));
+    danger = accessible(rgbHex(colors.danger));
+    destructive = accessible(rgbHex(colors.destructive));
+    success = accessible(rgbHex(colors.success));
   }
   inline void select(std::string_view mode) { apply(defaultThemePalette(mode == "light"), mode == "light"); }
   inline Color syntaxColor(CodeToken token) {
     switch (token) {
     case CodeToken::Keyword:
-      return rgbHex(palette.keyword);
+      return accessible(rgbHex(palette.keyword));
     case CodeToken::String:
-      return rgbHex(palette.string);
+      return accessible(rgbHex(palette.string));
     case CodeToken::Comment:
       return muted;
     case CodeToken::Number:
-      return rgbHex(palette.number);
+      return accessible(rgbHex(palette.number));
     case CodeToken::Function:
-      return rgbHex(palette.function);
+      return accessible(rgbHex(palette.function));
     case CodeToken::Type:
-      return rgbHex(palette.type);
+      return accessible(rgbHex(palette.type));
     case CodeToken::Property:
-      return rgbHex(palette.property);
+      return accessible(rgbHex(palette.property));
     case CodeToken::Preprocessor:
-      return rgbHex(palette.preprocessor);
+      return accessible(rgbHex(palette.preprocessor));
     case CodeToken::Added:
-      return rgbHex(palette.added);
+      return accessible(rgbHex(palette.added));
     case CodeToken::Removed:
-      return rgbHex(palette.removed);
+      return accessible(rgbHex(palette.removed));
     default:
       return foreground;
     }
   }
   inline Color presenceColor(std::string_view status) {
-    return rgbHex(status == "online" ? 0x43B581 : status == "idle" ? 0xFAA61A : status == "dnd" ? 0xED4245 : 0x989BAE);
+    return accessible(rgbHex(
+        status == "online"     ? 0x43B581
+            : status == "idle" ? 0xFAA61A
+            : status == "dnd"  ? 0xED4245
+                               : 0x989BAE
+    ));
   }
   inline std::string_view presenceName(std::string_view status) {
     return status == "online"   ? "Online"

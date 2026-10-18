@@ -14,6 +14,7 @@ namespace app {
     std::string text;
     bool control = false;
     bool shift = false;
+    bool alt = false, super = false;
   };
 
   // A normal xdg-shell desktop window using the project's EGL/GLES renderer.
@@ -26,7 +27,7 @@ namespace app {
     void initialize();
     void
     run(int wakeFd, std::function<void()> tick, int frameLimit = 0, int assetFd = -1, int videoFd = -1,
-        int themeFd = -1, int pickerFd = -1, int audioFd = -1);
+        int themeFd = -1, int pickerFd = -1, int audioFd = -1, int notificationFd = -1);
     void close();
     void minimize();
     void toggleMaximized();

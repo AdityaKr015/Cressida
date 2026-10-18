@@ -18,6 +18,15 @@ namespace app {
       shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT;
     else if (m_controlInput.pointerCaptured())
       shape = m_controlCursor;
+    else if (
+        userAccountDialogOpen()
+        && !(m_selectRequest && m_selectBounds.contains(m_pointerX, m_pointerY))
+        && (m_pointerX < m_userAccount.dialogX
+            || m_pointerY < m_userAccount.dialogY
+            || m_pointerX >= m_userAccount.dialogX + m_userAccount.dialogWidth
+            || m_pointerY >= m_userAccount.dialogY + m_userAccount.dialogHeight)
+    )
+      shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
     else if (sidebarResizeAt(m_pointerX, m_pointerY))
       shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_COL_RESIZE;
     else {
@@ -48,6 +57,11 @@ namespace app {
           return false;
         if (m_selectRequest)
           return id.starts_with("select-popup") && m_selectBounds.contains(m_pointerX, m_pointerY);
+        if (userAccountDialogOpen())
+          return id.starts_with("user-account:secret:")
+              || id.starts_with("user-account-dialog-button:")
+              || id == "user-account-provider-select"
+              || id == "user-account-dialog-scrollbar";
         if (m_serverSettings.open)
           return id.starts_with("server-");
         if (m_contextOpen)

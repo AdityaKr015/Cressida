@@ -30,9 +30,8 @@ can remember your sign-in. Signing out removes the saved login.
 
 ## Current limitations
 
-Voice/video calls, arbitrary file uploads, drag-and-drop and desktop notifications
-are not available yet. Image uploads are supported. Some Discord controls and
-settings remain incomplete.
+Voice/video calls, arbitrary file uploads and drag-and-drop are not available yet.
+Image uploads are supported. Some Discord controls and settings remain incomplete.
 
 ## License
 

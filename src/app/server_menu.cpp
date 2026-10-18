@@ -50,9 +50,14 @@ namespace app {
       m_contextEntries.push_back(
           {.id = static_cast<int>(Action::ServerInvitePeople), .label = "Invite People", .icon = "user-plus"}
       );
-    if (!m_contextEntries.empty())
+    if (!m_contextEntries.empty() && (m_preferences.developerMode || m_demo))
       m_contextEntries.push_back({.separator = true});
-    m_contextEntries.push_back({.id = static_cast<int>(Action::CopyServerId), .label = "Copy Server ID", .icon = "id"});
+    if (m_preferences.developerMode || m_demo)
+      m_contextEntries.push_back(
+          {.id = static_cast<int>(Action::CopyServerId), .label = "Copy Server ID", .icon = "id"}
+      );
+    if (m_contextEntries.empty())
+      return false;
     m_contextQuickIndex = -1;
     m_controlInput.setFocus(nullptr);
     m_focusedInput.clear();

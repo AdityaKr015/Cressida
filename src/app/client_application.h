@@ -5,6 +5,7 @@
 #include "app/autocomplete.h"
 #include "app/channel_invite.h"
 #include "app/channel_menu.h"
+#include "app/desktop_notifications.h"
 #include "app/emoji_catalog.h"
 #include "app/file_picker.h"
 #include "app/message_history.h"
@@ -21,6 +22,9 @@
 #include "app/theme_runtime.h"
 #include "app/timeline_anchor.h"
 #include "app/unread_timeline.h"
+#include "app/user_account_view.h"
+#include "app/user_settings_form.h"
+#include "app/user_settings_lists.h"
 #include "app/window.h"
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
@@ -61,6 +65,7 @@ namespace app {
       CloseSettings,
       SettingsPage,
       AccountPreference,
+      UserAccountAction,
       SaveAccountSettings,
       ResetAccountSettings,
       SaveProfile,
@@ -427,6 +432,39 @@ namespace app {
     void drawGuildTooltip(Node& root, float w, float h);
     void demoGuildHoverStep();
     void drawSettings(Node& root, float w, float h);
+    void notifyMessage(const api::Message& message, const std::string& channel);
+    void drainDesktopNotifications();
+    bool extendedPreference(const std::string& action);
+    std::string shortcutLabel(const std::string& action) const;
+    bool shortcutKey(const Key& key);
+    void demoUserPreferencesStep();
+    bool spoilersVisible(const std::string& message) const;
+    void resetUserAccountSettings();
+    void loadUserAccountSettings(const std::string& page, bool force = false);
+    bool requestUserAccount(api::UserSettingsRequest request, std::string cache = {});
+    bool userAccountResult(const api::Event& event);
+    bool userAccountAction(const std::string& action);
+    bool drawUserAccountSettings(UserSettingsForm& form);
+    void drawUserAccountDialog(Node& root, float width, float height);
+    bool userAccountPickedFile(PickedFile& result);
+    bool userAccountDialogKey(const Key& key);
+    bool userAccountDialogClick(float x, float y);
+    bool userAccountDialogScroll(float delta);
+    bool userAccountDialogOpen() const { return !m_userAccount.dialog.empty() || m_userAccount.mfaRequest.has_value(); }
+    void closeUserAccountDialog();
+    bool drawUserProfileCrop(UserSettingsForm& form);
+    bool userProfileCropAction(const std::string& action);
+    void beginUserProfileUpload(const std::string& field);
+    void prepareUserAccountDemo();
+    void demoUserAccountStep();
+    void resetUserSettingsLists();
+    void loadUserSettingsLists();
+    bool userSettingsListsAction(const std::string& action);
+    bool userSettingsListsResult(const api::Event& event);
+    bool drawUserSettingsLists(UserSettingsForm& form);
+    bool requestUserSettingsList(api::UserSettingsRequest request);
+    void prepareUserSettingsListsDemo();
+    void demoUserSettingsListsStep();
     void openServerSettings(const std::string& guild = {});
     void closeServerSettings(bool discard = false);
     bool serverSettingsAction(const Hit& hit);
@@ -606,7 +644,13 @@ namespace app {
     std::map<std::string, api::GuildUpdate> m_guildUpdates;
     Hit m_guildTooltipBounds{};
     std::string m_restoreChannel;
+    DesktopNotifications m_desktopNotifications;
+    std::vector<std::string> m_notifiedMessages;
     Preferences m_preferences;
+    UserAccountState m_userAccount;
+    UserSettingsListsState m_userSettingsLists;
+    std::string m_shortcutCapture;
+
     api::RoleDirectory m_roleDirectory;
     RoleMotion m_roleMotion;
     api::Presence m_presence;

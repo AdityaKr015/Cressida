@@ -1,3 +1,4 @@
+#include "app/message_preferences.h"
 #include "app/session_store.h"
 #include "core/environment.h"
 
@@ -113,6 +114,51 @@ int main() {
       );
       std::ofstream(appearancePath) << "damaged";
       require(store.startupPreferences().colorTheme == "cressida", "Damaged startup state falls back safely");
+    }
+    {
+      app::SessionStore store(std::filesystem::path(directory) / "client-preferences.json");
+      app::Preferences selected;
+      selected.reducedMotion = true;
+      selected.saturation = 45;
+      selected.roleColorMode = 1;
+      selected.spoilerMode = 2;
+      selected.desktopNotifications = false;
+      selected.notificationPrivacy = 2;
+      selected.keybinds = {{"settings", "Ctrl+Alt+s"}, {"quit", ""}};
+      store.savePreferences("123", selected);
+      const auto actual = store.preferences("123");
+      require(
+          actual.reducedMotion
+              && actual.saturation == 45
+              && actual.roleColorMode == 1
+              && actual.spoilerMode == 2
+              && !actual.desktopNotifications
+              && actual.notificationPrivacy == 2
+              && actual.keybinds == selected.keybinds,
+          "Client behavior and shortcuts persist per account"
+      );
+      require(
+          !store.preferences("456").reducedMotion && store.startupPreferences().saturation == 100,
+          "Accessibility and notification choices never leak to other accounts or sign-in"
+      );
+      require(
+          app::notificationMessagePreview("hello ||private\nmessage|| and `a || b` \\||literal")
+              == "hello [Spoiler] and `a || b` \\||literal",
+          "Desktop previews hide spoilers without reinterpreting code or escapes"
+      );
+      require(
+          app::notificationMessagePreview("unclosed ` code ||private||") == "unclosed ` code [Spoiler]",
+          "Malformed inline code cannot disclose marked spoiler text in desktop previews"
+      );
+      require(
+          app::convertMessageEmoticons("hi :) <3 `:)` https://example.com/:) \\:) :D")
+              == "hi 🙂 ❤️ `:)` https://example.com/:) \\:) 😃",
+          "Emoticons skip code, links and escaped text"
+      );
+      require(
+          app::convertMessageEmoticons("```\n:)\n```\n:)") == "```\n:)\n```\n🙂",
+          "Fenced code stays unchanged while later emoticons convert"
+      );
     }
     {
       app::SessionStore store(path);

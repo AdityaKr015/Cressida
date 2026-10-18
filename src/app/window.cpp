@@ -221,6 +221,8 @@ namespace app {
       event.symbol = xkb_state_key_get_one_sym(state, code);
       event.control = xkb_state_mod_name_is_active(state, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0;
       event.shift = xkb_state_mod_name_is_active(state, XKB_MOD_NAME_SHIFT, XKB_STATE_MODS_EFFECTIVE) > 0;
+      event.alt = xkb_state_mod_name_is_active(state, XKB_MOD_NAME_ALT, XKB_STATE_MODS_EFFECTIVE) > 0;
+      event.super = xkb_state_mod_name_is_active(state, XKB_MOD_NAME_LOGO, XKB_STATE_MODS_EFFECTIVE) > 0;
       char text[128]{};
       if (compose && !event.control && xkb_compose_state_feed(compose, event.symbol) == XKB_COMPOSE_FEED_ACCEPTED) {
         switch (xkb_compose_state_get_status(compose)) {
@@ -658,7 +660,7 @@ namespace app {
 
   void Window::run(
       int wakeFd, std::function<void()> tick, int frameLimit, int assetFd, int videoFd, int themeFd, int pickerFd,
-      int audioFd
+      int audioFd, int notificationFd
   ) {
     int frames = 0;
     while (m->running) {
@@ -724,6 +726,7 @@ namespace app {
       descriptors.push_back({themeFd, POLLIN, 0});
       descriptors.push_back({pickerFd, POLLIN, 0});
       descriptors.push_back({audioFd, POLLIN, 0});
+      descriptors.push_back({notificationFd, POLLIN, 0});
       const int ready = ::poll(descriptors.data(), descriptors.size(), timeout);
       if (ready > 0 && (descriptors[0].revents & POLLIN)) {
         if (wl_display_read_events(m->display) < 0)

@@ -78,8 +78,13 @@ namespace api {
   }
 
   void UserDirectory::apply(const UserUpdates& update) {
-    if (update.reset) {
+    if (update.reset || update.relationshipsReset) {
       m_names.clear();
+      m_relationships.clear();
+      m_ignored.clear();
+      ++m_relationshipRevision;
+    }
+    if (update.reset) {
       m_statuses.clear();
       m_relationships.clear();
       m_mutedChannels.clear();
@@ -90,6 +95,14 @@ namespace api {
     for (const auto& [id, user] : update.users) {
       if (!validSnowflake(id))
         continue;
+      if (user.nickname || user.relationship || user.ignored)
+        ++m_relationshipRevision;
+      if (user.ignored && (m_ignored.contains(id) || m_ignored.size() < maxUsers)) {
+        if (*user.ignored)
+          m_ignored[id] = true;
+        else
+          m_ignored.erase(id);
+      }
       if (user.nickname) {
         if (user.nickname->empty())
           m_names.erase(id);
@@ -133,6 +146,10 @@ namespace api {
   int UserDirectory::relationship(const std::string& user) const {
     const auto found = m_relationships.find(user);
     return found == m_relationships.end() ? 0 : found->second;
+  }
+  bool UserDirectory::ignored(const std::string& user) const {
+    const auto found = m_ignored.find(user);
+    return found != m_ignored.end() && found->second;
   }
   bool UserDirectory::muted(const std::string& channel) const {
     const auto found = m_mutedChannels.find(channel);
@@ -207,6 +224,11 @@ namespace api {
         changes.users[id].relationship = 0;
       else if (item.contains("type") && item["type"].is_number_integer())
         changes.users[id].relationship = item["type"].get<int>();
+      const auto ignored = item.find("user_ignored");
+      if (removed)
+        changes.users[id].ignored = false;
+      else if (ignored != item.end() && ignored->is_boolean())
+        changes.users[id].ignored = ignored->get<bool>();
       const auto nickname = item.find("nickname");
       if (removed || (nickname != item.end() && nickname->is_null()))
         changes.users[id].nickname = "";

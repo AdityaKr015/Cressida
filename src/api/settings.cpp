@@ -2,6 +2,7 @@
 #include "api/gifs.h"
 #include "api/models.h"
 
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string_view>
@@ -405,6 +406,8 @@ namespace api {
       unsigned group, id;
       bool wrapped;
       int fallback, maximum;
+      unsigned parent = 0;
+      bool locale = false;
     };
     constexpr SettingField fields[] = {
         {"restrict_new_guild_dms", 8, 27, true, 0, 1},
@@ -427,7 +430,53 @@ namespace api {
         {"notify_friends_online", 7, 25, true, 1, 1},
         {"reaction_notifications", 7, 7, false, 0, 2},
         {"dm_spam_filter", 6, 27, false, 0, 3},
+        {"detect_platform_accounts", 8, 8, true, 1, 1, 0, false},
+        {"drops_opted_out", 8, 18, true, 0, 1, 0, false},
+        {"non_spam_retraining", 8, 19, true, 0, 1, 0, false},
+        {"game_friend_dms", 8, 26, true, 1, 1, 0, false},
+        {"quests_data_opted_out", 8, 30, true, 0, 1, 0, false},
+        {"show_local_time", 8, 31, true, 0, 1, 0, false},
+        {"hide_friend_request_notes", 8, 33, true, 0, 1, 0, false},
+        {"message_promotions_opted_out", 8, 35, true, 0, 1, 0, false},
+        {"leaderboard_opt_out", 8, 25, false, 0, 1, 0, false},
+        {"activity_restriction", 8, 29, false, 0, 3, 0, false},
+        {"burst_reaction_notifications", 7, 4, true, 1, 1, 0, false},
+        {"quiet_mode", 7, 5, true, 0, 1, 0, false},
+        {"voice_activity_notifications", 7, 11, true, 1, 1, 0, false},
+        {"returning_friend_notifications", 7, 13, true, 1, 1, 0, false},
+        {"friend_anniversary_notifications", 7, 14, true, 1, 1, 0, false},
+        {"game_update_notifications", 7, 15, true, 1, 1, 0, false},
+        {"trending_server_notifications", 7, 17, true, 1, 1, 0, false},
+        {"dm_reply_reminders", 7, 18, true, 1, 1, 0, false},
+        {"summary_reminders", 7, 19, true, 1, 1, 0, false},
+        {"group_reaction_notifications", 7, 20, true, 1, 1, 0, false},
+        {"friend_game_notifications", 7, 21, true, 1, 1, 0, false},
+        {"downtime_notifications", 7, 23, true, 1, 1, 0, false},
+        {"notify_server_stream", 7, 26, true, 1, 1, 0, false},
+        {"exclude_steam_notifications", 7, 10, true, 0, 1, 0, false},
+        {"game_activity_notifications", 7, 8, false, 0, 3, 0, false},
+        {"custom_status_notifications", 7, 9, false, 0, 2, 0, false},
+        {"always_preview_video", 5, 5, true, 1, 1, 0, false},
+        {"stream_notifications", 5, 7, true, 1, 1, 0, false},
+        {"disable_stream_previews", 5, 10, true, 0, 1, 0, false},
+        {"afk_timeout", 5, 6, true, 600, 3600, 0, false},
+        {"clips_voice_recording", 19, 1, true, 1, 1, 0, false},
+        {"explicit_guild_media", 6, 1, false, 0, 3, 29, false},
+        {"explicit_friend_media", 6, 2, false, 0, 3, 29, false},
+        {"explicit_other_media", 6, 3, false, 0, 3, 29, false},
+        {"gore_guild_media", 6, 1, false, 0, 3, 32, false},
+        {"gore_friend_media", 6, 2, false, 0, 3, 32, false},
+        {"gore_other_media", 6, 3, false, 0, 3, 32, false},
+        {"filter_profanity", 6, 1, true, 0, 1, 30, false},
+        {"filter_sexual", 6, 2, true, 0, 1, 30, false},
+        {"filter_slurs", 6, 3, true, 0, 1, 30, false},
+        {"safety_preset", 21, 1, false, 0, 4, 0, false},
+        {"locale", 12, 1, true, 0, 31, 0, true},
     };
+    constexpr std::string_view locales[] = {"en-US", "en-GB", "bg",     "zh-CN", "zh-TW", "hr", "cs",    "da",
+                                            "nl",    "fi",    "fr",     "de",    "el",    "hi", "hu",    "id",
+                                            "it",    "ja",    "ko",     "lt",    "no",    "pl", "pt-BR", "ro",
+                                            "ru",    "es-ES", "es-419", "sv-SE", "th",    "tr", "uk",    "vi"};
     const SettingField* settingField(std::string_view key) {
       for (const auto& f : fields)
         if (f.key == key)
@@ -453,78 +502,114 @@ namespace api {
     }
     return true;
   }
+  namespace {
+    std::optional<std::string> nestedField(std::string_view bytes, unsigned id) {
+      Wire input(bytes);
+      std::optional<std::string> result;
+      while (input.next()) {
+        if (input.field == id && input.type == 2) {
+          if (!result)
+            result.emplace();
+          result->append(input.data);
+        }
+      }
+      return result;
+    }
+    struct SettingsEdit {
+      std::optional<std::string> replacement;
+      std::map<unsigned, SettingsEdit> children;
+    };
+    std::string mergeSettings(std::string_view bytes, const std::map<unsigned, SettingsEdit>& edits) {
+      Wire input(bytes);
+      std::string result;
+      std::map<unsigned, std::string> originals;
+      while (!input.bytes.empty()) {
+        const auto before = input.bytes;
+        input.next();
+        if (!edits.contains(input.field))
+          result.append(before.substr(0, before.size() - input.bytes.size()));
+        else if (input.type == 2)
+          originals[input.field].append(input.data);
+      }
+      for (const auto& [id, edit] : edits)
+        result += edit.replacement ? *edit.replacement : field(id, mergeSettings(originals[id], edit.children));
+      return result;
+    }
+  } // namespace
   SettingValues parseAccountSettings(const nlohmann::json& value) {
     SettingValues result;
-    for (const auto& f : fields)
-      result[f.key] = f.fallback;
     const auto bytes = base64(encodedSettings(value));
-    Wire root(bytes);
-    while (root.next()) {
-      if (root.type != 2 || (root.field != 6 && root.field != 7 && root.field != 8 && root.field != 11))
+    for (const auto& f : fields) {
+      result[f.key] = f.fallback;
+      auto container = nestedField(bytes, f.group);
+      if (container && f.parent)
+        container = nestedField(*container, f.parent);
+      if (!container)
         continue;
-      Wire group(root.data);
-      while (group.next())
-        for (const auto& f : fields) {
-          if (f.group != root.field || f.id != group.field)
-            continue;
-          std::uint64_t number = f.fallback;
-          if (!f.wrapped && group.type == 0)
-            number = group.number;
-          else if (f.wrapped && group.type == 2) {
-            number = 0;
-            Wire wrapper(group.data);
-            while (wrapper.next())
-              if (wrapper.field == 1 && wrapper.type == 0)
-                number = wrapper.number;
+      std::uint64_t number = f.fallback;
+      if (f.wrapped) {
+        if (const auto data = nestedField(*container, f.id)) {
+          number = 0;
+          Wire wrapper(*data);
+          while (wrapper.next()) {
+            if (wrapper.field != 1)
+              continue;
+            if (f.locale && wrapper.type == 2) {
+              const auto language = std::ranges::find(locales, wrapper.data);
+              if (language != std::end(locales))
+                number = language - std::begin(locales);
+            } else if (!f.locale && wrapper.type == 0)
+              number = wrapper.number;
           }
-          if (number <= static_cast<std::uint64_t>(f.maximum))
-            result[f.key] = number;
         }
+      } else {
+        Wire input(*container);
+        while (input.next())
+          if (input.field == f.id && input.type == 0)
+            number = input.number;
+      }
+      if (number <= static_cast<std::uint64_t>(f.maximum))
+        result[f.key] = number;
     }
     return result;
   }
   nlohmann::json accountSettingsPatch(const nlohmann::json& snapshot, const SettingValues& changes) {
     if (!validSettingChanges(changes))
       throw std::runtime_error("Invalid settings edits");
-    std::map<unsigned, std::map<unsigned, std::string>> replacements;
-    for (const auto& [key, value] : changes) {
-      const auto& f = *settingField(key);
-      replacements[f.group][f.id] = f.wrapped ? field(f.id, numericField(1, value)) : numericField(f.id, value);
-    }
     const auto bytes = base64(encodedSettings(snapshot));
-    Wire root(bytes);
-    std::map<unsigned, std::string> groups;
     std::optional<std::uint64_t> version;
-    while (root.next()) {
-      if (root.field == 1 && root.type == 2) {
-        Wire versions(root.data);
-        while (versions.next())
-          if (versions.field == 3 && versions.type == 0)
-            version = versions.number;
-      }
-      if (root.type != 2 || !replacements.contains(root.field))
-        continue;
-      Wire group(root.data);
-      while (!group.bytes.empty()) {
-        const auto before = group.bytes;
-        group.next();
-        if (!replacements[root.field].contains(group.field))
-          groups[root.field] += before.substr(0, before.size() - group.bytes.size());
-      }
+    if (const auto versions = nestedField(bytes, 1)) {
+      Wire input(*versions);
+      while (input.next())
+        if (input.field == 3 && input.type == 0)
+          version = input.number;
     }
     if (!version)
       throw std::runtime_error("Cannot save settings without an account data version");
-    std::string edited;
-    for (const auto& [group, updates] : replacements) {
-      auto& bytes = groups[group];
-      for (const auto& [_, replacement] : updates)
-        bytes += replacement;
-      edited += field(group, bytes);
+    std::map<unsigned, SettingsEdit> edits;
+    for (const auto& [key, value] : changes) {
+      const auto& f = *settingField(key);
+      auto* edit = &edits[f.group];
+      if (f.parent)
+        edit = &edit->children[f.parent];
+      if (f.wrapped) {
+        auto& wrapper = edit->children[f.id].children[1];
+        wrapper.replacement = f.locale ? field(1, locales[value]) : numericField(1, value);
+      } else
+        edit->children[f.id].replacement = numericField(f.id, value);
     }
-    nlohmann::json result{{"settings", encode64(edited)}};
-    if (version)
-      result["required_data_version"] = *version;
-    return result;
+    // PATCH contains complete changed groups; untouched groups are omitted. Preserve
+    // unknown fields recursively, including inside wrappers and content filters.
+    std::string edited;
+    for (const auto& [id, edit] : edits) {
+      std::string original;
+      Wire input(bytes);
+      while (input.next())
+        if (input.field == id && input.type == 2)
+          original.append(input.data);
+      edited += field(id, mergeSettings(original, edit.children));
+    }
+    return {{"settings", encode64(edited)}, {"required_data_version", *version}};
   }
 
   GuildLayout parseGuildLayout(const nlohmann::json& value) {

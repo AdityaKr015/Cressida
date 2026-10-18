@@ -165,6 +165,25 @@ namespace app {
       result.roleColors = value.value("role_colors", true);
       result.animateRoleColors = value.value("animate_role_colors", true);
       result.showGuildTags = value.value("guild_tags", true);
+      result.reducedMotion = value.value("reduced_motion", false);
+      result.animateEmoji = value.value("animate_emoji", true);
+      result.animateAvatars = value.value("animate_avatars", true);
+      result.developerMode = value.value("developer_mode", false);
+      result.convertEmoticons = value.value("convert_emoticons", true);
+      result.showReactions = value.value("show_reactions", true);
+      result.showRoleIcons = value.value("show_role_icons", true);
+      result.desktopNotifications = value.value("desktop_notifications", true);
+      result.notificationSounds = value.value("notification_sounds", true);
+      result.saturation = std::clamp(value.value("saturation", 100), 0, 100);
+      result.spoilerMode = std::clamp(value.value("spoiler_mode", 0), 0, 2);
+      result.roleColorMode = std::clamp(value.value("role_color_mode", result.roleColors ? 0 : 2), 0, 2);
+      result.messageGroupSpacing = std::clamp(value.value("message_group_spacing", 16), 0, 24);
+      result.notificationPrivacy = std::clamp(value.value("notification_privacy", 0), 0, 2);
+      result.roleColors = result.roleColorMode != 2;
+      if (value.contains("keybinds") && value["keybinds"].is_object() && value["keybinds"].size() <= 20)
+        for (const auto& [key, chord] : value["keybinds"].items())
+          if (key.size() <= 32 && chord.is_string() && chord.get_ref<const std::string&>().size() <= 80)
+            result.keybinds[key] = chord.get<std::string>();
       const float width = value.value("channel_sidebar_width", 248.0F);
       result.channelSidebarWidth = std::isfinite(width) ? std::clamp(width, 200.0F, 480.0F) : 248.0F;
     } catch (...) {
@@ -226,6 +245,21 @@ namespace app {
           {"role_colors", preferences.roleColors},
           {"animate_role_colors", preferences.animateRoleColors},
           {"guild_tags", preferences.showGuildTags},
+          {"reduced_motion", preferences.reducedMotion},
+          {"animate_emoji", preferences.animateEmoji},
+          {"animate_avatars", preferences.animateAvatars},
+          {"developer_mode", preferences.developerMode},
+          {"convert_emoticons", preferences.convertEmoticons},
+          {"show_reactions", preferences.showReactions},
+          {"show_role_icons", preferences.showRoleIcons},
+          {"desktop_notifications", preferences.desktopNotifications},
+          {"notification_sounds", preferences.notificationSounds},
+          {"saturation", preferences.saturation},
+          {"spoiler_mode", preferences.spoilerMode},
+          {"role_color_mode", preferences.roleColors ? std::clamp(preferences.roleColorMode, 0, 1) : 2},
+          {"message_group_spacing", preferences.messageGroupSpacing},
+          {"notification_privacy", preferences.notificationPrivacy},
+          {"keybinds", preferences.keybinds},
           {"channel_sidebar_width",
            std::isfinite(preferences.channelSidebarWidth) ? std::clamp(preferences.channelSidebarWidth, 200.0F, 480.0F)
                                                           : 248.0F}

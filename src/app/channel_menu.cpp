@@ -162,7 +162,8 @@ namespace app {
       if (!channel->isThread() && (permissions & api::manageChannel))
         add(ChannelMenuKind::Delete, category ? "Delete Category" : "Delete Channel", "trash", true);
       separate();
-      add(ChannelMenuKind::CopyId, "Copy Channel ID", "id");
+      if (m_preferences.developerMode || m_demo)
+        add(ChannelMenuKind::CopyId, "Copy Channel ID", "id");
       if (!channel->overwrites
           && !m_demo
           && !m_channelDetailRequests.contains(channel->id)

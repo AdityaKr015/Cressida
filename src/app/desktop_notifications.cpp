@@ -1,0 +1,285 @@
+#include "app/desktop_notifications.h"
+
+#include "core/process/wake_event.h"
+
+#include <atomic>
+#include <deque>
+#include <gio/gio.h>
+#include <map>
+#include <mutex>
+#include <thread>
+#include <utility>
+
+namespace app {
+  namespace {
+    constexpr auto service = "org.freedesktop.Notifications";
+    constexpr auto path = "/org/freedesktop/Notifications";
+    std::string plain(std::string text, bool markup = false) {
+      if (!g_utf8_validate(text.data(), text.size(), nullptr))
+        return {};
+      if (const auto zero = text.find('\0'); zero != std::string::npos)
+        text.resize(zero);
+      if (text.size() > 1024) {
+        std::size_t end = 1024;
+        while (end && (static_cast<unsigned char>(text[end]) & 0xc0) == 0x80)
+          --end;
+        text.resize(end);
+      }
+      if (!markup)
+        return text;
+      auto* escaped = g_markup_escape_text(text.data(), text.size());
+      std::string result = escaped;
+      g_free(escaped);
+      return result;
+    }
+  } // namespace
+  struct DesktopNotifications::Impl {
+    process::WakeEvent wake;
+    GMainContext* context = g_main_context_new();
+    GMainLoop* loop = g_main_loop_new(context, false);
+    GCancellable* cancel = g_cancellable_new();
+    GDBusConnection* bus = nullptr;
+    std::jthread worker;
+    std::atomic<bool> stopping = false, scheduled = false;
+    bool bodyMarkup = false;
+    std::mutex mutex;
+    std::deque<DesktopNotice> queue;
+    std::deque<DesktopNoticeAction> actions;
+    std::uint64_t epoch = 1;
+    struct Active {
+      DesktopNoticeAction target;
+      std::uint64_t epoch;
+    };
+    std::map<guint32, Active> active;
+    bool clearPending = false;
+    unsigned pendingCalls = 0;
+    ~Impl() {
+      stopping = true;
+      g_cancellable_cancel(cancel);
+      if (worker.joinable()) {
+        schedule();
+        worker.join();
+      }
+      g_object_unref(cancel);
+      g_main_loop_unref(loop);
+      g_main_context_unref(context);
+    }
+    void schedule() {
+      if (scheduled.exchange(true))
+        return;
+      auto* source = g_idle_source_new();
+      g_source_set_callback(
+          source,
+          [](void* data) -> gboolean {
+            auto* self = static_cast<Impl*>(data);
+            self->scheduled = false;
+            self->flush();
+            return G_SOURCE_REMOVE;
+          },
+          this, nullptr
+      );
+      g_source_attach(source, context);
+      g_source_unref(source);
+    }
+    void close(guint32 id) {
+      if (bus)
+        g_dbus_connection_call(
+            bus, service, path, service, "CloseNotification", g_variant_new("(u)", id), nullptr,
+            G_DBUS_CALL_FLAGS_NO_AUTO_START, 1000, stopping ? nullptr : cancel, nullptr, nullptr
+        );
+    }
+    void flush() {
+      if (stopping) {
+        g_main_loop_quit(loop);
+        return;
+      }
+      std::deque<DesktopNotice> batch;
+      std::uint64_t current;
+      bool clear;
+      {
+        std::lock_guard lock(mutex);
+        batch.swap(queue);
+        current = epoch;
+        clear = std::exchange(clearPending, false);
+      }
+      if (clear) {
+        for (const auto& [id, _] : active)
+          close(id);
+        active.clear();
+      }
+      if (!bus)
+        return;
+      for (const auto& notice : batch) {
+        if (pendingCalls >= 32)
+          break;
+        GVariantBuilder hints;
+        g_variant_builder_init(&hints, G_VARIANT_TYPE_VARDICT);
+        g_variant_builder_add(&hints, "{sv}", "category", g_variant_new_string("im.received"));
+        g_variant_builder_add(&hints, "{sv}", "desktop-entry", g_variant_new_string("cressida"));
+        g_variant_builder_add(&hints, "{sv}", "suppress-sound", g_variant_new_boolean(!notice.sound));
+        if (notice.sound)
+          g_variant_builder_add(&hints, "{sv}", "sound-name", g_variant_new_string("message-new-instant"));
+        const char* buttons[] = {"default", "Open conversation", nullptr};
+        struct Pending {
+          Impl* owner;
+          DesktopNoticeAction target;
+          std::uint64_t epoch;
+        };
+        auto* pending = new Pending{
+            this, {notice.account, notice.guild, notice.channel, notice.message, notice.generation}, current
+        };
+        // Body markup is escaped before crossing the notification service boundary.
+        ++pendingCalls;
+        g_dbus_connection_call(
+            bus, service, path, service, "Notify",
+            g_variant_new(
+                "(susss^as@a{sv}i)", "Cressida", 0U, "cressida", plain(notice.title).c_str(),
+                plain(notice.body, bodyMarkup).c_str(), buttons, g_variant_builder_end(&hints), 7000
+            ),
+            G_VARIANT_TYPE("(u)"), G_DBUS_CALL_FLAGS_NONE, 5000, cancel,
+            [](GObject* object, GAsyncResult* result, void* data) {
+              std::unique_ptr<Pending> pending(static_cast<Pending*>(data));
+              --pending->owner->pendingCalls;
+              GError* error = nullptr;
+              auto* reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(object), result, &error);
+              if (reply) {
+                guint32 id = 0;
+                g_variant_get(reply, "(u)", &id);
+                g_variant_unref(reply);
+                auto& self = *pending->owner;
+                bool valid;
+                {
+                  std::lock_guard lock(self.mutex);
+                  valid = pending->epoch == self.epoch;
+                }
+                if (valid && !self.stopping && id) {
+                  if (self.active.size() >= 128) {
+                    self.close(self.active.begin()->first);
+                    self.active.erase(self.active.begin());
+                  }
+                  self.active[id] = Active{std::move(pending->target), pending->epoch};
+                } else
+                  self.close(id);
+              }
+              if (error)
+                g_error_free(error);
+            },
+            pending
+        );
+      }
+    }
+    void run() {
+      g_main_context_push_thread_default(context);
+      bus = g_bus_get_sync(G_BUS_TYPE_SESSION, cancel, nullptr);
+      guint action = 0, closed = 0;
+      if (bus) {
+        // Only the optional notification body supports markup. A server without
+        // that capability receives ordinary text, including literal '&'/'<'.
+        auto* capabilities = g_dbus_connection_call_sync(
+            bus, service, path, service, "GetCapabilities", nullptr, G_VARIANT_TYPE("(as)"),
+            G_DBUS_CALL_FLAGS_NO_AUTO_START, 1000, cancel, nullptr
+        );
+        if (capabilities) {
+          GVariant* values = g_variant_get_child_value(capabilities, 0);
+          GVariantIter it;
+          g_variant_iter_init(&it, values);
+          const char* capability;
+          while (g_variant_iter_next(&it, "&s", &capability))
+            if (std::string_view(capability) == "body-markup")
+              bodyMarkup = true;
+          g_variant_unref(values);
+          g_variant_unref(capabilities);
+        }
+        action = g_dbus_connection_signal_subscribe(
+            bus, service, service, "ActionInvoked", path, nullptr, G_DBUS_SIGNAL_FLAGS_NONE,
+            [](GDBusConnection*, const char*, const char*, const char*, const char*, GVariant* value, void* data) {
+              auto& self = *static_cast<Impl*>(data);
+              guint32 id;
+              const char* key;
+              if (!g_variant_is_of_type(value, G_VARIANT_TYPE("(us)")))
+                return;
+              g_variant_get(value, "(u&s)", &id, &key);
+              const auto found = self.active.find(id);
+              if (found == self.active.end() || std::string_view(key) != "default")
+                return;
+              {
+                std::lock_guard lock(self.mutex);
+                if (found->second.epoch == self.epoch && self.actions.size() < 32)
+                  self.actions.push_back(found->second.target);
+              }
+              self.close(id);
+              self.active.erase(found);
+              (void)self.wake.signal();
+            },
+            this, nullptr
+        );
+        closed = g_dbus_connection_signal_subscribe(
+            bus, service, service, "NotificationClosed", path, nullptr, G_DBUS_SIGNAL_FLAGS_NONE,
+            [](GDBusConnection*, const char*, const char*, const char*, const char*, GVariant* value, void* data) {
+              if (!g_variant_is_of_type(value, G_VARIANT_TYPE("(uu)")))
+                return;
+              guint32 id, reason;
+              g_variant_get(value, "(uu)", &id, &reason);
+              static_cast<Impl*>(data)->active.erase(id);
+            },
+            this, nullptr
+        );
+      }
+      if (!stopping)
+        g_main_loop_run(loop);
+      if (bus) {
+        for (const auto& [id, _] : active)
+          close(id);
+        active.clear();
+        g_dbus_connection_signal_unsubscribe(bus, action);
+        g_dbus_connection_signal_unsubscribe(bus, closed);
+        g_object_unref(bus);
+        bus = nullptr;
+      }
+      // Drain cancelled call completions before releasing their owner.
+      while (pendingCalls)
+        g_main_context_iteration(context, true);
+      while (g_main_context_pending(context))
+        g_main_context_iteration(context, false);
+      g_main_context_pop_thread_default(context);
+    }
+  };
+  DesktopNotifications::DesktopNotifications() : m(std::make_unique<Impl>()) {}
+  DesktopNotifications::~DesktopNotifications() = default;
+  void DesktopNotifications::start() {
+    if (!m->worker.joinable())
+      m->worker = std::jthread([this] { m->run(); });
+  }
+  void DesktopNotifications::show(DesktopNotice notice) {
+    if (!m->worker.joinable() || m->stopping || notice.account.empty())
+      return;
+    {
+      std::lock_guard lock(m->mutex);
+      if (m->queue.size() == 32)
+        m->queue.pop_front();
+      m->queue.push_back(std::move(notice));
+    }
+    m->schedule();
+  }
+  void DesktopNotifications::clear() {
+    {
+      std::lock_guard lock(m->mutex);
+      ++m->epoch;
+      m->queue.clear();
+      m->actions.clear();
+      m->clearPending = true;
+    }
+    if (m->worker.joinable())
+      m->schedule();
+  }
+  int DesktopNotifications::eventFd() const { return m->wake.fd(); }
+  std::optional<DesktopNoticeAction> DesktopNotifications::poll() {
+    m->wake.drain();
+    std::lock_guard lock(m->mutex);
+    if (m->actions.empty())
+      return {};
+    auto result = std::move(m->actions.front());
+    m->actions.pop_front();
+    return result;
+  }
+} // namespace app

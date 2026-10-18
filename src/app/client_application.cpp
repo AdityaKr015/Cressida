@@ -4,6 +4,7 @@
 #include "app/message_layout.h"
 #include "app/message_log_layout.h"
 #include "app/message_mentions.h"
+#include "app/message_preferences.h"
 #include "app/reply_preview.h"
 #include "app/system_message.h"
 #include "app/theme.h"
@@ -155,6 +156,12 @@ namespace app {
         demoMessageEditStep();
       if (m_demo && m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep < 9)
         demoCompletionStep();
+      if (m_demo && m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep < 12)
+        demoUserPreferencesStep();
+      if (m_demo && m_demoOverlay == "user-account-cycle" && m_demoInteractionStep < 16)
+        demoUserAccountStep();
+      if (m_demo && m_demoOverlay == "user-settings-lists-cycle" && m_demoInteractionStep < 30)
+        demoUserSettingsListsStep();
       if (m_demo && m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep < 12)
         demoFontStep();
       if (m_demo && m_demoOverlay == "server-settings-commands-cycle")
@@ -592,6 +599,8 @@ namespace app {
       }
       if (selectDropdownClick(x, y))
         return;
+      if (userAccountDialogClick(x, y))
+        return;
       if (overlayClick(x, y)) {
         return;
       }
@@ -685,7 +694,8 @@ namespace app {
              || id == "channel-name"
              || id == "channel-topic"
              || id == "channel-access-filter"
-             || id.starts_with("application-field:"))
+             || id.starts_with("application-field:")
+             || id.starts_with("user-account:"))
             && m_pasteDialogGeneration != m_dialogGeneration)
           return;
         if (id == m_focusedInput && mime.starts_with("text/plain")) {
@@ -739,7 +749,9 @@ namespace app {
         return;
       auto scroll = [&](float& offset, float amount) {
         const bool precise = m_window.preciseScroll();
-        m_scrolling.scroll(offset, ScrollMotion::distance(amount, precise), precise || !m_animateWheel);
+        m_scrolling.scroll(
+            offset, ScrollMotion::distance(amount, precise), precise || !m_animateWheel || m_preferences.reducedMotion
+        );
         if (m_traceScroll)
           std::clog
               << "scroll input surface="
@@ -766,6 +778,10 @@ namespace app {
           return;
         }
         closeSelectDropdown();
+      }
+      if (userAccountDialogOpen()) {
+        userAccountDialogScroll(delta);
+        return;
       }
       if (m_serverSettings.open) {
         scroll(m_pointerX < m_serverSettings.navRight ? m_serverSettings.navScroll : m_serverSettings.scroll, delta);
@@ -915,12 +931,17 @@ namespace app {
             || std::string_view(view) == "gif-scroll-cycle"
             || std::string_view(view) == "history-cycle"
             || std::string_view(view) == "video-cycle");
+    if (!m_demo)
+      m_desktopNotifications.start();
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"                              ? 4
                          : m_demo && view && std::string_view(view) == "deleted-cycle"                     ? 3
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"                 ? 8
                          : m_demo && view && std::string_view(view) == "autocomplete-cycle"                ? 9
+                         : m_demo && view && std::string_view(view) == "user-preferences-cycle"            ? 12
+                         : m_demo && view && std::string_view(view) == "user-account-cycle"                ? 16
+                         : m_demo && view && std::string_view(view) == "user-settings-lists-cycle"         ? 30
                          : m_demo && view && std::string_view(view) == "settings-font-cycle"               ? 12
                          : m_demo && view && std::string_view(view) == "server-hover-cycle"                ? 7
                          : m_demo && view && std::string_view(view) == "themes-cycle"                      ? 11
@@ -950,7 +971,8 @@ namespace app {
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
-        m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd(), m_filePicker.eventFd(), m_soundPreview.eventFd()
+        m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd(), m_filePicker.eventFd(), m_soundPreview.eventFd(),
+        m_desktopNotifications.eventFd()
     );
     if (m_demoOverlay == "server-settings-commands-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Server command permissions replay did not finish");
@@ -984,6 +1006,12 @@ namespace app {
       throw std::runtime_error("Cursor/sidebar replay did not complete");
     if (m_demoOverlay == "jump-latest-cycle" && m_demoInteractionStep != 8)
       throw std::runtime_error("Jump to latest replay did not complete");
+    if (m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep != 12)
+      throw std::runtime_error("Client preferences replay did not finish");
+    if (m_demoOverlay == "user-account-cycle" && m_demoInteractionStep != 16)
+      throw std::runtime_error("User account replay did not finish");
+    if (m_demoOverlay == "user-settings-lists-cycle" && m_demoInteractionStep != 30)
+      throw std::runtime_error("User settings lists replay did not finish");
     if (m_demoOverlay == "connection-cycle" && m_demoInteractionStep != 8)
       throw std::runtime_error("Staged connection replay did not complete");
     if (m_demoOverlay == "channel-menu-scroll-cycle" && m_demoInteractionStep != 3)
@@ -1920,6 +1948,33 @@ namespace app {
         else if (view == "hover") {
           m_pointerX = 160;
           m_pointerY = 185;
+        } else if (
+            view.starts_with("user-account-dialog:")
+            || view.starts_with("user-account-dialog-light:")
+            || view.starts_with("user-account-dialog-narrow:")
+        ) {
+          if (view.starts_with("user-account-dialog-light:"))
+            m_preferences.theme = "light";
+          if (view.starts_with("user-account-dialog-narrow:"))
+            m_window.setUiScale(1.8F);
+          openSettings();
+          selectSettingsPage("account");
+          prepareUserAccountDemo();
+          userAccountAction(view.substr(view.find(':') + 1));
+        } else if (view == "user-preferences-cycle") {
+          openSettings();
+          selectSettingsPage("keybinds");
+          m_demoOverlay = view;
+          m_demoInteractionStep = 0;
+        } else if (view == "user-account-cycle" || view == "user-settings-lists-cycle") {
+          openSettings();
+          selectSettingsPage(view == "user-account-cycle" ? "account" : "relationships");
+          if (view == "user-account-cycle")
+            prepareUserAccountDemo();
+          else
+            prepareUserSettingsListsDemo();
+          m_demoOverlay = view;
+          m_demoInteractionStep = 0;
         } else if (view == "appearance-light") {
           m_preferences.theme = "light";
           openSettings();
@@ -1972,8 +2027,12 @@ namespace app {
             m_window.setUiScale(1.8F);
           if (view == "cressida-settings-light" || view == "settings-fonts-light")
             m_preferences.theme = "light";
+          if (view == "settings:gifts-preview" || view == "settings:invoice")
+            m_demoOverlay = view;
           selectSettingsPage(
-              view.starts_with("settings:")                                                      ? view.substr(9)
+              view == "settings:gifts-preview"                                                   ? "gifts"
+                  : view == "settings:invoice"                                                   ? "payments"
+                  : view.starts_with("settings:")                                                ? view.substr(9)
                   : view.starts_with("themes")                                                   ? "themes"
                   : view.starts_with("settings-font")                                            ? "appearance"
                   : view == "settings-narrow-appearance"                                         ? "appearance"
@@ -2090,7 +2149,13 @@ namespace app {
   }
 
   bool ClientApplication::image(Node& parent, float x, float y, float size, const std::string& path, float radius) {
-    return picture(parent, x, y, size, size, path, radius);
+    auto asset = path;
+    if (asset.find("/avatars/") != std::string::npos || asset.find("/icons/") != std::string::npos) {
+      if (const auto slash = asset.rfind('/'); slash != std::string::npos && asset.substr(slash + 1).starts_with("a_"))
+        if (const auto png = asset.find(".png", slash); png != std::string::npos)
+          asset.replace(png, 4, ".gif");
+    }
+    return picture(parent, x, y, size, size, asset, radius);
   }
 
   bool ClientApplication::emojiImage(Node& parent, float x, float y, float size, const std::string& path) {
@@ -2159,8 +2224,15 @@ namespace app {
       if (cached.visibleFrame + 1 < m_animationDraw || cached.animationStart == std::chrono::steady_clock::time_point{})
         cached.animationStart = now;
       cached.visibleFrame = m_animationDraw;
+      const bool emojiAnimation = path.find("/emojis/") != std::string::npos;
+      const bool avatarAnimation =
+          path.find("/avatars/") != std::string::npos || path.find("/icons/") != std::string::npos;
+      const bool autoplay = emojiAnimation ? m_preferences.animateEmoji
+          : avatarAnimation                ? m_preferences.animateAvatars
+                                           : m_preferences.autoplayGifs;
       const bool playing = (m_demo || m_window.active())
-          && (m_preferences.autoplayGifs || hovered(gx, gy, width, height))
+          && !m_preferences.reducedMotion
+          && (autoplay || (!emojiAnimation && !avatarAnimation && hovered(gx, gy, width, height)))
           && (m_viewImage.empty() || path == m_viewImage);
       if (playing) {
         if (cached.playingDraw + 1 < m_animationDraw)
@@ -2218,7 +2290,7 @@ namespace app {
     m_animationDelay = std::chrono::milliseconds::max();
     const bool lightMode = resolveLightMode(m_preferences.theme, m_themeSnapshot.systemLight);
     const auto& colorTheme = m_themeSnapshot.selected(m_preferences.colorTheme);
-    theme::apply(lightMode ? colorTheme.light : colorTheme.dark, lightMode);
+    theme::apply(lightMode ? colorTheme.light : colorTheme.dark, lightMode, m_preferences.saturation / 100.0F);
     m_window.context().setTextFontFamily(m_connected ? m_preferences.fontFamily : std::string{});
     const float w = m_window.width(), h = m_window.height() + 36 - m_window.titlebarHeight();
     m_tooltip.clear();
@@ -2682,11 +2754,14 @@ namespace app {
               : std::max(22.0F, cached.layout.height);
           const float height = blockedMessage(message) ? 36
               : message.type == 7                      ? std::max(22.0F, cached.layout.height)
-                  + (m_preferences.compact ? 8 : 16)
-                  + (message.reactions.empty() ? 0 : 6 + reactionStrip(nullptr, message, 0, 0, textWidth, true))
+                  + (m_preferences.compact ? std::min(8, m_preferences.messageGroupSpacing)
+                                           : m_preferences.messageGroupSpacing)
+                  + (!m_preferences.showReactions || message.reactions.empty()
+                         ? 0
+                         : 6 + reactionStrip(nullptr, message, 0, 0, textWidth, true))
                                   : bodyHeight
                   + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
-                                      m_preferences.compact)
+                                      m_preferences.compact, m_preferences.messageGroupSpacing)
                   + (message.reply ? 24 : 0)
                   + reactionStrip(nullptr, message, 0, 0, textWidth)
                   + threadStrip(nullptr, message, 0, 0, textWidth)
@@ -2758,7 +2833,8 @@ namespace app {
           if (unreadIndex && !m_unreadTimeline.unread()) {
             const auto i = *unreadIndex;
             if (continues(i) && !continuations[i]) {
-              const float savedGap = m_preferences.compact ? 8 : 16;
+              const float savedGap = m_preferences.compact ? std::min(8, m_preferences.messageGroupSpacing)
+                                                           : m_preferences.messageGroupSpacing;
               continuations[i] = true;
               heights[i] -= 18;
               heights[i - 1] -= savedGap;
@@ -2829,7 +2905,12 @@ namespace app {
                 {left + 24, rowTop, bodyWidth - 48, std::max(0.0F, rowBottom - rowTop), Action::MessageMenu, message.id}
             );
             if (blockedMessage(message)) {
-              label(*content, 50, y + 7, textWidth, "Blocked message — click to show", 12, muted);
+              label(
+                  *content, 50, y + 7, textWidth,
+                  m_userDirectory.ignored(message.authorId) ? "Ignored message — click to show"
+                                                            : "Blocked message — click to show",
+                  12, muted
+              );
               m_hits.push_back(
                   {left + 24, rowTop, bodyWidth - 48, std::max(0.0F, rowBottom - rowTop), Action::RevealBlocked,
                    message.id}
@@ -2847,7 +2928,8 @@ namespace app {
               missingAuthors.push_back(message.authorId);
             if (message.deleted) {
               const auto red = theme::danger;
-              const float gap = messageRowPadding(true, false, m_preferences.compact);
+              const float gap =
+                  messageRowPadding(true, false, m_preferences.compact, m_preferences.messageGroupSpacing);
               const float bandTop = std::max(top, top + y - 2);
               const float bandBottom = std::min(bottom, top + y + heights[i] - gap + 2);
               if (bandBottom > bandTop) {
@@ -2871,7 +2953,8 @@ namespace app {
                 const bool over = hovered(left + 24, rowTop, bodyWidth - 48, rowBottom - rowTop);
                 const float tint = (theme::lightTheme ? .10F : .07F) + (over ? .03F : 0.0F);
                 const float bottomGap = messageRowPadding(
-                    true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact
+                    true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact,
+                    m_preferences.messageGroupSpacing
                 );
                 const float inkHeight = std::max(continuations[i] ? 0.0F : 41.0F, heights[i] - bottomGap);
                 const float bandTop = std::max(top, top + y - 2);
@@ -2893,7 +2976,7 @@ namespace app {
                 auto* previewNode = preview.get();
                 content->addChild(std::move(preview));
                 for (const auto& run : m_messageLayouts.at(message.id).reply.runs) {
-                  if (run.style.spoiler) {
+                  if (run.style.spoiler && !spoilersVisible(reply.message)) {
                     rectangle(*previewNode, run.x, 2, run.width, 16, raised, 3);
                   } else if (!run.image.empty()) {
                     if (!emojiImage(*previewNode, run.x, 2, 16, run.image))
@@ -2925,8 +3008,11 @@ namespace app {
                     + (message.deleted ? (message.timestamp.size() >= 16 ? " · Deleted" : "Deleted") : "");
                 const float timestampWidth = m_window.target().renderer().measureText(timestamp, 10).width;
                 const float headerWidth = std::max(24.0F, textWidth - (timestamp.empty() ? 0 : timestampWidth + 10));
-                const float roleSpace =
-                    !m_dmMode && m_roleDirectory.icon(m_guildId, message.authorId, message.memberRoles) ? 22 : 0;
+                const float roleSpace = m_preferences.showRoleIcons
+                        && !m_dmMode
+                        && m_roleDirectory.icon(m_guildId, message.authorId, message.memberRoles)
+                    ? 22
+                    : 0;
                 const float tagSpace = m_preferences.showGuildTags && authorTag
                     ? std::min(
                           104.0F,
@@ -2938,7 +3024,14 @@ namespace app {
                 const bool tagFits = headerWidth >= tagSpace + roleSpace + 38;
                 const float nameMax = std::max(24.0F, headerWidth - (tagFits ? tagSpace : 0) - roleSpace - 6);
                 const float authorWidth = std::min(
-                    nameMax, m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width + 4
+                    nameMax,
+                    m_window.target().renderer().measureText(author, 13, FontWeight::SemiBold).width
+                        + 4
+                        + (m_preferences.roleColorMode == 1
+                                   && !m_dmMode
+                                   && m_roleDirectory.colors(m_guildId, message.authorId, message.memberRoles)
+                               ? 12
+                               : 0)
                 );
                 avatar(*content, 0, y + 1, 40, message.avatar, author);
                 float groupBottom = originalY + heights[i];
@@ -2960,7 +3053,8 @@ namespace app {
                           *content, 50 + authorWidth + 4, y - 2, headerWidth - authorWidth - roleSpace - 4, authorTag
                       )
                     : 0;
-                const float roleUsed = !m_dmMode && headerWidth - authorWidth - tagUsed >= 22
+                const float roleUsed =
+                    m_preferences.showRoleIcons && !m_dmMode && headerWidth - authorWidth - tagUsed >= 22
                     ? drawRoleIcon(
                           *content, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId, message.memberRoles
                       )
@@ -3033,7 +3127,7 @@ namespace app {
                 }
                 for (const auto& run : layout.runs) {
                   const float rx = 50 + run.x, ry = bodyY + run.y;
-                  const bool hidden = run.style.spoiler && !m_revealedSpoilers.contains(message.id);
+                  const bool hidden = run.style.spoiler && !spoilersVisible(message.id);
                   if (hidden) {
                     rectangle(*content, rx, ry, run.width, run.height, raised, 3);
                     m_hits.push_back(
@@ -3465,6 +3559,8 @@ namespace app {
       drawSettings(root, w, h);
     else if (m_presenceMenu)
       drawPresenceMenu(root, h);
+    if (m_settingsOpen && userAccountDialogOpen())
+      drawUserAccountDialog(root, w, h);
     if (m_emojiMenu && !settingsVisible() && m_viewImage.empty())
       drawEmojiPicker(root, w, h);
     if (m_gifMenu && !settingsVisible() && m_viewImage.empty())
@@ -4226,7 +4322,8 @@ namespace app {
       return;
     const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
     const auto content = m_emojiCatalog.messageContent(
-        draft, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
+        m_preferences.convertEmoticons ? convertMessageEmoticons(draft) : draft, m_dmMode ? "" : m_guildId,
+        m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
     );
     if (!m_client.send(m_channelId, content, std::move(uploads), reply)) {
       m_status = "Messages can contain up to 2,000 characters. Please try again.";
@@ -4243,6 +4340,7 @@ namespace app {
   }
 
   void ClientApplication::tick() {
+    drainDesktopNotifications();
     drainServerSettingsUploads();
     if (m_soundPreview.drain())
       m_window.invalidate();
@@ -4582,6 +4680,11 @@ namespace app {
           } else if (!event.error.empty())
             m_settingsStatus = event.error;
         }
+      } else if (event.operation == api::Operation::UserSettings) {
+        if (event.userSettingsSessionEnded && event.error.empty()) {
+          activate({0, 0, 0, 0, Action::SignOut, {}});
+        } else if (!userSettingsListsResult(event))
+          userAccountResult(event);
       } else if (event.operation == api::Operation::SettingsList) {
         m_loadingSettingsLists.erase(event.resource);
         if (event.error.empty()) {
@@ -4697,6 +4800,8 @@ namespace app {
         });
         if (event.messages.empty())
           continue;
+        for (const auto& message : event.messages)
+          notifyMessage(message, event.resource);
         const bool ephemeral =
             std::ranges::all_of(event.messages, [](const auto& message) { return (message.flags & 64) != 0; });
         auto dm = std::ranges::find(m_privateChannels, event.resource, &api::Channel::id);
@@ -4915,7 +5020,13 @@ namespace app {
 
   void ClientApplication::onKey(const Key& key) {
     finishSidebarResize();
+    if (!m_shortcutCapture.empty() && shortcutKey(key))
+      return;
     if (selectDropdownKey(key))
+      return;
+    if (userAccountDialogKey(key))
+      return;
+    if (shortcutKey(key))
       return;
     if (m_serverSettings.open && key.symbol == XKB_KEY_Escape) {
       closeServerSettings();
@@ -4923,20 +5034,6 @@ namespace app {
     }
     if (key.symbol == XKB_KEY_Escape && completionKey(key))
       return;
-    if (m_connected
-        && !settingsVisible()
-        && m_dialogKind.empty()
-        && key.control
-        && (key.symbol == XKB_KEY_f || key.symbol == XKB_KEY_F)) {
-      if (m_inputs.contains("channel-search") && m_inputs.at("channel-search")->parent())
-        focusControl("channel-search");
-      else {
-        m_channelPanel = "search";
-        m_focusedInput = "channel-search-panel";
-        m_window.invalidate();
-      }
-      return;
-    }
     if (key.symbol == XKB_KEY_Escape
         && m_dialogKind.empty()
         && !m_channelPanel.empty()
@@ -4983,29 +5080,6 @@ namespace app {
         changeImage(1);
       else if (key.symbol == XKB_KEY_0)
         m_viewZoom = 1;
-      m_window.invalidate();
-      return;
-    }
-    if (key.control
-        && (key.symbol == XKB_KEY_plus
-            || key.symbol == XKB_KEY_equal
-            || key.symbol == XKB_KEY_KP_Add
-            || key.symbol == XKB_KEY_minus
-            || key.symbol == XKB_KEY_KP_Subtract
-            || key.symbol == XKB_KEY_0
-            || key.symbol == XKB_KEY_KP_0)) {
-      const bool reset = key.symbol == XKB_KEY_0 || key.symbol == XKB_KEY_KP_0;
-      const bool smaller = key.symbol == XKB_KEY_minus || key.symbol == XKB_KEY_KP_Subtract;
-      m_window.setUiScale(reset ? 1 : m_window.uiScale() * (smaller ? 1 / 1.1F : 1.1F));
-      saveSelection();
-      return;
-    }
-    if (key.control && (key.symbol == XKB_KEY_q || key.symbol == XKB_KEY_Q)) {
-      m_window.close();
-      return;
-    }
-    if (key.control && key.symbol == XKB_KEY_comma && m_connected) {
-      openSettings();
       m_window.invalidate();
       return;
     }
@@ -5151,6 +5225,18 @@ namespace app {
       openSettings();
       break;
     case Action::CloseSettings:
+      if (m_userAccount.busy || m_userSettingsLists.busy)
+        break;
+      if (!m_userAccount.draft.empty() || m_userAccount.crop) {
+        m_userAccount.fields["next_page"] = "close";
+        m_userAccount.dialog = "discard-profile";
+        ++m_dialogGeneration;
+        m_window.invalidate();
+        break;
+      }
+      resetUserAccountSettings();
+      resetUserSettingsLists();
+      m_shortcutCapture.clear();
       m_settingsOpen = false;
       m_settingsField.clear();
       break;
@@ -5273,7 +5359,13 @@ namespace app {
     case Action::MarkRead:
       markChannelRead(true);
       break;
+    case Action::UserAccountAction:
+      if (!userSettingsListsAction(hit.id))
+        userAccountAction(hit.id);
+      break;
     case Action::Preference:
+      if (extendedPreference(hit.id))
+        break;
       if (fontPreference(hit.id))
         break;
       if (hit.id == "theme-template") {
@@ -5312,9 +5404,10 @@ namespace app {
           clearMessageLog(false, true);
       } else if (hit.id == "emoji_image_links")
         m_preferences.emojiImageLinks = !m_preferences.emojiImageLinks;
-      else if (hit.id == "role_colors")
+      else if (hit.id == "role_colors") {
         m_preferences.roleColors = !m_preferences.roleColors;
-      else if (hit.id == "animate_role_colors")
+        m_preferences.roleColorMode = m_preferences.roleColors ? 0 : 2;
+      } else if (hit.id == "animate_role_colors")
         m_preferences.animateRoleColors = !m_preferences.animateRoleColors;
       else if (hit.id == "guild_tags")
         m_preferences.showGuildTags = !m_preferences.showGuildTags;
@@ -5601,6 +5694,8 @@ namespace app {
         });
       break;
     case Action::SignOut:
+      m_desktopNotifications.clear();
+      m_notifiedMessages.clear();
       closeVideo();
       clearEmojiState();
       m_scrolling.stopAll();

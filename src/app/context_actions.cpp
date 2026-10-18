@@ -56,7 +56,8 @@ namespace app {
     return {id, "Unknown user"};
   }
   bool ClientApplication::blockedMessage(const api::Message& message) const {
-    return m_userDirectory.relationship(message.authorId) == 2 && !m_revealedBlocked.contains(message.id);
+    return (m_userDirectory.relationship(message.authorId) == 2 || m_userDirectory.ignored(message.authorId))
+        && !m_revealedBlocked.contains(message.id);
   }
   void ClientApplication::closeContext() {
     m_contextOpen = false;
@@ -205,8 +206,10 @@ namespace app {
         separator();
         add(Action::DeleteMessage, "Delete Message");
       }
-      separator();
-      add(Action::CopyId, "Copy Message ID");
+      if (m_preferences.developerMode || m_demo) {
+        separator();
+        add(Action::CopyId, "Copy Message ID");
+      }
     } else {
       if (target->action == Action::ConversationMenu) {
         m_contextChannel = target->id;
@@ -247,7 +250,7 @@ namespace app {
         add(m_userDirectory.muted(m_contextChannel) ? Action::UnmuteConversation : Action::MuteConversation,
             m_userDirectory.muted(m_contextChannel) ? "Unmute conversation" : "Mute conversation");
       }
-      if (!m_contextUser.empty()) {
+      if (!m_contextUser.empty() && (m_preferences.developerMode || m_demo)) {
         separator();
         add(Action::CopyId, "Copy user ID");
       }
@@ -1302,7 +1305,7 @@ namespace app {
   float ClientApplication::reactionStrip(
       Node* parent, const api::Message& message, float x, float y, float width, bool addButton
   ) {
-    if (message.reactions.empty())
+    if (!m_preferences.showReactions || message.reactions.empty())
       return 0;
     float rx = 0, ry = 0;
     for (const auto& reaction : message.reactions) {

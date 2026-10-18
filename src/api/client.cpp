@@ -83,7 +83,7 @@ namespace api {
         const std::string& token, const std::string& path, const Json* payload, Transfer& transfer,
         std::chrono::steady_clock::time_point& cooldown, const std::vector<Upload>& uploads = {},
         const char* method = nullptr, const GuildSettingsRequest* serverSettings = nullptr,
-        const std::string& mfaAuthorization = {}
+        const std::string& mfaAuthorization = {}, bool accountSettings = false
     ) {
       const bool stickerUpload = serverSettings
           && serverSettings->section == GuildSettingsSection::Stickers
@@ -213,7 +213,7 @@ namespace api {
             return std::unexpected(Failure{"Discord is rate limiting this connection. Try again later."});
           continue;
         }
-        if (serverSettings
+        if ((serverSettings || accountSettings)
             && !json.is_discarded()
             && json.is_object()
             && json.contains("code")
@@ -395,6 +395,7 @@ namespace api {
         && command.operation != Operation::Threads
         && command.operation != Operation::ChannelPage
         && command.operation != Operation::GuildSettings
+        && command.operation != Operation::UserSettings
         && command.operation != Operation::SaveGifFavorite
         && command.operation != Operation::SaveEmojiFavorite
         && std::ranges::any_of(m_commands, [&](const auto& pending) {
@@ -429,6 +430,24 @@ namespace api {
     Command command{Operation::GuildSettings, m_session, requestData.guildId, {}};
     command.guildSettings = std::move(requestData);
     return enqueue(std::move(command));
+  }
+  bool Client::userSettings(UserSettingsRequest requestData) {
+    const bool verification = requestData.mfaChallenge
+        && (requestData.mfaType == "totp" || requestData.mfaType == "password")
+        && !requestData.mfaCode.empty()
+        && requestData.mfaCode.size() <= 1024;
+    if (!verification && !userSettingsHttpRequest(requestData))
+      return false;
+    Command command{Operation::UserSettings, m_session, requestData.resourceId, {}};
+    command.userSettings = std::move(requestData);
+    return enqueue(std::move(command));
+  }
+  void Client::clearUserSettingsSecrets() {
+    {
+      std::lock_guard lock(m_mutex);
+      ++m_userSettingsSecretsEpoch;
+    }
+    m_ready.notify_all();
   }
   bool Client::threads(ThreadQuery query) {
     if (threadListPath(query).empty())
@@ -570,6 +589,27 @@ namespace api {
             ? at->get<std::string>()
             : "";
         m_gatewaySessionGeneration = session;
+        m_authSessionIdHash.clear();
+        m_authTotpEnabled.reset();
+        if (data.contains("auth")
+            && data["auth"].is_object()
+            && data["auth"].contains("authenticator_types")
+            && data["auth"]["authenticator_types"].is_array())
+          m_authTotpEnabled =
+              std::ranges::any_of(data["auth"]["authenticator_types"], [](const auto& type) { return type == 2; });
+        if (data.contains("auth_session_id_hash")
+            && data["auth_session_id_hash"].is_string()
+            && data["auth_session_id_hash"].get_ref<const std::string&>().size() <= 256)
+          m_authSessionIdHash = data["auth_session_id_hash"].get<std::string>();
+      }
+      if (type == "AUTH_SESSION_CHANGE"
+          && data.contains("auth_session_id_hash")
+          && data["auth_session_id_hash"].is_string()) {
+        const auto hash = data["auth_session_id_hash"].get<std::string>();
+        if (!hash.empty() && hash.size() <= 256) {
+          std::lock_guard lock(m_mutex);
+          m_authSessionIdHash = hash;
+        }
       }
       if (type == "GUILD_BULK_BAN_UPDATE" || type == "GUILD_PRUNE_UPDATE") {
         const auto guild = data.value("guild_id", std::string{});
@@ -939,6 +979,22 @@ namespace api {
     };
     std::map<std::uint64_t, PendingGuildMfa> guildMfa;
     std::uint64_t nextGuildMfa = 0;
+    struct PendingUserMfa {
+      UserSettingsRequest request;
+      std::string ticket;
+      std::vector<std::string> methods;
+      std::chrono::steady_clock::time_point expires;
+    };
+    struct UserProof {
+      std::string value, binding;
+      std::chrono::steady_clock::time_point expires{};
+      bool valid() const { return !value.empty() && expires > std::chrono::steady_clock::now(); }
+    };
+    std::map<std::uint64_t, PendingUserMfa> userMfa;
+    std::uint64_t nextUserMfa = 0, nextDeviceHandle = 0;
+    std::map<std::string, std::string> deviceSessions;
+    UserProof backupView, backupRegenerate, emailProof, phoneProof;
+    std::uint64_t userSecretsEpoch = m_userSettingsSecretsEpoch;
     auto cooldown = std::chrono::steady_clock::now();
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> connection(curl_easy_init(), curl_easy_cleanup);
     std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> multi(curl_multi_init(), curl_multi_cleanup);
@@ -947,14 +1003,26 @@ namespace api {
       std::uint64_t foregroundRevision = 0;
       {
         std::unique_lock lock(m_mutex);
-        m_ready.wait(lock, stop, [&] { return !m_commands.empty() || activeSession != m_session; });
+        m_ready.wait(lock, stop, [&] {
+          return !m_commands.empty() || activeSession != m_session || userSecretsEpoch != m_userSettingsSecretsEpoch;
+        });
         if (stop.stop_requested())
           break;
         if (activeSession != m_session) {
           token.clear();
           authenticatedUser.clear();
           guildMfa.clear();
+          userMfa.clear();
+          deviceSessions.clear();
+          backupView = backupRegenerate = emailProof = phoneProof = {};
           activeSession = m_session;
+        }
+        if (userSecretsEpoch != m_userSettingsSecretsEpoch) {
+          // Dismissal invalidates proofs and original secret actions without
+          // interrupting or automatically retrying an in-flight mutation.
+          userMfa.clear();
+          backupView = backupRegenerate = emailProof = phoneProof = {};
+          userSecretsEpoch = m_userSettingsSecretsEpoch;
         }
         if (m_commands.empty())
           continue;
@@ -975,6 +1043,8 @@ namespace api {
       event.threadQuery = command.threadQuery;
       event.channelQuery = command.channelQuery;
       event.guildSettingsRequest = command.guildSettings;
+      if (command.userSettings)
+        event.userSettingsRequest = publicUserSettingsRequest(*command.userSettings);
       if (event.guildSettingsRequest)
         event.guildSettingsRequest->mfaCode.clear();
       if (command.operation == Operation::Acknowledge)
@@ -989,6 +1059,7 @@ namespace api {
       };
       event.restoredLogin = command.restoredLogin;
       bool saveCredential = false;
+      bool endAccountSession = false;
       std::optional<Command> continuation;
       try {
         if (command.operation == Operation::Connect) {
@@ -1016,6 +1087,7 @@ namespace api {
         Json body;
         const char* method = nullptr;
         std::optional<InteractionRequest> interaction;
+        std::optional<UserSettingsHttpRequest> accountRequest;
         std::string guildMfaAuthorization;
         Json accessGuildSnapshot;
         std::optional<GuildAccessPlan> accessPlan;
@@ -1023,6 +1095,106 @@ namespace api {
         std::optional<std::uint64_t> accessPendingCount;
         std::string accessPendingError;
         switch (command.operation) {
+        case Operation::UserSettings: {
+          auto& action = *command.userSettings;
+          std::erase_if(userMfa, [](const auto& item) {
+            return item.second.expires <= std::chrono::steady_clock::now();
+          });
+          if (action.mfaChallenge) {
+            const auto pending = userMfa.find(action.mfaChallenge);
+            if (pending == userMfa.end()
+                || !sameUserSettingsAction(pending->second.request, action)
+                || std::ranges::find(pending->second.methods, action.mfaType) == pending->second.methods.end()
+                || action.mfaCode.empty()) {
+              event.error = "Verification expired or this action changed. Submit the action again.";
+              break;
+            }
+            event.userSettingsMfaChallenge = pending->first;
+            event.userSettingsMfaMethods = pending->second.methods;
+            const Json verification{
+                {"ticket", pending->second.ticket}, {"mfa_type", action.mfaType}, {"data", action.mfaCode}
+            };
+            auto verified =
+                request(token, "/mfa/finish", &verification, transfer, cooldown, {}, "POST", nullptr, {}, true);
+            std::fill(action.mfaCode.begin(), action.mfaCode.end(), '\0');
+            action.mfaCode.clear();
+            if (!verified) {
+              event.error = verified.error().unauthorized
+                  ? verified.error().message
+                  : "Discord could not verify that code or password. Try again.";
+              event.unauthorized = verified.error().unauthorized;
+              break;
+            }
+            if (!verified->is_object() || !verified->contains("token") || !(*verified)["token"].is_string())
+              throw std::runtime_error("Invalid verification response");
+            guildMfaAuthorization = (*verified)["token"].get<std::string>();
+            if (guildMfaAuthorization.empty()
+                || guildMfaAuthorization.size() > 8192
+                || std::ranges::any_of(guildMfaAuthorization, [](unsigned char c) { return c <= 32 || c == 127; }))
+              throw std::runtime_error("Invalid verification token");
+            const auto requestId = action.request;
+            action = std::move(pending->second.request);
+            action.request = requestId;
+            userMfa.erase(pending);
+            event.userSettingsRequest = publicUserSettingsRequest(action);
+            event.userSettingsMfaChallenge = 0;
+            event.userSettingsMfaMethods.clear();
+          }
+          accountRequest = userSettingsHttpRequest(action);
+          if (!accountRequest)
+            throw std::runtime_error("Invalid account settings request");
+          path = accountRequest->path;
+          body = accountRequest->body;
+          method = accountRequest->method.c_str();
+          if (action.section == UserSettingsSection::Profile
+              || action.section == UserSettingsSection::GuildProfile
+              || action.section == UserSettingsSection::GuildMember) {
+            if (!action.resourceId.empty() && action.resourceId != authenticatedUser) {
+              event.error = "Only your own account profile can be edited in settings.";
+              break;
+            }
+          }
+          if (action.section == UserSettingsSection::Sessions && action.verb == UserSettingsVerb::Delete) {
+            auto resolved = Json::array();
+            std::string current;
+            {
+              std::lock_guard lock(m_mutex);
+              if (m_gatewaySessionGeneration == command.session)
+                current = m_authSessionIdHash;
+            }
+            for (const auto& handle : action.values["session_id_hashes"]) {
+              const auto at = deviceSessions.find(handle.get<std::string>());
+              if (at == deviceSessions.end()) {
+                event.error = "This device list expired. Reload devices before signing them out.";
+                break;
+              }
+              resolved.push_back(at->second);
+              if (!current.empty() && at->second == current)
+                endAccountSession = true;
+            }
+            body["session_id_hashes"] = std::move(resolved);
+          }
+          if (action.section == UserSettingsSection::BackupCodes && action.verb == UserSettingsVerb::Update) {
+            const auto& proof = action.values["regenerate"] == true ? backupRegenerate : backupView;
+            if (!proof.valid())
+              event.error = "Backup code verification expired. Request a new email code.";
+            else
+              body["nonce"] = proof.value;
+          }
+          if (action.section == UserSettingsSection::Account && action.values.contains("email")) {
+            if (emailProof.valid())
+              body["email_token"] = emailProof.value;
+            else
+              body.erase("email_token");
+          }
+          if (action.section == UserSettingsSection::Phone && action.verb == UserSettingsVerb::Update) {
+            if (!phoneProof.valid() || phoneProof.binding != action.values["phone"].get<std::string>())
+              event.error = "Verify this phone number before adding it to your account.";
+            else
+              body["phone_token"] = phoneProof.value;
+          }
+          break;
+        }
         case Operation::GuildSettings: {
           if (command.guildSettings->mfaChallenge) {
             std::erase_if(guildMfa, [](const auto& item) {
@@ -1430,13 +1602,16 @@ namespace api {
         auto response = event.error.empty()
             ? request(
                   command.operation == Operation::GifSearch ? std::string{} : token, path,
-                  ((interaction || command.operation == Operation::GuildSettings)
+                  ((interaction
+                    || command.operation == Operation::GuildSettings
+                    || command.operation == Operation::UserSettings)
                        ? !body.is_null()
                        : command.operation == Operation::Send || method)
                       ? &body
                       : nullptr,
                   transfer, cooldown, command.uploads, method,
-                  command.guildSettings ? &*command.guildSettings : nullptr, guildMfaAuthorization
+                  command.guildSettings ? &*command.guildSettings : nullptr, guildMfaAuthorization,
+                  command.operation == Operation::UserSettings
               )
             : std::expected<Json, Failure>(std::unexpected(Failure{event.error, event.unauthorized}));
         if (response && accessFeatureMutation) {
@@ -1464,6 +1639,38 @@ namespace api {
         if (!response) {
           event.error = response.error().message;
           event.unauthorized = response.error().unauthorized;
+          if (command.userSettings && response.error().mfa.is_object()) {
+            const auto& challenge = response.error().mfa;
+            if (challenge.contains("ticket")
+                && challenge["ticket"].is_string()
+                && !challenge["ticket"].get_ref<const std::string&>().empty()
+                && challenge["ticket"].get_ref<const std::string&>().size() <= 4096
+                && challenge.contains("methods")
+                && challenge["methods"].is_array()) {
+              PendingUserMfa pending;
+              pending.request = *command.userSettings;
+              pending.request.mfaChallenge = 0;
+              pending.request.mfaCode.clear();
+              pending.request.mfaType.clear();
+              pending.ticket = challenge["ticket"].get<std::string>();
+              pending.expires = std::chrono::steady_clock::now() + std::chrono::minutes(5);
+              for (const auto& method : challenge["methods"])
+                if (method.is_object() && method.contains("type") && method["type"].is_string()) {
+                  const auto type = method["type"].get<std::string>();
+                  if ((type == "totp" || type == "password")
+                      && std::ranges::find(pending.methods, type) == pending.methods.end())
+                    pending.methods.push_back(type);
+                }
+              if (!pending.methods.empty()) {
+                if (userMfa.size() >= 8)
+                  userMfa.erase(userMfa.begin());
+                event.userSettingsMfaChallenge = ++nextUserMfa;
+                event.userSettingsMfaMethods = pending.methods;
+                userMfa.emplace(nextUserMfa, std::move(pending));
+              } else
+                event.error = "This action requires a verification method available in Discord's browser settings.";
+            }
+          }
           if (command.guildSettings && response.error().mfa.is_object()) {
             const auto& challenge = response.error().mfa;
             if (challenge.contains("ticket")
@@ -1497,6 +1704,94 @@ namespace api {
           }
         } else
           switch (command.operation) {
+          case Operation::UserSettings: {
+            const auto& action = *command.userSettings;
+            const auto proof = [&](const char* field, std::string binding = {}) {
+              if (!response->is_object() || !response->contains(field) || !(*response)[field].is_string())
+                throw std::runtime_error("Missing verification proof");
+              const auto value = (*response)[field].get<std::string>();
+              if (value.empty() || value.size() > 8192 || std::ranges::any_of(value, [](unsigned char c) {
+                    return c <= 32 || c == 127;
+                  }))
+                throw std::runtime_error("Invalid verification proof");
+              return UserProof{value, std::move(binding), std::chrono::steady_clock::now() + std::chrono::minutes(5)};
+            };
+            if (action.section == UserSettingsSection::BackupCodes && action.verb == UserSettingsVerb::Create) {
+              backupView = proof("nonce");
+              backupRegenerate = proof("regenerate_nonce");
+            }
+            if (action.section == UserSettingsSection::EmailChange && action.verb == UserSettingsVerb::Update)
+              emailProof = proof("token");
+            if (action.section == UserSettingsSection::PhoneVerification)
+              phoneProof = proof("token", action.values["phone"].get<std::string>());
+            if (action.section == UserSettingsSection::Account && action.values.contains("email"))
+              emailProof = {};
+            if (action.section == UserSettingsSection::Phone && action.verb == UserSettingsVerb::Update)
+              phoneProof = {};
+            if (action.section == UserSettingsSection::Sessions && action.verb == UserSettingsVerb::Get) {
+              std::string current;
+              {
+                std::lock_guard lock(m_mutex);
+                if (m_gatewaySessionGeneration == command.session)
+                  current = m_authSessionIdHash;
+              }
+              if (!response->is_object()
+                  || !response->contains("user_sessions")
+                  || !(*response)["user_sessions"].is_array()
+                  || (*response)["user_sessions"].size() > 256)
+                throw std::runtime_error("Invalid device list");
+              auto safeSessions = Json::array();
+              for (auto item : (*response)["user_sessions"]) {
+                if (!item.is_object() || !item.contains("id_hash") || !item["id_hash"].is_string())
+                  continue;
+                const auto hash = item["id_hash"].get<std::string>();
+                if (hash.empty() || hash.size() > 256)
+                  continue;
+                auto known =
+                    std::ranges::find_if(deviceSessions, [&](const auto& entry) { return entry.second == hash; });
+                if (known == deviceSessions.end()) {
+                  if (deviceSessions.size() >= 512)
+                    deviceSessions.erase(deviceSessions.begin());
+                  const auto handle = "device-" + std::to_string(++nextDeviceHandle);
+                  known = deviceSessions.emplace(handle, hash).first;
+                }
+                item["id_hash"] = known->first;
+                item["current_session"] = !current.empty() && current == hash;
+                safeSessions.push_back(std::move(item));
+              }
+              (*response)["user_sessions"] = std::move(safeSessions);
+            }
+            if (accountRequest->mayRotateToken && response->is_object() && response->contains("token")) {
+              const auto replacement = (*response)["token"];
+              if (!replacement.is_string() || !auth::validCredential(replacement.get<std::string>())) {
+                event.error = "Discord updated the account, but the new session could not be restored. Sign in again.";
+                event.unauthorized = true;
+                break;
+              }
+              token = replacement.get<std::string>();
+              saveCredential = true;
+              m_gateway->authenticate(command.session, token);
+            }
+            const auto settings = parseUserSettings(*response, action);
+            event.userSettings = settings.data;
+            if (action.section == UserSettingsSection::Account && action.verb == UserSettingsVerb::Get) {
+              std::lock_guard lock(m_mutex);
+              if (m_gatewaySessionGeneration == command.session && m_authTotpEnabled)
+                event.userSettings["mfa_totp"] = *m_authTotpEnabled;
+            }
+            if (action.section == UserSettingsSection::Authenticator) {
+              std::lock_guard lock(m_mutex);
+              if (m_gatewaySessionGeneration == command.session)
+                m_authTotpEnabled = action.verb == UserSettingsVerb::Create;
+            }
+            event.userSettingsMore = settings.more;
+            event.userSettingsCursor = settings.cursor;
+            event.userSettingsSensitive = accountRequest->sensitiveResponse;
+            event.userSettingsSessionEnded = accountRequest->endsSession || endAccountSession;
+            if (response->is_object() && response->contains("id") && (*response)["id"] == authenticatedUser)
+              event.account = parseAccount(*response);
+            break;
+          }
           case Operation::GuildSettings: {
             const auto settings = parseGuildSettings(*response, *command.guildSettings);
             event.guildSettings = settings.data;
@@ -1721,7 +2016,22 @@ namespace api {
         token.clear();
         authenticatedUser.clear();
         m_authenticatedSession = 0;
+        userMfa.clear();
+        deviceSessions.clear();
+        backupView = backupRegenerate = emailProof = phoneProof = {};
         m_gateway->reset();
+      }
+      if (event.userSettingsSessionEnded && event.error.empty() && command.session == m_session) {
+        token.clear();
+        authenticatedUser.clear();
+        m_authenticatedSession = 0;
+        guildMfa.clear();
+        userMfa.clear();
+        deviceSessions.clear();
+        backupView = backupRegenerate = emailProof = phoneProof = {};
+        m_gateway->reset();
+        forgetLogin(command.session);
+        saveCredential = false;
       }
       const bool startGateway =
           command.operation == Operation::Connect && event.error.empty() && command.session == m_session;

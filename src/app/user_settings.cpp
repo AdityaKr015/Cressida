@@ -1,10 +1,13 @@
 #include "app/client_application.h"
 #include "app/font_catalog.h"
 #include "app/theme.h"
+#include "app/user_settings_form.h"
 #include "render/scene/input_area.h"
 #include "render/scene/rect_node.h"
 #include "ui/controls/button.h"
 #include "ui/controls/scrollbar.h"
+#include "ui/controls/select.h"
+#include "ui/controls/slider.h"
 #include "ui/controls/toggle.h"
 
 #include <algorithm>
@@ -35,10 +38,14 @@ namespace app {
         {"privacy", "Privacy & Safety", "ACCOUNT"},
         {"content", "Content & Social", "ACCOUNT"},
         {"friends", "Friend Requests", "ACCOUNT"},
+        {"relationships", "Friends & Blocked Users", "ACCOUNT", "ignore ignored nickname requests pending"},
+        {"data", "Data & Privacy", "ACCOUNT", "export package harvest analytics personalization ads"},
         {"authorized", "Authorized Apps", "ACCOUNT"},
         {"devices", "Devices", "ACCOUNT"},
         {"connections", "Connections", "ACCOUNT"},
-        {"subscriptions", "Subscriptions & Billing", "PAYMENT"},
+        {"subscriptions", "Subscriptions", "PAYMENT"},
+        {"payments", "Billing", "PAYMENT", "payments payment sources invoice cards"},
+        {"gifts", "Gift Inventory", "PAYMENT", "entitlements gifts rewards nitro collectibles"},
         {"appearance", "Appearance", "APP SETTINGS", "font family text size theme scale compact"},
         {"accessibility", "Accessibility", "APP SETTINGS"},
         {"voice", "Voice & Video", "APP SETTINGS"},
@@ -59,9 +66,13 @@ namespace app {
     bool matches(const SettingsPage& page, const std::string& query) {
       return query.empty() || folded(std::string(page.name) + " " + page.group + " " + page.keywords).contains(query);
     }
-    bool listPage(const std::string& id) { return id == "connections" || id == "devices" || id == "authorized"; }
   } // namespace
   void ClientApplication::clearAccountSettings() {
+    m_desktopNotifications.clear();
+    m_notifiedMessages.clear();
+    resetUserAccountSettings();
+    resetUserSettingsLists();
+    m_shortcutCapture.clear();
     m_accountSettings.clear();
     m_settingsDraft.clear();
     m_settingsLists.clear();
@@ -70,11 +81,17 @@ namespace app {
     m_settingsLoaded = m_loadingSettings = m_savingSettings = false;
   }
   void ClientApplication::selectSettingsPage(const std::string& page) {
+    if (m_userSettingsLists.busy && page != m_settingsPage) {
+      m_userSettingsLists.status = "Wait for the current account operation to finish before changing pages.";
+      m_window.invalidate();
+      return;
+    }
     if (page == "expressions" || page == "name-badges" || page == "role-styles") {
       selectSettingsPage("cressida");
       return;
     }
     m_scrolling.stopAll();
+    closeSelectDropdown();
     if (std::ranges::none_of(pages, [&](const auto& item) { return item.id == page; }))
       return;
     m_settingsPage = page;
@@ -111,14 +128,11 @@ namespace app {
       }
       rowY += navRowHeight;
     }
-    if (listPage(page) && !m_demo && !m_settingsLists.contains(page) && !m_loadingSettingsLists.contains(page)) {
-      if (m_client.settingsList(page)) {
-        m_loadingSettingsLists.insert(page);
-        m_settingsListErrors.erase(page);
-      } else
-        m_settingsListErrors[page] = "Could not request this list. Check the connection.";
-    }
+    m_shortcutCapture.clear();
+    loadUserAccountSettings(page);
+    loadUserSettingsLists();
   }
+
   void ClientApplication::resetProfile() {
     m_settingsFields["display_name"] = m_account.displayName;
     m_settingsFields["pronouns"] = m_account.pronouns;
@@ -152,7 +166,7 @@ namespace app {
     m_settingsStatus.clear();
     m_controlInput.setFocus(nullptr);
     m_focusedInput.clear();
-    m_loadingProfile = !m_demo && m_client.profile();
+    m_loadingProfile = false;
     m_loadingSettings = !m_demo && m_client.accountSettings();
     if (m_demo) {
       m_accountSettings = api::parseAccountSettings(nlohmann::json::object());
@@ -346,6 +360,14 @@ namespace app {
       return hit.action != Action::Close && hit.action != Action::Minimize && hit.action != Action::Maximize;
     });
     rectangle(root, 0, 36, w, h - 36, background);
+    const auto retained = [&](const std::string& id) {
+      std::unique_ptr<Node> saved;
+      if (auto at = m_detachedInputs.find(id); at != m_detachedInputs.end()) {
+        saved = std::move(at->second);
+        m_detachedInputs.erase(at);
+      }
+      return saved;
+    };
     const auto settingsButton = [&](Node& parent, Hit hit, const std::string& caption, bool primary = false,
                                     bool selected = false, bool fill = false, bool centered = true) {
       float ox = 0, oy = 0;
@@ -359,31 +381,31 @@ namespace app {
       hit.y += (hit.height - 26) / 2;
       hit.height = 26;
       const bool enabled = hit.action != Action::None;
-      const bool over = enabled && hovered(hit.x + ox, hit.y + oy, hit.width, hit.height);
-      auto frame = std::make_unique<RectNode>();
-      frame->setPosition(hit.x, hit.y);
-      frame->setSize(hit.width, hit.height);
-      auto color = primary ? accent : selected ? lerpColor(sidebar, accent, .16F) : over ? raised : panel;
-      if (primary && over)
-        color = lerpColor(color, foreground, .1F);
-      if (!enabled)
-        color = lerpColor(sidebar, color, .4F);
-      frame->setStyle(
-          {.fill = color,
-           .border = selected ? accent : withAlpha(muted, .16F),
-           .radius = 5,
-           .borderWidth = primary ? 0.0F : 1.0F}
+      const auto id =
+          "settings-button:" + std::to_string(static_cast<int>(hit.action)) + ':' + (hit.id.empty() ? caption : hit.id);
+      auto saved = retained(id);
+      auto control =
+          saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
+      m_widgets[id] = control.get();
+      control->setText(caption);
+      control->setFontSize(12);
+      control->setPosition(hit.x, hit.y);
+      control->setFrameSize(hit.width, 26);
+      control->setControlHeight(26);
+      control->setRadius(5);
+      control->setPadding(0, 10);
+      control->setContentAlign(centered ? ButtonContentAlign::Center : ButtonContentAlign::Start);
+      control->setVariant(
+          primary        ? ButtonVariant::Primary
+              : selected ? ButtonVariant::TabActive
+                         : ButtonVariant::Default
       );
-      parent.addChild(std::move(frame));
-      const float textWidth = std::max(1.0F, std::min(natural.width, hit.width - 16));
-      label(
-          parent, hit.x + (centered ? (hit.width - textWidth) / 2 : 10),
-          hit.y + (26 - (natural.bottom - natural.top)) / 2, textWidth + 1, caption, 12,
-          !enabled      ? muted
-              : primary ? ink
-                        : foreground,
-          FontWeight::Medium
-      );
+      control->setEnabled(enabled);
+      control->setOnClick([this, hit] {
+        activate(hit);
+        m_window.invalidate();
+      });
+      parent.addChild(std::move(control));
       hit.x += ox;
       hit.y += oy;
       m_hits.push_back(std::move(hit));
@@ -523,9 +545,7 @@ namespace app {
       if (!category)
         section("");
     };
-    struct SettingRow {
-      float top, height;
-    };
+    using SettingRow = UserSettingRow;
     const auto row = [&](const std::string& name, const std::string& description = std::string{}, float trailing = 0,
                          float minimum = 40, bool interactive = false, bool stackControl = false) {
       ensureCategory();
@@ -586,20 +606,6 @@ namespace app {
     const auto accountToggle = [&](const std::string& name, const std::string& key, const std::string& description) {
       toggle(name, m_settingsDraft.contains(key) && m_settingsDraft.at(key) != 0, key, description, true);
     };
-    const auto choices = [&](const std::string& key, const std::vector<std::string>& names) {
-      for (std::size_t i = 0; i < names.size(); ++i) {
-        const bool active = m_settingsDraft.contains(key) && m_settingsDraft.at(key) == static_cast<int>(i);
-        const auto item = row(names[i], {}, 32, 36, true);
-        const float cy = item.top + (item.height - 14) / 2;
-        rectangle(p, width - 18, cy, 14, 14, active ? accent : raised, 7);
-        rectangle(p, width - 15, cy + 3, 8, 8, active ? ink : background, 4);
-        if (m_settingsLoaded && !m_loadingSettings && !m_savingSettings)
-          m_hits.push_back(
-              {contentX, viewportY - previousScroll + item.top, width, item.height, Action::AccountPreference,
-               key + ":" + std::to_string(i)}
-          );
-      }
-    };
     const auto field = [&](const std::string& name, const std::string& key, float height,
                            const std::string& description) {
       ensureCategory();
@@ -614,10 +620,166 @@ namespace app {
       input.setHorizontalPadding(10);
       cursor += height + 16;
     };
-    const auto openDiscord = [&](const SettingRow& item) {
-      rowAction(item, Action::OpenUrl, "https://discord.com/channels/@me", "Open Discord");
+    const auto formDetail = [&](const std::string& title, const std::string& description) {
+      ensureCategory();
+      cursor += 8;
+      cursor += label(p, 0, cursor, width, title, 13, foreground, FontWeight::SemiBold, 0);
+      if (!description.empty()) {
+        cursor += 4;
+        cursor += label(p, 0, cursor, width, description, 12, muted, FontWeight::Normal, 0);
+      }
+      cursor += 8;
     };
-    if (m_settingsPage == "cressida") {
+    const auto formButton = [&](Node& parent, float x, float y, float buttonWidth, const std::string& caption,
+                                const std::string& action, ButtonVariant variant, bool enabled) {
+      const auto id = "user-account-button:" + action;
+      auto saved = retained(id);
+      auto control =
+          saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
+      m_widgets[id] = control.get();
+      control->setText(caption);
+      control->setFontSize(12);
+      control->setVariant(variant);
+      control->setPosition(x, y);
+      control->setFrameSize(buttonWidth, 26);
+      control->setControlHeight(26);
+      control->setRadius(5);
+      control->setPadding(0, 10);
+      control->setEnabled(enabled);
+      control->setOnClick([this, action] {
+        activate({0, 0, 0, 0, Action::UserAccountAction, action});
+        m_window.invalidate();
+      });
+      parent.addChild(std::move(control));
+    };
+    const auto formField = [&](const std::string& id, const std::string& title, const std::string& description,
+                               const std::string& initial, std::function<void(const std::string&)> changed,
+                               float height, bool password, bool enabled) {
+      formDetail(title, description);
+      auto& input = inputControl(p, 0, cursor, width, height, id, initial, {}, height > 40, password);
+      input.setFontSize(12);
+      input.setFrameRadius(5);
+      input.setHorizontalPadding(10);
+      input.setEnabled(enabled);
+      input.setOnChange(std::move(changed));
+      input.setOnSubmit([](const std::string&) {});
+      cursor += height + 12;
+    };
+    const auto formChoose = [&](const std::string& id, const std::string& title, const std::string& description,
+                                std::vector<std::string> choices, std::size_t selected,
+                                std::function<void(std::size_t)> changed, bool enabled) {
+      formDetail(title, description);
+      const auto key = "user-account-select:" + id;
+      auto saved = retained(key);
+      auto control =
+          saved ? std::unique_ptr<Select>(static_cast<Select*>(saved.release())) : std::make_unique<Select>();
+      m_widgets[key] = control.get();
+      control->setPosition(0, cursor);
+      control->setOnSelectionChanged({});
+      control->setOptions(std::move(choices));
+      control->setSelectedIndexSilently(selected);
+      control->setFontSize(12);
+      control->setControlHeight(30);
+      control->setHorizontalPadding(10);
+      control->setFrameSize(width, 30);
+      control->setEnabled(enabled);
+      control->setOnSelectionChanged([changed = std::move(changed)](std::size_t index, std::string_view) {
+        changed(index);
+      });
+      p.addChild(std::move(control));
+      cursor += 42;
+    };
+    const auto formToggle = [&](const std::string& id, const std::string& title, const std::string& description,
+                                bool checked, std::function<void(bool)> changed, bool enabled) {
+      const auto item = row(title, description, 50);
+      const auto key = "user-account-toggle:" + id;
+      auto saved = retained(key);
+      auto control =
+          saved ? std::unique_ptr<Toggle>(static_cast<Toggle*>(saved.release())) : std::make_unique<Toggle>();
+      m_widgets[key] = control.get();
+      control->setToggleSize(ToggleSize::Small);
+      control->setCheckedImmediate(checked);
+      control->setEnabled(enabled);
+      control->setFrameSize(30, 18);
+      control->setPosition(width - 30, item.top + (item.height - 18) / 2);
+      control->setOnChange(std::move(changed));
+      p.addChild(std::move(control));
+    };
+    const auto formSlider = [&](const std::string& id, const std::string& title, const std::string& description,
+                                double current, double minimum, double maximum, double step,
+                                std::function<void(double)> changed, const std::string& unit, bool enabled) {
+      formDetail(title, description);
+      const auto key = "user-account-slider:" + id;
+      auto saved = retained(key);
+      auto control =
+          saved ? std::unique_ptr<Slider>(static_cast<Slider*>(saved.release())) : std::make_unique<Slider>();
+      m_widgets[key] = control.get();
+      control->setPosition(0, cursor);
+      control->setSize(std::max(50.0F, width - 76), 26);
+      control->setControlHeight(26);
+      control->setTrackHeight(3);
+      control->setThumbSize(12);
+      control->setRange(minimum, maximum);
+      control->setStep(step);
+      control->setValue(current);
+      control->setEnabled(enabled);
+      control->setWheelAdjustEnabled(false);
+      control->setOnValueChanged(std::move(changed));
+      p.addChild(std::move(control));
+      label(
+          p, width - 66, cursor + 5, 66, std::to_string(static_cast<int>(std::round(current))) + unit, 12, foreground
+      );
+      cursor += 38;
+    };
+    UserSettingsForm form{
+        p,
+        cursor,
+        width,
+        section,
+        [&](const std::string& title, const std::string& description, float trailing, bool stack) {
+          return row(title, description, trailing, 40, false, stack);
+        },
+        formButton,
+        formField,
+        formChoose,
+        formToggle,
+        formSlider
+    };
+    const auto remoteChoice = [&](const std::string& title, const std::string& key, const std::string& description,
+                                  std::vector<std::string> names) {
+      const auto value = m_settingsDraft.contains(key) ? m_settingsDraft.at(key) : 0;
+      form.choose(
+          "remote:" + key, title, description, std::move(names), std::max(0, value),
+          [this, key](std::size_t selected) {
+            activate({0, 0, 0, 0, Action::AccountPreference, key + ":" + std::to_string(selected)});
+            m_window.invalidate();
+          },
+          m_settingsLoaded && !m_loadingSettings && !m_savingSettings
+      );
+    };
+    const auto localChoice = [&](const std::string& title, const std::string& key, const std::string& description,
+                                 int value, std::vector<std::string> names) {
+      form.choose(
+          "local:" + key, title, description, std::move(names), std::max(0, value), [this, key](std::size_t selected) {
+            activate({0, 0, 0, 0, Action::Preference, key + ":" + std::to_string(selected)});
+            m_window.invalidate();
+          }
+      );
+    };
+    const auto localSlider = [&](const std::string& title, const std::string& key, const std::string& description,
+                                 int value, int minimum, int maximum, const std::string& unit) {
+      form.slider(
+          "local:" + key, title, description, value, minimum, maximum, 1,
+          [this, key](double value) {
+            activate({0, 0, 0, 0, Action::Preference, key + ":" + std::to_string(static_cast<int>(std::round(value)))});
+            m_window.invalidate();
+          },
+          unit
+      );
+    };
+    if (drawUserAccountSettings(form)) {
+    } else if (drawUserSettingsLists(form)) {
+    } else if (m_settingsPage == "cressida") {
       section("Names & roles");
       toggle(
           "Show server tags in chat", m_preferences.showGuildTags, "guild_tags",
@@ -629,6 +791,10 @@ namespace app {
       toggle(
           "Animate gradients on hover", m_preferences.animateRoleColors, "animate_role_colors",
           "Animate name gradients when hovering names, member rows or messages."
+      );
+      toggle(
+          "Show role icons", m_preferences.showRoleIcons, "show_role_icons",
+          "Display role icons beside message authors in chat."
       );
       section("Message logger");
       toggle(
@@ -766,7 +932,13 @@ namespace app {
       );
       settingsButton(p, {controlsX + 144, zoomY, 36, 32, Action::Preference, "zoom+"}, "+", false, false, true, true);
       toggle("Compact message spacing", m_preferences.compact, "compact", "Reduce the space between message groups.");
+      localSlider(
+          "Message group spacing", "message_group_spacing",
+          "Set the space between message groups. Compact spacing caps this at eight pixels.",
+          m_preferences.messageGroupSpacing, 0, 24, " px"
+      );
     } else if (m_settingsPage == "text") {
+      section("Images and embeds");
       toggle(
           "Show link previews and embeds", m_preferences.showEmbeds, "embeds",
           "Display preview cards attached to messages."
@@ -779,32 +951,31 @@ namespace app {
           "Automatically play GIFs", m_preferences.autoplayGifs, "autoplay_gifs",
           "Play visible GIFs while this window is focused. When disabled, hover a GIF to play it."
       );
-    } else if (m_settingsPage == "account") {
-      const auto header = actionRow(m_account.name, "@" + m_account.username);
-      rowAction(header, Action::SettingsPage, "profile", "Edit profile", true);
-      row("Username", m_account.username);
-      row("Account ID", m_account.id);
-      const auto signIn = m_demo ? "Demo sign-in is not saved." : m_loginStorageStatus;
-      if (!signIn.empty())
-        row("Sign-in", signIn);
-      openDiscord(
-          actionRow("Account security", "Manage your email, password and two-factor authentication in Discord.")
+      section("Messages");
+      toggle(
+          "Show reactions", m_preferences.showReactions, "show_reactions",
+          "Display the reaction buttons attached to chat messages."
       );
-    } else if (m_settingsPage == "profile") {
-      if (m_loadingProfile)
-        row("Profile", "Loading your profile…");
-      field("Display name", "display_name", 36, "The name shown on your profile. Up to 32 characters.");
-      field("Pronouns", "pronouns", 36, "Shown alongside your profile information. Up to 40 characters.");
-      field("About me", "bio", 96, "Introduce yourself on your profile. Up to 190 characters.");
-      settingsButton(
-          p, {0, cursor, 132, 32, m_savingProfile || m_loadingProfile ? Action::None : Action::SaveProfile, {}},
-          m_savingProfile ? "Saving…" : "Save Changes", true, false, true, true
+      toggle(
+          "Convert emoticons", m_preferences.convertEmoticons, "convert_emoticons",
+          "Convert familiar emoticons such as :) into emoji when sending a message."
       );
-      settingsButton(
-          p, {144, cursor, 76, 32, m_savingProfile ? Action::None : Action::ResetProfile, {}}, "Reset", false, false,
-          true, true
+      localChoice(
+          "Show spoiler content", "spoiler_mode", "Choose when hidden message text is revealed.",
+          m_preferences.spoilerMode, {"When clicked", "In servers I moderate", "Always"}
       );
-      cursor += 40;
+      section("Video and streams");
+      accountToggle(
+          "Always preview videos", "always_preview_video", "Sync whether Discord previews video before joining a call."
+      );
+      accountToggle(
+          "Hide stream previews", "disable_stream_previews",
+          "Prevent Discord from displaying previews of streams you share."
+      );
+      accountToggle(
+          "Allow voice in Clips", "clips_voice_recording",
+          "Allow your voice to be included when another Discord participant saves a Clip."
+      );
     } else if (m_settingsPage == "presence") {
       section("Availability");
       for (const auto& status : {"online", "idle", "dnd", "invisible"}) {
@@ -827,34 +998,80 @@ namespace app {
       settingsButton(p, {0, cursor, 124, 32, Action::SaveCustomStatus, {}}, "Save Status", true, false, true, true);
       cursor += 40;
     } else if (m_settingsPage == "privacy") {
+      section("Direct messages");
       accountToggle(
           "Block DMs from new server members", "restrict_new_guild_dms",
-          "Apply to servers you join from now on. Existing server overrides stay unchanged."
+          "Disable server-member direct messages in servers you join from now on. Existing server overrides stay "
+          "unchanged."
       );
       accountToggle(
-          "Disable requests from new server members", "restrict_message_requests",
-          "Apply to servers you join from now on. Existing server overrides stay unchanged."
+          "Disable message requests in new servers", "restrict_message_requests",
+          "Apply to servers you join from now on. Availability can depend on Discord's age and regional requirements."
       );
       accountToggle(
-          "Contact discovery", "contact_sync", "Allow Discord to use contact syncing to help people find you."
+          "Allow game friend DMs", "game_friend_dms",
+          "Let Discord contacts connected through a game send direct messages."
+      );
+      section("Discovery and profile");
+      accountToggle(
+          "Contact discovery", "contact_sync", "Allow Discord contact syncing to help people find your account."
+      );
+      accountToggle(
+          "Detect linked platform accounts", "detect_platform_accounts",
+          "Allow Discord to detect supported platform accounts for connection suggestions."
       );
       accountToggle(
           "Hide legacy username badge", "hide_legacy_username",
           "Hide the legacy username badge on your Discord profile."
       );
-      section("Profile visibility");
-      choices(
-          "profile_visibility",
+      accountToggle("Show local time", "show_local_time", "Allow Discord to display your local time where supported.");
+      accountToggle(
+          "Hide friend request notes", "hide_friend_request_notes",
+          "Hide the notes attached to incoming friend requests in Discord."
+      );
+      remoteChoice(
+          "Profile visibility", "profile_visibility", "Choose who can see your Discord profile.",
           {"Discord default", "Friends only", "Friends and small servers", "Friends and all servers"}
       );
+      section("Accounts and data");
+      const auto people = actionRow(
+          "Blocked and ignored accounts",
+          "Review friends, pending requests and the accounts you have blocked or ignored."
+      );
+      rowAction(people, Action::SettingsPage, "relationships", "Manage accounts");
+      const auto data = actionRow(
+          "Data and privacy", "Choose how Discord uses your data and request a copy of your account information."
+      );
+      rowAction(data, Action::SettingsPage, "data", "Data & Privacy");
     } else if (m_settingsPage == "content") {
-      section("Direct message spam filter");
-      choices("dm_spam_filter", {"Discord default", "Do not filter", "Filter non-friends", "Filter everyone"});
+      section("Sensitive content");
+      for (const auto& [suffix, title] : std::vector<std::pair<std::string, std::string>>{
+               {"guild", "Server media"}, {"friend", "Media from friends"}, {"other", "Other direct-message media"}
+           }) {
+        remoteChoice(
+            title, "explicit_" + suffix + "_media", "Choose how Discord handles media detected as sexually explicit.",
+            {"Discord default", "Show", "Blur", "Block"}
+        );
+        remoteChoice(
+            title + " with graphic content", "gore_" + suffix + "_media",
+            "Choose how Discord handles media detected as graphic or violent.",
+            {"Discord default", "Show", "Blur", "Block"}
+        );
+      }
+      section("Language filters");
+      accountToggle("Filter profanity", "filter_profanity", "Apply Discord's profanity filtering where supported.");
+      accountToggle(
+          "Filter sexual language", "filter_sexual", "Apply Discord's sexual-language filtering where supported."
+      );
+      accountToggle("Filter slurs", "filter_slurs", "Apply Discord's slur filtering where supported.");
+      section("Direct messages");
+      remoteChoice(
+          "Spam filter", "dm_spam_filter", "Send suspected spam to Discord's spam inbox.",
+          {"Discord default", "Do not filter", "Filter non-friends", "Filter everyone"}
+      );
       accountToggle(
           "Conversation safety warnings", "conversation_warnings", "Enable Discord's safety warnings for conversations."
       );
-      row("Sensitive media and message requests",
-          "Media blurring and message request folders are not available in Cressida yet.");
     } else if (m_settingsPage == "friends") {
       section("Who can send you a friend request");
       const auto flags = m_settingsDraft.contains("friend_sources") ? m_settingsDraft.at("friend_sources") : 14;
@@ -868,99 +1085,310 @@ namespace app {
           true
       );
     } else if (m_settingsPage == "notifications") {
+      section("Cressida desktop notifications");
+      toggle(
+          "Desktop notifications", m_preferences.desktopNotifications, "desktop_notifications",
+          "Show desktop notifications for eligible new messages while Cressida is running."
+      );
+      toggle(
+          "Notification sounds", m_preferences.notificationSounds, "notification_sounds",
+          "Play a sound for eligible desktop message notifications."
+      );
+      localChoice(
+          "Notification content", "notification_privacy",
+          "Choose how much message information appears in desktop notifications.", m_preferences.notificationPrivacy,
+          {"Name and message", "Name only", "Hide names and messages"}
+      );
+      section("Discord notifications");
       accountToggle(
           "In-app notifications", "in_app_notifications",
-          "Sync this notification preference to Discord. Cressida does not deliver desktop notifications or play "
-          "notification sounds yet."
+          "Sync Discord's in-app notification preference to your account."
       );
+      accountToggle("Quiet mode", "quiet_mode", "Sync Discord's quiet-mode preference for notification interruptions.");
       accountToggle(
           "Friends coming online", "friend_online_notifications",
-          "Receive notifications in Discord when friends come online."
+          "Receive Discord notifications when friends come online."
       );
       accountToggle(
-          "Profile update notifications", "profile_notifications",
-          "Receive notifications in Discord when friends update their profiles."
+          "Voice activity", "voice_activity_notifications",
+          "Receive Discord notifications about friends' voice activity."
+      );
+      accountToggle(
+          "Profile updates", "profile_notifications",
+          "Receive Discord notifications when friends update their profiles."
       );
       accountToggle(
           "Upcoming server events", "server_event_notifications",
-          "Receive reminders in Discord for upcoming server events."
+          "Receive Discord reminders for upcoming server events."
       );
       accountToggle(
-          "Notify friends when I stream", "notify_friends_stream",
-          "Let Discord notify your friends when you start streaming."
+          "Returning friends", "returning_friend_notifications",
+          "Receive Discord notifications when a friend returns after being away."
       );
       accountToggle(
-          "Notify friends when I update my profile", "notify_friends_profile",
+          "Friend anniversaries", "friend_anniversary_notifications",
+          "Receive Discord notifications for friendship anniversaries."
+      );
+      accountToggle("Game updates", "game_update_notifications", "Receive game-update notifications in Discord.");
+      accountToggle(
+          "Trending servers", "trending_server_notifications",
+          "Receive Discord notifications about trending server activity."
+      );
+      accountToggle(
+          "Reply reminders", "dm_reply_reminders", "Allow Discord reminders for direct messages you have not answered."
+      );
+      accountToggle(
+          "Summary reminders", "summary_reminders", "Allow Discord reminders with summaries of activity you missed."
+      );
+      accountToggle(
+          "Friends' games", "friend_game_notifications", "Receive Discord notifications about friends' games."
+      );
+      accountToggle(
+          "Downtime notifications", "downtime_notifications",
+          "Allow Discord notifications during periods when you have been inactive."
+      );
+      remoteChoice(
+          "Game activity notifications", "game_activity_notifications",
+          "Choose how Discord notifies you about friends' game activity.",
+          {"Discord default", "Disabled", "Enabled", "Only games played"}
+      );
+      remoteChoice(
+          "Custom status notifications", "custom_status_notifications",
+          "Choose which custom-status updates trigger Discord notifications.",
+          {"Discord default", "Enabled", "Disabled"}
+      );
+      accountToggle(
+          "Exclude Steam activity", "exclude_steam_notifications",
+          "Exclude Steam activity from Discord's game notifications."
+      );
+      section("Reactions and streams");
+      remoteChoice(
+          "Reaction notifications", "reaction_notifications", "Choose which reactions Discord notifies you about.",
+          {"All conversations", "Direct messages only", "Off"}
+      );
+      accountToggle(
+          "Super reaction notifications", "burst_reaction_notifications",
+          "Receive Discord notifications about Super Reactions."
+      );
+      accountToggle(
+          "Group reaction notifications", "group_reaction_notifications",
+          "Receive Discord reaction notifications in group conversations."
+      );
+      accountToggle(
+          "Stream notifications", "stream_notifications", "Receive Discord notifications when people start streaming."
+      );
+      accountToggle(
+          "Server stream notifications", "notify_server_stream",
+          "Receive Discord notifications when a stream starts in a server."
+      );
+      {
+        const std::vector<int> values{60, 300, 600, 900, 1800, 3600};
+        const auto current = m_settingsDraft.contains("afk_timeout") ? m_settingsDraft.at("afk_timeout") : 600;
+        auto choices =
+            std::vector<std::string>{"1 minute", "5 minutes", "10 minutes", "15 minutes", "30 minutes", "1 hour"};
+        auto seconds = values;
+        const auto found = std::ranges::find(seconds, current);
+        const auto selected =
+            found == seconds.end() ? seconds.size() : static_cast<std::size_t>(found - seconds.begin());
+        if (found == seconds.end()) {
+          seconds.push_back(current);
+          choices.push_back(std::to_string(current) + " seconds");
+        }
+        form.choose(
+            "remote:afk_timeout", "Push notification inactivity",
+            "Choose how long a Discord desktop client must be inactive before Discord sends mobile push notifications.",
+            std::move(choices), selected,
+            [this, seconds](std::size_t index) {
+              activate({0, 0, 0, 0, Action::AccountPreference, "afk_timeout:" + std::to_string(seconds[index])});
+              m_window.invalidate();
+            },
+            m_settingsLoaded && !m_loadingSettings && !m_savingSettings
+        );
+      }
+      section("Notify my friends");
+      accountToggle(
+          "When I stream", "notify_friends_stream", "Let Discord notify your friends when you start streaming."
+      );
+      accountToggle(
+          "When I update my profile", "notify_friends_profile",
           "Let Discord notify your friends when your profile changes."
       );
       accountToggle(
-          "Notify friends when I come online", "notify_friends_online",
-          "Let Discord notify your friends when you become available."
+          "When I come online", "notify_friends_online", "Let Discord notify your friends when you become available."
       );
-      section("Reaction notifications");
-      choices("reaction_notifications", {"All conversations", "Direct messages only", "Off"});
     } else if (m_settingsPage == "activity") {
+      section("Activity sharing");
       accountToggle(
           "Share current activity", "show_activity",
-          "Share your activity on Discord. Automatic game detection is not available in Cressida yet."
+          "Share activities published to Discord. Cressida does not currently detect running games."
       );
       accountToggle("Show recent games", "recent_games", "Show recently played games on your Discord profile.");
       accountToggle(
-          "Allow friends to join activities", "join_friends", "Let friends join activities you share on Discord."
+          "Hide from leaderboards", "leaderboard_opt_out", "Exclude your activity from Discord's game leaderboards."
       );
+      section("Activity access");
+      accountToggle("Allow friends to join", "join_friends", "Let friends join the activities you share on Discord.");
       accountToggle(
           "Allow voice participants to join", "join_voice",
           "Let people in your voice channel join your activities on Discord."
       );
-    } else if (listPage(m_settingsPage)) {
-      const std::string description = m_settingsPage == "devices"
-          ? "Review active sessions here. Sign out other devices in Discord."
-          : m_settingsPage == "authorized" ? "Review app access here. Revoke access in Discord."
-                                           : "Review linked accounts here. Add or remove connections in Discord.";
-      openDiscord(actionRow("Manage in Discord", description));
-      if (m_demo)
-        row("Account data", "Demo mode does not load account data.");
-      else if (m_loadingSettingsLists.contains(m_settingsPage))
-        row("Account data", "Loading…");
-      else if (m_settingsListErrors.contains(m_settingsPage)) {
-        const auto item = actionRow("Could not load account data", m_settingsListErrors[m_settingsPage]);
-        rowAction(item, Action::SettingsPage, m_settingsPage, "Retry");
-      } else if (m_settingsLists[m_settingsPage].empty())
-        row("Account data", "Nothing to show for this account.");
-      for (const auto& entry : m_settingsLists[m_settingsPage])
-        row(entry.name, entry.detail);
     } else if (m_settingsPage == "keybinds") {
-      for (const auto& [key, meaning] :
-           {std::pair{"Ctrl + ,", "Open settings"},
-            {"Ctrl + + / − / 0", "Zoom in / out / reset"},
-            {"Enter / Shift + Enter", "Send message / new line"},
+      section("Application shortcuts");
+      for (const auto& [id, title] :
+           {std::pair{"settings", "Open settings"},
+            {"search", "Search this conversation"},
+            {"jump_latest", "Jump to latest message"},
+            {"toggle_members", "Toggle member list"},
+            {"next_channel", "Next channel"},
+            {"previous_channel", "Previous channel"},
+            {"quit", "Quit Cressida"},
+            {"zoom_in", "Zoom in"},
+            {"zoom_out", "Zoom out"},
+            {"zoom_reset", "Reset zoom"}}) {
+        const bool capturing = m_shortcutCapture == id;
+        const auto item =
+            row(title,
+                capturing ? "Press a shortcut. Escape cancels; Backspace clears it."
+                          : "Choose a shortcut that works while Cressida is focused.",
+                208, 40, false, true);
+        const float controlsY = width < 420 ? item.top + item.height - 38 : item.top + (item.height - 26) / 2;
+        const float controlsX = width < 420 ? 0 : width - 196;
+        settingsButton(
+            p, {controlsX, controlsY, 124, 26, Action::Preference, "keybind-record:" + std::string(id)},
+            capturing ? "Recording…" : shortcutLabel(id), capturing, false, true, true
+        );
+        settingsButton(
+            p, {controlsX + 132, controlsY, 64, 26, Action::Preference, "keybind-reset:" + std::string(id)}, "Reset",
+            false, false, true, true
+        );
+      }
+      rowAction(
+          actionRow("Reset shortcuts", "Restore Cressida's default application shortcuts."), Action::Preference,
+          "keybind-reset-all", "Reset all"
+      );
+      section("Text editing");
+      for (const auto& [key, title] :
+           {std::pair{"Enter / Shift + Enter", "Send message / new line"},
             {"Ctrl + A / C / X / V", "Select all / copy / cut / paste"},
             {"Ctrl + Z / Shift + Ctrl + Z", "Undo / redo"},
             {"Ctrl + ← / →", "Move by word"},
-            {"Ctrl + Backspace / Delete", "Delete previous / next word"},
-            {"Escape", "Close settings or image viewer"},
-            {"Ctrl + Q", "Quit"}}) {
-        const float keyWidth = width * .46F;
-        const auto item = row(meaning, {}, keyWidth + 16, textHeight(key, 11, FontWeight::Medium, keyWidth) + 20);
-        label(p, width - keyWidth, item.top + 10, keyWidth, key, 11, accent, FontWeight::Medium, 0);
-      }
-      row("Custom shortcuts", "Shortcut remapping is not available yet.");
+            {"Ctrl + Backspace / Delete", "Delete previous / next word"}})
+        row(title, key);
     } else if (m_settingsPage == "accessibility") {
-      const auto item =
-          actionRow("Display and text", "Adjust message text size, interface scale and theme in Appearance.");
-      rowAction(item, Action::SettingsPage, "appearance", "Appearance");
-      row("Accessibility support", "Screen reader announcements and reduced motion preferences are not available yet.");
+      section("Motion");
+      toggle(
+          "Reduce motion", m_preferences.reducedMotion, "reduced_motion",
+          "Limit interface motion and disable animated media while reduced motion is enabled."
+      );
+      toggle(
+          "Animate emoji", m_preferences.animateEmoji, "animate_emoji",
+          "Play animated emoji in conversations when reduced motion is off."
+      );
+      toggle(
+          "Animate avatars", m_preferences.animateAvatars, "animate_avatars",
+          "Play animated profile and server images when reduced motion is off."
+      );
+      toggle(
+          "Automatically play GIFs", m_preferences.autoplayGifs, "autoplay_gifs",
+          "Play message GIFs when the conversation is visible and reduced motion is off."
+      );
+      section("Color and readability");
+      localSlider(
+          "Saturation", "saturation", "Reduce the intensity of interface colors without changing image content.",
+          m_preferences.saturation, 0, 100, "%"
+      );
+      localChoice(
+          "Role colors", "role_color_mode", "Show server role colors on names, beside names as dots, or hide them.",
+          m_preferences.roleColorMode, {"Colored names", "Color dots", "Off"}
+      );
+      rowAction(
+          actionRow("Text and interface size", "Choose a font, message text size and interface scale."),
+          Action::SettingsPage, "appearance", "Appearance"
+      );
     } else if (m_settingsPage == "advanced") {
-      row("Window decorations", "Cressida follows your desktop's window decoration preference.");
-      row("Advanced preferences", "Additional advanced preferences are not available yet.");
-    } else {
-      const std::string description = m_settingsPage == "voice"
-          ? "Calls, microphone selection and audio processing are not available in Cressida yet."
-          : m_settingsPage == "subscriptions" ? "Manage Nitro, gifts and payments in Discord."
-          : m_settingsPage == "language" ? "Cressida currently uses English. Language selection is not available yet."
-          : m_settingsPage == "games" ? "Automatic game detection and manually registered games are not available yet."
-                                      : "The in-game overlay is not available yet.";
-      openDiscord(actionRow("Not available in Cressida", description));
+      section("Developer tools");
+      toggle(
+          "Developer mode", m_preferences.developerMode, "developer_mode",
+          "Show identifier-copy actions in supported user, server, channel and message menus."
+      );
+      section("Window");
+      row("Desktop decorations",
+          "Use your compositor's window decorations when available, with native Cressida controls as the fallback.");
+    } else if (m_settingsPage == "voice") {
+      section("Voice and video");
+      row("Calls and audio devices",
+          "Voice connections, microphone capture, camera capture and screen sharing are not implemented in this "
+          "Cressida build. Input, output and processing controls will be available with the native calling engine.");
+      section("Video preferences");
+      accountToggle(
+          "Preview video before joining", "always_preview_video",
+          "Show a camera preview before joining video calls in Discord clients that support calling."
+      );
+      accountToggle(
+          "Disable stream previews", "disable_stream_previews",
+          "Hide automatic stream previews in Discord clients that support streaming."
+      );
+      accountToggle(
+          "Record voice in clips", "clips_voice_recording",
+          "Allow your voice to be included in Discord clips where recording is supported."
+      );
+    } else if (m_settingsPage == "language") {
+      section("Interface language");
+      remoteChoice(
+          "Discord account language", "locale",
+          "Choose the language Discord uses for account content and supported communications. Cressida's native "
+          "interface currently remains English.",
+          {"English (United States)",
+           "English (United Kingdom)",
+           "Български",
+           "中文（中国）",
+           "中文（台灣）",
+           "Hrvatski",
+           "Čeština",
+           "Dansk",
+           "Nederlands",
+           "Suomi",
+           "Français",
+           "Deutsch",
+           "Ελληνικά",
+           "हिन्दी",
+           "Magyar",
+           "Bahasa Indonesia",
+           "Italiano",
+           "日本語",
+           "한국어",
+           "Lietuvių",
+           "Norsk",
+           "Polski",
+           "Português do Brasil",
+           "Română",
+           "Русский",
+           "Español (España)",
+           "Español (Latinoamérica)",
+           "Svenska",
+           "ไทย",
+           "Türkçe",
+           "Українська",
+           "Tiếng Việt"}
+      );
+    } else if (m_settingsPage == "games") {
+      section("Registered games");
+      row("Game detection",
+          "Cressida does not currently scan running processes or publish game activity. Activities shared by another "
+          "Discord client remain visible according to your Activity Privacy preferences.");
+      rowAction(
+          actionRow("Activity sharing", "Choose who can see activities published to your Discord account."),
+          Action::SettingsPage, "activity", "Activity Privacy"
+      );
+    } else if (m_settingsPage == "overlay") {
+      section("Game overlay");
+      row("In-game overlay",
+          "This Cressida build does not inject an overlay into games. Chat remains available in the native desktop "
+          "window.");
+      rowAction(
+          actionRow("Desktop notifications", "Choose notification visibility and sounds while Cressida is running."),
+          Action::SettingsPage, "notifications", "Notifications"
+      );
     }
     finishCategory();
     const float pageHeight = cursor + 8;
@@ -1199,10 +1627,7 @@ namespace app {
         fontPreference("font-picker");
         return;
       }
-      m_settingsOpen = false;
-      m_settingsField.clear();
-      m_controlInput.setFocus(nullptr);
-      m_focusedInput.clear();
+      activate({0, 0, 0, 0, Action::CloseSettings, {}});
       m_window.invalidate();
     }
   }

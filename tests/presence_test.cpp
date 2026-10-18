@@ -97,6 +97,48 @@ int main() {
             && api::validSettingChanges({{"friend_sources", 6}}),
         "Only bounded, coherent whitelisted changes may be saved"
     );
+    const auto split =
+        api::parseAccountSettings(json{{"settings", "MgzqAQIIAfIBBAoCCAEyE+oBAhAD8gELCgkiB3Vua25vd24="}});
+    require(
+        split.at("explicit_guild_media") == 1
+            && split.at("explicit_friend_media") == 3
+            && split.at("filter_profanity") == 1,
+        "Duplicate protobuf messages merge recursively rather than clearing earlier values"
+    );
+    const json nestedSnapshot{
+        {"settings",
+         "CgIYEzJV6gEVCAEQApoGDnVua25vd24tZmlsdGVy8gErCgIIARITGg91bmtub3duLXdyYXBwZXIIAcIFD3Vua25vd24ta2V5d29yZKIGDHVua"
+         "25vd24tdGV4dGIwChciDnVua25vd24tbG9jYWxlCgVlbi1VU+oEFHVua25vd24tbG9jYWxpemF0aW9u"}
+    };
+    const auto nestedValues = api::parseAccountSettings(nestedSnapshot);
+    require(
+        nestedValues.at("explicit_friend_media") == 2
+            && nestedValues.at("filter_sexual") == 1
+            && nestedValues.at("locale") == 0,
+        "Read nested media filters, wrappers and string locale"
+    );
+    const auto nestedEdit =
+        api::accountSettingsPatch(nestedSnapshot, {{"explicit_friend_media", 3}, {"filter_sexual", 0}, {"locale", 11}});
+    require(
+        nestedEdit["settings"]
+                == "MlWiBgx1bmtub3duLXRleHTqARUIAZoGDnVua25vd24tZmlsdGVyEAPyASsKAggBwgUPdW5rbm93bi1rZXl3b3JkEhMaD3Vua25"
+                   "vd24td3JhcHBlcggAYi3qBBR1bmtub3duLWxvY2FsaXphdGlvbgoUIg51bmtub3duLWxvY2FsZQoCZGU="
+            && nestedEdit["required_data_version"] == 19,
+        "Nested settings saves preserve opaque siblings and wrapper fields at every level"
+    );
+    const auto editedNested = api::parseAccountSettings(nestedEdit);
+    require(
+        editedNested.at("explicit_friend_media") == 3
+            && editedNested.at("explicit_guild_media") == 1
+            && editedNested.at("filter_profanity") == 1
+            && editedNested.at("filter_sexual") == 0
+            && editedNested.at("locale") == 11,
+        "Nested updates change only selected values"
+    );
+    require(
+        !api::validSettingChanges({{"explicit_friend_media", 4}}) && !api::validSettingChanges({{"locale", 32}}),
+        "Reject invalid filter and locale enums"
+    );
     rejected = false;
     try {
       (void)api::accountSettingsPatch(json::object(), {{"show_activity", 0}});

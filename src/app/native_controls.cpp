@@ -57,7 +57,10 @@ namespace app {
     }
   }
   void ClientApplication::drawTooltip(Node& root, float w, float h) {
-    if (m_tooltip.empty() || m_contextOpen || (!m_dialogKind.empty() && m_dialogKind != "profile"))
+    if (m_tooltip.empty()
+        || userAccountDialogOpen()
+        || m_contextOpen
+        || (!m_dialogKind.empty() && m_dialogKind != "profile"))
       return;
     auto& renderer = m_window.target().renderer();
     const auto natural =
@@ -340,6 +343,7 @@ namespace app {
             || id == "channel-name"
             || id == "channel-topic"
             || id.starts_with("application-field:")
+            || id.starts_with("user-account:")
         ) {
           // Forms submit through their explicit Save/Submit action.
         } else if (id == "gif-search")

@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,6 +18,13 @@ namespace app {
     bool logDeletedMessages = false, logEditHistory = false;
     std::string fontFamily;
     std::string colorTheme = "cressida";
+    bool reducedMotion = false, animateEmoji = true, animateAvatars = true;
+    int saturation = 100, spoilerMode = 0, roleColorMode = 0;
+    bool developerMode = false, convertEmoticons = true, showReactions = true, showRoleIcons = true;
+    int messageGroupSpacing = 16;
+    bool desktopNotifications = true, notificationSounds = true;
+    int notificationPrivacy = 0;
+    std::map<std::string, std::string> keybinds;
   };
   struct LastChannel {
     std::string guild, channel;
