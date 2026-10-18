@@ -81,6 +81,26 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay.starts_with("syntax-nix-flat-rail")) {
+        const auto& boxes = m_messageLayouts.at(m_messages.front().id).layout.boxes;
+        const auto code = std::ranges::find_if(boxes, [](const auto& box) { return !box.code.empty(); });
+        if (code == boxes.end() || theme::panel == theme::background || theme::railBackground != theme::background)
+          throw std::runtime_error("Code surface fixture requires a fence and matching rail/chat colors");
+        int surfaces = 0;
+        const auto inspect = [&](auto&& self, const Node& node) -> void {
+          if (node.type() == NodeType::Rect
+              && node.width() == code->width
+              && node.height() == code->height
+              && static_cast<const RectNode&>(node).style().fill == theme::panel)
+            ++surfaces;
+          for (const auto& child : node.children())
+            self(self, *child);
+        };
+        inspect(inspect, *m_scene);
+        if (surfaces != 1)
+          throw std::runtime_error("Fenced code must retain its surface when rail and chat colors match");
+        std::clog << "Offline code surface check passed\n";
+      }
       if (m_demo && m_demoOverlay.starts_with("login-themed")) {
         const bool light = m_demoOverlay == "login-themed-light" || m_demoOverlay == "login-themed-system-light";
         const auto& palette =
@@ -938,12 +958,18 @@ namespace app {
             || view == "syntax-compact"
             || view == "syntax-nix"
             || view == "syntax-nix-light"
-            || view == "syntax-nix-compact") {
+            || view == "syntax-nix-compact"
+            || view.starts_with("syntax-nix-flat-rail")) {
           m_demoOverlay = view;
           m_showMembers = false;
           m_preferences.compact = view.ends_with("-compact");
           if (view.ends_with("-light"))
             m_preferences.theme = "light";
+          if (view.starts_with("syntax-nix-flat-rail")) {
+            auto& palette = m_themeSnapshot.themes.front();
+            palette.dark.rail = palette.dark.background;
+            palette.light.rail = palette.light.background;
+          }
           m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
             {"id":"9701","author":{"id":"11","username":"Lysec"},"timestamp":"2026-10-18T11:26:00Z","content":"```cpp\n// Keep the original source when copying.\nconstexpr int count = 42;\nif (count > 0) {\n  print(\"Hello, world!\");\n}\n```"},
             {"id":"9702","author":{"id":"12","username":"Maya"},"timestamp":"2026-10-18T11:27:00Z","content":"```python\ndef greet(name):\n    # Comments and strings stay separate.\n    return \"Hello, \" + name\n\nprint(greet(\"Cressida\"))\n```"},
@@ -2693,10 +2719,9 @@ namespace app {
                   }
                   rectangle(
                       *content, 50 + box.x, bodyY + box.y, box.width, box.height,
-                      box.quote               ? muted
-                          : box.embed         ? sidebar
-                          : theme::lightTheme ? panel
-                                              : lerpColor(background, theme::railBackground, .6F),
+                      box.quote       ? muted
+                          : box.embed ? sidebar
+                                      : panel,
                       box.quote ? 0 : 6
                   );
                   if (box.embed)
