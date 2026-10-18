@@ -403,6 +403,171 @@ int main(int argc, char** argv) {
         code.boxes.size() == 1 && !code.boxes.front().inlineCode && code.runs.back().style.size == 14,
         "Fenced code retains its full-sized font and separate block decoration"
     );
+    const auto checkTokens = [&](std::string_view language, std::string_view source,
+                                 std::initializer_list<std::pair<std::string_view, app::CodeToken>> expected) {
+      const auto spans = app::highlightCode(source, language);
+      std::size_t offset = 0;
+      for (const auto& span : spans) {
+        require(span.offset == offset && span.length > 0, "Syntax ranges cover source bytes without gaps");
+        offset += span.length;
+      }
+      require(offset == source.size(), "Highlighting preserves all original code bytes");
+      for (const auto& [text, token] : expected) {
+        const auto at = source.find(text);
+        require(
+            at != std::string_view::npos
+                && std::ranges::any_of(
+                    spans,
+                    [&](const auto& span) {
+                      return span.offset <= at && span.offset + span.length >= at + text.size() && span.token == token;
+                    }
+                ),
+            "Language-aware syntax classification"
+        );
+      }
+    };
+    using Token = app::CodeToken;
+    checkTokens(
+        "C++", "#include <vector>\nconstexpr int count = 42;\n/* if \"x\"\ncomment */\nprint(\"<@1> __literal__\");",
+        {{"#include", Token::Preprocessor},
+         {"constexpr", Token::Keyword},
+         {"int", Token::Type},
+         {"42", Token::Number},
+         {"/* if \"x\"\ncomment */", Token::Comment},
+         {"print", Token::Function},
+         {"\"<@1> __literal__\"", Token::String}}
+    );
+    checkTokens(
+        "python", "def greet(name):\n  text = \"\"\"first\n# still a string\"\"\"\n  return True # hi\n",
+        {{"def", Token::Keyword},
+         {"greet", Token::Function},
+         {"\"\"\"first\n# still a string\"\"\"", Token::String},
+         {"return", Token::Keyword},
+         {"True", Token::Number},
+         {"# hi", Token::Comment}}
+    );
+    checkTokens(
+        "js", "const value = `one\ntwo`; // ignored return\nrun(3.5e-2);",
+        {{"const", Token::Keyword},
+         {"`one\ntwo`", Token::String},
+         {"// ignored return", Token::Comment},
+         {"3.5e-2", Token::Number}}
+    );
+    checkTokens(
+        "json", "{\"key\": \"value\", \"enabled\": true}",
+        {{"\"key\"", Token::Property}, {"\"value\"", Token::String}, {"true", Token::Number}}
+    );
+    checkTokens(
+        "bash", "# comment\nif test $value; then echo \"yes\"; fi",
+        {{"# comment", Token::Comment}, {"if", Token::Keyword}, {"$value", Token::Property}, {"echo", Token::Keyword}}
+    );
+    checkTokens(
+        "rust", "fn test<'a>(x: &'a str) { /* outer /* inner */ done */ }",
+        {{"fn", Token::Keyword}, {"'a", Token::Property}, {"/* outer /* inner */ done */", Token::Comment}}
+    );
+    checkTokens("rust", "let value = 'ß'; return value;", {{"'ß'", Token::String}, {"return", Token::Keyword}});
+    checkTokens(
+        "cpp", "R\"tag(a \"quote\"\n// still string)tag\"",
+        {{"R\"tag(a \"quote\"\n// still string)tag\"", Token::String}}
+    );
+    checkTokens("diff", "+added\n-removed\n@@ context\n", {{"+added", Token::Added}, {"-removed", Token::Removed}});
+    const std::string nixSource = R"NIX({
+  description = "My NixOS config";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+  enabled = true;
+  # Keep this comment out of the string.
+  value' = let count = 42; in count;
+  text = ''
+    echo ''${PATH}
+    echo ${if enabled then "yes" else "no"}
+  '';
+  path = ./${name}/config.nix;
+})NIX";
+    for (const auto language : {"nix", " NIX ", "nixos"})
+      checkTokens(
+          language, nixSource,
+          {{"description", Token::Property},
+           {"\"My NixOS config\"", Token::String},
+           {"home-manager", Token::Property},
+           {"follows", Token::Property},
+           {"true", Token::Number},
+           {"# Keep this comment out of the string.", Token::Comment},
+           {"value'", Token::Property},
+           {"let", Token::Keyword},
+           {"42", Token::Number},
+           {"''${PATH}", Token::String},
+           {"if", Token::Keyword},
+           {"then", Token::Keyword},
+           {"\"yes\"", Token::String},
+           {"config.nix", Token::String}}
+      );
+    checkTokens(
+        "nix", R"NIX("before ${if true then "${({ a = "ok"; }).a}" else "no"} after"; rec {})NIX",
+        {{"if", Token::Keyword},
+         {"then", Token::Keyword},
+         {"\"ok\"", Token::String},
+         {"else", Token::Keyword},
+         {" after\"", Token::String},
+         {"rec", Token::Keyword}}
+    );
+    checkTokens(
+        "nix", R"NIX("\${literal} $${make}"; ''
+      ''' quote ''\n newline ''${literal} $${make}
+    ''; /* multiline
+    comment */ with builtins; import <nixpkgs> {})NIX",
+        {{"\\${literal}", Token::String},
+         {"$${make}", Token::String},
+         {"''' quote", Token::String},
+         {"''\\n newline", Token::String},
+         {"/* multiline\n    comment */", Token::Comment},
+         {"with", Token::Keyword},
+         {"builtins", Token::Function},
+         {"<nixpkgs>", Token::String}}
+    );
+    for (const auto malformed : {"\"unterminated ${if true then", "'' unfinished ''${escaped}", "/* unfinished"})
+      checkTokens("nix", malformed, {});
+    for (const auto language : {"mjs", "cjs", "mts", "cts", "javascript", "TS"})
+      checkTokens(language, "const value = 1;", {{"const", Token::Keyword}});
+    checkTokens(
+        "json5", "// comment\n{key: 'value'}",
+        {{"// comment", Token::Comment}, {"key", Token::Property}, {"'value'", Token::String}}
+    );
+    checkTokens("shellscript", "if true; then echo yes; fi", {{"then", Token::Keyword}});
+    const auto nixLayout = app::layoutMessage("```nix\n" + nixSource + "\n```", 200, editMeasure);
+    require(nixLayout.boxes.front().code == nixSource + "\n", "Nix Copy retains source and multiline escapes exactly");
+    for (const auto& run : nixLayout.runs)
+      require(
+          nixLayout.plainText.substr(run.offset, run.text.size()) == run.text,
+          "Nix interpolation and wrapping retain selection offsets"
+      );
+    for (const auto language : {"", "text", "unsupported-language"})
+      checkTokens(language, "if True: print(123)", {{"if True: print(123)", Token::Plain}});
+    const auto highlighted =
+        app::layoutMessage("```cpp\n  const int count = 42; // hello\n```\n`const int`", 150, editMeasure);
+    require(
+        highlighted.boxes.front().code == "  const int count = 42; // hello\n",
+        "Highlighted code Copy retains exact indentation and newlines"
+    );
+    require(
+        std::ranges::any_of(highlighted.runs, [](const auto& run) { return run.style.syntax == Token::Keyword; }),
+        "Fenced language reaches rich text styles"
+    );
+    require(
+        highlighted.runs.back().style.syntax == Token::Plain, "Inline code remains uncolored after a highlighted fence"
+    );
+    for (const auto& run : highlighted.runs)
+      require(
+          highlighted.plainText.substr(run.offset, run.text.size()) == run.text,
+          "Highlighting and wrapping retain selection byte offsets"
+      );
+    const auto plainAgain = app::layoutMessage("```cpp\nreturn 1;\n```\n```text\nreturn 2;\n```", 400, editMeasure);
+    require(plainAgain.runs.back().style.syntax == Token::Plain, "Syntax state never leaks between code fences");
     auto link = app::layoutMessage("[docs](https://example.com)\n> quote\n- list item", 300, measure);
     require(link.runs.front().style.link == "https://example.com", "Masked links retain their actual URL");
     require(

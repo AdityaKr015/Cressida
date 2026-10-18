@@ -1,6 +1,7 @@
 #pragma once
 
 #include "api/models.h"
+#include "app/syntax_highlight.h"
 
 #include <functional>
 #include <optional>
@@ -15,6 +16,7 @@ namespace app {
     bool historical = false;
     float size = 14;
     std::string link;
+    CodeToken syntax = CodeToken::Plain;
   };
   struct MessageRun {
     std::string text, image;

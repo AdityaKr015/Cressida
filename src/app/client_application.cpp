@@ -90,6 +90,14 @@ namespace app {
           for (const auto action : {Action::Reply, Action::CopyCode, Action::CopyMessage, Action::MessageMenu})
             if (std::ranges::any_of(m_hits, [&](const auto& hit) { return hit.action == action; }) != expectActions)
               throw std::runtime_error("Message hover actions must stay inside the conversation viewport");
+          if (expectActions) {
+            const auto copy = std::ranges::find(m_hits, Action::CopyCode, &Hit::action);
+            if (copy == m_hits.end()
+                || copy->width != 22
+                || copy->height != 22
+                || copy->id != "Fenced code with a Copy action.\n")
+              throw std::runtime_error("Code Copy uses a compact glyph target with unchanged source text");
+          }
         }
         if (step == 2)
           m_channelPanel = "pins";
@@ -739,6 +747,51 @@ namespace app {
           m_demoOverlay = view;
         if (view == "sidebar-wide")
           m_preferences.channelSidebarWidth = 420;
+        if (view == "syntax"
+            || view == "syntax-light"
+            || view == "syntax-compact"
+            || view == "syntax-nix"
+            || view == "syntax-nix-light"
+            || view == "syntax-nix-compact") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view.ends_with("-compact");
+          if (view.ends_with("-light"))
+            m_preferences.theme = "light";
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9701","author":{"id":"11","username":"Lysec"},"timestamp":"2026-10-18T11:26:00Z","content":"```cpp\n// Keep the original source when copying.\nconstexpr int count = 42;\nif (count > 0) {\n  print(\"Hello, world!\");\n}\n```"},
+            {"id":"9702","author":{"id":"12","username":"Maya"},"timestamp":"2026-10-18T11:27:00Z","content":"```python\ndef greet(name):\n    # Comments and strings stay separate.\n    return \"Hello, \" + name\n\nprint(greet(\"Cressida\"))\n```"},
+            {"id":"9703","author":{"id":"12","username":"Maya"},"timestamp":"2026-10-18T11:28:00Z","content":"```json\n{\n  \"enabled\": true, \"count\": 12,\n  \"label\": \"Syntax highlighting\"\n}\n```"}
+          ])JSON"));
+          if (view.starts_with("syntax-nix")) {
+            m_messages.resize(1);
+            m_messages.front().content = R"NIX(```nix
+{
+  description = "My NixOS config";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nur.url = "github:nix-community/NUR";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+  # An indented string with escaped and real interpolation.
+  script = ''
+    echo ''${PATH}
+    echo ${if enabled then "yes" else "no"}
+  '';
+}
+```)NIX";
+          }
+          for (auto& message : m_messages)
+            message.channelId = m_channelId;
+          m_pointerX = chatLeft() + 100;
+          m_pointerY = 150;
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+        }
         if (view == "inline-code"
             || view == "inline-code-light"
             || view == "inline-code-compact"
@@ -2393,15 +2446,11 @@ namespace app {
                 if (box.embed)
                   rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
                 if (!box.code.empty()) {
-                  const float bx = left + 74 + box.x + box.width - 54, by = top + bodyY + box.y + 4;
                   if (hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
-                    button(
-                        *content, {50 + box.x + box.width - 54, bodyY + box.y + 4, 50, 24, Action::CopyCode, box.code},
-                        "Copy"
+                    iconButton(
+                        *content, {50 + box.x + box.width - 26, bodyY + box.y + 4, 22, 22, Action::CopyCode, box.code},
+                        "copy", "Copy code"
                     );
-                    // Scene-local button geometry must be translated for input.
-                    m_hits.back().x = bx;
-                    m_hits.back().y = by;
                   }
                 }
               }
@@ -2433,6 +2482,7 @@ namespace app {
                       *content, rx, ry, std::max(1.0F, run.width + 2), messageMarkup(run.text, run.style),
                       run.style.size,
                       run.style.historical                               ? muted
+                          : run.style.syntax != CodeToken::Plain         ? syntaxColor(run.style.syntax)
                           : run.style.link.empty() && !run.style.mention ? foreground
                                                                          : accent,
                       FontWeight::Normal, 1, true

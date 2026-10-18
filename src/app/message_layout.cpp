@@ -115,6 +115,7 @@ namespace app {
       std::vector<std::size_t> quotes;
       bool codeBlock = false;
       std::size_t codeBox = 0;
+      std::string codeLanguage;
       std::optional<std::size_t> inlineBox;
       bool underlineOn = false, spoilerOn = false;
       float emojiSize = 22;
@@ -383,6 +384,7 @@ namespace app {
         l.codeBlock = true;
         l.style.code = true;
         const auto& lang = static_cast<MD_BLOCK_CODE_DETAIL*>(detail)->lang;
+        l.codeLanguage.assign(lang.text ? lang.text : "", lang.size);
         l.style.size = l.fontSize * 11 / 14;
         l.text(lang.size ? std::string_view(lang.text, lang.size) : std::string_view("code"), true);
         l.newline();
@@ -428,7 +430,13 @@ namespace app {
         l.indent -= 14;
         l.x = l.indent;
         break;
-      case MD_BLOCK_CODE:
+      case MD_BLOCK_CODE: {
+        const auto source = l.output.boxes[l.codeBox].code;
+        for (const auto& span : highlightCode(source, l.codeLanguage)) {
+          l.style.syntax = span.token;
+          l.text(std::string_view(source).substr(span.offset, span.length), true);
+        }
+        l.style.syntax = CodeToken::Plain;
         l.boundary();
         l.y += 10;
         l.output.boxes[l.codeBox].height = l.y - l.output.boxes[l.codeBox].y;
@@ -438,6 +446,7 @@ namespace app {
         l.style.code = false;
         l.codeBlock = false;
         break;
+      }
       default:
         break;
       }
@@ -496,7 +505,8 @@ namespace app {
         auto raw = restore(std::string(text, size));
         if (l.codeBlock)
           l.output.boxes[l.codeBox].code += raw;
-        l.text(raw, true);
+        else
+          l.text(raw, true);
       } else
         l.pending.append(text, size);
       return 0;

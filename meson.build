@@ -126,7 +126,7 @@ if get_option('emoji_font') != ''
   client_args += '-DCRESSIDA_EMOJI_FONT="' + get_option('emoji_font') + '"'
 endif
 markdown_dep = dependency('md4c')
-message_layout = static_library('message-layout', 'src/app/message_layout.cpp', dependencies: [render_dep, backend_dep, markdown_dep])
+message_layout = static_library('message-layout', ['src/app/message_layout.cpp', 'src/app/syntax_highlight.cpp'], dependencies: [render_dep, backend_dep, markdown_dep])
 message_layout_dep = declare_dependency(link_with: message_layout, dependencies: [render_dep, backend_dep, markdown_dep])
 emoji_catalog = static_library('emoji-catalog', 'src/app/emoji_catalog.cpp', dependencies: [backend_dep, markdown_dep])
 client = executable('cressida',

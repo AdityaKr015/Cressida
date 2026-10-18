@@ -196,7 +196,10 @@ namespace app {
         else
           label(
               *text, run.x, run.y, run.width + 2, messageMarkup(run.text, run.style), run.style.size,
-              run.style.link.empty() ? foreground : accent, FontWeight::Normal, 1, true
+              run.style.syntax != CodeToken::Plain ? syntaxColor(run.style.syntax)
+                  : run.style.link.empty()         ? foreground
+                                                   : accent,
+              FontWeight::Normal, 1, true
           );
         if (!run.style.link.empty() && !hidden && run.y < bioHeight)
           bodyHit(run.x, run.y, run.width, std::min(run.height, bioHeight - run.y), Action::OpenUrl, run.style.link);
