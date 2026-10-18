@@ -178,8 +178,13 @@ namespace app {
       bioClip->setClipChildren(true);
       auto* text = bioClip.get();
       body->addChild(std::move(bioClip));
-      for (const auto& box : bio.boxes)
-        rectangle(*text, box.x, box.y, box.width, box.height, box.quote ? muted : panel, box.quote ? 0 : 5);
+      for (const auto& box : bio.boxes) {
+        if (box.inlineCode) {
+          rectangle(*text, box.x, box.y, box.width, box.height, withAlpha(muted, .2F), 3);
+          rectangle(*text, box.x + 1, box.y + 1, box.width - 2, box.height - 2, panel, 2);
+        } else
+          rectangle(*text, box.x, box.y, box.width, box.height, box.quote ? muted : panel, box.quote ? 0 : 5);
+      }
       for (const auto& run : bio.runs) {
         const bool hidden = run.style.spoiler && !m_profileRevealSpoilers;
         if (hidden) {

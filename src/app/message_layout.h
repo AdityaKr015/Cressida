@@ -29,6 +29,7 @@ namespace app {
     std::string code;
     bool embed = false;
     std::uint32_t color = 0;
+    bool inlineCode = false;
   };
   struct MessagePicture {
     api::Media media;

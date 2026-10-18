@@ -38,7 +38,6 @@ namespace app {
         result.plainText += '\n';
       result.height += std::max(22.0F, part.height);
     };
-    append(layoutMessage("Edit history", width, measure, 11), true);
     for (auto version : versions) {
       // Keep old media as filename links; a long history must not repeat full images.
       version.editedTimestamp.clear();
@@ -48,9 +47,7 @@ namespace app {
       if (version.content.empty() && version.attachments.empty())
         version.content = "[Empty message]";
       append(layoutRichMessage(version, width, measure, fontSize, options), true);
-      result.height += 3;
     }
-    result.height += 3;
     result.historyHeight = result.height;
     append(std::move(current), false);
     return result;

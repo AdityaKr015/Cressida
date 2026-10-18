@@ -1,9 +1,9 @@
 #include "app/message_layout.h"
 
-#include "app/discord_timestamp.h"
-#include "app/reply_preview.h"
 #include "api/emoji.h"
 #include "api/models.h"
+#include "app/discord_timestamp.h"
+#include "app/reply_preview.h"
 
 #include <algorithm>
 #include <md4c.h>
@@ -115,9 +115,11 @@ namespace app {
       std::vector<std::size_t> quotes;
       bool codeBlock = false;
       std::size_t codeBox = 0;
+      std::optional<std::size_t> inlineBox;
       bool underlineOn = false, spoilerOn = false;
       float emojiSize = 22;
       std::size_t lineStart = 0;
+      std::size_t lineBoxStart = 0;
       const MessageOptions* options = nullptr;
       const std::map<std::string, std::string>* mentions = nullptr;
       std::string pending;
@@ -131,14 +133,20 @@ namespace app {
         const bool hasEmoji = std::any_of(output.runs.begin() + lineStart, output.runs.end(), [](const auto& run) {
           return run.style.emoji;
         });
-        if (hasEmoji)
+        if (hasEmoji) {
           for (auto i = lineStart; i < output.runs.size(); ++i)
             output.runs[i].y += std::max(0.0F, (lineHeight - output.runs[i].height) / 2);
+          for (auto i = lineBoxStart; i < output.boxes.size(); ++i)
+            if (auto& box = output.boxes[i]; box.inlineCode)
+              box.y += std::max(0.0F, (lineHeight - (box.height + 4)) / 2);
+        }
         lineStart = output.runs.size();
+        lineBoxStart = output.boxes.size();
       }
       void newline(bool semantic = false) {
         alignLine();
-        x = indent;
+        inlineBox.reset();
+        x = indent + (style.code && !codeBlock ? 3 : 0);
         y += lineHeight;
         lineHeight = fontSize + 8;
         if (semantic)
@@ -157,19 +165,31 @@ namespace app {
           current.size = emojiSize;
         const float size = image.empty() ? measure(text, current) : emojiSize;
         const float height = image.empty() ? current.size + 8 : emojiSize;
-        if (x > indent && x + size > width - (codeBlock ? 10 : 0))
+        const bool inlineCode = current.code && !codeBlock;
+        const float padding = inlineCode ? 3 : 0;
+        if (x > indent + padding && x + size > width - (codeBlock ? 10 : padding))
           newline();
-        if (current.code && !codeBlock)
-          output.boxes.push_back({x - 2, y - 1, size + 4, current.size + 7, false, {}});
+        const float runY = y + (inlineCode ? std::max(0.0F, fontSize - current.size) : 0);
+        if (inlineCode) {
+          if (!inlineBox) {
+            inlineBox = output.boxes.size();
+            output.boxes.push_back(
+                {x - padding, runY - 1, size + padding * 2, current.size + 4, false, {}, false, 0, true}
+            );
+          } else {
+            auto& box = output.boxes[*inlineBox];
+            box.width = x + size + padding - box.x;
+          }
+        }
         output.runs.push_back(
-            {std::move(text), std::move(image), x, y, size, current, output.plainText.size(), height}
+            {std::move(text), std::move(image), x, runY, size, current, output.plainText.size(), height}
         );
         output.plainText += output.runs.back().text;
         x += size;
         lineHeight = std::max(lineHeight, current.emoji ? emojiSize + 8 : height);
       }
       void plainWord(std::string_view word) {
-        const float available = std::max(22.0F, width - indent - (codeBlock ? 10 : 0));
+        const float available = std::max(22.0F, width - indent - (codeBlock ? 10 : style.code ? 6 : 0));
         auto current = style;
         current.underline |= underlineOn;
         if (measure(word, current) <= available) {
@@ -360,13 +380,13 @@ namespace app {
         l.indent += 10;
         l.x = l.indent;
         l.y += 10;
+        l.codeBlock = true;
         l.style.code = true;
         const auto& lang = static_cast<MD_BLOCK_CODE_DETAIL*>(detail)->lang;
         l.style.size = l.fontSize * 11 / 14;
         l.text(lang.size ? std::string_view(lang.text, lang.size) : std::string_view("code"), true);
         l.newline();
         l.style.size = l.fontSize;
-        l.codeBlock = true;
         break;
       }
       case MD_BLOCK_HR:
@@ -439,6 +459,9 @@ namespace app {
         break;
       case MD_SPAN_CODE:
         l.style.code = true;
+        l.style.size *= 0.9F;
+        l.inlineBox.reset();
+        l.x += 3;
         break;
       case MD_SPAN_A: {
         const auto& href = static_cast<MD_SPAN_A_DETAIL*>(detail)->href;
@@ -450,9 +473,13 @@ namespace app {
       }
       return 0;
     }
-    int leaveSpan(MD_SPANTYPE, void*, void* context) {
+    int leaveSpan(MD_SPANTYPE type, void*, void* context) {
       auto& l = *static_cast<Layout*>(context);
       l.flush();
+      if (type == MD_SPAN_CODE) {
+        l.x += 3;
+        l.inlineBox.reset();
+      }
       l.style = l.styles.back();
       l.styles.pop_back();
       return 0;

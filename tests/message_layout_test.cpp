@@ -349,6 +349,37 @@ int main(int argc, char** argv) {
     require(styled("underlined", [](const auto& s) { return s.underline; }), "Discord double-underscore underline");
     require(styled("gone", [](const auto& s) { return s.strike; }), "Render strikethrough");
     require(styled("secret", [](const auto& s) { return s.spoiler; }), "Spoilers remain hidden until interaction");
+    const auto inlineCode = app::layoutMessage("Before `a < b` after `two words`.", 600, editMeasure);
+    require(
+        inlineCode.boxes.size() == 2 && inlineCode.boxes[0].inlineCode && inlineCode.boxes[1].inlineCode,
+        "Each inline code span has one continuous background, including its spaces"
+    );
+    require(inlineCode.plainText == "Before a < b after two words.\n", "Inline code padding never changes copied text");
+    for (const auto& run : inlineCode.runs) {
+      require(
+          inlineCode.plainText.substr(run.offset, run.text.size()) == run.text, "Inline code retains selection offsets"
+      );
+      if (run.style.code) {
+        require(run.style.size < 14, "Inline monospace text is slightly smaller than surrounding text");
+        require(
+            std::ranges::any_of(
+                inlineCode.boxes,
+                [&](const auto& box) { return run.x > box.x && run.x + run.width < box.x + box.width; }
+            ),
+            "Inline code backgrounds reserve padding on both sides"
+        );
+      }
+    }
+    const auto wrappedCode = app::layoutMessage("`~/.cache/noctalia/noctalia.log with spaces`", 95, editMeasure);
+    require(wrappedCode.boxes.size() > 1, "Inline code wraps long paths without overflowing");
+    for (const auto& box : wrappedCode.boxes)
+      require(box.x >= 0 && box.x + box.width <= 95.01F, "Wrapped code padding stays within the column");
+    const auto emojiCode = app::layoutMessage("🙂 `a b`", 600, editMeasure, 14, {}, emojiOptions);
+    const auto codeRun = std::ranges::find_if(emojiCode.runs, [](const auto& run) { return run.style.code; });
+    require(
+        codeRun != emojiCode.runs.end() && std::abs(codeRun->y - emojiCode.boxes.front().y - 1) < .01F,
+        "Inline code decoration follows emoji baseline alignment"
+    );
     auto unmatched = app::layoutMessage("literal __marker and || unfinished", 600, measure);
     require(
         unmatched.plainText.contains("__marker") && unmatched.plainText.contains("||"),
@@ -367,6 +398,10 @@ int main(int argc, char** argv) {
     require(
         std::ranges::all_of(code.runs, [](const auto& run) { return run.style.code && !run.style.underline; }),
         "Fenced code uses monospace without interpreting formatting"
+    );
+    require(
+        code.boxes.size() == 1 && !code.boxes.front().inlineCode && code.runs.back().style.size == 14,
+        "Fenced code retains its full-sized font and separate block decoration"
     );
     auto link = app::layoutMessage("[docs](https://example.com)\n> quote\n- list item", 300, measure);
     require(link.runs.front().style.link == "https://example.com", "Masked links retain their actual URL");

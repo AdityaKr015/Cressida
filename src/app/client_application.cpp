@@ -83,6 +83,20 @@ namespace app {
       draw();
       if (m_demo && m_demoOverlay == "deleted-cycle" && m_demoInteractionStep < 3)
         demoDeletedStep();
+      if (m_demo && m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep < 5) {
+        const auto step = m_demoInteractionStep++;
+        if (step > 0) {
+          const bool expectActions = step == 1 || step == 3;
+          for (const auto action : {Action::Reply, Action::CopyCode, Action::CopyMessage, Action::MessageMenu})
+            if (std::ranges::any_of(m_hits, [&](const auto& hit) { return hit.action == action; }) != expectActions)
+              throw std::runtime_error("Message hover actions must stay inside the conversation viewport");
+        }
+        if (step == 2)
+          m_channelPanel = "pins";
+        m_pointerX = step == 0 || step == 2 ? chatLeft() + 100 : m_window.width() - 20;
+        m_pointerY = m_messageTops.at(m_messages.front().id) + 24;
+        m_window.invalidate();
+      }
       if (m_demo && m_demoOverlay == "join-cycle")
         demoJoinStep();
       if (m_demo && m_demoOverlay == "sidebar-cycle")
@@ -645,20 +659,21 @@ namespace app {
             || std::string_view(view) == "video-cycle");
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"               ? 4
-                         : m_demo && view && std::string_view(view) == "deleted-cycle"      ? 3
-                         : m_demo && view && std::string_view(view) == "sidebar-cycle"      ? 10
-                         : m_demo && view && std::string_view(view) == "role-emoji-cycle"   ? 3
-                         : m_demo && view && std::string_view(view) == "role-members-cycle" ? 2
-                         : m_demo && view && std::string_view(view) == "mentions-cycle"     ? 4
-                         : m_demo && view && std::string_view(view) == "channel-cycle"      ? 18
-                         : m_demo && view && std::string_view(view) == "forum-cycle"        ? 12
-                         : m_demo && view && std::string_view(view) == "thread-cycle"       ? 10
-                         : m_demo && view && std::string_view(view) == "guild-tag-cycle"    ? 10
-                         : m_demo && view && std::string_view(view) == "profile-card-cycle" ? 8
-                         : m_demo && view && std::string_view(view) == "role-style-cycle"   ? 7
-                         : m_demo && view && std::string_view(view) == "unread-badge-cycle" ? 4
-                         : m_demo && view && std::string_view(view) == "unread-cycle"       ? 10
+        smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"                ? 4
+                         : m_demo && view && std::string_view(view) == "deleted-cycle"       ? 3
+                         : m_demo && view && std::string_view(view) == "message-hover-cycle" ? 5
+                         : m_demo && view && std::string_view(view) == "sidebar-cycle"       ? 10
+                         : m_demo && view && std::string_view(view) == "role-emoji-cycle"    ? 3
+                         : m_demo && view && std::string_view(view) == "role-members-cycle"  ? 2
+                         : m_demo && view && std::string_view(view) == "mentions-cycle"      ? 4
+                         : m_demo && view && std::string_view(view) == "channel-cycle"       ? 18
+                         : m_demo && view && std::string_view(view) == "forum-cycle"         ? 12
+                         : m_demo && view && std::string_view(view) == "thread-cycle"        ? 10
+                         : m_demo && view && std::string_view(view) == "guild-tag-cycle"     ? 10
+                         : m_demo && view && std::string_view(view) == "profile-card-cycle"  ? 8
+                         : m_demo && view && std::string_view(view) == "role-style-cycle"    ? 7
+                         : m_demo && view && std::string_view(view) == "unread-badge-cycle"  ? 4
+                         : m_demo && view && std::string_view(view) == "unread-cycle"        ? 10
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
@@ -666,6 +681,8 @@ namespace app {
     );
     if (m_demoOverlay == "deleted-cycle" && m_demoInteractionStep != 3)
       throw std::runtime_error("Deleted-message replay did not finish");
+    if (m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep != 5)
+      throw std::runtime_error("Message hover replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
       throw std::runtime_error("Server join replay did not complete");
     if (m_demoOverlay == "role-emoji-cycle" && m_demoInteractionStep != 3)
@@ -722,6 +739,30 @@ namespace app {
           m_demoOverlay = view;
         if (view == "sidebar-wide")
           m_preferences.channelSidebarWidth = 420;
+        if (view == "inline-code"
+            || view == "inline-code-light"
+            || view == "inline-code-compact"
+            || view == "message-hover-cycle") {
+          m_demoOverlay = view;
+          m_showMembers = view == "message-hover-cycle";
+          m_preferences.compact = view == "inline-code-compact";
+          if (view == "inline-code-light")
+            m_preferences.theme = "light";
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9601","author":{"id":"11","username":"Lysec"},"timestamp":"2026-10-18T09:26:00Z","content":"`~/.cache/noctalia/noctalia.log`"},
+            {"id":"9602","author":{"id":"11","username":"Lysec"},"timestamp":"2026-10-18T09:26:10Z","content":"Check `a < b` and `two words` in this line. 🙂 `aligned code`","edited_timestamp":"2026-10-18T09:27:00Z"},
+            {"id":"9603","author":{"id":"12","username":"Maya"},"timestamp":"2026-10-18T09:28:00Z","content":"A long path: `~/.cache/noctalia/a-long-directory-name/another-directory/noctalia.log`\n```text\nFenced code keeps its own layout.\n```"}
+          ])JSON"));
+          if (view == "message-hover-cycle") {
+            m_messages.resize(1);
+            m_messages.front().content = "Inline `two words`.\n```text\nFenced code with a Copy action.\n```";
+          }
+          for (auto& message : m_messages)
+            message.channelId = m_channelId;
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+        }
         if (view == "joins" || view == "joins-light" || view == "joins-compact" || view == "join-cycle") {
           m_demoOverlay = view;
           m_showMembers = false;
@@ -2334,22 +2375,26 @@ namespace app {
               );
               m_messageText[message.id] = layout.plainText;
               m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
-              if (layout.historyHeight > 0)
-                rectangle(*content, 46, bodyY, 2, layout.historyHeight - 3, withAlpha(muted, .25F), 1);
               // Card backgrounds precede nested code/quote decoration.
               for (const auto& box : layout.boxes) {
+                if (box.inlineCode) {
+                  rectangle(*content, 50 + box.x, bodyY + box.y, box.width, box.height, withAlpha(muted, .2F), 3);
+                  rectangle(*content, 51 + box.x, bodyY + box.y + 1, box.width - 2, box.height - 2, panel, 2);
+                  continue;
+                }
                 rectangle(
                     *content, 50 + box.x, bodyY + box.y, box.width, box.height,
-                    box.quote       ? muted
-                        : box.embed ? sidebar
-                                    : rgbHex(0x111318),
+                    box.quote                            ? muted
+                        : box.embed                      ? sidebar
+                        : m_preferences.theme == "light" ? panel
+                                                         : rgbHex(0x111318),
                     box.quote ? 0 : 6
                 );
                 if (box.embed)
                   rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
                 if (!box.code.empty()) {
                   const float bx = left + 74 + box.x + box.width - 54, by = top + bodyY + box.y + 4;
-                  if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
+                  if (hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
                     button(
                         *content, {50 + box.x + box.width - 54, bodyY + box.y + 4, 50, 24, Action::CopyCode, box.code},
                         "Copy"
@@ -2459,7 +2504,7 @@ namespace app {
                 }
               }
             }
-            if (m_pointerX >= left && m_pointerY >= rowTop && m_pointerY < rowBottom) {
+            if (hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
               const float toolbarWidth = message.deleted ? 64 : message.type == 7 ? 94 : 124;
               rectangle(*content, bodyWidth - 66 - toolbarWidth, y - 8, toolbarWidth, 34, panel, 7);
               iconButton(
