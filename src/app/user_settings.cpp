@@ -116,6 +116,7 @@ namespace app {
     m_profileDirty = false;
   }
   void ClientApplication::openSettings() {
+    closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();

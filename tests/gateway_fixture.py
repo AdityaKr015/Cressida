@@ -84,6 +84,9 @@ def serve(listener, errors):
             members = wait_for(connection, 8)
             assert members["d"] == {"guild_id": "1", "user_ids": ["7", "8"], "limit": 100}
             packet(connection, 0, {"guild_id": "1", "members": [{"user": {"id": "7"}, "roles": ["50"]}, {"user": {"id": "8"}, "roles": []}], "chunk_index": 0, "chunk_count": 1}, "GUILD_MEMBERS_CHUNK", 2)
+            search = wait_for(connection, 8)
+            assert search["d"] == {"guild_id": "1", "query": "May", "limit": 25, "presences": False, "nonce": "complete-test"}
+            packet(connection, 0, {"guild_id": "1", "nonce": "complete-test", "members": [{"user": {"id": "9", "username": "maya"}, "nick": "May", "roles": []}], "chunk_index": 0, "chunk_count": 1}, "GUILD_MEMBERS_CHUNK", 2)
             packet(connection, 0, {"merged_presences": {"friends": [{"user_id": "7", "status": "online"}]}}, "READY_SUPPLEMENTAL", 3)
             packet(connection, 0, {"user": {"id": "7"}, "status": "idle"}, "PRESENCE_UPDATE", 4)
             packet(connection, 0, {"id": "7", "nickname": "My friend"}, "RELATIONSHIP_UPDATE", 5)

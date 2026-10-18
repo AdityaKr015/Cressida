@@ -63,6 +63,8 @@ namespace app {
           return id == "emoji-search" && m_emojiBounds.contains(m_pointerX, m_pointerY);
         if (m_gifMenu)
           return id == "gif-search" && m_gifBounds.contains(m_pointerX, m_pointerY);
+        if (m_completionQuery && m_completionBounds.contains(m_pointerX, m_pointerY))
+          return id == "completion-scrollbar";
         return true;
       };
       bool nativeAllowed = false;

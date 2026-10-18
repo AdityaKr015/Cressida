@@ -62,6 +62,8 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::openContext(float x, float y) {
+    if (m_completionQuery && m_completionBounds.contains(x, y))
+      return;
     m_scrolling.stopAll();
     closeGifPicker();
     if (!m_connected || m_settingsOpen || !m_viewImage.empty() || !m_dialogKind.empty())
@@ -798,6 +800,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::clearInteractions() {
+    closeCompletion();
     cancelMessageEdit(false);
     closeContext();
     closeDialog();

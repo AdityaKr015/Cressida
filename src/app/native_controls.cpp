@@ -315,7 +315,10 @@ namespace app {
         && (id == "dialog"             ? !m_dialogPending
                 : id == "message-edit" ? m_messageEdit && !m_messageEdit->request
                 : id == "token"        ? !m_connecting
-                : id == "composer" ? !m_demo || m_demoOverlay == "sidebar-cycle" || m_demoOverlay == "inline-edit-cycle"
+                : id == "composer"     ? !m_demo
+                    || m_demoOverlay == "sidebar-cycle"
+                    || m_demoOverlay == "inline-edit-cycle"
+                    || m_demoOverlay.starts_with("autocomplete")
                                    : !m_savingProfile)
     );
     input.setControlHeight(height);

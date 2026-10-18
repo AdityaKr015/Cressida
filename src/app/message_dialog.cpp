@@ -34,6 +34,8 @@ namespace app {
   void ClientApplication::cancelMessageEdit(bool restoreComposer) {
     if (!m_messageEdit)
       return;
+    if (m_completionInput == "message-edit")
+      closeCompletion();
     const bool focused = m_focusedInput == "message-edit";
     m_messageEdit.reset();
     ++m_messageEditGeneration;

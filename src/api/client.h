@@ -1,7 +1,5 @@
 #pragma once
 
-#include "auth/credentials.h"
-#include "core/process/wake_event.h"
 #include "api/actions.h"
 #include "api/channel_features.h"
 #include "api/emoji.h"
@@ -14,6 +12,8 @@
 #include "api/role_styles.h"
 #include "api/threads.h"
 #include "api/user_directory.h"
+#include "auth/credentials.h"
+#include "core/process/wake_event.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -67,7 +67,8 @@ namespace api {
     ThreadUpdate,
     ChannelDetails,
     ChannelPage,
-    ComponentResult
+    ComponentResult,
+    MemberSearch
   };
 
   struct Event {
@@ -106,6 +107,7 @@ namespace api {
     std::optional<api::Interaction> interaction;
     std::optional<ReactionUpdate> reaction;
     std::vector<Account> reactors;
+    std::vector<Account> memberMatches;
     std::optional<UserProfile> profile;
     std::optional<GuildProfile> guildProfile;
     bool guildVerificationRequired = false;
@@ -157,6 +159,7 @@ namespace api {
     bool setPresence(std::string status, std::optional<std::string> customText = {});
     void subscribe(const std::string& guild, const std::string& channel, int first = 0);
     void requestMembers(const std::string& guild, const std::vector<std::string>& users);
+    bool searchMembers(const std::string& guild, const std::string& query, const std::string& nonce);
     std::vector<Event> drain();
     int eventFd() const noexcept { return m_wake.fd(); }
 

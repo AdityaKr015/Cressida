@@ -442,6 +442,9 @@ namespace api {
       m_gateway->requestMembers(m_session, guild, users);
   }
 
+  bool Client::searchMembers(const std::string& guild, const std::string& query, const std::string& nonce) {
+    return m_authenticatedSession == m_session && m_gateway->searchMembers(m_session, guild, query, nonce);
+  }
   void Client::gatewayEvent(std::uint64_t session, const std::string& type, const Json& data) {
     if (session != m_session)
       return;
@@ -496,6 +499,24 @@ namespace api {
         publish(std::move(event));
       }
       auto styles = parseRoleUpdates(type, data);
+      if (type == "GUILD_MEMBERS_CHUNK" && data.value("nonce", std::string{}).starts_with("complete-")) {
+        Event event{.operation = Operation::MemberSearch, .session = session, .resource = data.value("guild_id", "")};
+        event.nonce = data.value("nonce", "");
+        if (data.contains("members") && data["members"].is_array())
+          for (const auto& member : data["members"]) {
+            if (event.memberMatches.size() >= 25)
+              break;
+            if (!member.is_object() || !member.contains("user") || !member["user"].is_object())
+              continue;
+            auto user = parseAccount(member["user"]);
+            if (!validSnowflake(user.id))
+              continue;
+            if (member.contains("nick") && member["nick"].is_string())
+              user.name = member["nick"].get<std::string>();
+            event.memberMatches.push_back(std::move(user));
+          }
+        publish(std::move(event));
+      }
       if (styles.reset || !styles.guilds.empty()) {
         Event event{.operation = Operation::RoleStyles, .session = session};
         event.roleUpdates = std::move(styles);

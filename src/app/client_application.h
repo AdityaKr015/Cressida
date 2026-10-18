@@ -2,6 +2,7 @@
 
 #include "api/assets.h"
 #include "api/client.h"
+#include "app/autocomplete.h"
 #include "app/emoji_catalog.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
@@ -124,6 +125,7 @@ namespace app {
       EditMessage,
       SaveMessageEdit,
       CancelMessageEdit,
+      CompleteText,
       DeleteMessage,
       CopyLink,
       CopyId,
@@ -196,6 +198,14 @@ namespace app {
       bool contains(float px, float py) const { return px >= x && py >= y && px < x + width && py < y + height; }
     };
     void draw();
+    void updateCompletion();
+    void closeCompletion(bool dismiss = false);
+    bool completionKey(const Key& key);
+    bool completionClick(float x, float y);
+    void chooseCompletion(std::size_t index);
+    void drawCompletion(Node& root, float width, float height);
+    void completionEvent(const api::Event& event);
+    void demoCompletionStep();
     bool beginMessageEdit(const std::string& message);
     void cancelMessageEdit(bool restoreComposer = true);
     void submitMessageEdit();
@@ -492,6 +502,23 @@ namespace app {
     };
     std::optional<MessageEditState> m_messageEdit;
     std::uint64_t m_messageEditGeneration = 0, m_pasteMessageEditGeneration = 0;
+    struct CompletionItem {
+      enum Kind { Member, Role, Emoji, Broadcast } kind;
+      std::string id, name, detail, insert, image;
+      int score = 0;
+      std::uint32_t color = 0;
+    };
+    std::optional<CompletionQuery> m_completionQuery;
+    std::vector<CompletionItem> m_completionItems;
+    std::string m_completionInput, m_completionSnapshot, m_completionDismissed;
+    std::string m_completionNonce, m_completionGuild, m_completionSearchError;
+    std::vector<api::Account> m_completionMembers;
+    std::uint64_t m_completionSerial = 0;
+    bool m_completionDirty = true;
+    std::size_t m_completionSelected = 0;
+    float m_completionScroll = 0, m_completionViewport = 0;
+    Hit m_completionBounds{};
+    Timer m_completionSearchTimer, m_completionTimeout;
     api::Account m_dialogAccount;
     api::UserProfile m_profileCard;
     api::GuildProfile m_guildProfile;

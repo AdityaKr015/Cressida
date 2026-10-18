@@ -130,7 +130,7 @@ message_layout = static_library('message-layout', ['src/app/message_layout.cpp',
 message_layout_dep = declare_dependency(link_with: message_layout, dependencies: [render_dep, backend_dep, markdown_dep])
 emoji_catalog = static_library('emoji-catalog', 'src/app/emoji_catalog.cpp', dependencies: [backend_dep, markdown_dep])
 client = executable('cressida',
-  'src/main.cpp', 'src/app/window.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/system_message_view.cpp', 'src/app/message_log_view.cpp', 'src/app/message_dialog.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
+  'src/main.cpp', 'src/app/window.cpp', 'src/app/autocomplete.cpp', 'src/app/media_view.cpp', 'src/app/sidebar_view.cpp', 'src/app/video_view.cpp', 'src/app/role_view.cpp', 'src/app/system_message_view.cpp', 'src/app/message_log_view.cpp', 'src/app/message_dialog.cpp', 'src/app/profile_view.cpp', 'src/app/name_badges.cpp', 'src/app/guild_profile_view.cpp', 'src/app/thread_view.cpp', 'src/app/forum_view.cpp', 'src/app/channel_view.cpp', 'src/app/component_view.cpp', 'src/app/channel_demo.cpp', 'src/app/gif_picker.cpp', 'src/app/emoji_picker.cpp', 'src/app/user_settings.cpp', 'src/app/native_controls.cpp', 'src/app/context_actions.cpp', 'src/app/client_application.cpp', 'src/app/session_store.cpp', xdg_sources, protocol_sources[0], protocol_sources[1],
   dependencies: [render_dep, backend_dep, browser_dep, markdown_dep, video_dep],
   link_with: [message_layout, emoji_catalog],
   cpp_args: client_args,
@@ -175,6 +175,8 @@ state_test = executable('discord_state_test', 'tests/discord_state_test.cpp', de
 test('discord_state', state_test)
 layout_test = executable('message_layout_test', 'tests/message_layout_test.cpp', dependencies: message_layout_dep, link_with: emoji_catalog)
 test('message_layout', layout_test, args: [meson.project_source_root() / 'assets'])
+completion_test = executable('autocomplete_test', 'tests/autocomplete_test.cpp', include_directories: include_directories('src'))
+test('autocomplete', completion_test)
 gateway_test = executable('gateway_test', 'tests/gateway_test.cpp', dependencies: backend_dep)
 test('gateway', find_program('python3'), args: [files('tests/gateway_fixture.py'), gateway_test], timeout: 15)
 session_test = executable('session_store_test', 'tests/session_store_test.cpp', 'src/app/session_store.cpp', dependencies: backend_dep)

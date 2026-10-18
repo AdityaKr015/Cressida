@@ -85,6 +85,8 @@ namespace app {
         demoDeletedStep();
       if (m_demo && m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep < 8)
         demoMessageEditStep();
+      if (m_demo && m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep < 9)
+        demoCompletionStep();
       if (m_demo && m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep < 5) {
         const auto step = m_demoInteractionStep++;
         if (step > 0) {
@@ -413,6 +415,8 @@ namespace app {
       if (overlayClick(x, y)) {
         return;
       }
+      if (completionClick(x, y))
+        return;
       if (m_emojiMenu
           && m_emojiBounds.contains(x, y)
           && y >= m_emojiBounds.y + 52
@@ -570,6 +574,11 @@ namespace app {
               << m_animateWheel
               << '\n';
       };
+      if (m_completionQuery && m_completionBounds.contains(m_pointerX, m_pointerY)) {
+        scroll(m_completionScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (m_emojiMenu) {
         if (m_emojiBounds.contains(m_pointerX, m_pointerY))
           scroll(m_pointerX < m_emojiBounds.x + 56 ? m_emojiRailScroll : m_emojiScroll, delta);
@@ -675,6 +684,7 @@ namespace app {
         smokeTest ? (m_demo && view && std::string_view(view) == "join-cycle"                ? 4
                          : m_demo && view && std::string_view(view) == "deleted-cycle"       ? 3
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"   ? 8
+                         : m_demo && view && std::string_view(view) == "autocomplete-cycle"  ? 9
                          : m_demo && view && std::string_view(view) == "message-hover-cycle" ? 5
                          : m_demo && view && std::string_view(view) == "sidebar-cycle"       ? 10
                          : m_demo && view && std::string_view(view) == "role-emoji-cycle"    ? 3
@@ -697,6 +707,8 @@ namespace app {
       throw std::runtime_error("Deleted-message replay did not finish");
     if (m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep != 8)
       throw std::runtime_error("Inline message editing replay did not finish");
+    if (m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep != 9)
+      throw std::runtime_error("Autocomplete replay did not finish");
     if (m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep != 5)
       throw std::runtime_error("Message hover replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
@@ -755,6 +767,34 @@ namespace app {
           m_demoOverlay = view;
         if (view == "sidebar-wide")
           m_preferences.channelSidebarWidth = 420;
+        if (view.starts_with("autocomplete")) {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          if (view == "autocomplete-light")
+            m_preferences.theme = "light";
+          m_preferences.emojiImageLinks = true;
+          prepareEmojiPicker();
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9901","author":{"id":"1","username":"Alex"},"timestamp":"2026-10-18T12:00:00Z","content":"Fix @ma"},
+            {"id":"9902","author":{"id":"11","username":"Maya"},"timestamp":"2026-10-18T12:01:00Z","content":"Mention people and roles, or search emoji by name."}
+          ])JSON"));
+          for (auto& message : m_messages)
+            message.channelId = m_channelId;
+          m_members = {{0, {"11", "Maya", {}, "maya"}}, {1, {"12", "Noah", {}, "noah"}}};
+          api::GuildRoleUpdate roles{.guild = m_guildId};
+          roles.roles = {{"50", 2, {0xC6B5F5}, "Moonwarden"}, {"51", 1, {0x82AAFF}, "Helpers"}};
+          roles.members["11"] = {"50"};
+          m_roleDirectory.apply({false, {roles}});
+          m_drafts[m_channelId] = view == "autocomplete-emoji" ? ":umb"
+              : view == "autocomplete-roles"                   ? "@moon"
+                                                               : "Hello @ma";
+          m_focusedInput = "composer";
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          if (view == "autocomplete-edit")
+            beginMessageEdit("9901");
+        }
         if (view == "inline-edit"
             || view == "inline-edit-light"
             || view == "inline-edit-compact"
@@ -2506,7 +2546,8 @@ namespace app {
                   if (box.embed)
                     rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
                   if (!box.code.empty()) {
-                    if (hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
+                    if ((!m_completionQuery || !m_completionBounds.contains(m_pointerX, m_pointerY))
+                        && hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
                       iconButton(
                           *content,
                           {50 + box.x + box.width - 26, bodyY + box.y + 4, 22, 22, Action::CopyCode, box.code}, "copy",
@@ -2621,7 +2662,9 @@ namespace app {
                 }
               }
             }
-            if (!editing && hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
+            if (!editing
+                && (!m_completionQuery || !m_completionBounds.contains(m_pointerX, m_pointerY))
+                && hovered(left, rowTop, bodyWidth, rowBottom - rowTop)) {
               const float toolbarWidth = message.deleted ? 64 : message.type == 7 ? 94 : 124;
               rectangle(*content, bodyWidth - 66 - toolbarWidth, y - 8, toolbarWidth, 34, panel, 7);
               iconButton(
@@ -3003,6 +3046,7 @@ namespace app {
       m_hoverReactionKey.clear();
       m_reactorHoverTimer.stop();
     }
+    drawCompletion(root, w, h);
     drawDialog(root, w, h);
     drawContext(root, w, h);
     drawTooltip(root, w, h);
@@ -3203,6 +3247,7 @@ namespace app {
     }
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();
@@ -3265,6 +3310,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages() {
+    closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();
@@ -3301,6 +3347,7 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(std::string id) {
+    closeCompletion();
     cancelMessageEdit(false);
     finishSidebarResize();
     closeChannelPanel();
@@ -3752,6 +3799,7 @@ namespace app {
     for (auto& event : m_client.drain()) {
       if (event.session != m_session || m_demo)
         continue;
+      m_completionDirty = true;
       filterDeletedChannels(event);
       if (!event.unauthorized
           && event.operation == api::Operation::ChannelDetails
@@ -4116,6 +4164,8 @@ namespace app {
             if (m_history.atLatest())
               upsertMessage(std::move(message));
           }
+      } else if (event.operation == api::Operation::MemberSearch) {
+        completionEvent(event);
       } else if (event.operation == api::Operation::MessageUpdate) {
         updateMessage(event.resource, event.messageId, event.patch);
       } else if (event.operation == api::Operation::MessageDelete) {
@@ -4297,6 +4347,8 @@ namespace app {
 
   void ClientApplication::onKey(const Key& key) {
     finishSidebarResize();
+    if (key.symbol == XKB_KEY_Escape && completionKey(key))
+      return;
     if (m_connected
         && !m_settingsOpen
         && m_dialogKind.empty()
@@ -4383,6 +4435,8 @@ namespace app {
       m_window.invalidate();
       return;
     }
+    if (key.symbol != XKB_KEY_Escape && completionKey(key))
+      return;
     if (key.symbol == XKB_KEY_Tab && m_viewImage.empty()) {
       (void)m_controlInput.cycleTabFocus(key.shift);
       m_window.invalidate();
@@ -4912,6 +4966,9 @@ namespace app {
       break;
     case Action::SaveMessageEdit:
       submitMessageEdit();
+      break;
+    case Action::CompleteText:
+      chooseCompletion(std::stoul(hit.id));
       break;
     case Action::CancelMessageEdit:
       if (m_messageEdit && !m_messageEdit->request)

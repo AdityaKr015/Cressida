@@ -20,6 +20,7 @@ int main(int argc, char** argv) {
   bool valid = true;
   api::UserDirectory users;
   api::RoleDirectory roles;
+  api::Gateway* active = nullptr;
   {
     api::Gateway gateway(
         generation,
@@ -31,6 +32,12 @@ int main(int argc, char** argv) {
           roles.apply(api::parseRoleUpdates(type, data));
           if (type == "GUILD_MEMBERS_CHUNK" && roles.memberships("1", "7") != std::vector<std::string>{"50"})
             valid = false;
+          if (type == "GUILD_MEMBERS_CHUNK") {
+            if (data.value("nonce", "") == "complete-test")
+              events.insert("MEMBER_SEARCH");
+            else if (active && !active->searchMembers(1, "1", "May", "complete-test"))
+              valid = false;
+          }
           if (type == "READY_SUPPLEMENTAL" && users.status("7") != "online")
             valid = false;
           if (type == "MESSAGE_CREATE" && (users.status("7") != "idle" || users.name("7", "Original") != "My friend"))
@@ -46,7 +53,12 @@ int main(int argc, char** argv) {
         },
         argv[1]
     );
+    active = &gateway;
     gateway.authenticate(1, "synthetic-token", {"online", "working", "77", "wave"});
+    if (gateway.searchMembers(2, "1", "May", "complete-invalid")
+        || gateway.searchMembers(1, "1", "", "complete-invalid")
+        || gateway.searchMembers(1, "1", "May", std::string(33, 'x')))
+      valid = false;
     if (!gateway.setPresence(1, "dnd") || gateway.setPresence(2, "online") || gateway.setPresence(1, "busy"))
       valid = false;
     gateway.subscribe("1", "2", 100);
@@ -65,7 +77,8 @@ int main(int argc, char** argv) {
               && events.contains("RELATIONSHIP_REMOVE")
               && events.contains("PRESENCE_UPDATE")
               && events.contains("GUILD_MEMBER_LIST_UPDATE")
-              && events.contains("GUILD_MEMBERS_CHUNK");
+              && events.contains("GUILD_MEMBERS_CHUNK")
+              && events.contains("MEMBER_SEARCH");
         })) {
       std::cerr << "Gateway did not complete identify, fragmented dispatch and resume\n";
       for (const auto& event : events)

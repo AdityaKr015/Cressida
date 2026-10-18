@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 #include <poll.h>
 #include <stdexcept>
+#include <utility>
 
 namespace api {
   namespace {
@@ -68,6 +69,7 @@ namespace api {
       m_memberRequested.clear();
       m_memberPending.clear();
       m_memberPendingCount = 0;
+      m_memberSearch.reset();
     }
     m_session = session;
     m_token = std::move(token);
@@ -83,6 +85,7 @@ namespace api {
     m_memberRequested.clear();
     m_memberPending.clear();
     m_memberPendingCount = 0;
+    m_memberSearch.reset();
     m_presence = {};
     m_presenceVersion = 0;
     m_guild.clear();
@@ -116,6 +119,22 @@ namespace api {
     }
   }
 
+  bool Gateway::searchMembers(
+      std::uint64_t session, const std::string& guild, const std::string& query, const std::string& nonce
+  ) {
+    if (!validSnowflake(guild)
+        || query.empty()
+        || query.size() > 128
+        || utf8Length(query) > 64
+        || nonce.empty()
+        || nonce.size() > 32)
+      return false;
+    std::lock_guard lock(m_mutex);
+    if (session != m_generation || session != m_session || m_token.empty())
+      return false;
+    m_memberSearch = MemberSearch{guild, query, nonce};
+    return true;
+  }
   bool Gateway::setPresence(std::uint64_t session, std::string status, std::optional<std::string> customText) {
     if (!validStatus(status) || (customText && utf8Length(*customText) > 128))
       return false;
@@ -287,9 +306,12 @@ namespace api {
             if (now >= memberRequestAt) {
               std::string memberGuild;
               std::vector<std::string> users;
+              std::optional<MemberSearch> search;
               {
                 std::lock_guard lock(m_mutex);
-                if (!m_memberPending.empty()) {
+                if (m_memberSearch)
+                  search = std::exchange(m_memberSearch, {});
+                else if (!m_memberPending.empty()) {
                   auto pending = m_memberPending.begin();
                   memberGuild = pending->first;
                   while (!pending->second.empty() && users.size() < 100) {
@@ -303,7 +325,22 @@ namespace api {
                     m_memberPending.erase(pending);
                 }
               }
-              if (!users.empty()) {
+              if (search) {
+                send(
+                    curl.get(),
+                    Json{
+                        {"op", 8},
+                        {"d",
+                         {{"guild_id", search->guild},
+                          {"query", search->query},
+                          {"limit", 25},
+                          {"presences", false},
+                          {"nonce", search->nonce}}}
+                    },
+                    connection
+                );
+                memberRequestAt = now + 1s;
+              } else if (!users.empty()) {
                 send(
                     curl.get(),
                     Json{{"op", 8}, {"d", {{"guild_id", memberGuild}, {"user_ids", users}, {"limit", 100}}}}, connection

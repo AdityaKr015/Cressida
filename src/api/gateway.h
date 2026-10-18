@@ -8,6 +8,7 @@
 #include <map>
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -26,6 +27,8 @@ namespace api {
     void authenticate(std::uint64_t session, std::string token, Presence presence = {});
     void reset();
     void requestMembers(std::uint64_t session, const std::string& guild, const std::vector<std::string>& users);
+    bool
+    searchMembers(std::uint64_t session, const std::string& guild, const std::string& query, const std::string& nonce);
     bool setPresence(std::uint64_t session, std::string status, std::optional<std::string> customText = {});
     void subscribe(std::string guild, std::string channel, int first, bool force = false);
 
@@ -44,6 +47,10 @@ namespace api {
     std::set<std::pair<std::string, std::string>> m_memberRequested;
     std::map<std::string, std::set<std::string>> m_memberPending;
     std::size_t m_memberPendingCount = 0;
+    struct MemberSearch {
+      std::string guild, query, nonce;
+    };
+    std::optional<MemberSearch> m_memberSearch;
     std::jthread m_worker;
   };
 } // namespace api
