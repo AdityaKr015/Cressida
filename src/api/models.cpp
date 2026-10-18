@@ -71,6 +71,98 @@ namespace api {
     };
   }
 
+  GuildBadge guildBadge(const Guild& guild) {
+    const auto has = [&](const char* feature) {
+      return std::ranges::find(guild.features, feature) != guild.features.end();
+    };
+    if (has("VERIFIED"))
+      return GuildBadge::Verified;
+    if (has("PARTNERED"))
+      return GuildBadge::Partnered;
+    return has("COMMUNITY") ? GuildBadge::Community : GuildBadge::None;
+  }
+  void GuildUpdate::apply(Guild& guild) const {
+    if (guild.id != id)
+      return;
+    if (name)
+      guild.name = *name;
+    if (icon)
+      guild.icon = *icon;
+    if (features)
+      guild.features = *features;
+    if (members)
+      guild.members = *members;
+    if (online)
+      guild.online = *online;
+  }
+  void GuildUpdate::merge(const GuildUpdate& update) {
+    if (id != update.id)
+      return;
+    if (update.name)
+      name = update.name;
+    if (update.icon)
+      icon = update.icon;
+    if (update.features)
+      features = update.features;
+    if (update.members)
+      members = update.members;
+    if (update.online)
+      online = update.online;
+  }
+  std::vector<GuildUpdate> parseGuildUpdates(std::string_view event, const nlohmann::json& data) {
+    std::vector<GuildUpdate> result;
+    const auto parse = [&](const auto& item) {
+      if (!item.is_object() || result.size() >= 10000)
+        return;
+      GuildUpdate update{.id = text(item, "id", text(item, "guild_id"))};
+      if (!validSnowflake(update.id))
+        return;
+      const auto properties = item.find("properties");
+      const auto& source = properties != item.end() && properties->is_object() ? *properties : item;
+      if (const auto at = source.find("name"); at != source.end() && at->is_string())
+        update.name = at->template get<std::string>().substr(0, 400);
+      if (const auto at = source.find("icon"); at != source.end() && (at->is_null() || at->is_string())) {
+        const auto hash = at->is_string() ? at->template get<std::string>() : std::string{};
+        update.icon = validAssetHash(hash) ? "/icons/" + update.id + "/" + hash + ".png?size=64" : "";
+      }
+      if (const auto at = source.find("features"); at != source.end() && at->is_array()) {
+        update.features.emplace();
+        for (const auto& feature : *at)
+          if (feature.is_string() && update.features->size() < 256) {
+            const auto name = feature.template get<std::string>();
+            if (name.size() <= 128)
+              update.features->push_back(name);
+          }
+      }
+      const auto count = [&](const char* exact, const char* approximate, auto& target) {
+        auto at = item.find(exact);
+        if (at == item.end())
+          at = item.find(approximate);
+        if (at == item.end())
+          return;
+        if (at->is_null()) {
+          target.emplace();
+          return;
+        }
+        if (!at->is_number_integer())
+          return;
+        if (at->is_number_unsigned())
+          target.emplace(static_cast<int>(std::min<std::uint64_t>(at->template get<std::uint64_t>(), 1000000000)));
+        else if (const auto n = at->template get<std::int64_t>(); n >= 0)
+          target.emplace(static_cast<int>(std::min<std::int64_t>(n, 1000000000)));
+      };
+      count("member_count", "approximate_member_count", update.members);
+      count("online_count", "approximate_presence_count", update.online);
+      result.push_back(std::move(update));
+    };
+    if ((event == "READY" || event == "READY_SUPPLEMENTAL") && data.contains("guilds") && data["guilds"].is_array()) {
+      for (const auto& item : data["guilds"])
+        parse(item);
+    } else if (event == "GUILD_CREATE" || event == "GUILD_UPDATE" || event == "GUILD_MEMBER_LIST_UPDATE")
+      parse(data);
+    return result;
+  }
+
   std::vector<Guild> parseGuilds(const nlohmann::json& value) {
     if (!value.is_array())
       throw std::runtime_error("Expected a server list");
@@ -84,6 +176,8 @@ namespace api {
           {guildId, text(item, "name", "Unnamed server"),
            valid ? "/icons/" + guildId + "/" + hash + ".png?size=64" : ""}
       );
+      for (const auto& update : parseGuildUpdates("GUILD_CREATE", item))
+        update.apply(result.back());
     }
     return result;
   }

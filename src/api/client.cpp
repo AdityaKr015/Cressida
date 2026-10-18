@@ -498,6 +498,12 @@ namespace api {
         event.threadUpdates = std::move(threads);
         publish(std::move(event));
       }
+      auto guildUpdates = parseGuildUpdates(type, data);
+      if (!guildUpdates.empty()) {
+        Event event{.operation = Operation::GuildMetadata, .session = session};
+        event.guildUpdates = std::move(guildUpdates);
+        publish(std::move(event));
+      }
       auto styles = parseRoleUpdates(type, data);
       if (type == "GUILD_MEMBERS_CHUNK" && data.value("nonce", std::string{}).starts_with("complete-")) {
         Event event{.operation = Operation::MemberSearch, .session = session, .resource = data.value("guild_id", "")};
@@ -1017,8 +1023,8 @@ namespace api {
             std::string after;
             for (;;) {
               auto guilds = request(
-                  token, "/users/@me/guilds?limit=200" + (after.empty() ? "" : "&after=" + after), nullptr, transfer,
-                  cooldown
+                  token, "/users/@me/guilds?limit=200&with_counts=true" + (after.empty() ? "" : "&after=" + after),
+                  nullptr, transfer, cooldown
               );
               if (!guilds) {
                 event.error = guilds.error().message;

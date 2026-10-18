@@ -68,7 +68,8 @@ namespace api {
     ChannelDetails,
     ChannelPage,
     ComponentResult,
-    MemberSearch
+    MemberSearch,
+    GuildMetadata
   };
 
   struct Event {
@@ -79,6 +80,7 @@ namespace api {
     bool unauthorized = false;
     Account account;
     std::vector<Guild> guilds;
+    std::vector<GuildUpdate> guildUpdates;
     std::vector<Channel> channels;
     std::vector<Message> messages;
     std::optional<HistoryQuery> history;

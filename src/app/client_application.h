@@ -357,6 +357,9 @@ namespace app {
     void toggleGifFavorite(const api::Gif& gif);
     void demoGifStep();
     void drawTooltip(Node& root, float w, float h);
+    float drawGuildBadge(Node& root, float x, float y, api::GuildBadge badge, bool tooltip = true);
+    void drawGuildTooltip(Node& root, float w, float h);
+    void demoGuildHoverStep();
     void drawSettings(Node& root, float w, float h);
     Input& inputControl(
         Node& parent, float x, float y, float width, float height, const std::string& id, const std::string& value,
@@ -445,6 +448,8 @@ namespace app {
     SessionStore m_sessionStore;
     ThemeRuntime m_themes;
     ThemeSnapshot m_themeSnapshot;
+    std::map<std::string, api::GuildUpdate> m_guildUpdates;
+    Hit m_guildTooltipBounds{};
     std::string m_restoreChannel;
     Preferences m_preferences;
     api::RoleDirectory m_roleDirectory;

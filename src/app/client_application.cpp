@@ -89,6 +89,8 @@ namespace app {
         demoCompletionStep();
       if (m_demo && m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep < 12)
         demoFontStep();
+      if (m_demo && m_demoOverlay == "server-hover-cycle")
+        demoGuildHoverStep();
       if (m_demo && m_demoOverlay == "themes-cycle" && m_demoInteractionStep < 11)
         demoThemeStep();
       if (m_demo && m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep < 5) {
@@ -700,6 +702,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"   ? 8
                          : m_demo && view && std::string_view(view) == "autocomplete-cycle"  ? 9
                          : m_demo && view && std::string_view(view) == "settings-font-cycle" ? 12
+                         : m_demo && view && std::string_view(view) == "server-hover-cycle"  ? 7
                          : m_demo && view && std::string_view(view) == "themes-cycle"        ? 11
                          : m_demo && view && std::string_view(view) == "message-hover-cycle" ? 5
                          : m_demo && view && std::string_view(view) == "sidebar-cycle"       ? 10
@@ -727,6 +730,8 @@ namespace app {
       throw std::runtime_error("Autocomplete replay did not finish");
     if (m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Font settings replay did not finish");
+    if (m_demoOverlay == "server-hover-cycle" && m_demoInteractionStep != 7)
+      throw std::runtime_error("Server hover replay did not finish");
     if (m_demoOverlay == "themes-cycle" && m_demoInteractionStep != 11)
       throw std::runtime_error("Theme settings replay did not finish");
     if (m_demoOverlay == "message-hover-cycle" && m_demoInteractionStep != 5)
@@ -783,6 +788,48 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+        if (view.starts_with("server-hover")) {
+          m_demoOverlay = view;
+          m_openFolders.clear();
+          m_folders = {{{}, {}, 0, {"1", "2", "3"}}};
+          m_guilds[0].features = {"COMMUNITY"};
+          m_guilds[0].members = 6870;
+          m_guilds[0].online = 1191;
+          m_guilds[1].features = {"COMMUNITY", "PARTNERED"};
+          m_guilds[1].members = 12000;
+          m_guilds[1].online = 0;
+          m_guilds[2].features = {"COMMUNITY", "VERIFIED"};
+          m_guilds[2].members = 431;
+          m_guilds[2].online = 123;
+          m_guildChannels[m_guildId] = m_channels;
+          m_unreadGuilds[m_channels.front().id] = m_guildId;
+          m_unreadChannels.insert(m_channels.front().id);
+          m_pointerX = 38;
+          m_pointerY = view == "server-hover-partner" ? 197 : view == "server-hover-verified" ? 257 : 137;
+          if (view == "server-hover-light")
+            m_preferences.theme = "light";
+          if (view == "server-hover-plain") {
+            m_guilds.front().features.clear();
+            m_guilds.front().members.reset();
+            m_guilds.front().online.reset();
+            m_unreadChannels.clear();
+          }
+          if (view == "server-hover-bottom") {
+            for (int n = 4; n < 12; ++n) {
+              m_guilds.push_back(
+                  {std::to_string(n),
+                   "A long server name that should stay inside the window",
+                   {},
+                   {"VERIFIED"},
+                   1000000,
+                   999999}
+              );
+              m_folders.front().guildIds.push_back(std::to_string(n));
+            }
+            m_guildScroll = 500;
+            m_pointerY = 617;
+          }
+        }
         if (view == "sidebar-cycle")
           m_demoOverlay = view;
         if (view == "sidebar-wide")
@@ -1930,7 +1977,15 @@ namespace app {
       for (const auto& guild : m_guilds)
         if (guild.id == m_guildId)
           guildName = guild.name;
-      label(root, 98, 57, sidebarWidth - 40, guildName, 17, foreground, FontWeight::SemiBold);
+      float guildBadgeWidth = 0;
+      if (!m_dmMode) {
+        if (const auto at = std::ranges::find(m_guilds, m_guildId, &api::Guild::id); at != m_guilds.end())
+          guildBadgeWidth = drawGuildBadge(root, 98, 59, api::guildBadge(*at));
+      }
+      label(
+          root, 98 + guildBadgeWidth, 57, sidebarWidth - 40 - guildBadgeWidth, guildName, 17, foreground,
+          FontWeight::SemiBold
+      );
       label(root, 98, 113, sidebarWidth - 48, m_dmMode ? "CONVERSATIONS" : "CHANNELS", 10, muted, FontWeight::SemiBold);
       iconButton(root, {14, 48, 48, 48, Action::Home, {}}, "message-circle", "Direct messages", m_dmMode);
 
@@ -3105,6 +3160,7 @@ namespace app {
     drawCompletion(root, w, h);
     drawDialog(root, w, h);
     drawContext(root, w, h);
+    drawGuildTooltip(root, w, h);
     drawTooltip(root, w, h);
     finishControls();
     m_roleMotion.end();
@@ -3188,6 +3244,7 @@ namespace app {
     m_status.clear();
     m_restoringLogin = m_retrySavedLogin = false;
     m_connecting = true;
+    m_guildUpdates.clear();
     m_session = m_client.connect(std::move(m_token));
     m_token.clear();
     if (m_inputs.contains("token"))
@@ -3205,6 +3262,7 @@ namespace app {
     m_connecting = m_restoringLogin = true;
     m_retrySavedLogin = false;
     m_status = "Your desktop keyring may ask you to unlock it.";
+    m_guildUpdates.clear();
     m_session = m_client.restoreLogin();
     m_window.invalidate();
   }
@@ -3849,6 +3907,7 @@ namespace app {
         m_restoringLogin = m_retrySavedLogin = false;
         m_token.clear();
         m_status = "Connecting to your account…";
+        m_guildUpdates.clear();
         m_session = m_client.connectHandoff(std::move(login->key), std::move(login->handoffToken));
         m_window.invalidate();
       } else if (!login->error.empty()) {
@@ -3905,6 +3964,7 @@ namespace app {
         m_history.reset();
         m_timelineAnchor.reset();
         m_guilds.clear();
+        m_guildUpdates.clear();
         m_channels.clear();
         m_messages.clear();
         m_messageLayouts.clear();
@@ -3936,6 +3996,9 @@ namespace app {
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
           m_presence = event.presence.value_or(api::Presence{});
           m_guilds = std::move(event.guilds);
+          for (auto& guild : m_guilds)
+            if (const auto at = m_guildUpdates.find(guild.id); at != m_guildUpdates.end())
+              at->second.apply(guild);
           m_folders = api::arrangeGuilds(m_guilds, event.layout);
           m_connected = true;
           if (!m_live)
@@ -4167,6 +4230,16 @@ namespace app {
             m_messages.clear();
             m_messageLayouts.clear();
           }
+        }
+      } else if (event.operation == api::Operation::GuildMetadata) {
+        for (const auto& update : event.guildUpdates) {
+          auto at = m_guildUpdates.find(update.id);
+          if (at == m_guildUpdates.end() && m_guildUpdates.size() < 10000)
+            at = m_guildUpdates.emplace(update.id, api::GuildUpdate{.id = update.id}).first;
+          if (at != m_guildUpdates.end())
+            at->second.merge(update);
+          if (const auto guild = std::ranges::find(m_guilds, update.id, &api::Guild::id); guild != m_guilds.end())
+            update.apply(*guild);
         }
       } else if (event.operation == api::Operation::Layout) {
         m_folders = api::arrangeGuilds(m_guilds, event.layout);
@@ -5115,6 +5188,7 @@ namespace app {
       m_token.clear();
       m_account = {};
       m_guilds.clear();
+      m_guildUpdates.clear();
       m_channels.clear();
       m_messages.clear();
       m_messageLayouts.clear();

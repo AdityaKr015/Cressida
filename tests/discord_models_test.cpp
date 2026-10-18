@@ -14,6 +14,69 @@ namespace {
 int main() {
   using nlohmann::json;
   try {
+    auto guild = api::parseGuilds(
+                     json::array(
+                         {{{"id", "12"},
+                           {"name", "A community"},
+                           {"features", {"COMMUNITY"}},
+                           {"approximate_member_count", 6870},
+                           {"approximate_presence_count", 1191}}}
+                     )
+    ).front();
+    require(
+        api::guildBadge(guild) == api::GuildBadge::Community && guild.members == 6870 && guild.online == 1191,
+        "Server lists retain feature flags and approximate counts"
+    );
+    auto ready = api::parseGuildUpdates(
+        "READY",
+        {{"guilds",
+          json::array(
+              {{{"id", "12"},
+                {"properties", {{"name", "Official"}, {"features", {"COMMUNITY", "PARTNERED", "VERIFIED"}}}},
+                {"member_count", 7000}}}
+          )}}
+    );
+    require(ready.size() == 1, "Personal-account READY projects nested server properties");
+    api::GuildUpdate journal{.id = "12"};
+    journal.merge(ready.front());
+    for (const auto& patch :
+         api::parseGuildUpdates("GUILD_MEMBER_LIST_UPDATE", {{"guild_id", "12"}, {"online_count", 0}}))
+      journal.merge(patch);
+    journal.apply(guild);
+    require(
+        guild.name == "Official"
+            && api::guildBadge(guild) == api::GuildBadge::Verified
+            && guild.members == 7000
+            && guild.online == 0,
+        "Live metadata wins over an in-flight startup list; verified badges take precedence and zero is known"
+    );
+    for (const auto& patch :
+         api::parseGuildUpdates("GUILD_UPDATE", {{"id", "12"}, {"features", {"PARTNERED", "COMMUNITY"}}}))
+      patch.apply(guild);
+    require(
+        api::guildBadge(guild) == api::GuildBadge::Partnered && guild.members == 7000 && guild.online == 0,
+        "Partial feature edits retain counts and fall back to the partnered badge"
+    );
+    for (const auto& patch :
+         api::parseGuildUpdates("GUILD_UPDATE", {{"id", "12"}, {"features", json::array()}, {"online_count", nullptr}}))
+      patch.apply(guild);
+    require(
+        api::guildBadge(guild) == api::GuildBadge::None && !guild.online && guild.members == 7000,
+        "Explicit empty features and null counts clear their previous values"
+    );
+    for (const auto& patch : api::parseGuildUpdates(
+             "GUILD_UPDATE", {{"id", "12"}, {"features", false}, {"member_count", -1}, {"online_count", "bad"}}
+         ))
+      patch.apply(guild);
+    require(
+        guild.features.empty() && guild.members == 7000 && !guild.online,
+        "Malformed metadata cannot replace known counts or create a zero placeholder"
+    );
+    require(api::parseGuildUpdates("GUILD_UPDATE", {{"id", "bad"}}).empty(), "Invalid server identities are ignored");
+    auto unknownGuild = api::parseGuilds(json::array({{{"id", "13"}, {"name", "Unknown counts"}}})).front();
+    require(!unknownGuild.members && !unknownGuild.online, "Missing counts remain unknown");
+    journal.apply(unknownGuild);
+    require(unknownGuild.name == "Unknown counts", "A metadata patch cannot affect a different server");
     auto account = api::parseAccount(json{{"id", "123"}, {"username", "alex"}, {"global_name", nullptr}});
     require(account.name == "alex", "A null global name must fall back to the username");
     require(

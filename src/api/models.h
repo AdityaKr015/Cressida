@@ -48,7 +48,21 @@ namespace api {
     std::string id;
     std::string name;
     std::string icon;
+    std::vector<std::string> features;
+    std::optional<int> members, online;
   };
+
+  enum class GuildBadge { None, Community, Partnered, Verified };
+  GuildBadge guildBadge(const Guild& guild);
+  struct GuildUpdate {
+    std::string id;
+    std::optional<std::string> name, icon;
+    std::optional<std::vector<std::string>> features;
+    std::optional<std::optional<int>> members, online;
+    void apply(Guild& guild) const;
+    void merge(const GuildUpdate& update);
+  };
+  std::vector<GuildUpdate> parseGuildUpdates(std::string_view event, const nlohmann::json& data);
 
   struct GuildFolder {
     std::string id;
