@@ -8,6 +8,13 @@
 #include <string_view>
 
 namespace app {
+  inline float messageFooterHeight(float components, float reactions, float thread) {
+    if (components <= 0 && reactions <= 0 && thread <= 0)
+      return 0;
+    // Footers are drawn six pixels below the body. Reaction strips reserve four
+    // pixels after their final chip; another four keeps the next text clear.
+    return 6 + components + reactions + thread + (reactions > 0 && thread <= 0 ? 4 : 0);
+  }
   inline float
   messageRowPadding(bool continuation, bool nextContinuation, bool compact, int spacing = 16, bool last = false) {
     // Rich text already reserves a full line height. A second row gap would

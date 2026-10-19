@@ -174,6 +174,31 @@ namespace app {
           throw std::runtime_error("Forward source links must require known channel visibility");
         std::clog << "Offline forwarded snapshot, media gallery and source permission check passed\n";
       }
+      if (m_demo && m_demoOverlay.starts_with("reaction-spacing")) {
+        for (std::size_t i = 0; i + 1 < m_messages.size(); ++i) {
+          const auto& message = m_messages[i];
+          const auto& next = m_messages[i + 1];
+          const auto following = std::ranges::find_if(m_hits, [&](const auto& hit) {
+            return hit.action == Action::SelectMessage && hit.id == next.id;
+          });
+          if (!continuesMessageGroup(message, next) || following == m_hits.end())
+            throw std::runtime_error("Reaction spacing must cover visible consecutive messages from the same author");
+          if (m_preferences.showReactions) {
+            float chipBottom = 0;
+            for (const auto& hit : m_hits)
+              if (hit.action == Action::ToggleReaction && hit.id.starts_with(message.id + "\n"))
+                chipBottom = std::max(chipBottom, hit.y + hit.height);
+            if (chipBottom == 0 || std::abs(following->y - chipBottom - 8) > .5F)
+              throw std::runtime_error("Reaction chips must leave eight pixels before the next message's text");
+          } else {
+            const float end =
+                m_messageTops.at(message.id) + (i == 0 ? 18 : 0) + m_messageLayouts.at(message.id).layout.height;
+            if (std::abs(following->y - end) > .5F)
+              throw std::runtime_error("Hidden reactions must not leave an empty footer gap");
+          }
+        }
+        std::clog << "Offline image, wrapped-reaction and continuation spacing check passed\n";
+      }
       if (m_demo && m_demoOverlay.starts_with("chat-spacing")) {
         const auto& last = m_messages.back();
         const float messageEnd =
@@ -2091,6 +2116,31 @@ namespace app {
           m_channelHistoryState.clear();
           m_channelCacheOrder.clear();
           m_roleDirectory.apply({.guilds = {{.guild = m_guildId, .owner = m_account.id}}});
+        } else if (view.starts_with("reaction-spacing")) {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view.find("compact") != std::string::npos;
+          m_preferences.showReactions = view.find("hidden") == std::string::npos;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          m_messages.clear();
+          for (int i = 0; i < 3; ++i)
+            m_messages.push_back(
+                {std::to_string(9300 + i), m_channelId, "Maya",
+                 i == 0       ? ""
+                     : i == 1 ? "Text with wrapped reactions."
+                              : "The following message has room to breathe.",
+                 "2026-10-18T12:00:00Z", "11"}
+            );
+          m_messages[0].attachments.push_back(
+              {"9400", "preview.png", "https://example.com/preview.png", "image/png", {"demo-preview", 640, 360}}
+          );
+          m_messages[0].reactions = {{"", "👍", 1, true}};
+          for (int i = 0; i < 30; ++i)
+            m_messages[1].reactions.push_back({"", "👍", i + 1});
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          m_messageLayouts.clear();
         } else if (view.starts_with("chat-spacing")) {
           m_demoOverlay = view;
           m_showMembers = false;
@@ -3198,9 +3248,9 @@ namespace app {
                                       m_preferences.compact, m_preferences.messageGroupSpacing,
                                       i + 1 == m_messages.size())
                   + (message.reply ? 24 : 0)
-                  + reactionStrip(nullptr, message, 0, 0, textWidth)
-                  + threadStrip(nullptr, message, 0, 0, textWidth)
-                  + messageButtons(nullptr, message, 0, 0, textWidth);
+                  + messageFooterHeight(messageButtons(nullptr, message, 0, 0, textWidth),
+                                        reactionStrip(nullptr, message, 0, 0, textWidth),
+                                        threadStrip(nullptr, message, 0, 0, textWidth));
           layouts.push_back(&cached.layout);
           heights.push_back(height);
         }
