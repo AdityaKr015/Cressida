@@ -11,6 +11,10 @@
   llvmPackages_22,
   cressida,
   noto-fonts-color-emoji,
+  actionlint,
+  shellcheck,
+  weston,
+  mesa,
 }:
 mkShell {
   inputsFrom = [ cressida ];
@@ -28,9 +32,15 @@ mkShell {
     nixfmt
     llvmPackages_22.clang-tools
     llvmPackages_22.llvm
+    actionlint
+    shellcheck
+    weston
   ];
   shellHook = ''
     export CRESSIDA_ASSETS_DIR="$PWD/assets"
     export CRESSIDA_EMOJI_FONT="${noto-fonts-color-emoji}/share/fonts/noto/NotoColorEmoji.ttf"
+    # Used only by the private headless CI helper, never by normal GUI launches.
+    export CRESSIDA_CI_EGL_VENDOR="${mesa}/share/glvnd/egl_vendor.d/50_mesa.json"
+    export CRESSIDA_CI_MESA_DRIVERS="${mesa}/lib/dri"
   '';
 }

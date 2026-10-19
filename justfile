@@ -95,6 +95,21 @@ format:
     find src tests \( -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 clang-format -i
     nixfmt flake.nix shell.nix nix/*.nix
 
+# Check formatting without changing files.
+format-check:
+    find src tests \( -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 clang-format --dry-run -Werror
+    nixfmt --check flake.nix shell.nix nix/*.nix
+
+# Validate workflow syntax, shell helpers and repository automation.
+lint: format-check
+    actionlint
+    shellcheck .github/workflows/scripts/*.sh
+    python3 -m unittest discover -s .github/workflows/scripts -p 'test_*.py'
+
+# Exercise offline UI replays in a private software-rendered Wayland session.
+smoke-headless binary="build-debug/cressida":
+    bash .github/workflows/scripts/smoke-headless.sh '{{binary}}'
+
 # Build and test the locked package in the Nix sandbox.
 check:
     nix flake check path:.

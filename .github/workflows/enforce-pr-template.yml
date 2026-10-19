@@ -1,0 +1,34 @@
+name: Pull request description
+
+# Inspect only event metadata using trusted base-branch code. Never check out or
+# execute the PR head. Use pull_request so the check belongs to the PR commit.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-description-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  description:
+    name: PR description
+    # Merge queues inherit PR review/description approval; emit a skipped check.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Validate required sections and ready-for-review checklist
+        # Dependabot supplies its own generated dependency-update description.
+        if: >-
+          github.event.pull_request.user.login != 'dependabot[bot]' ||
+          github.event.pull_request.user.type != 'Bot'
+        run: python3 .github/workflows/scripts/check_pr_template.py "$GITHUB_EVENT_PATH"

@@ -21,6 +21,7 @@ nix run path:.
 ```
 
 A Wayland desktop and working graphics drivers are required.
+For builds without Nix and distribution packages, see [PACKAGING.md](PACKAGING.md).
 
 ## Sign in
 
@@ -32,6 +33,10 @@ can remember your sign-in. Signing out removes the saved login.
 
 Voice/video calls, arbitrary file uploads and drag-and-drop are not available yet.
 Image uploads are supported. Some Discord controls and settings remain incomplete.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance.
 
 ## License
 

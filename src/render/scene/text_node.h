@@ -5,8 +5,8 @@
 #include "render/core/text_gradient.h"
 #include "render/scene/node.h"
 
-#include <string>
 #include <optional>
+#include <string>
 
 class TextNode : public Node {
 public:

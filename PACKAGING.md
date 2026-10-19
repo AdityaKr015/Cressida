@@ -1,0 +1,207 @@
+# Packaging Cressida
+
+Notes for Linux distribution packagers and source builds. Nix is optional;
+Meson and Ninja build the client directly. Contributor checks are described in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Identity
+
+| Field | Value |
+|---|---|
+| Name / executable | `cressida` |
+| Short description | A native Discord desktop client for Linux and Wayland. |
+| Homepage | https://github.com/Ly-sec/Cressida |
+| Version | `project(... version: ...)` in `meson.build`; keep `nix/package.nix` in sync |
+| License | MIT; retain the bundled third-party notices described below |
+| Desktop entry | `dev.lysec.Cressida.desktop` |
+| Desktop icon | `applications-internet` from the system icon theme |
+
+The configured CI targets are native `x86_64` and `aarch64` Linux. Other
+architectures and libc implementations have no dedicated CI coverage. Cressida
+requires a Wayland session; there is no X11 window backend.
+
+## Dependencies
+
+The authoritative dependency checks are in [meson.build](meson.build). Package
+names vary between distributions: install the development headers and pkg-config
+metadata as well as the runtime libraries. Cressida uses neither Qt nor GTK.
+
+### Build tools
+
+- A C compiler and a C++23 compiler **and standard library** providing
+  `std::expected`, `std::format` and `std::ranges::contains`. A compiler accepting
+  `-std=c++23` with an older standard library is insufficient.
+- Meson 1.1 or newer, Ninja and pkg-config/pkgconf.
+- `wayland-scanner` and the Wayland protocol XML files from `wayland-protocols`.
+- Python 3 and the `ffmpeg` executable for the test fixtures.
+- `dbus-daemon` for private test buses.
+
+`just`, clang-format 22, nixfmt, actionlint, ShellCheck and Weston are
+developer/CI tools, not requirements for a plain Meson package build. Do not add
+them to the installed client's runtime dependencies.
+
+### Libraries and headers
+
+| Dependency | pkg-config module / requirement | Purpose |
+|---|---|---|
+| Wayland | `wayland-client`, `wayland-egl`, `wayland-protocols` | Native windows and generated protocol bindings |
+| EGL and OpenGL ES | `egl`, `glesv2` | Hardware or Mesa software rendering |
+| Cairo | `cairo`, `cairo-ft` | Text and drawing support |
+| Pango | `pango`, `pangocairo`, `pangoft2` | Text shaping and layout |
+| FreeType | `freetype2` | Font rasterization |
+| Fontconfig | `fontconfig` | Font discovery and fallback |
+| HarfBuzz | `harfbuzz` | Text shaping |
+| librsvg | `librsvg-2.0` | SVG images |
+| libwebp | `libwebp`, `libwebpdemux` | Static and animated WebP |
+| libjxl | `libjxl`, `libjxl_threads` | JPEG XL images |
+| libxkbcommon | `xkbcommon` | Keyboard input |
+| nlohmann JSON | `nlohmann_json` | Protocol and state data |
+| toml++ | `tomlplusplus` | Theme configuration |
+| GLib / GIO | `gio-2.0` | D-Bus, portals and theme file monitoring |
+| libcurl | `libcurl >= 8.16`, with HTTPS, `ws` and `wss` enabled | REST and Gateway connections |
+| libsecret | `libsecret-1` | Secret Service credentials |
+| MD4C | `md4c` | Markdown parsing |
+| FFmpeg libraries | `libavformat`, `libavcodec`, `libavutil`, `libswscale` | Media decoding |
+| libmpv | `mpv >= 2.3` pkg-config API version | Embedded native video and audio playback |
+| rlottie | `rlottie` | Animated stickers |
+| stb headers | `stb_image_resize2.h` and `stb_image_write.h` | Image resizing and encoding |
+| POSIX threads | Compiler / libc thread support | Background workers |
+
+**libcurl:** the library linked into Cressida must support secure WebSockets;
+installing a curl command-line tool with different features does not fix the
+library. Native Meson configuration compiles and runs a `curl_version_info`
+probe that requires `wss`. If rebuilding curl, enable WebSockets and a TLS backend
+in that package. Consult curl's [WebSocket documentation](https://curl.se/docs/websocket.html).
+The Nix package enables `websocketSupport` explicitly. Cross builds cannot run
+this probe, so packagers must verify the target library's enabled protocols.
+
+**stb:** old packages with only `stb_image_resize.h` are insufficient. Headers
+may be installed below `stb/` or exposed through `stb.pc`. The Nix recipe pins
+revision `f1c79c02822848a9bed4315b12c8c8f3761e1296`; use that revision as a
+reference if your distribution's headers are too old. The source tree does not
+download dependencies during configuration.
+
+**libmpv:** `>= 2.3` refers to the pkg-config/libmpv API version, not the mpv
+player application's release number. The client links the library directly;
+it does not launch an external player window.
+
+### Bundled components and notices
+
+Wuffs is shipped under `third_party/wuffs` with its MIT and Apache-2.0 notices;
+no separate Wuffs system package is needed. The renderer and native controls in
+`src/render` and `src/ui` are project sources, not external build dependencies.
+Ship the complete assets tree, preserving these notices:
+
+- `assets/fonts/tabler-icons-license.txt`
+- `assets/emoji-data-license.txt`
+- `assets/themes/LICENSES.txt`
+- `third_party/wuffs/LICENSE-MIT` and `LICENSE-APACHE`
+
+## Build and install
+
+From an extracted release archive or source checkout with dependencies installed:
+
+```sh
+meson setup build-release --prefix=/usr --buildtype=release -Dcpp_std=c++23
+meson compile -C build-release -j 4
+meson test -C build-release --print-errorlogs
+DESTDIR="$PWD/pkg" meson install -C build-release --no-rebuild
+```
+
+`DESTDIR` stages files beneath `pkg` without changing their final `/usr` paths;
+see [Meson's installation reference](https://mesonbuild.com/Installing.html#destdir-support).
+Use your distribution's normal prefix, libdir, compiler and linker flags. Avoid
+CPU-specific flags such as `-march=native` in general-purpose binary packages.
+No particular linker is required. `just` is a convenience wrapper, not a package
+build dependency. There is currently no option to omit compiling test targets
+from the default all-target build.
+
+For an unpackaged development build:
+
+```sh
+meson setup build-debug --buildtype=debug -Dcpp_std=c++23
+meson compile -C build-debug -j 4 cressida
+./build-debug/cressida --demo
+```
+
+The native offline test suite uses synthetic fixtures, temporary directories,
+private D-Bus instances and loopback network peers. It needs no Discord account,
+credentials or external network access. Sandboxes must permit local sockets;
+a few graphics checks may explicitly skip if an EGL context is unavailable.
+`--smoke-test` renders the offline UI on an available Wayland compositor and exits.
+
+For deterministic emoji fallback, install a color emoji font such as Noto Color
+Emoji and configure its final runtime path if needed:
+
+```sh
+meson configure build-release -Demoji_font=/usr/share/fonts/noto/NotoColorEmoji.ttf
+```
+
+Use the actual path provided by your distribution. Do not embed a temporary
+staging or build-directory path in this option.
+
+### Installed layout
+
+With prefix `/usr` and the usual `lib`/`share` directories:
+
+```text
+/usr/bin/cressida
+/usr/lib/libcressida-render.so
+/usr/include/cressida/...
+/usr/share/cressida/assets/...
+/usr/share/applications/dev.lysec.Cressida.desktop
+/usr/share/licenses/cressida/...
+```
+
+Meson honors a distribution's alternative libdir. Ship the renderer library
+with the executable from the same build; it currently has no versioned ABI.
+Development headers can go in a distribution's development subpackage. Keep
+the complete assets bundle with the runtime package: fonts, icon metadata,
+emoji catalogs, themes and demo media are used by the application and previews.
+
+The compiled prefix/datadir locate the installed bundle. Development builds also
+look beside the executable and its parent directory. `CRESSIDA_ASSETS_DIR` can
+select an alternative complete assets root; an installed package should work
+without this override. Cressida does not currently ship a dedicated application
+icon, AppStream metadata, man pages or systemd units.
+
+## Runtime integration
+
+| Dependency | Requirement |
+|---|---|
+| Wayland compositor and EGL/GLES driver | Required to display the client |
+| Fontconfig fonts, including a color emoji font | Required for usable text and emoji fallback |
+| CA certificate store | Required for TLS certificate validation |
+| Default web browser and `xdg-open` | Browser sign-in and external links; make `xdg-open` available at build time as its resolved path is recorded |
+| Session D-Bus | Desktop service integration |
+| shared-mime-info database | File-type detection for uploads; also expose it in clean test environments |
+| Secret Service provider | Recommended for remembering sign-in; libsecret alone does not provide a keyring |
+| XDG desktop portal with Settings / FileChooser backends | System color mode and native file selection where supported |
+| Desktop notification service | Native notification delivery |
+
+GNOME Keyring or KeePassXC with Secret Service enabled can store credentials.
+The client uses the existing desktop services; it does not install its own
+notification daemon, browser engine or keyring. No compositor autostart entry
+or privileged service is required. Start `cressida` from the application menu
+or a terminal.
+
+## User files
+
+| Kind | Default location |
+|---|---|
+| Session/UI state | `$XDG_STATE_HOME/cressida/session.json` (`~/.local/state/cressida/session.json`) |
+| Custom themes | `$XDG_CONFIG_HOME/cressida/themes/` (`~/.config/cressida/themes/`) |
+| Saved credentials | Desktop Secret Service provider |
+
+Do not package user state, tokens, keyring contents or generated build caches.
+Custom themes remain user-owned TOML files; bundled palettes live in the assets
+directory and must not be installed over those custom files.
+
+## Releases
+
+Prefer tagged release archives for stable packages. The release workflow checks
+that the tag matches both package version declarations and creates a draft
+release containing `cressida-VERSION.tar.xz` and `SHA256SUMS` after CI passes.
+The archive includes the Nix files and lock as well as the plain Meson build,
+assets and license notices. No AUR upload or distribution-repository publishing
+is configured by this project.

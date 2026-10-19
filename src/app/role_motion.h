@@ -12,7 +12,10 @@ namespace app {
   class RoleMotion {
   public:
     using Clock = std::chrono::steady_clock;
-    void clear() { m_starts.clear(); m_seen.clear(); }
+    void clear() {
+      m_starts.clear();
+      m_seen.clear();
+    }
     void begin() { m_seen.clear(); }
     float phase(const std::string& key, bool hovered, Clock::time_point now = Clock::now()) {
       if (!hovered) {
@@ -30,6 +33,7 @@ namespace app {
       std::erase_if(m_starts, [&](const auto& entry) { return !m_seen.contains(entry.first); });
     }
     bool active() const { return !m_starts.empty(); }
+
   private:
     std::map<std::string, Clock::time_point> m_starts;
     std::set<std::string> m_seen;

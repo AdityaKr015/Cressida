@@ -496,8 +496,7 @@ namespace app {
       const auto revision = m_threads.revision();
       api::Event failure;
       failure.operation = api::Operation::Threads;
-      failure.threadQuery =
-          api::ThreadQuery{api::ThreadList::Active, "1", "105", {}, ++m_threadSerial, revision};
+      failure.threadQuery = api::ThreadQuery{api::ThreadList::Active, "1", "105", {}, ++m_threadSerial, revision};
       m_threadRequests["105"] = *failure.threadQuery;
       failure.error = "A synthetic request failed.";
       selectChannel("101");

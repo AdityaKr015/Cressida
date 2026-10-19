@@ -1,14 +1,13 @@
 #pragma once
-#include "render/core/text_gradient.h"
-#include <optional>
-
 #include "render/core/color.h"
 #include "render/core/mat3.h"
 #include "render/core/render_styles.h"
+#include "render/core/text_gradient.h"
 #include "render/core/texture_handle.h"
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 
 class GlSharedContext;

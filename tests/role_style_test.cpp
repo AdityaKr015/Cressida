@@ -1,6 +1,6 @@
-#include "app/role_motion.h"
 #include "api/models.h"
 #include "api/role_styles.h"
+#include "app/role_motion.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -99,9 +99,7 @@ int main() {
         "Losing enhanced styles falls back to primary color"
     );
     directory.apply(
-        api::parseRoleUpdates(
-            "GUILD_UPDATE", json{{"id", "1"}, {"features", json::array({"ENHANCED_ROLE_COLORS"})}}
-        )
+        api::parseRoleUpdates("GUILD_UPDATE", json{{"id", "1"}, {"features", json::array({"ENHANCED_ROLE_COLORS"})}})
     );
     require(directory.colors("1", "12")->tertiary.has_value(), "Restored perk enables the saved palette");
     directory.apply(

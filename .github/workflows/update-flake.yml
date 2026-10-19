@@ -1,0 +1,72 @@
+name: Update flake
+
+on:
+  schedule:
+    - cron: "23 5 * * 0"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: update-flake
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.repository == 'Ly-sec/Cressida'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
+      - run: nix flake update --flake path:.
+      - name: Validate the updated dependencies
+        run: nix flake check --no-update-lock-file --print-build-logs path:.
+      - name: Open or update a dependency PR
+        id: pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          branch: automation/update-flake
+          add-paths: flake.lock
+          commit-message: "build(nix): update locked dependencies"
+          title: "build(nix): update locked dependencies"
+          draft: true
+          delete-branch: true
+          body: |
+            ## Summary
+            Update flake.lock to the latest configured nixpkgs input.
+
+            ## Motivation
+            Keep the reproducible build dependencies current.
+
+            ## Type of Change
+            - [x] Build / packaging
+
+            ## Testing
+            `nix flake check --no-update-lock-file --print-build-logs path:.`
+            passed on x86_64-linux. The CI workflow is dispatched for both architectures.
+
+            ## Checklist
+            - [ ] I read and followed `CONTRIBUTING.md`.
+            - [ ] I ran `just lint`, or explained why it was not run.
+            - [x] I ran the relevant build and tests, or explained why they were not run.
+            - [ ] I self-reviewed the changes and checked for new warnings or errors.
+            - [ ] I updated the relevant documentation, or no documentation changes are needed.
+            - [x] I kept credentials and private account data out of code, logs and fixtures.
+      # PRs created with GITHUB_TOKEN do not automatically trigger pull_request CI.
+      - name: Dispatch CI for the dependency branch
+        if: steps.pr.outputs.pull-request-number != ''
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'ci.yml',
+              ref: 'automation/update-flake',
+            });

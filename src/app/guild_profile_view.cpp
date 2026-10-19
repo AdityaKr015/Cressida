@@ -27,9 +27,8 @@ namespace app {
     }
     m_profileAnchorX = m_pointerX;
     m_profileAnchorY = m_pointerY;
-    m_dialogAction = api::Interaction{
-        .kind = api::InteractionKind::GuildProfile, .guild = guild, .revision = m_dialogGeneration
-    };
+    m_dialogAction =
+        api::Interaction{.kind = api::InteractionKind::GuildProfile, .guild = guild, .revision = m_dialogGeneration};
     m_dialogPending = !m_demo && startInteraction(*m_dialogAction);
     if (m_demo) {
       m_guildProfile = {

@@ -1,7 +1,7 @@
+#include "api/video_source.h"
 #include "app/client_application.h"
 #include "app/theme.h"
 #include "core/files/resource_paths.h"
-#include "api/video_source.h"
 #include "render/gl_shared_context.h"
 #include "render/scene/image_node.h"
 

@@ -2,11 +2,11 @@
 
 #include "render/core/color.h"
 #include "render/core/text_gradient.h"
-#include <algorithm>
-#include <cmath>
 #include "render/core/texture_handle.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <stdexcept>
 
 namespace {
@@ -102,11 +102,15 @@ void GlyphProgram::ensureInitialized() {
   m_gradientGeometryLocation = glGetUniformLocation(m_program.id(), "u_gradient_geometry");
   m_gradientPhaseLocation = glGetUniformLocation(m_program.id(), "u_gradient_phase");
   m_gradientCountLocation = glGetUniformLocation(m_program.id(), "u_gradient_count");
-  m_gradientColorLocations = {glGetUniformLocation(m_program.id(), "u_gradient_first"),
-                             glGetUniformLocation(m_program.id(), "u_gradient_second"),
-                             glGetUniformLocation(m_program.id(), "u_gradient_third")};
+  m_gradientColorLocations = {
+      glGetUniformLocation(m_program.id(), "u_gradient_first"),
+      glGetUniformLocation(m_program.id(), "u_gradient_second"),
+      glGetUniformLocation(m_program.id(), "u_gradient_third")
+  };
 
-  if (m_gradientGeometryLocation < 0 || m_gradientPhaseLocation < 0 || m_gradientCountLocation < 0
+  if (m_gradientGeometryLocation < 0
+      || m_gradientPhaseLocation < 0
+      || m_gradientCountLocation < 0
       || std::ranges::any_of(m_gradientColorLocations, [](GLint location) { return location < 0; }))
     throw std::runtime_error("failed to query gradient glyph shader locations");
 
@@ -195,9 +199,8 @@ void GlyphProgram::drawTinted(
 }
 
 void GlyphProgram::drawGradient(
-    TextureId texture, float surfaceWidth, float surfaceHeight, float width, float height, float u0, float v0,
-    float u1, float v1, float opacity, const TextGradient& gradient, float offset, float textWidth,
-    const Mat3& transform
+    TextureId texture, float surfaceWidth, float surfaceHeight, float width, float height, float u0, float v0, float u1,
+    float v1, float opacity, const TextGradient& gradient, float offset, float textWidth, const Mat3& transform
 ) const {
   if (!m_program.isValid() || texture == 0 || width <= 0 || height <= 0)
     return;

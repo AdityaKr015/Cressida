@@ -1,7 +1,7 @@
-#include "app/discord_timestamp.h"
 #include "api/profile.h"
 #include "api/role_styles.h"
 #include "api/user_directory.h"
+#include "app/discord_timestamp.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -27,9 +27,7 @@ int main() {
     for (const auto& invalid :
          {json(nullptr), json{{"identity_enabled", false}, {"identity_guild_id", "99"}, {"tag", "MOON"}},
           json{{"identity_enabled", true}, {"identity_guild_id", "99/../1"}, {"tag", "MOON"}}})
-      require(
-          !api::parseGuildTag(json{{"primary_guild", invalid}}), "Hidden/null and malformed tags remain hidden"
-      );
+      require(!api::parseGuildTag(json{{"primary_guild", invalid}}), "Hidden/null and malformed tags remain hidden");
     require(
         !api::parseGuildTag(json{{"primary_guild", nullptr}, {"clan", userTag["primary_guild"]}}),
         "An explicit modern null does not resurrect a legacy tag"
@@ -138,8 +136,7 @@ int main() {
         "Guild avatar/banner use guild routes; guild accent is not applied"
     );
     require(
-        api::parseUserProfile(response, "2").guild.empty(),
-        "Mismatched guild metadata cannot leak into another server"
+        api::parseUserProfile(response, "2").guild.empty(), "Mismatched guild metadata cannot leak into another server"
     );
     response["guild_member_profile"]["bio"] = "";
     response["guild_member_profile"]["pronouns"] = nullptr;
@@ -296,9 +293,8 @@ int main() {
             && !guildPreview.tag->badge.empty(),
         "Discovery banners take priority and bounded hexadecimal badge hashes need not be padded"
     );
-    auto restricted = api::parseGuildProfile(
-        json{{"id", "99"}, {"visibility", 2}, {"member_count", nullptr}, {"online_count", -1}}
-    );
+    auto restricted =
+        api::parseGuildProfile(json{{"id", "99"}, {"visibility", 2}, {"member_count", nullptr}, {"online_count", -1}});
     require(
         !restricted.joinable && !restricted.members && !restricted.online,
         "Private servers require invitations and missing counts remain unknown"
@@ -311,9 +307,7 @@ int main() {
          {global.banner, global.decoration, global.guildBadge, global.badges.front().image, guildPreview.banner,
           guildPreview.tag->badge, std::string("/role-icons/80/") + hash + ".png?size=32",
           std::string("/guilds/1/users/11/banners/") + hash + ".png?size=512"}) {
-      require(
-          !api::mediaUrl(path).empty(), "Every projected profile/tag/role CDN path must pass the media allowlist"
-      );
+      require(!api::mediaUrl(path).empty(), "Every projected profile/tag/role CDN path must pass the media allowlist");
       require(
           api::mediaUrl("https://cdn.discordapp.com.evil.test" + path).empty(),
           "New asset routes preserve exact origin checks"

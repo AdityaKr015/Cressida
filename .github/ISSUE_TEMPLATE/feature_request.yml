@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest a feature or improvement for Cressida.
+title: "[FEATURE] "
+labels: [enhancement]
+body:
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues and pull requests for this suggestion.
+          required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature summary
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem or motivation
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed behavior
+      description: Describe the workflow and how it should behave; screenshots or references are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and additional context

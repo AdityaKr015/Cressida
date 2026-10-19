@@ -32,6 +32,7 @@
   ffmpeg-headless,
   mpv-unwrapped,
   rlottie,
+  shared-mime-info,
 }:
 stdenv.mkDerivation {
   pname = "cressida";
@@ -48,6 +49,8 @@ stdenv.mkDerivation {
         ".agents"
         ".aws"
         ".codex"
+        "ci-logs"
+        "dist"
       ]);
   };
 
@@ -91,6 +94,10 @@ stdenv.mkDerivation {
   ];
 
   doCheck = true;
+  # GIO's byte-based MIME detection needs a database even in a clean sandbox.
+  preCheck = ''
+    export XDG_DATA_DIRS="${shared-mime-info}/share''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+  '';
   mesonFlags = [ "-Demoji_font=${noto-fonts-color-emoji}/share/fonts/noto/NotoColorEmoji.ttf" ];
 
   meta = {

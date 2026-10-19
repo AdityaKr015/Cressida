@@ -1,6 +1,7 @@
-#include "render/programs/glyph_program.h"
 #include "render/core/text_gradient.h"
 #include "render/core/texture_handle.h"
+#include "render/programs/glyph_program.h"
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -9,7 +10,10 @@
 #include <stdexcept>
 
 namespace {
-  void require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
+  void require(bool ok, const char* message) {
+    if (!ok)
+      throw std::runtime_error(message);
+  }
   struct Graphics {
     EGLDisplay display = EGL_NO_DISPLAY;
     EGLContext context = EGL_NO_CONTEXT;
@@ -50,7 +54,9 @@ namespace {
     }
     ~Graphics() {
       if (context != EGL_NO_CONTEXT) {
-        glDeleteTextures(1, &output); glDeleteTextures(1, &mask); glDeleteFramebuffers(1, &fbo);
+        glDeleteTextures(1, &output);
+        glDeleteTextures(1, &mask);
+        glDeleteFramebuffers(1, &fbo);
         eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         eglDestroyContext(display, context);
       }
@@ -58,7 +64,7 @@ namespace {
         eglTerminate(display);
     }
   };
-}
+} // namespace
 int main() {
   Graphics graphics;
   if (!graphics.initialize()) {
@@ -75,13 +81,18 @@ int main() {
     };
     TextGradient gradient{.colors = {rgbHex(0xFF0000), rgbHex(0x0000FF), rgbHex(0x00FF00)}};
     auto draw = [&](float opacity = 1) {
-      program.drawGradient(TextureId(graphics.mask), 128, 32, 128, 32, 0, 0, 1, 1, opacity, gradient, 16, 96, Mat3::identity());
+      program.drawGradient(
+          TextureId(graphics.mask), 128, 32, 128, 32, 0, 0, 1, 1, opacity, gradient, 16, 96, Mat3::identity()
+      );
     };
     draw();
     require(pixel(16)[0] > 245 && pixel(16)[2] < 10, "Primary color aligns with logical text start after ink padding");
     require(pixel(111)[2] > 245 && pixel(111)[0] < 10, "Secondary color reaches logical text end");
     const auto center = pixel(64);
-    require(center[0] > 110 && center[0] < 145 && center[2] > 110 && center[2] < 145, "Idle two-color gradient interpolates across the glyph mask");
+    require(
+        center[0] > 110 && center[0] < 145 && center[2] > 110 && center[2] < 145,
+        "Idle two-color gradient interpolates across the glyph mask"
+    );
     gradient.phase = .25F;
     draw();
     require(pixel(64)[2] > 245 && pixel(64)[0] < 10, "Hover phase moves the gradient without changing geometry");
@@ -93,12 +104,20 @@ int main() {
     require(pixel(111)[1] > 245 && pixel(111)[2] < 10, "Holographic gradient reaches its tertiary color");
     require(pixel(64)[2] > 245, "Three-color midpoint uses the secondary color");
     draw(.5F);
-    require(pixel(64)[3] >= 126 && pixel(64)[3] <= 129 && pixel(64)[2] >= 124 && pixel(64)[2] <= 129,
-            "Gradient output preserves premultiplied opacity");
+    require(
+        pixel(64)[3] >= 126 && pixel(64)[3] <= 129 && pixel(64)[2] >= 124 && pixel(64)[2] <= 129,
+        "Gradient output preserves premultiplied opacity"
+    );
     program.drawTinted(TextureId(graphics.mask), 128, 32, 128, 32, 0, 0, 1, 1, 1, rgbHex(0x00FF00));
-    require(pixel(64) == std::array<unsigned char, 4>{0, 255, 0, 255}, "Gradient uniforms do not leak into ordinary text tint");
+    require(
+        pixel(64) == std::array<unsigned char, 4>{0, 255, 0, 255},
+        "Gradient uniforms do not leak into ordinary text tint"
+    );
     program.draw(TextureId(graphics.mask), 128, 32, 128, 32, 0, 0, 1, 1, 1);
-    require(pixel(64) == std::array<unsigned char, 4>{255, 255, 255, 255}, "RGBA emoji path stays unchanged after gradient draws");
+    require(
+        pixel(64) == std::array<unsigned char, 4>{255, 255, 255, 255},
+        "RGBA emoji path stays unchanged after gradient draws"
+    );
     require(glGetError() == GL_NO_ERROR, "Gradient rendering leaves no GL errors");
     program.destroy();
   } catch (const std::exception& error) {
