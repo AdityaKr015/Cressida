@@ -117,6 +117,12 @@ namespace app {
       Send,
       PasteClipboard,
       ToggleEmoji,
+      ToggleStickers,
+      StickerSection,
+      SendSticker,
+      RemoveSticker,
+      StickerInfo,
+      StickerRetry,
       InsertEmoji,
       PickEmoji,
       FavoriteEmoji,
@@ -445,6 +451,13 @@ namespace app {
     void pickEmoji(const std::string& key);
     void recordEmojiUse(const std::string& key);
     void favoriteEmoji(const std::string& key);
+    void prepareStickers();
+    void clearStickers();
+    void stickerEvent(api::Event& event);
+    void drawStickerPicker(Node& root, float w, float h);
+    void stickerAction(const Hit& hit);
+    void demoStickerStep();
+    std::string stickerRestriction(const api::Sticker& sticker) const;
     std::string favoriteEmojiKey(const api::Emoji& emoji) const;
     void drawGifPicker(Node& root, float w, float h);
     void searchGifs();
@@ -734,6 +747,18 @@ namespace app {
     std::string m_emojiQuery, m_emojiSection = "all", m_emojiError, m_emojiHovered, m_emojiJump;
     Hit m_emojiBounds{};
     float m_emojiScroll = 0, m_emojiRailScroll = 0;
+    bool m_stickerTab = false, m_stickerInfo = false, m_sentSticker = false;
+    std::map<std::string, std::vector<api::Sticker>> m_stickers;
+    std::set<std::string> m_loadedStickerSources, m_loadingStickerSources;
+    std::map<std::string, std::string> m_stickerErrors;
+    std::vector<std::pair<std::string, std::vector<api::Sticker>>> m_stickerGroups;
+    std::vector<std::string> m_recentStickers;
+    std::string m_stickerSection = "all", m_stickerFilter;
+    std::vector<std::string> m_pendingStickerIds;
+    std::map<std::string, std::vector<api::Sticker>> m_draftStickers;
+    std::map<std::string, api::Sticker> m_stickerTargets;
+    std::optional<api::Sticker> m_inspectedSticker;
+    std::uint64_t m_stickerRevision = 0;
     bool m_gifMenu = false, m_gifFavoritesTab = false, m_loadingGifs = false, m_loadingGifFavorites = false,
          m_gifFavoritesLoaded = false, m_gifFavoritesDirty = false, m_sentGif = false;
     std::string m_gifQuery, m_gifRequestedQuery, m_gifError, m_gifFavoriteError;

@@ -179,6 +179,15 @@ int main() {
     restored.recordEmoji("123", "heart");
     restored.recordEmoji("123", "123456789012345678");
     restored.recordEmoji("123", "heart");
+    restored.recordSticker("123", "101");
+    restored.recordSticker("123", "102");
+    restored.recordSticker("123", "102");
+    restored.recordSticker("123", "../bad");
+    require(
+        app::SessionStore(path).frequentStickers("123") == std::vector<std::string>{"102", "101"}
+            && app::SessionStore(path).frequentStickers("456").empty(),
+        "Sticker frequency survives restart, stays account-scoped and ignores malformed IDs"
+    );
     require(
         app::SessionStore(path).frequentEmojis("123").front() == "heart"
             && app::SessionStore(path).frequentEmojis("456").empty(),

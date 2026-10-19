@@ -38,6 +38,12 @@ namespace api {
         return "channel-page";
       case Operation::Threads:
         return "threads";
+      case Operation::GuildStickers:
+        return "stickers";
+      case Operation::StickerPacks:
+        return "sticker-packs";
+      case Operation::StickerDetails:
+        return "sticker";
       case Operation::GuildEmojis:
         return "emojis";
       case Operation::GifSearch:
@@ -61,6 +67,9 @@ namespace api {
       case Operation::ChannelPage:
       case Operation::Threads:
       case Operation::GuildEmojis:
+      case Operation::GuildStickers:
+      case Operation::StickerPacks:
+      case Operation::StickerDetails:
       case Operation::GifSearch:
         return true;
       default:
@@ -694,9 +703,12 @@ namespace api {
     return true;
   }
   bool Client::send(
-      const std::string& id, std::string content, std::vector<Upload> uploads, std::optional<MessageReference> reply
+      const std::string& id, std::string content, std::vector<Upload> uploads, std::optional<MessageReference> reply,
+      std::vector<std::string> stickers
   ) {
-    if ((content.empty() && uploads.empty())
+    if (!validSnowflake(id)
+        || !validStickerIds(stickers)
+        || (content.empty() && uploads.empty() && stickers.empty())
         || content.size() > 8000
         || utf8Length(content) > 2000
         || !validUploads(uploads)
@@ -704,6 +716,7 @@ namespace api {
       return false;
     Command command{Operation::Send, m_session, id, std::move(content), {}, std::move(uploads)};
     command.reply = std::move(reply);
+    command.stickers = std::move(stickers);
     return enqueue(std::move(command));
   }
   bool Client::interact(api::Interaction action) {
@@ -721,6 +734,13 @@ namespace api {
     return enqueue({Operation::GifSearch, m_session, query, {}});
   }
   bool Client::gifFavorites() { return enqueue({Operation::GifFavorites, m_session, {}, {}}); }
+  bool Client::guildStickers(const std::string& guild) {
+    return validSnowflake(guild) && enqueue({Operation::GuildStickers, m_session, guild, {}});
+  }
+  bool Client::stickerPacks() { return enqueue({Operation::StickerPacks, m_session, {}, {}}); }
+  bool Client::sticker(const std::string& id) {
+    return validSnowflake(id) && enqueue({Operation::StickerDetails, m_session, id, {}});
+  }
   bool Client::guildEmojis(const std::string& guild) {
     return validSnowflake(guild) && enqueue({Operation::GuildEmojis, m_session, guild, {}});
   }
@@ -1097,6 +1117,16 @@ namespace api {
               event.emojis = parseGuildEmojis(guild["emojis"], event.resource);
               publish(std::move(event));
             }
+            if (guild.contains("stickers") && guild["stickers"].is_array()) {
+              Event event{
+                  .operation = Operation::GuildStickers,
+                  .session = session,
+                  .resource = guild.value("id", ""),
+                  .live = true
+              };
+              event.stickers = parseStickers(guild["stickers"], event.resource);
+              publish(std::move(event));
+            }
             if (guild.contains("channels") && guild["channels"].is_array()) {
               Event snapshot{
                   .operation = Operation::ChannelSnapshot, .session = session, .resource = guild.value("id", "")
@@ -1193,12 +1223,21 @@ namespace api {
             }
           }
       } else if (
-          type == "GUILD_EMOJIS_UPDATE" || type == "GUILD_CREATE" || type == "GUILD_UPDATE" || type == "GUILD_DELETE"
+          type == "GUILD_EMOJIS_UPDATE"
+          || type == "GUILD_STICKERS_UPDATE"
+          || type == "GUILD_CREATE"
+          || type == "GUILD_UPDATE"
+          || type == "GUILD_DELETE"
       ) {
         const auto guild = data.value("guild_id", data.value("id", std::string{}));
         if (data.contains("emojis") || type == "GUILD_DELETE") {
           Event event{.operation = Operation::GuildEmojis, .session = session, .resource = guild};
           event.emojis = parseGuildEmojis(data.value("emojis", Json::array()), guild);
+          publish(std::move(event));
+        }
+        if (data.contains("stickers") || type == "GUILD_DELETE") {
+          Event event{.operation = Operation::GuildStickers, .session = session, .resource = guild, .live = true};
+          event.stickers = parseStickers(data.value("stickers", Json::array()), guild);
           publish(std::move(event));
         }
       } else if ((type == "CHANNEL_CREATE" || type == "CHANNEL_UPDATE") && data.contains("guild_id")) {
@@ -1356,6 +1395,15 @@ namespace api {
         case Operation::Threads:
           path = threadListPath(*command.threadQuery);
           break;
+        case Operation::GuildStickers:
+          path = "/guilds/" + command.resource + "/stickers";
+          break;
+        case Operation::StickerPacks:
+          path = "/sticker-packs";
+          break;
+        case Operation::StickerDetails:
+          path = "/stickers/" + command.resource;
+          break;
         case Operation::GuildEmojis:
           path = "/guilds/" + command.resource + "/emojis";
           break;
@@ -1400,6 +1448,15 @@ namespace api {
               event.error = "Search is being indexed. Please try again shortly.";
             else
               event.threadPage = parseThreadPage(*response, *command.threadQuery);
+            break;
+          case Operation::GuildStickers:
+            event.stickers = parseStickers(*response, command.resource);
+            break;
+          case Operation::StickerPacks:
+            event.stickers = parseStickerPacks(*response);
+            break;
+          case Operation::StickerDetails:
+            event.stickers = parseStickers(Json::array({*response}));
             break;
           case Operation::GuildEmojis:
             event.emojis = parseGuildEmojis(*response, command.resource);
@@ -1954,6 +2011,15 @@ namespace api {
           method = command.content.c_str();
           break;
         }
+        case Operation::GuildStickers:
+          path = "/guilds/" + command.resource + "/stickers";
+          break;
+        case Operation::StickerPacks:
+          path = "/sticker-packs";
+          break;
+        case Operation::StickerDetails:
+          path = "/stickers/" + command.resource;
+          break;
         case Operation::GuildEmojis:
           path = "/guilds/" + command.resource + "/emojis";
           break;
@@ -2200,7 +2266,7 @@ namespace api {
           break;
         case Operation::Send:
           path = "/channels/" + command.resource + "/messages";
-          body = messageBody(command.content, command.reply);
+          body = messageBody(command.content, command.reply, command.stickers);
           if (!command.uploads.empty()) {
             body["attachments"] = Json::array();
             for (std::size_t i = 0; i < command.uploads.size(); ++i)
@@ -2417,6 +2483,15 @@ namespace api {
             }
             break;
           }
+          case Operation::GuildStickers:
+            event.stickers = parseStickers(*response, command.resource);
+            break;
+          case Operation::StickerPacks:
+            event.stickers = parseStickerPacks(*response);
+            break;
+          case Operation::StickerDetails:
+            event.stickers = parseStickers(Json::array({*response}));
+            break;
           case Operation::GuildEmojis:
             event.emojis = parseGuildEmojis(*response, command.resource);
             break;

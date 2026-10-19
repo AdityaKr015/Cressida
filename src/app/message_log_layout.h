@@ -46,6 +46,7 @@ namespace app {
       // Keep old media as filename links; a long history must not repeat full images.
       version.editedTimestamp.clear();
       version.embeds.clear();
+      version.stickers.clear();
       for (auto& attachment : version.attachments)
         attachment.image.url.clear();
       if (version.content.empty() && version.attachments.empty())

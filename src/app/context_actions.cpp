@@ -192,6 +192,7 @@ namespace app {
           && message->authorId == m_account.id
           && message->webhookId.empty()
           && !message->forwarded
+          && (message->stickers.empty() || !message->content.empty())
           && (message->type == 0 || message->type == 19)
           && !(message->flags & 64))
         add(Action::EditMessage, "Edit Message");
@@ -760,6 +761,8 @@ namespace app {
     case Action::Reply:
       if (found != m_messages.end() && m_contextChannel == m_channelId) {
         m_replies[m_channelId] = {found->id, m_channelId, found->authorId, found->author, found->content};
+        if (found->content.empty() && !found->stickers.empty())
+          m_replies[m_channelId].content = "Sticker: " + found->stickers.front().name;
         m_focusedInput = "composer";
       }
       break;

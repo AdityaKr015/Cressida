@@ -82,7 +82,10 @@ namespace api {
   std::optional<InteractionRequest> interactionRequest(const Interaction& action);
   Channel
   createdDm(const nlohmann::json& response, const std::vector<std::string>& recipients, const std::string& self);
-  nlohmann::json messageBody(const std::string& content, const std::optional<MessageReference>& reply = {});
+  nlohmann::json messageBody(
+      const std::string& content, const std::optional<MessageReference>& reply = {},
+      const std::vector<std::string>& stickers = {}
+  );
   std::string reactionKey(const Reaction& reaction);
   nlohmann::json decodeRestBody(long status, std::string_view bytes);
   std::vector<Account> parseReactors(const nlohmann::json& value);

@@ -526,6 +526,8 @@ namespace app {
       }
       if (m_demo && m_demoOverlay == "interaction-cycle")
         demoInteractionStep();
+      if (m_demo && m_demoOverlay == "sticker-cycle")
+        demoStickerStep();
       if (m_demo && m_demoOverlay == "gif-cycle")
         demoGifStep();
       if (m_demo && m_demoOverlay == "unread-cycle") {
@@ -1045,6 +1047,7 @@ namespace app {
         && (std::string_view(view) == "interaction-cycle"
             || std::string_view(view) == "animation-cycle"
             || std::string_view(view) == "gif-cycle"
+            || std::string_view(view) == "sticker-cycle"
             || std::string_view(view) == "scroll-cycle"
             || std::string_view(view) == "emoji-scroll-cycle"
             || std::string_view(view) == "gif-scroll-cycle"
@@ -1054,7 +1057,8 @@ namespace app {
       m_desktopNotifications.start();
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "dm-compose-cycle"                        ? 16
+        smokeTest ? (m_demo && view && std::string_view(view) == "sticker-cycle"                           ? 8
+                         : m_demo && view && std::string_view(view) == "dm-compose-cycle"                  ? 16
                          : m_demo && view && std::string_view(view) == "dm-home-cycle"                     ? 18
                          : m_demo && view && std::string_view(view) == "chat-preload-cycle"                ? 10
                          : m_demo && view && std::string_view(view) == "join-cycle"                        ? 4
@@ -1122,6 +1126,8 @@ namespace app {
       throw std::runtime_error("Message hover replay did not finish");
     if (m_demoOverlay == "join-cycle" && m_demoInteractionStep != 4)
       throw std::runtime_error("Server join replay did not complete");
+    if (m_demoOverlay == "sticker-cycle" && m_demoInteractionStep != 8)
+      throw std::runtime_error("Sticker replay did not complete");
     if (m_demoOverlay == "role-emoji-cycle" && m_demoInteractionStep != 3)
       throw std::runtime_error("Role emoji replay did not complete");
     if (m_demoOverlay == "role-members-cycle" && m_demoInteractionStep != 2)
@@ -2120,6 +2126,32 @@ namespace app {
             m_messages[0].embeds = {preview};
             m_messageLayouts.clear();
           }
+        } else if (
+            view == "stickers"
+            || view == "stickers-light"
+            || view == "sticker-picker"
+            || view == "sticker-picker-light"
+            || view == "sticker-cycle"
+        ) {
+          prepareStickers();
+          m_preferences.emojiImageLinks = false;
+          if (view.ends_with("-light"))
+            m_preferences.theme = "light";
+          m_messages.resize(4);
+          const auto& fixtures = m_stickers.at(m_guilds.front().id);
+          for (std::size_t i = 0; i < m_messages.size(); ++i) {
+            m_messages[i].content = i == 1 ? "A sticker with a caption" : "";
+            m_messages[i].stickers = {fixtures[i]};
+            m_messages[i].attachments.clear();
+            m_messages[i].embeds.clear();
+          }
+          m_messageLayouts.clear();
+          if (view.starts_with("sticker-picker") || view == "sticker-cycle") {
+            m_emojiMenu = m_stickerTab = true;
+            m_focusedInput = "emoji-search";
+          }
+          if (view == "sticker-cycle")
+            m_demoOverlay = view;
         } else if (view == "composer") {
           m_drafts[m_channelId] = "A centered message";
         } else if (view == "emoji-picker" || view == "emoji-scrolled" || view == "emoji-scroll-cycle") {
@@ -2578,6 +2610,7 @@ namespace app {
     if (!m_emojiMenu && m_emojiOpened)
       closeEmojiPicker();
     m_gifTargets.clear();
+    m_stickerTargets.clear();
     m_reactionHoveredThisFrame = false;
     m_contextTargets.clear();
     m_messageTops.clear();
@@ -3005,7 +3038,7 @@ namespace app {
       else {
         const auto& draft = m_drafts[m_channelId];
         m_edit.clamp(draft);
-        m_draftWidth = std::max(32.0F, bodyWidth - 186);
+        m_draftWidth = std::max(32.0F, bodyWidth - 222);
         m_draftOffsets = TextEdit::stops(draft);
         m_window.target().renderer().measureTextCursorStopsWrapped(
             draft, 14, m_draftOffsets, m_draftWidth, m_draftStops
@@ -3013,7 +3046,9 @@ namespace app {
         const float fullDraftHeight =
             m_draftStops.empty() ? 22 : m_draftStops.back().y + std::max(22.0F, m_draftStops.back().height);
         m_draftHeight = std::clamp(fullDraftHeight, 22.0F, std::min(160.0F, h * 0.3F));
-        const float attachmentHeight = m_attachments[m_channelId].empty() ? 0 : 106;
+        const float uploadHeight = m_attachments[m_channelId].empty() ? 0 : 106;
+        const float stickerHeight = m_draftStickers[m_channelId].empty() ? 0 : 100;
+        const float attachmentHeight = uploadHeight + stickerHeight;
         const float replyHeight = m_replies.contains(m_channelId) ? 34 : 0;
         const float composerHeight = m_draftHeight + 24 + attachmentHeight + replyHeight;
         const float composerY = h - 30 - composerHeight;
@@ -3623,6 +3658,23 @@ namespace app {
                   label(*content, 50 + marker.x, bodyY + marker.y, marker.width + 2, "(edited)", marker.size, muted);
                 }
                 for (const auto& pic : layout.pictures) {
+                  if (pic.sticker) {
+                    const float sx = left + 74 + pic.x, sy = top + bodyY + pic.y;
+                    const bool loaded = picture(
+                        *content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 0, false, false,
+                        ImageFitMode::Contain
+                    );
+                    if (!loaded) {
+                      glyph(*content, 50 + pic.x + (pic.width - 32) / 2, bodyY + pic.y + 24, 32, "sticker", muted);
+                      label(
+                          *content, 50 + pic.x + 4, bodyY + pic.y + 64, pic.width - 8, pic.sticker->name, 12, muted,
+                          FontWeight::Normal, 2
+                      );
+                    }
+                    m_stickerTargets[pic.sticker->id] = *pic.sticker;
+                    m_hits.push_back({sx, sy, pic.width, pic.height, Action::StickerInfo, pic.sticker->id});
+                    continue;
+                  }
                   if (!pic.videoSource.empty()) {
                     m_videoPosters[pic.videoSource] = pic.media.url;
                     drawVideo(
@@ -3915,6 +3967,20 @@ namespace app {
           previewX += 96;
         }
         root.addChild(std::move(previews));
+        const float stickerSize = std::min(80.0F, std::max(32.0F, (bodyWidth - 96) / 3));
+        float stickerX = left + 38;
+        const float stickerY = composerY + replyHeight + uploadHeight + 8;
+        for (const auto& sticker : m_draftStickers[m_channelId]) {
+          picture(
+              root, stickerX, stickerY, stickerSize, stickerSize, api::stickerAsset(sticker), 0, false, false,
+              ImageFitMode::Contain
+          );
+          iconButton(
+              root, {stickerX + stickerSize - 22, stickerY, 24, 24, Action::RemoveSticker, sticker.id}, "x",
+              "Remove sticker"
+          );
+          stickerX += stickerSize + 12;
+        }
         m_draftX = left + 74;
         m_composerTop = composerY;
         m_draftY = composerY + replyHeight + attachmentHeight + 4;
@@ -3928,9 +3994,14 @@ namespace app {
             m_sending ? "loader" : "clipboard-plus", m_sending ? "Sending…" : "Paste from clipboard"
         );
         iconButton(
-            root, {left + bodyWidth - 62, actionY, 32, 32, Action::ToggleEmoji, {}}, "mood-smile", "Emoji", m_emojiMenu
+            root, {left + bodyWidth - 62, actionY, 32, 32, Action::ToggleEmoji, {}}, "mood-smile", "Emoji",
+            m_emojiMenu && !m_stickerTab
         );
         iconButton(root, {left + bodyWidth - 98, actionY, 32, 32, Action::ToggleGif, {}}, "gif", "GIFs", m_gifMenu);
+        iconButton(
+            root, {left + bodyWidth - 134, actionY, 32, 32, Action::ToggleStickers, {}}, "sticker", "Stickers",
+            m_emojiMenu && m_stickerTab
+        );
         if (!m_status.empty())
           label(root, left + 28, 105, bodyWidth - 56, m_status, 11, muted);
         if (memberWidth > 0) {
@@ -4883,17 +4954,42 @@ namespace app {
     std::vector<api::Upload> uploads;
     for (const auto& attachment : m_attachments[m_channelId])
       uploads.push_back(attachment.upload);
-    if (draft.empty() && uploads.empty())
+    if (draft.empty() && uploads.empty() && m_draftStickers[m_channelId].empty())
       return;
     const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
-    const auto content = m_emojiCatalog.messageContent(
+    auto content = m_emojiCatalog.messageContent(
         m_preferences.convertEmoticons ? convertMessageEmoticons(draft) : draft, m_dmMode ? "" : m_guildId,
         m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
     );
-    if (!m_client.send(m_channelId, content, std::move(uploads), reply)) {
+    std::vector<std::string> stickerIds, selectedStickerIds;
+    for (const auto& selected : m_draftStickers[m_channelId]) {
+      auto sticker = selected;
+      for (const auto& [_, values] : m_stickers)
+        if (const auto found = std::ranges::find(values, selected.id, &api::Sticker::id); found != values.end()) {
+          sticker = *found;
+          break;
+        }
+      if (const auto reason = stickerRestriction(sticker); !reason.empty()) {
+        m_status = reason;
+        m_window.invalidate();
+        return;
+      }
+      const bool external = m_dmMode || (selectedChannelPermissions().value_or(0) & (1ULL << 37));
+      if (api::stickerUnavailable(sticker, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), external)
+              .empty())
+        stickerIds.push_back(sticker.id);
+      else {
+        if (!content.empty())
+          content += '\n';
+        content += api::stickerImageLink(sticker);
+      }
+      selectedStickerIds.push_back(sticker.id);
+    }
+    if (!m_client.send(m_channelId, content, std::move(uploads), reply, std::move(stickerIds))) {
       m_status = "Messages can contain up to 2,000 characters. Please try again.";
     } else {
       m_pendingDraft = draft;
+      m_pendingStickerIds = std::move(selectedStickerIds);
       m_pendingReply = reply;
       m_pendingAttachments.clear();
       for (const auto& image : m_attachments[m_channelId])
@@ -5122,6 +5218,7 @@ namespace app {
           m_sessionStore.saveAppearance(m_preferences);
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
+          m_recentStickers = m_sessionStore.frequentStickers(m_account.id);
           m_presence = event.presence.value_or(api::Presence{});
           resetGuildBootstrap();
           m_readyBootstrapPending = event.live;
@@ -5156,6 +5253,12 @@ namespace app {
           || event.operation == api::Operation::SaveGifFavorite
       ) {
         gifEvent(event);
+      } else if (
+          event.operation == api::Operation::GuildStickers
+          || event.operation == api::Operation::StickerPacks
+          || event.operation == api::Operation::StickerDetails
+      ) {
+        stickerEvent(event);
       } else if (
           event.operation == api::Operation::GuildEmojis
           || event.operation == api::Operation::EmojiPreferences
@@ -5509,7 +5612,7 @@ namespace app {
       } else if (event.operation == api::Operation::Send) {
         m_sending = false;
         if (event.error.empty()) {
-          if (!m_sentGif && m_drafts[event.resource] == m_pendingDraft) {
+          if (!m_sentGif && !m_sentSticker && m_drafts[event.resource] == m_pendingDraft) {
             m_drafts[event.resource].clear();
             if (m_pendingReply
                 && m_replies.contains(event.resource)
@@ -5518,7 +5621,7 @@ namespace app {
           }
           if (event.resource == m_channelId)
             m_edit.clamp(m_drafts[event.resource]);
-          if (m_sentGif
+          if ((m_sentGif || m_sentSticker)
               && m_pendingReply
               && m_replies.contains(event.resource)
               && m_replies[event.resource].message == m_pendingReply->message)
@@ -5549,6 +5652,19 @@ namespace app {
           }
           m_status.clear();
         }
+        if (event.error.empty()) {
+          for (const auto& id : m_pendingStickerIds)
+            m_sessionStore.recordSticker(m_account.id, id);
+          if (!m_pendingStickerIds.empty()) {
+            m_recentStickers = m_sessionStore.frequentStickers(m_account.id);
+            ++m_stickerRevision;
+          }
+          std::erase_if(m_draftStickers[event.resource], [&](const auto& sticker) {
+            return std::ranges::find(m_pendingStickerIds, sticker.id) != m_pendingStickerIds.end();
+          });
+        }
+        m_pendingStickerIds.clear();
+        m_sentSticker = false;
         m_pendingDraft.clear();
         m_sentGif = false;
         m_pendingReply.reset();
@@ -6223,7 +6339,20 @@ namespace app {
         m_window.paste(true);
       }
       break;
+    case Action::ToggleStickers:
+    case Action::StickerSection:
+    case Action::SendSticker:
+    case Action::RemoveSticker:
+    case Action::StickerInfo:
+    case Action::StickerRetry:
+      stickerAction(hit);
+      break;
     case Action::ToggleEmoji:
+      if (m_stickerTab) {
+        closeEmojiPicker();
+        m_emojiQuery.clear();
+        m_emojiScroll = m_emojiRailScroll = 0;
+      }
       closeGifPicker();
       m_scrolling.stopAll();
       if (m_emojiMenu)
@@ -6264,7 +6393,8 @@ namespace app {
         closeGifPicker();
       else {
         closeContext();
-        m_emojiMenu = m_presenceMenu = false;
+        closeEmojiPicker();
+        m_presenceMenu = false;
         m_gifMenu = true;
         m_gifScroll = 0;
         m_focusedInput = "gif-search";

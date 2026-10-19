@@ -350,6 +350,49 @@ namespace app {
     } catch (...) {
     }
   }
+  std::vector<std::string> SessionStore::frequentStickers(const std::string& account) const {
+    std::vector<std::pair<int, std::string>> ranked;
+    try {
+      const auto all = readState(m_path, m_legacyPath);
+      if (all.contains(account) && all[account].contains("sticker_usage") && all[account]["sticker_usage"].is_object())
+        for (const auto& [key, count] : all[account]["sticker_usage"].items()) {
+          if (ranked.size() >= 64)
+            break;
+          if (api::validSnowflake(key) && count.is_number_integer() && count > 0 && count <= 1000000)
+            ranked.emplace_back(count.get<int>(), key);
+        }
+    } catch (...) {
+    }
+    std::ranges::sort(ranked, [](const auto& a, const auto& b) {
+      return a.first > b.first || (a.first == b.first && a.second < b.second);
+    });
+    std::vector<std::string> result;
+    for (const auto& [_, key] : ranked)
+      result.push_back(key);
+    return result;
+  }
+  void SessionStore::recordSticker(const std::string& account, const std::string& key) const {
+    if (m_path.empty() || !api::validSnowflake(account) || !api::validSnowflake(key))
+      return;
+    try {
+      auto all = readState(m_path, m_legacyPath);
+      auto& usage = all[account]["sticker_usage"];
+      if (!usage.is_object())
+        usage = nlohmann::json::object();
+      if (!usage.contains(key) && usage.size() >= 64) {
+        auto lowest = usage.begin();
+        for (auto it = usage.begin(); it != usage.end(); ++it)
+          if (!it.value().is_number_integer() || (lowest.value().is_number_integer() && it.value() < lowest.value()))
+            lowest = it;
+        usage.erase(lowest);
+      }
+      const auto previous =
+          usage.contains(key) && usage[key].is_number_integer() ? std::clamp(usage[key].get<int>(), 0, 999999) : 0;
+      usage[key] = previous + 1;
+      writeState(m_path, all);
+    } catch (...) {
+    }
+  }
   std::vector<std::string> SessionStore::frequentReactions(const std::string& account) const {
     std::vector<std::pair<int, std::string>> ranked;
     try {

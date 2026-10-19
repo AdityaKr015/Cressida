@@ -420,6 +420,12 @@ namespace api {
   } // namespace
   MessagePatch parseMessagePatch(const nlohmann::json& value) {
     MessagePatch patch;
+    const auto stickerItems = value.find(value.contains("sticker_items") ? "sticker_items" : "stickers");
+    if (stickerItems != value.end() && stickerItems->is_array()) {
+      patch.stickers = parseStickers(*stickerItems);
+      if (patch.stickers->size() > 3)
+        patch.stickers->resize(3);
+    }
     if (value.contains("edited_timestamp")) {
       if (value["edited_timestamp"].is_null())
         patch.editedTimestamp = "";
@@ -497,13 +503,14 @@ namespace api {
             const auto& snapshot = (*snapshots)[0]["message"];
             // Snapshot data deliberately excludes author and nested references.
             nlohmann::json rendering = nlohmann::json::object();
-            for (const auto* key : {"content", "attachments", "embeds", "mentions"})
+            for (const auto* key : {"content", "attachments", "embeds", "mentions", "sticker_items", "stickers"})
               if (snapshot.contains(key))
                 rendering[key] = snapshot[key];
             Message captured;
             parseMessagePatch(rendering).apply(captured);
             forward.content = captured.content.substr(0, 16000);
             forward.attachments = std::move(captured.attachments);
+            forward.stickers = std::move(captured.stickers);
             forward.embeds = std::move(captured.embeds);
             forward.mentions = std::move(captured.mentions);
             forward.timestamp = text(snapshot, "timestamp").substr(0, 64);
@@ -519,6 +526,11 @@ namespace api {
             reply.deleted = original->is_null();
             if (original->is_object()) {
               reply.content = text(*original, "content");
+              if (reply.content.empty() && original->contains("sticker_items")) {
+                const auto stickers = parseStickers((*original)["sticker_items"]);
+                if (!stickers.empty())
+                  reply.content = "Sticker: " + stickers.front().name;
+              }
               if (original->contains("author") && (*original)["author"].is_object()) {
                 const auto author = parseAccount((*original)["author"]);
                 reply.authorId = author.id;
@@ -656,6 +668,8 @@ namespace api {
       message.mentions = *mentions;
     if (attachments)
       message.attachments = *attachments;
+    if (stickers)
+      message.stickers = *stickers;
     if (embeds)
       message.embeds = *embeds;
   }
@@ -745,6 +759,7 @@ namespace api {
           && result.back().attachments.empty()
           && result.back().embeds.empty()
           && result.back().buttons.empty()
+          && result.back().stickers.empty()
           && !result.back().forwarded)
         result.back().content = "[System message]";
       if (const auto it = item.find("author"); it != item.end() && it->is_object()) {

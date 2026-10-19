@@ -102,6 +102,8 @@ namespace app {
     m_hits.push_back(m_gifBounds);
     button(root, {x + 12, y + 10, 66, 32, Action::GifTab, "search"}, "GIFs", false, !m_gifFavoritesTab);
     button(root, {x + 86, y + 10, 100, 32, Action::GifTab, "favorites"}, "Favorites", false, m_gifFavoritesTab);
+    button(root, {x + 194, y + 10, 66, 32, Action::ToggleEmoji, {}}, "Emoji");
+    button(root, {x + 268, y + 10, 88, 32, Action::ToggleStickers, {}}, "Stickers");
     iconButton(root, {x + width - 44, y + 10, 32, 32, Action::CloseGif, {}}, "x", "Close GIF picker");
     inputControl(
         root, x + 12, y + 52, width - 24, 38, "gif-search", m_gifQuery,

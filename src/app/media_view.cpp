@@ -85,7 +85,8 @@ namespace app {
                       || id.starts_with("forum-")
                       || id == "profile-scrollbar"));
         if (m_emojiMenu)
-          return id == "emoji-search" && m_emojiBounds.contains(m_pointerX, m_pointerY);
+          return (id == "emoji-search" || (m_stickerTab && (id == "sticker-scroll" || id == "sticker-rail-scroll")))
+              && m_emojiBounds.contains(m_pointerX, m_pointerY);
         if (m_gifMenu)
           return id == "gif-search" && m_gifBounds.contains(m_pointerX, m_pointerY);
         if (m_completionQuery && m_completionBounds.contains(m_pointerX, m_pointerY))

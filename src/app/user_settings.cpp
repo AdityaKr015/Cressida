@@ -819,7 +819,8 @@ namespace app {
       section("Expressions");
       toggle(
           "Emoji image links", m_preferences.emojiImageLinks, "emoji_image_links",
-          "Send unsupported server emoji as image links. Other clients may show a link or image, depending on channel "
+          "Send unsupported server emoji and stickers as image links. Other clients may show a link or image, "
+          "depending on channel "
           "embed permissions. Reactions use Discord's normal rules."
       );
     } else if (m_settingsPage == "themes") {

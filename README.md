@@ -17,7 +17,7 @@ A few highlights:
 
 - Rich profiles and animated server role colors.
 - Threads and forum posts alongside server chat and DMs.
-- Built-in image/video viewing, GIFs and custom emoji.
+- Built-in image/video viewing, GIFs, custom emoji and stickers.
 - Custom themes with automatic dark and light switching.
 
 ## Run

@@ -6,6 +6,7 @@
 #include "app/reply_preview.h"
 
 #include <algorithm>
+#include <cmath>
 #include <md4c.h>
 #include <pango/pango.h>
 
@@ -652,16 +653,77 @@ namespace app {
       const api::Message& message, float width, const MessageMeasure& measure, float fontSize,
       const MessageOptions& options
   ) {
-    // Only a standalone parsed link is transformed. Code, spoilers and captions
-    // keep their original presentation; the source message always stays intact.
+    auto content = std::string_view(message.content);
+    const auto first = content.find_first_not_of(" \r\n\t"), last = content.find_last_not_of(" \r\n\t");
+    const auto trimmed = first == std::string_view::npos ? std::string_view{} : content.substr(first, last - first + 1);
+    // Transform only exact CDN links or trailing sticker-link lines. Code and
+    // spoilers retain their source presentation, and captions stay above the artwork.
     if (options.emojiImageLinks) {
+      auto stickerPreview = [&](api::Sticker sticker, const std::string& link, std::string plainText) {
+        auto shown = message;
+        shown.content.clear();
+        shown.stickers = {std::move(sticker)};
+        std::erase_if(shown.embeds, [&](const auto& embed) {
+          return (embed.type == "image" || embed.type == "gifv")
+              && (embed.url == link || embed.image.url == link || embed.thumbnail.url == link);
+        });
+        auto transformed = options;
+        transformed.emojiImageLinks = false;
+        auto result = layoutRichMessage(shown, width, measure, fontSize, transformed);
+        result.plainText = std::move(plainText);
+        return result;
+      };
+      if (auto sticker = api::stickerFromImageLink(trimmed))
+        return stickerPreview(std::move(*sticker), std::string(trimmed), message.content);
       const auto probe = layoutMessage(message.content, width, measure, fontSize, message.mentions);
+      if (probe.boxes.empty()) {
+        auto shown = message;
+        std::vector<std::string> links;
+        std::vector<api::Sticker> stickers;
+        while (stickers.size() + message.stickers.size() < 3) {
+          const auto end = shown.content.find_last_not_of(" \r\n\t");
+          if (end == std::string::npos)
+            break;
+          const auto newline = shown.content.rfind('\n', end);
+          const auto begin = newline == std::string::npos ? 0 : newline + 1;
+          const auto candidate = shown.content.substr(begin, end - begin + 1);
+          auto sticker = api::stickerFromImageLink(candidate);
+          if (!sticker)
+            break;
+          const auto offset = probe.plainText.rfind(candidate);
+          if (offset == std::string::npos || std::ranges::any_of(probe.runs, [&](const auto& run) {
+                return run.offset < offset + candidate.size()
+                    && run.offset + run.text.size() > offset
+                    && (run.style.code || run.style.spoiler);
+              }))
+            break;
+          links.push_back(candidate);
+          stickers.push_back(std::move(*sticker));
+          shown.content.erase(newline == std::string::npos ? 0 : newline);
+        }
+        if (!stickers.empty()) {
+          for (auto it = stickers.rbegin(); it != stickers.rend(); ++it)
+            shown.stickers.push_back(std::move(*it));
+          std::erase_if(shown.embeds, [&](const auto& embed) {
+            return (embed.type == "image" || embed.type == "gifv") && std::ranges::any_of(links, [&](const auto& link) {
+                     return embed.url == link || embed.image.url == link || embed.thumbnail.url == link;
+                   });
+          });
+          auto transformed = options;
+          transformed.emojiImageLinks = false;
+          auto result = layoutRichMessage(shown, width, measure, fontSize, transformed);
+          result.plainText = probe.plainText;
+          return result;
+        }
+      }
       if (!probe.runs.empty() && probe.boxes.empty()) {
         const auto& link = probe.runs.front().style.link;
-        const auto emoji = api::emojiFromImageLink(link);
-        if (emoji && std::ranges::all_of(probe.runs, [&](const auto& run) {
-              return run.style.link == link && !run.style.code && !run.style.spoiler && run.image.empty();
-            })) {
+        const bool standalone = std::ranges::all_of(probe.runs, [&](const auto& run) {
+          return run.style.link == link && !run.style.code && !run.style.spoiler && run.image.empty();
+        });
+        if (auto sticker = api::stickerFromImageLink(link); sticker && standalone)
+          return stickerPreview(std::move(*sticker), link, probe.plainText);
+        if (const auto emoji = api::emojiFromImageLink(link); emoji && standalone) {
           auto shown = message;
           shown.content = emoji->token();
           std::erase_if(shown.embeds, [&](const auto& embed) {
@@ -674,9 +736,6 @@ namespace app {
         }
       }
     }
-    auto content = std::string_view(message.content);
-    const auto first = content.find_first_not_of(" \r\n\t"), last = content.find_last_not_of(" \r\n\t");
-    const auto trimmed = first == std::string_view::npos ? std::string_view{} : content.substr(first, last - first + 1);
     // Only replace an exact standalone media link whose preview is present.
     // Keep captions, mixed messages and unexpanded/hidden links readable.
     for (const auto& embed : message.embeds)
@@ -882,6 +941,28 @@ namespace app {
       y += 12;
       result.boxes[box].height = y - start;
     }
+    if (!message.stickers.empty()) {
+      if (y > 0)
+        y += 4;
+      const float size = std::min(160.0F, width), gap = 8;
+      const int columns = std::clamp(static_cast<int>((width + gap) / (size + gap)), 1, 3);
+      for (std::size_t i = 0; i < message.stickers.size(); ++i) {
+        const auto& sticker = message.stickers[i];
+        result.pictures.push_back(
+            {{api::stickerAsset(sticker), 320, 320},
+             (i % columns) * (size + gap),
+             y + (i / columns) * (size + gap),
+             size,
+             size,
+             {},
+             false,
+             sticker.format != 1,
+             {},
+             sticker}
+        );
+      }
+      y += std::ceil(static_cast<float>(message.stickers.size()) / columns) * (size + gap) - gap;
+    }
     if (!message.editedTimestamp.empty() && !result.edited) {
       result.edited = MessageLayout::EditedMarker{0, y + 2, editedWidth, editedHeight, editedStyle.size};
       y += 2 + editedHeight;
@@ -892,8 +973,13 @@ namespace app {
       captured.content = forward.available ? forward.content : "Forwarded message unavailable";
       captured.attachments = forward.attachments;
       captured.embeds = forward.embeds;
+      captured.stickers = forward.stickers;
       captured.mentions = forward.mentions;
-      if (forward.available && captured.content.empty() && captured.attachments.empty() && captured.embeds.empty())
+      if (forward.available
+          && captured.content.empty()
+          && captured.attachments.empty()
+          && captured.embeds.empty()
+          && captured.stickers.empty())
         captured.content = "Forwarded message";
       auto settings = options;
       settings.attachmentGallery = true;

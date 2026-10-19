@@ -344,11 +344,17 @@ namespace api {
     }
     return result;
   }
-  nlohmann::json messageBody(const std::string& content, const std::optional<MessageReference>& reply) {
+  nlohmann::json messageBody(
+      const std::string& content, const std::optional<MessageReference>& reply, const std::vector<std::string>& stickers
+  ) {
+    if (!validStickerIds(stickers))
+      throw std::invalid_argument("Invalid sticker IDs");
     nlohmann::json result{
         {"content", content},
         {"allowed_mentions", {{"parse", nlohmann::json::array()}, {"replied_user", reply && reply->mention}}}
     };
+    if (!stickers.empty())
+      result["sticker_ids"] = stickers;
     if (reply && validSnowflake(reply->message) && validSnowflake(reply->channel))
       result["message_reference"] = {
           {"message_id", reply->message}, {"channel_id", reply->channel}, {"fail_if_not_exists", true}

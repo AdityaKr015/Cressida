@@ -117,6 +117,7 @@ namespace app {
       merge(combined.thread, patch.thread);
       merge(combined.hasThread, patch.hasThread);
       merge(combined.attachments, patch.attachments);
+      merge(combined.stickers, patch.stickers);
       merge(combined.embeds, patch.embeds);
       merge(combined.mentions, patch.mentions);
       merge(combined.mentionRoles, patch.mentionRoles);

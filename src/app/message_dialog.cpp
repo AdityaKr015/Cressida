@@ -14,6 +14,7 @@ namespace app {
         || message->authorId != m_account.id
         || message->deleted
         || message->forwarded
+        || (!message->stickers.empty() && message->content.empty())
         || !message->webhookId.empty()
         || (message->flags & 64)
         || (message->type != 0 && message->type != 19)
@@ -97,7 +98,8 @@ namespace app {
       cancelMessageEdit();
       return;
     }
-    if (m_messageEdit->text.size() > 8000 || (m_messageEdit->text.empty() && message->attachments.empty())) {
+    if (m_messageEdit->text.size() > 8000
+        || (m_messageEdit->text.empty() && message->attachments.empty() && message->stickers.empty())) {
       m_messageEdit->error = m_messageEdit->text.empty() ? "Messages cannot be empty." : "This message is too long.";
       m_window.invalidate();
       return;

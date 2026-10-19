@@ -74,6 +74,10 @@ namespace app {
   }
   void ClientApplication::closeEmojiPicker() {
     m_emojiMenu = m_emojiOpened = false;
+    m_stickerTab = m_stickerInfo = false;
+    m_inspectedSticker.reset();
+    m_stickerErrors.erase("details");
+    m_stickerErrors.erase("send");
     m_scrolling.stop(m_emojiScroll);
     m_scrolling.stop(m_emojiRailScroll);
     if (m_focusedInput == "emoji-search") {
@@ -83,6 +87,7 @@ namespace app {
   }
   void ClientApplication::clearEmojiState() {
     closeEmojiPicker();
+    clearStickers();
     m_emojiCatalog.clearGuilds();
     m_emojiPreferences = {};
     m_recentEmojis.clear();
@@ -202,6 +207,10 @@ namespace app {
     closeEmojiPicker();
   }
   void ClientApplication::drawEmojiPicker(Node& root, float w, float h) {
+    if (m_stickerTab) {
+      drawStickerPicker(root, w, h);
+      return;
+    }
     if (!m_emojiOpened) {
       m_emojiOpened = true;
       m_controlInput.setFocus(nullptr);
@@ -218,6 +227,8 @@ namespace app {
     m_hits.push_back(m_emojiBounds);
     if (m_reactionMessage.empty())
       button(root, {x + 12, y + 10, 66, 30, Action::ToggleGif, {}}, "GIFs");
+    if (m_reactionMessage.empty())
+      button(root, {x + 160, y + 10, 88, 30, Action::ToggleStickers, {}}, "Stickers");
     label(
         root, x + (m_reactionMessage.empty() ? 92 : 16), y + 17, width - 150,
         m_reactionMessage.empty() ? "Emoji" : "Add reaction", 16, foreground, FontWeight::SemiBold

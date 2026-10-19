@@ -54,6 +54,8 @@ namespace app {
     void recordReaction(const std::string& account, const std::string& emoji) const;
     std::vector<std::string> frequentEmojis(const std::string& account) const;
     void recordEmoji(const std::string& account, const std::string& key) const;
+    std::vector<std::string> frequentStickers(const std::string& account) const;
+    void recordSticker(const std::string& account, const std::string& key) const;
 
   private:
     std::filesystem::path m_path, m_legacyPath;

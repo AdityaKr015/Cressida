@@ -25,7 +25,11 @@ namespace app {
         return name('@', message.authorId) + (message.type == 1 ? " added " : " removed ") + people + '.';
     }
     if (message.forwarded && message.content.empty())
-      return message.forwarded->attachments.empty() ? "Forwarded a message" : "Forwarded an attachment";
+      return !message.forwarded->stickers.empty()  ? "Forwarded a sticker"
+          : message.forwarded->attachments.empty() ? "Forwarded a message"
+                                                   : "Forwarded an attachment";
+    if (message.content.empty() && !message.stickers.empty())
+      return "Sent a sticker: " + message.stickers.front().name;
     if (message.content.empty())
       return message.attachments.empty() && message.embeds.empty() ? "New message" : "Sent an attachment";
     const auto text = notificationMessagePreview(message.content);

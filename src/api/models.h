@@ -1,5 +1,7 @@
 #pragma once
 
+#include "api/stickers.h"
+
 #include <cstdint>
 #include <map>
 #include <nlohmann/json_fwd.hpp>
@@ -177,6 +179,7 @@ namespace api {
     std::vector<Embed> embeds;
     std::map<std::string, std::string> mentions;
     bool available = false;
+    std::vector<Sticker> stickers;
     bool operator==(const ForwardedMessage&) const = default;
   };
   struct MessageReference {
@@ -225,6 +228,7 @@ namespace api {
     // Local session-only retention state; never read from or sent to Discord.
     bool deleted = false;
     std::optional<ForwardedMessage> forwarded;
+    std::vector<Sticker> stickers;
   };
 
   struct MessagePatch {
@@ -247,6 +251,7 @@ namespace api {
     std::optional<bool> mentionEveryone;
     std::optional<std::string> editedTimestamp;
     std::optional<std::optional<ForwardedMessage>> forwarded;
+    std::optional<std::vector<Sticker>> stickers;
     void apply(Message& message) const;
   };
   MessagePatch parseMessagePatch(const nlohmann::json& value);

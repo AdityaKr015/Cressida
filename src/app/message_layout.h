@@ -40,6 +40,7 @@ namespace app {
     bool video = false;
     bool animated = false;
     std::string videoSource;
+    std::optional<api::Sticker> sticker;
   };
   struct MessageLayout {
     struct EditedMarker {

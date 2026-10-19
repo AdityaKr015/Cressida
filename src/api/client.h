@@ -72,6 +72,9 @@ namespace api {
     GifFavorites,
     SaveGifFavorite,
     GuildEmojis,
+    GuildStickers,
+    StickerPacks,
+    StickerDetails,
     EmojiPreferences,
     SaveEmojiFavorite,
     RoleStyles,
@@ -134,6 +137,7 @@ namespace api {
     std::optional<auth::CredentialOperation> credentialOperation;
     std::vector<Gif> gifs;
     std::vector<Emoji> emojis;
+    std::vector<Sticker> stickers;
     std::optional<EmojiPreferences> emojiPreferences;
     std::optional<GuildSettingsRequest> guildSettingsRequest;
     nlohmann::json guildSettings;
@@ -179,7 +183,7 @@ namespace api {
     bool promotePreload(const std::string& channel, const HistoryQuery& query);
     bool send(
         const std::string& channelId, std::string content, std::vector<Upload> uploads = {},
-        std::optional<MessageReference> reply = {}
+        std::optional<MessageReference> reply = {}, std::vector<std::string> stickers = {}
     );
     bool interact(api::Interaction action);
     bool profile();
@@ -188,6 +192,9 @@ namespace api {
     bool gifFavorites();
     bool saveGifFavorite(const Gif& gif, bool add);
     bool guildEmojis(const std::string& guild);
+    bool guildStickers(const std::string& guild);
+    bool stickerPacks();
+    bool sticker(const std::string& id);
     bool emojiPreferences();
     bool saveEmojiFavorite(const std::string& key, bool add);
     bool saveAccountSettings(SettingValues changes);
@@ -226,6 +233,7 @@ namespace api {
       std::optional<UserSettingsRequest> userSettings;
       std::shared_ptr<RestReadIntent> readIntent;
       std::chrono::steady_clock::time_point queuedAt = std::chrono::steady_clock::now();
+      std::vector<std::string> stickers;
     };
     struct PreloadRead {
       std::uint64_t session;
