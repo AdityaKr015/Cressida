@@ -26,6 +26,7 @@
 #include "app/text_edit.h"
 #include "app/theme_runtime.h"
 #include "app/timeline_anchor.h"
+#include "app/typing_indicator.h"
 #include "app/unread_timeline.h"
 #include "app/user_account_view.h"
 #include "app/user_settings_form.h"
@@ -324,6 +325,12 @@ namespace app {
     void prepareDmHomeDemo(const std::string& view);
     void demoDmHomeStep();
     void selectChannel(std::string id);
+    void clearTyping();
+    void typingEvent(const api::Event& event);
+    void armTypingExpiry();
+    std::string typingText() const;
+    void drawTyping(Node& root, float x, float y, float width, const std::string& text);
+    void demoTypingStep();
     MessageOptions::ChannelMention channelMention(std::string_view guild, std::string_view channel) const;
     bool channelPrivate(const std::string& guild, const api::Channel& channel) const;
     const char* channelGlyph(const std::string& guild, const api::Channel& channel) const;
@@ -972,6 +979,9 @@ namespace app {
     std::uint64_t m_channelFeatureSerial = 0;
     std::string m_seekMessage;
     std::string m_jumpHighlightMessage;
+    Timer m_typingTimer;
+    TypingIndicator m_typing;
+    bool m_typingVisible = false;
     Timer m_jumpHighlightTimer;
     std::optional<std::pair<std::string, std::string>> m_pendingMessageJump;
     std::optional<DiscordLink> m_pendingDiscordLink;

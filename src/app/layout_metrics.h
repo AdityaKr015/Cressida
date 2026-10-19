@@ -59,6 +59,15 @@ namespace app::layout {
     static constexpr float unreadTimelineTop = 166;
     static constexpr float minimumHistoryFetchDistance = 240;
   };
+  struct Typing {
+    static constexpr float height = Style::spaceXl;
+    static constexpr std::size_t dotCount = 3;
+    static constexpr float dotSize = Style::spaceXs;
+    static constexpr float dotStep = dotSize + Style::spaceXxs;
+    static constexpr float dotsWidth = dotSize + (dotCount - 1) * dotStep;
+    static constexpr float textInset = dotsWidth + Style::spaceSm;
+    static constexpr auto cycle = std::chrono::milliseconds{Style::animSlow * 3};
+  };
   struct Reply {
     static constexpr float height = Style::spaceRelaxed;
     static constexpr float avatarSize = Style::spaceLg;

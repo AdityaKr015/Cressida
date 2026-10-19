@@ -14,7 +14,7 @@ namespace {
     std::atomic<std::uint64_t> generation{1};
     std::mutex mutex;
     std::condition_variable changed;
-    bool complete = false, valid = true, received = false;
+    bool complete = false, valid = true, received = false, typing = false;
     api::Gateway* active = nullptr;
     api::Gateway gateway(
         generation,
@@ -28,6 +28,14 @@ namespace {
                 && rows->front().status == "online";
             valid &= received;
             active->subscribe("1", "2", 0);
+          }
+          if (type == "TYPING_START") {
+            const auto event = api::parseTypingStart(data);
+            typing = event
+                && event->channel == "40"
+                && event->guild == "1"
+                && event->user == "7"
+                && event->name == "Thread nickname";
           }
           if (type == "THREAD_TEST_COMPLETE") {
             complete = true;
@@ -44,7 +52,7 @@ namespace {
       std::cerr << "Thread member subscription did not complete\n";
       valid = false;
     }
-    const bool result = valid && received;
+    const bool result = valid && received && typing;
     lock.unlock();
     ++generation;
     gateway.reset();

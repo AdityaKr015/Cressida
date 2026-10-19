@@ -170,7 +170,9 @@ def serve(listener, errors):
             ]}, "THREAD_MEMBER_LIST_UPDATE", 2)
             regular = wait_for(connection, 37)["d"]["subscriptions"]["1"]
             assert regular["thread_member_lists"] == [] and regular["channels"] == {"2": [[0, 99], [100, 199]]}, "leaving a thread clears its participant subscription"
-            packet(connection, 0, {}, "THREAD_TEST_COMPLETE", 3)
+            packet(connection, 0, {"guild_id": "1", "channel_id": "40", "user_id": "7", "timestamp": 1000,
+                "member": {"user": {"id": "7", "username": "Maya"}, "nick": "Thread nickname"}}, "TYPING_START", 3)
+            packet(connection, 0, {}, "THREAD_TEST_COMPLETE", 4)
         with upgrade(listener) as connection:
             identify = wait_for(connection, 2)
             assert identify["d"]["token"] == "synthetic-token"

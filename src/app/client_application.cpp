@@ -300,6 +300,8 @@ namespace app {
         demoChannelInviteStep();
       if (m_demo && (m_demoOverlay == "channel-menu-cycle" || m_demoOverlay == "channel-menu-scroll-cycle"))
         demoChannelMenuStep();
+      if (m_demo && m_demoOverlay.starts_with("typing-cycle"))
+        demoTypingStep();
       if (m_demo && m_demoOverlay == "folder-menu-cycle")
         demoFolderMenuStep();
       if (m_demo && m_demoOverlay == "server-menu-cycle")
@@ -866,7 +868,8 @@ namespace app {
           m_client.subscribe(m_guildId, m_channelId, page);
         }
       }
-      return active || (m_window.active() && m_roleMotion.active());
+      return active
+          || (m_window.active() && (m_roleMotion.active() || (m_typingVisible && !m_preferences.reducedMotion)));
     };
     m_window.zoom = [this](float delta) {
       closeSelectDropdown();
@@ -1178,6 +1181,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
                          : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
                          : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
+                         : m_demo && view && std::string_view(view).starts_with("typing-cycle")            ? 12
                          : m_demo && view && std::string_view(view) == "folder-menu-cycle"                 ? 13
                          : m_demo && view && std::string_view(view) == "server-menu-cycle"                 ? 20
                          : m_demo && view && std::string_view(view) == "channel-menu-cycle"                ? 31
@@ -1255,6 +1259,8 @@ namespace app {
       throw std::runtime_error("Channel creation replay did not finish");
     if (m_demoOverlay == "channel-invite-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Channel invite replay did not finish");
+    if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != 12)
+      throw std::runtime_error("Typing indicator replay did not finish");
     if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
       throw std::runtime_error("Folder menu replay did not finish");
     if (m_demoOverlay == "server-menu-cycle" && m_demoInteractionStep != 20)
@@ -1716,6 +1722,26 @@ namespace app {
             || view == "channel-delete"
             || view == "channel-move-confirm")
           prepareChannelMenuDemo(view);
+        if (view.starts_with("typing-")) {
+          prepareChannelMenuDemo("channel-menu");
+          closeContext();
+          m_demoOverlay = view;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          if (!view.starts_with("typing-cycle")) {
+            const auto timestamp =
+                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                    .count();
+            const std::vector<std::string> names = view == "typing-one"
+                ? std::vector<std::string>{"Maya"}
+                : std::vector<std::string>{"Maya", "Noah", "Alex", "Dani"};
+            for (std::size_t i = 0; i < names.size(); ++i) {
+              api::Event event{.operation = api::Operation::TypingStart, .session = m_session, .resource = m_channelId};
+              event.typing = api::TypingStart{m_channelId, m_guildId, std::to_string(i + 7), names[i], timestamp};
+              typingEvent(event);
+            }
+          }
+        }
         if (view.starts_with("server-menu") || view == "folder-menu-cycle") {
           prepareChannelMenuDemo("channel-menu");
           m_demoOverlay = view;
@@ -2790,6 +2816,7 @@ namespace app {
   }
 
   void ClientApplication::draw() {
+    m_typingVisible = false;
     m_roleMotion.begin();
     m_videoVisible = false;
     if (!m_videoExpanded)
@@ -3374,7 +3401,10 @@ namespace app {
         float top = m_unreadTimeline.unread() ? layout::Chat::unreadTimelineTop : layout::Chat::timelineTop;
         constexpr float timelineTopPadding = layout::Chat::topPadding,
                         timelineBottomPadding = layout::Chat::bottomPadding;
-        const float bottom = composerY - layout::Chat::composerGap, textWidth = std::max(32.0F, bodyWidth - 104);
+        const auto typing = typingText();
+        const float typingHeight = typing.empty() ? 0 : layout::Typing::height;
+        const float bottom = composerY - layout::Chat::composerGap - typingHeight,
+                    textWidth = std::max(32.0F, bodyWidth - 104);
         const MessageMeasure measure = [&](std::string_view text, const MessageStyle& style) {
           return m_window.target()
               .renderer()
@@ -4426,6 +4456,10 @@ namespace app {
             root, left + (Style::spaceXl - Style::spaceXxs), composerY,
             bodyWidth - (Style::spaceSection + Style::spaceXs), composerHeight, m_fieldFocused ? raised : panel, 14
         );
+        if (!typing.empty())
+          drawTyping(
+              root, left + layout::Chat::inset, composerY - typingHeight, bodyWidth - layout::Chat::inset * 2, typing
+          );
         if (replyHeight) {
           const auto& reply = m_replies.at(m_channelId);
           label(
@@ -4738,7 +4772,7 @@ namespace app {
     drawSelectDropdown(root, w, h);
     finishControls();
     m_roleMotion.end();
-    if (m_roleMotion.active())
+    if (m_roleMotion.active() || (m_typingVisible && m_window.active() && !m_preferences.reducedMotion))
       m_window.invalidate();
     updateChatPreload();
     updateCursor();
@@ -5006,6 +5040,8 @@ namespace app {
     m_client.subscribe(m_guildId, m_channelId, m_memberPage, identity);
   }
   void ClientApplication::selectGuild(const std::string& id) {
+    if (m_dmMode || m_guildId != id || m_channels.empty())
+      clearTyping();
     m_pendingDiscordLink.reset();
     m_jumpHighlightTimer.stop();
     m_jumpHighlightMessage.clear();
@@ -5079,6 +5115,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages(bool home) {
+    clearTyping();
     m_pendingDiscordLink.reset();
     m_jumpHighlightTimer.stop();
     m_jumpHighlightMessage.clear();
@@ -5177,6 +5214,7 @@ namespace app {
     m_controlInput.setFocus(nullptr);
     m_focusedInput = "composer";
     m_channelId = id;
+    clearTyping();
     if (!m_dmMode)
       rebuildThreadChannels();
     m_unreadTimeline.open(id);
@@ -5695,6 +5733,10 @@ namespace app {
     for (auto& event : m_client.drain()) {
       if (event.session != m_session || m_demo)
         continue;
+      if (event.operation == api::Operation::TypingStart) {
+        typingEvent(event);
+        continue;
+      }
       m_completionDirty = true;
       if (event.operation == api::Operation::GuildSettings && !event.unauthorized) {
         if (!event.live || !serverManagementResult(event))
@@ -5723,6 +5765,7 @@ namespace app {
       if (!event.unauthorized && event.operation == api::Operation::Messages && event.resource != m_channelId)
         continue;
       if (event.unauthorized) {
+        clearTyping();
         closeVideo();
         clearEmojiState();
         m_scrolling.stopAll();
@@ -5796,6 +5839,7 @@ namespace app {
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
           m_recentStickers = m_sessionStore.frequentStickers(m_account.id);
+          clearTyping();
           const auto expanded = m_sessionStore.expandedFolders(m_account.id);
           m_openFolders = expanded.value_or(std::set<std::string>{});
           m_foldersRestored = expanded.has_value();
@@ -6084,6 +6128,7 @@ namespace app {
         if (m_dmMode) {
           m_channels = dmConversations();
           if (m_channelId == event.resource) {
+            clearTyping();
             m_channelId.clear();
             m_messages.clear();
             m_messageLayouts.clear();
@@ -6123,6 +6168,7 @@ namespace app {
             std::clamp(m_memberScroll, 0.0F, std::max(0.0F, m_memberCount * 44.0F - (m_window.height() - 158)));
       } else if (event.operation == api::Operation::Gateway) {
         if (!event.live) {
+          clearTyping();
           ++m_chatCacheEpoch;
           clearChatPreload();
         }
@@ -6140,6 +6186,7 @@ namespace app {
             refresh();
         }
       } else if (event.operation == api::Operation::MessageCreate) {
+        typingEvent(event);
         std::erase_if(event.messages, [&](const auto& message) {
           return m_dismissedEphemeral.contains(message.id) || m_messageLog.known(event.resource, message.id);
         });
@@ -7194,6 +7241,7 @@ namespace app {
       m_collapsedCategories.clear();
       m_token.clear();
       m_account = {};
+      clearTyping();
       m_guilds.clear();
       m_guildUpdates.clear();
       resetGuildBootstrap();

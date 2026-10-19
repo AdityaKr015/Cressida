@@ -15,6 +15,7 @@
 #include "api/rest_rate_limits.h"
 #include "api/role_styles.h"
 #include "api/threads.h"
+#include "api/typing.h"
 #include "api/user_directory.h"
 #include "api/user_settings.h"
 #include "auth/credentials.h"
@@ -86,7 +87,8 @@ namespace api {
     MemberSearch,
     GuildMetadata,
     GuildSettings,
-    UserSettings
+    UserSettings,
+    TypingStart
   };
 
   struct Event {
@@ -153,6 +155,7 @@ namespace api {
     std::vector<std::string> userSettingsMfaMethods;
     bool userSettingsSessionEnded = false, userSettingsSensitive = false;
     std::optional<api::GuildPrivacy> guildPrivacy;
+    std::optional<api::TypingStart> typing;
   };
 
   // An ordered account/mutation owner and three independent, bounded GET lanes.

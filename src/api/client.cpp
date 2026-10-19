@@ -1325,6 +1325,15 @@ namespace api {
         Event event{.operation = Operation::Reaction, .session = session, .resource = reaction->channel};
         event.reaction = std::move(reaction);
         publish(std::move(event));
+      } else if (type == "TYPING_START") {
+        if (auto typing = parseTypingStart(data)) {
+          if (typing->name.empty())
+            if (const auto user = m_users.find(typing->user); user != m_users.end())
+              typing->name = user->second.name;
+          Event event{.operation = Operation::TypingStart, .session = session, .resource = typing->channel};
+          event.typing = std::move(typing);
+          publish(std::move(event));
+        }
       } else if (type == "MESSAGE_CREATE") {
         const auto author = data.contains("author") ? data["author"].value("id", std::string{}) : std::string{};
         m_readState.message(

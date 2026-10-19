@@ -84,6 +84,7 @@ namespace app {
   }
   ClientApplication::~ClientApplication() {
     closeSelectDropdown();
+    m_typingTimer.stop();
     m_filePicker.cancel();
     closeVideo();
     stopServerSound();

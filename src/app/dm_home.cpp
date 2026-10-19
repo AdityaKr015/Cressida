@@ -37,6 +37,7 @@ namespace app {
     }));
   }
   void ClientApplication::openDmPage(const std::string& page) {
+    clearTyping();
     if (page != "friends" && page != "requests")
       return;
     showDirectMessages(true);
