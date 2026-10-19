@@ -59,6 +59,12 @@ namespace app::layout {
     static constexpr float unreadTimelineTop = 166;
     static constexpr float minimumHistoryFetchDistance = 240;
   };
+  struct Reply {
+    static constexpr float height = Style::spaceRelaxed;
+    static constexpr float avatarSize = Style::spaceLg;
+    static constexpr float avatarGap = Style::spaceXs;
+    static constexpr float step = Style::spaceXl;
+  };
   struct ChannelHeader {
     static constexpr float height = 66;
     static constexpr float iconTop = 58;

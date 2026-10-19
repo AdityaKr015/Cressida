@@ -96,6 +96,10 @@ namespace app {
     m_contextChannel = m_channelId;
     m_contextGuild.clear();
     m_contextEntries.clear();
+    if (target->action == Action::Folder) {
+      openFolderContext(*target, x, y);
+      return;
+    }
     if (target->action == Action::GuildMenu) {
       openServerContext(*target, x, y);
       return;
@@ -699,6 +703,7 @@ namespace app {
         return true;
       if (!m_focusedInput.starts_with("channel-")
           && !m_focusedInput.starts_with("application-field:")
+          && !m_focusedInput.starts_with("server-menu:")
           && m_focusedInput != "dm-create-search"
           && m_focusedInput != "dialog"
           && !(m_dialogKind == "forum-create" && m_focusedInput == "forum-body")
@@ -727,7 +732,7 @@ namespace app {
       action.stateRevision = m_userDirectory.notificationRevision(action.channel);
     if (action.kind == Kind::GuildNotifications)
       action.stateRevision = m_userDirectory.guildNotificationRevision(action.guild);
-    if (action.kind == Kind::MoveGuild)
+    if (action.kind == Kind::MoveGuild || action.kind == Kind::EditGuildFolder)
       action.stateRevision = m_guildLayoutRevision;
     const auto key = interactionKey(action);
     if (m_pendingInteractions.contains(key))
@@ -932,6 +937,8 @@ namespace app {
   void ClientApplication::closeDialog() {
     m_serverInvitePending.clear();
     m_serverDialogGuild.clear();
+    m_serverDialogFolder.clear();
+    m_serverFolderColor.clear();
     m_serverPrivacyLoaded = false;
     m_scrolling.stop(m_serverDialogScroll);
     m_serverDialogScroll = 0;

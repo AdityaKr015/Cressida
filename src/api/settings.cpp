@@ -624,6 +624,8 @@ namespace api {
   }
 
   namespace {
+    constexpr std::size_t maximumFolderNameCharacters = 100;
+    constexpr std::size_t maximumFolderNameBytes = maximumFolderNameCharacters * 4;
     std::uint64_t settingsId(const std::string& text, bool allowZero = false) {
       std::uint64_t value = 0;
       const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
@@ -770,8 +772,8 @@ namespace api {
     if (newFolderName) {
       if (!folderId.empty()
           || newFolderName->empty()
-          || newFolderName->size() > 400
-          || utf8Length(*newFolderName) > 100
+          || newFolderName->size() > maximumFolderNameBytes
+          || utf8Length(*newFolderName) > maximumFolderNameCharacters
           || std::ranges::all_of(*newFolderName, [](char c) { return c == ' '; })
           || std::ranges::any_of(*newFolderName, [](unsigned char c) { return c < 32 || c == 127; }))
         throw std::runtime_error("A new server folder needs a name of at most 100 characters");
@@ -875,6 +877,82 @@ namespace api {
     // guild_positions remains byte-identical: the folder sequence controls the
     // rail while positions retain the ordering of ungrouped/unloaded servers.
     return {{"settings", encode64(field(14, updated))}, {"required_data_version", version}};
+  }
+
+  bool validFolderChange(const GuildFolderChange& change) {
+    try {
+      if (settingsId(change.folder, true) > std::numeric_limits<std::int64_t>::max()
+          || (!change.name && !change.color && !change.position)
+          || (change.color && *change.color > 0xFFFFFF))
+        return false;
+      if (change.position
+          && *change.position != FolderPosition::Top
+          && *change.position != FolderPosition::Up
+          && *change.position != FolderPosition::Down
+          && *change.position != FolderPosition::Bottom)
+        return false;
+      if (change.name) {
+        if (change.name->size() > maximumFolderNameBytes
+            || utf8Length(*change.name) > maximumFolderNameCharacters
+            || (!change.name->empty() && change.name->find_first_not_of(' ') == std::string::npos)
+            || std::ranges::any_of(*change.name, [](unsigned char c) { return c < 32 || c == 127; }))
+          return false;
+        (void)nlohmann::json(*change.name).dump();
+      }
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+  nlohmann::json guildFolderPatch(const nlohmann::json& snapshot, const GuildFolderChange& change) {
+    if (!validFolderChange(change))
+      throw std::runtime_error("Invalid folder name, color or position");
+    const auto layout = parseGuildLayout(snapshot);
+    const auto target = std::ranges::find(layout.folders, change.folder, &GuildFolder::id);
+    if (target == layout.folders.end() || target->guildIds.empty())
+      throw std::runtime_error("The server folder no longer exists");
+    // The shared organization writer validates the complete snapshot, including
+    // duplicate membership, malformed IDs and the required data version. A move
+    // to the existing folder leaves its opaque protobuf fields byte-identical.
+    auto patch = guildMovePatch(snapshot, target->guildIds.front(), change.folder);
+    const auto group = nestedField(organizationSnapshot(patch), 14).value_or("");
+    struct Part {
+      std::string raw;
+      bool folder;
+    };
+    std::vector<Part> parts;
+    std::vector<std::string> folders;
+    Wire input(group);
+    while (!input.bytes.empty()) {
+      const auto before = input.bytes;
+      input.next();
+      parts.push_back({std::string(before.substr(0, before.size() - input.bytes.size())), input.field == 1});
+      if (input.field == 1)
+        folders.emplace_back(input.data);
+    }
+    const auto index = static_cast<std::size_t>(target - layout.folders.begin());
+    std::map<unsigned, SettingsEdit> edits;
+    if (change.name)
+      edits[3].children[1].replacement = field(1, *change.name);
+    if (change.color)
+      edits[4].children[1].replacement = numericField(1, *change.color);
+    if (!edits.empty())
+      folders[index] = mergeSettings(folders[index], edits);
+    if (change.position) {
+      const auto destination = *change.position == FolderPosition::Top ? std::size_t{0}
+          : *change.position == FolderPosition::Bottom                 ? folders.size() - 1
+          : *change.position == FolderPosition::Up                     ? (index ? index - 1 : index)
+                                                                       : std::min(index + 1, folders.size() - 1);
+      auto folder = std::move(folders[index]);
+      folders.erase(folders.begin() + index);
+      folders.insert(folders.begin() + destination, std::move(folder));
+    }
+    std::string updated;
+    std::size_t indexOut = 0;
+    for (const auto& part : parts)
+      updated += part.folder ? field(1, folders[indexOut++]) : part.raw;
+    patch["settings"] = encode64(field(14, updated));
+    return patch;
   }
 
   GuildLayout parseGuildLayout(const nlohmann::json& value) {

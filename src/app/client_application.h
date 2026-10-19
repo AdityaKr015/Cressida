@@ -299,6 +299,7 @@ namespace app {
     void prepareDemo();
     void resetGuildBootstrap();
     void arrangeGuildFolders();
+    void saveExpandedFolders();
     void guildListEvent(api::Event& event);
     void guildLayoutEvent(api::Event& event);
     void channelSnapshotEvent(api::Event& event);
@@ -575,6 +576,10 @@ namespace app {
     void drainServerSettingsUploads();
     void stageServerEmojiUploads(std::vector<PickedFile> files);
     std::string serverSettingsScope() const;
+    bool openFolderContext(const Hit& target, float x, float y);
+    bool folderMenuEntry(int id);
+    api::Interaction guildReadAction(const std::vector<std::string>& guilds) const;
+    void demoFolderMenuStep();
     bool openServerContext(const Hit& target, float x, float y);
     std::optional<std::uint64_t> serverGuildPermissions(const std::string& guild) const;
     const std::vector<api::Channel>& serverChannels(const std::string& guild) const;
@@ -720,7 +725,7 @@ namespace app {
     api::GuildPrivacy m_serverPrivacyOriginal;
     api::GuildPrivacy m_serverPrivacyDraft;
     bool m_serverPrivacyLoaded = false;
-    std::string m_serverDialogGuild;
+    std::string m_serverDialogGuild, m_serverDialogFolder, m_serverFolderColor;
     std::string m_serverInvitePending;
     std::uint64_t m_guildLayoutRevision = 0;
     float m_serverDialogScroll = 0;
@@ -1038,6 +1043,7 @@ namespace app {
     bool m_readyBootstrapPending = false;
     std::string m_startupGuild;
     std::set<std::string> m_openFolders;
+    bool m_foldersRestored = false;
     std::vector<api::MemberRow> m_members;
     int m_memberCount = 0;
     int m_memberPage = 0;

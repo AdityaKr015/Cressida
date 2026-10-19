@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,8 @@ namespace app {
         const std::string& account, const std::string& guild, const ChannelListPreferences& preferences
     ) const;
     void savePreferences(const std::string& account, const Preferences& preferences) const;
+    std::optional<std::set<std::string>> expandedFolders(const std::string& account) const;
+    void saveExpandedFolders(const std::string& account, const std::set<std::string>& folders) const;
     std::vector<std::string> frequentReactions(const std::string& account) const;
     void recordReaction(const std::string& account, const std::string& emoji) const;
     std::vector<std::string> frequentEmojis(const std::string& account) const;

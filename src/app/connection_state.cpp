@@ -14,13 +14,19 @@ namespace app {
     m_startupGuild.clear();
   }
 
+  void ClientApplication::saveExpandedFolders() {
+    m_foldersRestored = true;
+    if (!m_demo)
+      m_sessionStore.saveExpandedFolders(m_account.id, m_openFolders);
+  }
   void ClientApplication::arrangeGuildFolders() {
     std::set<std::string> visible;
     for (const auto& folder : m_folders)
       visible.insert(folder.id);
     m_folders = api::arrangeGuilds(m_guilds, m_guildLayout);
     for (const auto& folder : m_folders)
-      if (!folder.id.empty()
+      if (!m_foldersRestored
+          && !folder.id.empty()
           && !visible.contains(folder.id)
           && std::ranges::find(folder.guildIds, m_guildId) != folder.guildIds.end())
         m_openFolders.insert(folder.id);

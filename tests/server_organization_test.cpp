@@ -107,6 +107,71 @@ int main() {
             && original.positions == std::vector<std::string>{"101", "999", "202", "303", "404"},
         "Fixtures carry unloaded guilds, a zero-ID folder, color metadata and independent server positions"
     );
+    const auto editedFolder = api::guildFolderPatch(snapshot, {.folder = "7", .name = "月の庭", .color = 0xABCDEF});
+    const auto editedLayout = api::parseGuildLayout(editedFolder);
+    require(
+        editedFolder["settings"]
+            == "csYBCj8KEGUAAAAAAAAA5wMAAAAAAAASEQgAsgQMemVybyB3cmFwcGVyGggKBlNvdXJjZZIDDXNvdXJjZSBvcGFxdWXaBAxncm91"
+               "cCBvcGFxdWUKMAnKAAAAAAAAABICCAcaCwoJ5pyI44Gu5bqtIhS6BAxjb2xvciBvcGFxdWUI75uvBRIoZQAAAAAAAADnAwAAAAAA"
+               "AMoAAAAAAAAALwEAAAAAAACUAQAAAAAAAAoYCS8BAAAAAAAA0gUMbG9vc2Ugb3BhcXVl",
+        "Folder edits preserve opaque group, folder and wrapper fields byte-for-byte"
+    );
+    require(
+        editedFolder["required_data_version"] == 42
+            && editedLayout.folders[1].name == "月の庭"
+            && editedLayout.folders[1].color == 0xABCDEF
+            && editedLayout.folders[1].guildIds == original.folders[1].guildIds
+            && editedLayout.folders[0].name == original.folders[0].name
+            && editedLayout.positions == original.positions,
+        "Folder settings retain membership, other folders, ordering and required account version"
+    );
+    const auto cleared =
+        api::parseGuildLayout(api::guildFolderPatch(snapshot, {.folder = "0", .name = "", .color = 0}));
+    require(
+        cleared.folders[0].name.empty() && cleared.folders[0].color == 0,
+        "Zero-ID folders support unnamed folders and black as an actual color"
+    );
+    for (const auto position : {api::FolderPosition::Top, api::FolderPosition::Up}) {
+      const auto changed =
+          api::parseGuildLayout(api::guildFolderPatch(snapshot, {.folder = "7", .position = position}));
+      require(
+          changed.folders[0].id == "7"
+              && changed.folders[1].id == "0"
+              && changed.folders[0].guildIds == original.folders[1].guildIds
+              && changed.positions == original.positions,
+          "Moving a folder toward the top moves its complete server group"
+      );
+    }
+    for (const auto position : {api::FolderPosition::Bottom, api::FolderPosition::Down}) {
+      const auto changed =
+          api::parseGuildLayout(api::guildFolderPatch(snapshot, {.folder = "7", .position = position}));
+      require(
+          changed.folders[2].id == "7" && changed.folders[1].id.empty(),
+          "Moving a folder toward the bottom preserves ungrouped rail entries"
+      );
+    }
+    require(
+        api::guildFolderPatch(snapshot, {.folder = "0", .position = api::FolderPosition::Up})["settings"]
+            == fixtures.at("noop"),
+        "Moving the first folder up is byte-identical"
+    );
+    rejects(
+        [&] { api::guildFolderPatch(snapshot, {.folder = "99", .name = "Missing"}); }, "Deleted folders reject edits"
+    );
+    for (const auto& change : std::vector<api::GuildFolderChange>{
+             {.folder = "7"},
+             {.folder = "01", .name = "Name"},
+             {.folder = "7", .color = 0x1000000},
+             {.folder = "7", .name = std::string(101, 'x')},
+             {.folder = "7", .name = "line\nbreak"},
+             {.folder = "7", .position = static_cast<api::FolderPosition>(99)}
+         })
+      require(!api::validFolderChange(change), "Invalid folder edits cannot produce account requests");
+    for (const auto name : {"duplicate_guild", "duplicate_folder", "malformed_fixed"})
+      rejects(
+          [&] { api::guildFolderPatch(fixture(name), {.folder = "0", .name = "Changed"}); },
+          "Folder edits reject ambiguous snapshots through the shared organization validator"
+      );
     const auto moved = api::guildMovePatch(snapshot, "101", "7");
     require(
         moved["settings"] == fixtures.at("move") && moved["required_data_version"] == 42,

@@ -131,7 +131,7 @@ namespace app {
       });
     }
     for (const auto& [id, input] : m_inputs)
-      if (input->parent() && !id.starts_with("server-settings:picker:"))
+      if (input->parent() && !id.starts_with("server-settings:picker:") && !id.starts_with("server-menu:folder-color"))
         m_detachedInputs[id] = input->parent()->removeChild(input);
     for (const auto& [id, control] : m_widgets)
       if (control->parent())
@@ -411,7 +411,7 @@ namespace app {
     input.setPlaceholder(placeholder);
     input.setFrameVisible(id != "composer");
     input.setEnabled(
-        (m_dialogKind.empty() || id == "dialog" || id == "dm-create-search")
+        (m_dialogKind.empty() || id == "dialog" || id.starts_with("server-menu:") || id == "dm-create-search")
         && (!m_serverSettings.open || id.starts_with("server-settings:"))
         && (id == "dm-create-search"   ? !m_dialogPending
                 : id == "dialog"       ? !m_dialogPending

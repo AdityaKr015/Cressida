@@ -48,7 +48,7 @@ test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
 
 for view in chat-preload-cycle connection-cycle history-cycle dm-home-cycle \
     deleted-cycle autocomplete-cycle settings-font-cycle themes-cycle sticker-cycle \
-    server-menu-cycle channel-menu-cycle reaction-spacing embed-components chat-links-cycle \
+    server-menu-cycle folder-menu-cycle channel-menu-cycle reaction-spacing embed-components chat-links-cycle \
     chat-links-light chat-links-narrow categories animation-cycle gif-cycle attachment-cycle \
     autocomplete-tokens autocomplete-tokens-light; do
     echo "Offline UI replay: $view"

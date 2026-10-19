@@ -205,11 +205,15 @@ int main(int argc, char** argv) {
     original.channelId = "2";
     original.authorId = "3";
     original.author = "Maya";
+    original.avatar = "/avatars/3/avatar.png";
     original.content = "Already loaded original";
     api::MessageReference unresolved{"1", "2"};
     auto resolved = app::resolvedReply(unresolved, &original);
     require(
-        resolved.content == original.content && resolved.author == "Maya" && resolved.available,
+        resolved.content == original.content
+            && resolved.author == "Maya"
+            && resolved.avatar == original.avatar
+            && resolved.available,
         "Reference-only replies use already loaded content and author identity"
     );
     original.content = "Edited original";
@@ -267,6 +271,24 @@ int main(int argc, char** argv) {
         "Timestamps in code, malformed tokens and raw HTML stay literal in profiles"
     );
     reference.deleted = false;
+    reference.avatar = "/avatars/3/avatar.png";
+    reference.content = "Reply with an avatar";
+    const auto withAvatar = app::layoutReplyPreview(reference, "Maya", 500, emojiMeasure, emojiOptions);
+    require(
+        withAvatar.pictures.size() == 1
+            && withAvatar.pictures.front().media.url == reference.avatar
+            && withAvatar.pictures.front().y == (withAvatar.height - withAvatar.pictures.front().height) / 2
+            && withAvatar.runs[1].x >= withAvatar.pictures.front().x + withAvatar.pictures.front().width
+            && withAvatar.plainText == "↳ Maya: Reply with an avatar",
+        "A centered reply avatar reserves width without entering copied preview text"
+    );
+    const auto tinyAvatar = app::layoutReplyPreview(reference, "Maya", 20, emojiMeasure, emojiOptions);
+    require(
+        tinyAvatar.pictures.empty()
+            && std::ranges::all_of(tinyAvatar.runs, [](const auto& run) { return run.x + run.width <= 20; }),
+        "Narrow reply previews omit avatars before clipping author text"
+    );
+    reference.avatar.clear();
     reference.content = "my beautiful pink role <:woe:1407464763293831269> <a:dance:123> 🙂";
     auto reply = app::layoutReplyPreview(reference, "Yocraft", 1000, emojiMeasure, emojiOptions);
     auto replyImages = std::views::filter(reply.runs, [](const auto& run) { return !run.image.empty(); });

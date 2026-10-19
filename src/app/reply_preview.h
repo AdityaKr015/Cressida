@@ -21,6 +21,7 @@ namespace app {
       return reply;
     reply.authorId = original->authorId;
     reply.author = original->author;
+    reply.avatar = original->avatar;
     reply.content = original->content;
     reply.available = true;
     if (reply.content.empty()) {

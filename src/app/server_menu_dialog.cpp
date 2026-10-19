@@ -1,12 +1,17 @@
 #include "app/client_application.h"
+#include "app/settings_color_picker.h"
 #include "app/settings_style.h"
 #include "app/theme.h"
+#include "core/input/key_modifiers.h"
 #include "render/scene/rect_node.h"
 #include "ui/controls/toggle.h"
 
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace app {
   using namespace theme;
@@ -15,13 +20,15 @@ namespace app {
       return kind == "server-notifications"
           || kind == "server-privacy"
           || kind == "server-leave"
-          || kind == "server-folder";
+          || kind == "server-folder"
+          || kind == "server-folder-settings";
     }
     std::string dialogTitle(const std::string& kind) {
-      return kind == "server-notifications" ? "Notification Settings"
-          : kind == "server-privacy"        ? "Privacy Settings"
-          : kind == "server-leave"          ? "Leave Server"
-                                            : "Create Server Folder";
+      return kind == "server-folder-settings" ? "Folder Settings"
+          : kind == "server-notifications"    ? "Notification Settings"
+          : kind == "server-privacy"          ? "Privacy Settings"
+          : kind == "server-leave"            ? "Leave Server"
+                                              : "Create Server Folder";
     }
   } // namespace
 
@@ -46,7 +53,7 @@ namespace app {
     m_dialogError.clear();
     m_dialogText.clear();
     m_dialogPending = false;
-    if (kind == "server-folder")
+    if (kind == "server-folder" || kind == "server-folder-settings")
       m_focusedInput = "dialog";
     else if (kind == "server-privacy") {
       api::Interaction action{
@@ -167,6 +174,36 @@ namespace app {
         return;
       }
       action.kind = api::InteractionKind::LeaveGuild;
+    } else if (m_dialogKind == "server-folder-settings") {
+      const auto folder = std::ranges::find(m_folders, m_serverDialogFolder, &api::GuildFolder::id);
+      const auto input = m_inputs.find("server-menu:folder-color");
+      const auto text = input == m_inputs.end() ? m_serverFolderColor : input->second->value();
+      std::string_view digits = text;
+      if (digits.starts_with('#'))
+        digits.remove_prefix(1);
+      Color selected;
+      if (folder == m_folders.end()
+          || (digits.size() != 3 && digits.size() != 6)
+          || !tryParseHexColor(text, selected)) {
+        m_dialogError = folder == m_folders.end() ? "This folder is no longer available." : "Enter a color as #RRGGBB.";
+        m_window.invalidate();
+        return;
+      }
+      const auto byte = [](float value) {
+        return static_cast<std::uint32_t>(std::lround(std::clamp(value, 0.0F, 1.0F) * 255));
+      };
+      const auto color = (byte(selected.r) << 16) | (byte(selected.g) << 8) | byte(selected.b);
+      action.kind = api::InteractionKind::EditGuildFolder;
+      action.folderChange = api::GuildFolderChange{.folder = folder->id, .name = m_dialogText, .color = color};
+      if (!api::validFolderChange(*action.folderChange)) {
+        m_dialogError = "Use a folder name of at most 100 characters and a color as #RRGGBB.";
+        m_window.invalidate();
+        return;
+      }
+      if (m_dialogText == folder->name && color == folder->color) {
+        closeDialog();
+        return;
+      }
     } else {
       action.kind = api::InteractionKind::MoveGuild;
       action.content = m_dialogText;
@@ -184,6 +221,8 @@ namespace app {
       m_window.invalidate();
       return;
     }
+    if (action.kind == api::InteractionKind::MoveGuild || action.kind == api::InteractionKind::EditGuildFolder)
+      action.stateRevision = m_guildLayoutRevision;
     action.revision = ++m_dialogGeneration;
     if (m_demo || startInteraction(action)) {
       m_dialogAction = std::move(action);
@@ -255,12 +294,13 @@ namespace app {
     if (!serverDialog(m_dialogKind))
       return;
     const bool privacy = m_dialogKind == "server-privacy", notifications = m_dialogKind == "server-notifications",
-               leaving = m_dialogKind == "server-leave", folder = m_dialogKind == "server-folder";
+               leaving = m_dialogKind == "server-leave", folder = m_dialogKind == "server-folder",
+               folderSettings = m_dialogKind == "server-folder-settings";
     const auto guild = std::ranges::find(m_guilds, m_serverDialogGuild, &api::Guild::id);
     const std::string guildName = guild == m_guilds.end() ? "Unavailable server" : guild->name;
     const float width = std::min(500.0F, w - Style::space2Xl), inner = width - 40;
     struct Row {
-      enum Kind { Heading, Paragraph, Toggle, Radio, Field } kind;
+      enum Kind { Heading, Paragraph, Toggle, Radio, Field, ColorField } kind;
       std::string title, description, id;
       bool checked = false;
       float height = 0;
@@ -328,7 +368,10 @@ namespace app {
           {Row::Paragraph,
            "Are you sure you want to leave " + guildName + "? You will need another invitation to rejoin this server."}
       );
-    else {
+    else if (folderSettings) {
+      rows.push_back({Row::Field, "Folder name"});
+      rows.push_back({Row::ColorField, "Folder color"});
+    } else {
       rows.push_back(
           {Row::Paragraph, "Create a folder for " + guildName + ". You can move other servers into it later."}
       );
@@ -347,6 +390,8 @@ namespace app {
         row.height = 30;
       else if (row.kind == Row::Radio)
         row.height = 28;
+      else if (row.kind == Row::ColorField)
+        row.height = Style::spaceXl + SettingsColorPicker::intrinsicColumnHeight(inner, 1) + Style::spaceSm;
       else if (row.kind == Row::Field)
         row.height = 64;
       else if (row.kind == Row::Toggle)
@@ -447,9 +492,64 @@ namespace app {
         control->setEnabled(!m_dialogPending);
         control->setOnChange([this, id = row.id](bool) { serverMenuDialogAction(id); });
         page.addChild(std::move(control));
+      } else if (row.kind == Row::ColorField) {
+        label(page, 0, cursor, inner, row.title, Style::fontSizeCaption, foreground, FontWeight::SemiBold);
+        const std::string key = "server-menu:folder-picker";
+        std::unique_ptr<Node> saved;
+        if (auto old = m_detachedInputs.find(key); old != m_detachedInputs.end()) {
+          saved = std::move(old->second);
+          m_detachedInputs.erase(old);
+        }
+        auto picker = saved ? std::unique_ptr<SettingsColorPicker>(static_cast<SettingsColorPicker*>(saved.release()))
+                            : std::make_unique<SettingsColorPicker>();
+        m_widgets[key] = picker.get();
+        picker->setPickerWidth(inner);
+        picker->setPosition(0, cursor + Style::spaceXl);
+        Color current;
+        if (tryParseHexColor(m_serverFolderColor, current))
+          picker->setColor(current);
+        picker->setEnabled(!m_dialogPending);
+        const auto bind = [&](Input* input, const std::string& id) {
+          m_inputs[id] = input;
+          input->setFontSize(Style::fontSizeDescription);
+          input->setOnFocusGain([this, id] { m_focusedInput = id; });
+          input->setOnKeyEvent([this, id](std::uint32_t key, std::uint32_t modifiers) {
+            if (((modifiers & KeyMod::Ctrl) && (key == XKB_KEY_v || key == XKB_KEY_V))
+                || ((modifiers & KeyMod::Shift) && key == XKB_KEY_Insert)) {
+              m_pasteInput = id;
+              m_pasteServerScope = serverSettingsScope();
+              m_pasteDialogGeneration = m_dialogGeneration;
+              m_pasteMessageEditGeneration = 0;
+              m_pasteConnected = m_connected;
+              m_pasteSession = m_session;
+              m_pasteChannel = m_channelId;
+              m_window.paste(false);
+              return true;
+            }
+            return false;
+          });
+        };
+        bind(picker->hexInput(), "server-menu:folder-color");
+        const auto rgb = picker->rgbInputs();
+        for (std::size_t i = 0; i < rgb.size(); ++i)
+          bind(rgb[i], "server-menu:folder-color:" + std::to_string(i));
+        picker->setOnColorChanged([this](const Color& color) {
+          const auto byte = [](float value) {
+            return static_cast<unsigned>(std::lround(std::clamp(value, 0.0F, 1.0F) * 255));
+          };
+          const auto packed = (byte(color.r) << 16) | (byte(color.g) << 8) | byte(color.b);
+          std::ostringstream text;
+          text << '#' << std::hex << std::setw(6) << std::setfill('0') << packed;
+          m_serverFolderColor = text.str();
+          m_dialogError.clear();
+          m_window.invalidate();
+        });
+        page.addChild(std::move(picker));
       } else if (row.kind == Row::Field) {
         label(page, 0, cursor, inner, row.title, Style::fontSizeCaption, foreground, FontWeight::SemiBold);
-        auto& input = inputControl(page, 0, cursor + Style::spaceXl, inner, 32, "dialog", m_dialogText, "New folder");
+        auto& input = inputControl(
+            page, 0, cursor + Style::spaceXl, inner, Style::space2Xl, "dialog", m_dialogText, "Folder name"
+        );
         input.setEnabled(!m_dialogPending);
       } else
         label(page, 0, cursor, inner, row.title, Style::fontSizeDescription, foreground, FontWeight::Normal, 0);

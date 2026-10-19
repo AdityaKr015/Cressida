@@ -401,10 +401,16 @@ namespace api {
       break;
     case Kind::MoveGuild:
       if (!validSnowflake(action.guild)
-          || (!action.text.empty() && !validSnowflake(action.text))
+          || (!action.text.empty() && action.text != "0" && !validSnowflake(action.text))
           || action.content.size() > 400
           || utf8Length(action.content) > 100
           || (!action.text.empty() && !action.content.empty()))
+        return {};
+      request.path = "/users/@me/settings-proto/1";
+      request.method = "PATCH";
+      break;
+    case Kind::EditGuildFolder:
+      if (!action.folderChange || !validFolderChange(*action.folderChange))
         return {};
       request.path = "/users/@me/settings-proto/1";
       request.method = "PATCH";

@@ -2185,6 +2185,7 @@ namespace api {
             pendingReadStates.erase(pendingReadStates.begin(), pendingReadStates.begin() + count);
           } else if (
               command.interaction->kind == InteractionKind::MoveGuild
+              || command.interaction->kind == InteractionKind::EditGuildFolder
               || (command.interaction->kind == InteractionKind::GuildPrivacy
                   && command.interaction->guildPrivacy
                   && !command.interaction->guildPrivacy->empty())
@@ -2200,6 +2201,8 @@ namespace api {
                   *snapshot, command.interaction->guild, command.interaction->text,
                   command.interaction->content.empty() ? std::nullopt : std::make_optional(command.interaction->content)
               );
+            else if (command.interaction->kind == InteractionKind::EditGuildFolder)
+              body = guildFolderPatch(*snapshot, *command.interaction->folderChange);
             else
               body = guildPrivacyPatch(*snapshot, command.interaction->guild, *command.interaction->guildPrivacy);
           }
@@ -2711,6 +2714,7 @@ namespace api {
               }
             } else if (
                 command.interaction->kind == InteractionKind::MoveGuild
+                || command.interaction->kind == InteractionKind::EditGuildFolder
                 || command.interaction->kind == InteractionKind::GuildPrivacy
             ) {
               if (response->value("out_of_date", false)) {
@@ -2718,7 +2722,8 @@ namespace api {
                 break;
               }
               const auto& saved = response->contains("settings") || response->contains("proto") ? *response : body;
-              if (command.interaction->kind == InteractionKind::MoveGuild)
+              if (command.interaction->kind == InteractionKind::MoveGuild
+                  || command.interaction->kind == InteractionKind::EditGuildFolder)
                 event.layout = parseGuildLayout(saved);
               else
                 event.guildPrivacy = parseGuildPrivacy(saved, command.interaction->guild);

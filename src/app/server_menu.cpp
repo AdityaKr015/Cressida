@@ -8,7 +8,8 @@ namespace app {
       return kind == ServerMenuKind::MuteMenu
           || kind == ServerMenuKind::NotifyMenu
           || kind == ServerMenuKind::SettingsMenu
-          || kind == ServerMenuKind::MoveMenu;
+          || kind == ServerMenuKind::MoveMenu
+          || kind == ServerMenuKind::FolderMoveMenu;
     }
     bool hasFeature(const api::Guild& guild, const char* feature) {
       return std::ranges::find(guild.features, feature) != guild.features.end();
@@ -65,6 +66,109 @@ namespace app {
     return followed(channel) || std::ranges::any_of(m_channels, [&](const auto& item) {
              return item.parentId == channel.id && followed(item);
            });
+  }
+  api::Interaction ClientApplication::guildReadAction(const std::vector<std::string>& guilds) const {
+    api::Interaction action{.kind = api::InteractionKind::MarkGuildRead, .guild = guilds.empty() ? "" : guilds.front()};
+    std::map<std::string, std::string> states;
+    for (const auto& guild : guilds) {
+      for (const auto& channel : serverChannels(guild))
+        if (channel.type != 4 && !channel.lastMessageId.empty())
+          states[channel.id] = channel.lastMessageId;
+      for (const auto& [channel, source] : m_unreadGuilds)
+        if (source == guild)
+          if (const auto cursor = m_unreadTimeline.cursor(channel))
+            states[channel] = cursor->latest;
+    }
+    for (const auto& [channel, latest] : states)
+      if (!latest.empty())
+        action.readStates.emplace_back(channel, latest);
+    return action;
+  }
+  bool ClientApplication::openFolderContext(const Hit& target, float x, float y) {
+    const auto folder = std::ranges::find(m_folders, target.id, &api::GuildFolder::id);
+    if (target.id.empty() || folder == m_folders.end() || m_serverSettings.open)
+      return false;
+    const auto folderId = target.id;
+    closeContext();
+    m_contextEntries.clear();
+    m_serverMenuCommands.clear();
+    m_channelMenuCommands.clear();
+    m_contextMessage.clear();
+    m_contextChannel.clear();
+    m_contextUser.clear();
+    m_contextGuild.clear();
+    const auto add = [&](ServerMenuKind kind, const std::string& label) {
+      const auto id = serverMenuBase + static_cast<int>(m_serverMenuCommands.size());
+      m_serverMenuCommands.push_back({kind, folderId});
+      m_contextEntries.push_back({.id = id, .label = label, .hasSubmenu = submenu(kind)});
+    };
+    add(ServerMenuKind::FolderRead, "Mark Folder as Read");
+    m_contextEntries.push_back({.separator = true});
+    add(ServerMenuKind::FolderMoveMenu, "Move to…");
+    m_contextEntries.push_back({.separator = true});
+    add(ServerMenuKind::FolderSettings, "Folder Settings");
+    add(ServerMenuKind::FolderCloseAll, "Close All Folders");
+    m_contextQuickIndex = -1;
+    m_controlInput.setFocus(nullptr);
+    m_focusedInput.clear();
+    m_contextX = x;
+    m_contextY = y;
+    m_contextScroll = 0;
+    m_contextOpen = m_contextDirty = true;
+    m_window.invalidate();
+    return true;
+  }
+  bool ClientApplication::folderMenuEntry(int id) {
+    const auto command = m_serverMenuCommands[id - serverMenuBase];
+    using Kind = ServerMenuKind;
+    if (command.kind != Kind::FolderRead
+        && command.kind != Kind::FolderMoveMenu
+        && command.kind != Kind::FolderMove
+        && command.kind != Kind::FolderSettings
+        && command.kind != Kind::FolderCloseAll)
+      return false;
+    const auto at = std::ranges::find(m_folders, command.guild, &api::GuildFolder::id);
+    if (at == m_folders.end() || at->id.empty()) {
+      closeContext();
+      return true;
+    }
+    if (command.kind == Kind::FolderMoveMenu) {
+      const float center = m_contextControl ? (m_contextControl->rowTop(m_contextControl->highlightedIndex())
+                                               + m_contextControl->rowBottom(m_contextControl->highlightedIndex()))
+              / 2
+                                            : Style::spaceLg;
+      openServerSubmenu(id, center);
+      return true;
+    }
+    const auto folder = *at;
+    closeContext();
+    if (command.kind == Kind::FolderCloseAll) {
+      m_openFolders.clear();
+      saveExpandedFolders();
+    } else if (!folder.guildIds.empty()) {
+      api::Interaction action{.guild = folder.guildIds.front()};
+      if (command.kind == Kind::FolderSettings) {
+        openServerMenuDialog("server-folder-settings", action.guild);
+        m_serverDialogFolder = folder.id;
+        m_dialogText = folder.name;
+        constexpr char digits[] = "0123456789ABCDEF";
+        m_serverFolderColor = "#";
+        constexpr int colorNibbles = 6;
+        for (int nibble = colorNibbles - 1; nibble >= 0; --nibble)
+          m_serverFolderColor += digits[(folder.color >> (nibble * 4)) & 0xF];
+      } else if (command.kind == Kind::FolderMove) {
+        action.kind = api::InteractionKind::EditGuildFolder;
+        action.folderChange =
+            api::GuildFolderChange{.folder = folder.id, .position = static_cast<api::FolderPosition>(command.value)};
+        startInteraction(action);
+      } else {
+        action = guildReadAction(folder.guildIds);
+        if (!action.readStates.empty())
+          startInteraction(action);
+      }
+    }
+    m_window.invalidate();
+    return true;
   }
   bool ClientApplication::openServerContext(const Hit& target, float x, float y) {
     const auto guild = std::ranges::find(m_guilds, target.id, &api::Guild::id);
@@ -181,7 +285,13 @@ namespace app {
       m_reactionChoices.emplace_back("", label);
     };
     using Kind = ServerMenuKind;
-    if (command.kind == Kind::MuteMenu) {
+    if (command.kind == Kind::FolderMoveMenu) {
+      using Position = api::FolderPosition;
+      add(Kind::FolderMove, "Top", static_cast<int>(Position::Top));
+      add(Kind::FolderMove, "Up", static_cast<int>(Position::Up));
+      add(Kind::FolderMove, "Down", static_cast<int>(Position::Down));
+      add(Kind::FolderMove, "Bottom", static_cast<int>(Position::Bottom));
+    } else if (command.kind == Kind::MuteMenu) {
       for (const auto& [duration, label] : std::vector<std::pair<int, std::string>>{
                {900, "For 15 Minutes"},
                {3600, "For 1 Hour"},
@@ -227,6 +337,8 @@ namespace app {
     if (index >= m_serverMenuCommands.size())
       return true;
     const auto command = m_serverMenuCommands[index];
+    if (folderMenuEntry(id))
+      return true;
     if (std::ranges::find(m_guilds, command.guild, &api::Guild::id) == m_guilds.end()) {
       closeContext();
       return true;
@@ -301,18 +413,7 @@ namespace app {
       action.text = command.argument;
       startInteraction(action);
     } else if (command.kind == Kind::Read) {
-      action.kind = api::InteractionKind::MarkGuildRead;
-      std::map<std::string, std::string> states;
-      for (const auto& channel : serverChannels(command.guild))
-        if (channel.type != 4 && !channel.lastMessageId.empty())
-          states[channel.id] = channel.lastMessageId;
-      for (const auto& [channel, guild] : m_unreadGuilds)
-        if (guild == command.guild)
-          if (const auto cursor = m_unreadTimeline.cursor(channel))
-            states[channel] = cursor->latest;
-      for (const auto& [channel, latest] : states)
-        if (!latest.empty())
-          action.readStates.emplace_back(channel, latest);
+      action = guildReadAction({command.guild});
       if (!action.readStates.empty())
         startInteraction(action);
     } else {
@@ -350,6 +451,7 @@ namespace app {
     if (action.kind != Kind::GuildNotifications
         && action.kind != Kind::MarkGuildRead
         && action.kind != Kind::MoveGuild
+        && action.kind != Kind::EditGuildFolder
         && action.kind != Kind::LeaveGuild
         && action.kind != Kind::GuildPrivacy)
       return false;
@@ -384,7 +486,10 @@ namespace app {
         if (!m_unreadTimeline.cursor(channel))
           m_unreadChannels.erase(channel);
       }
-    } else if (action.kind == Kind::MoveGuild && action.stateRevision == m_guildLayoutRevision) {
+    } else if (
+        (action.kind == Kind::MoveGuild || action.kind == Kind::EditGuildFolder)
+        && action.stateRevision == m_guildLayoutRevision
+    ) {
       ++m_guildLayoutRevision;
       m_guildLayout = event.layout;
       arrangeGuildFolders();

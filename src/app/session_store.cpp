@@ -7,10 +7,12 @@
 #include "app/theme_catalog.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <fcntl.h>
 #include <fstream>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -77,6 +79,48 @@ namespace app {
       unlink(temporary.c_str());
     }
   } // namespace
+  namespace {
+    constexpr std::size_t maximumExpandedFolders = 1000;
+    bool validFolderId(const std::string& id) {
+      std::uint64_t value = 0;
+      const auto result = std::from_chars(id.data(), id.data() + id.size(), value);
+      return result.ec == std::errc{}
+      && result.ptr == id.data() + id.size()
+          && value <= std::numeric_limits<std::int64_t>::max()
+          && std::to_string(value) == id;
+    }
+  } // namespace
+  std::optional<std::set<std::string>> SessionStore::expandedFolders(const std::string& account) const {
+    try {
+      const auto all = readState(m_path, m_legacyPath);
+      if (!all.contains(account) || !all[account].is_object())
+        return {};
+      const auto at = all[account].find("expanded_folders");
+      if (at == all[account].end() || !at->is_array() || at->size() > maximumExpandedFolders)
+        return {};
+      std::set<std::string> result;
+      for (const auto& id : *at)
+        if (id.is_string() && validFolderId(id.get<std::string>()))
+          result.insert(id.get<std::string>());
+      return result;
+    } catch (...) {
+      return {};
+    }
+  }
+  void SessionStore::saveExpandedFolders(const std::string& account, const std::set<std::string>& folders) const {
+    if (m_path.empty() || !api::validSnowflake(account) || folders.size() > maximumExpandedFolders)
+      return;
+    try {
+      auto all = readState(m_path, m_legacyPath);
+      auto ids = nlohmann::json::array();
+      for (const auto& id : folders)
+        if (validFolderId(id))
+          ids.push_back(id);
+      all[account]["expanded_folders"] = std::move(ids);
+      writeState(m_path, all);
+    } catch (...) {
+    }
+  }
   SessionStore::SessionStore(std::filesystem::path path) : m_path(std::move(path)) {
     if (!m_path.empty())
       return;

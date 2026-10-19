@@ -694,33 +694,45 @@ namespace app {
       const MessageOptions& options
   ) {
     MessageLayout result;
-    result.height = 20;
+    result.height = layout::Reply::height;
     if (width <= 0)
       return result;
     MessageStyle base;
-    base.size = 12;
+    base.size = Style::fontSizeDescription;
     std::vector<MessageRun> runs;
     auto append = [&](std::string text, MessageStyle style, std::string image = {}) {
       if (text.empty())
         return;
-      style.size = style.emoji || !image.empty() ? 16 : 12;
+      style.size = style.emoji || !image.empty() ? layout::Reply::avatarSize : Style::fontSizeDescription;
       style.link.clear(); // The entire preview jumps to its referenced message.
       style.userMention.clear();
-      const auto size = image.empty() ? measure(text, style) : 16;
-      runs.push_back({std::move(text), std::move(image), 0, 0, size, style, 0, 20});
+      const auto size = image.empty() ? measure(text, style) : layout::Reply::avatarSize;
+      runs.push_back({std::move(text), std::move(image), 0, 0, size, style, 0, layout::Reply::height});
     };
     // Names are plain text, never interpreted as Markdown or emoji tokens.
-    append("↳ " + oneLineReplyText(author) + ": ", base);
+    const float arrowWidth = measure("↳ ", base);
+    const bool showAvatar = !reply.avatar.empty()
+        && !reply.deleted
+        && width >= arrowWidth + layout::Reply::avatarSize + layout::Reply::avatarGap + measure("…", base);
+    if (showAvatar) {
+      append("↳ ", base);
+      append(oneLineReplyText(author) + ": ", base);
+    } else
+      append("↳ " + oneLineReplyText(author) + ": ", base);
     auto bodyOptions = options;
     bodyOptions.compact = true;
-    auto body = parseMessage(replyContent(reply), 32768, measure, 12, {}, bodyOptions, 16);
+    auto body = parseMessage(
+        replyContent(reply), 32768, measure, Style::fontSizeDescription, {}, bodyOptions, layout::Reply::avatarSize
+    );
     if (options.emojiImageLinks && !body.runs.empty() && body.boxes.empty()) {
       const auto& link = body.runs.front().style.link;
       if (const auto emoji = api::emojiFromImageLink(link);
           emoji && std::ranges::all_of(body.runs, [&](const auto& run) {
             return run.image.empty() && !run.style.code && !run.style.spoiler && run.style.link == link;
           }))
-        body = parseMessage(emoji->token(), 32768, measure, 12, {}, bodyOptions, 16);
+        body = parseMessage(
+            emoji->token(), 32768, measure, Style::fontSizeDescription, {}, bodyOptions, layout::Reply::avatarSize
+        );
     }
     std::size_t previous = 0;
     for (const auto& run : body.runs) {
@@ -729,14 +741,26 @@ namespace app {
       append(oneLineReplyText(run.text), run.style, run.image);
       previous = run.offset + run.text.size();
     }
-    float total = 0;
+    float total = showAvatar ? layout::Reply::avatarSize + layout::Reply::avatarGap : 0;
     for (const auto& run : runs)
       total += run.width;
     const bool truncated = total > width;
     const float ellipsis = measure("…", base);
     const float limit = truncated ? std::max(0.0F, width - ellipsis) : width;
     float x = 0;
-    for (auto run : runs) {
+    for (std::size_t index = 0; index < runs.size(); ++index) {
+      auto run = runs[index];
+      if (showAvatar && index == 1) {
+        const auto size = layout::Reply::avatarSize;
+        result.pictures.push_back(
+            {{reply.avatar, static_cast<int>(size), static_cast<int>(size)},
+             x,
+             (layout::Reply::height - size) / 2,
+             size,
+             size}
+        );
+        x += size + layout::Reply::avatarGap;
+      }
       if (run.width > limit - x) {
         if (run.image.empty() && !run.style.emoji) {
           const auto count = g_utf8_strlen(run.text.data(), run.text.size());
@@ -779,7 +803,7 @@ namespace app {
       result.runs.push_back(std::move(run));
     }
     if (truncated && ellipsis <= width) {
-      result.runs.push_back({"…", {}, x, 0, ellipsis, base, result.plainText.size(), 20});
+      result.runs.push_back({"…", {}, x, 0, ellipsis, base, result.plainText.size(), layout::Reply::height});
       result.plainText += "…";
     }
     return result;

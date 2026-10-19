@@ -41,6 +41,33 @@ int main() {
   };
   try {
     {
+      const auto foldersPath = std::filesystem::path(directory) / "folders.json";
+      app::SessionStore store(foldersPath);
+      require(!store.expandedFolders("123"), "Missing expansion state retains legacy startup behavior");
+      store.savePreferences("123", {.theme = "light"});
+      store.saveExpandedFolders("123", {"0", "77", "../bad"});
+      store.saveExpandedFolders("456", {"88"});
+      app::SessionStore restarted(foldersPath);
+      require(
+          restarted.expandedFolders("123") == std::set<std::string>{"0", "77"}
+              && restarted.expandedFolders("456") == std::set<std::string>{"88"}
+              && !restarted.expandedFolders("789"),
+          "Expanded folders survive restart, validate IDs and stay account-scoped"
+      );
+      store.saveExpandedFolders("123", {});
+      require(
+          restarted.expandedFolders("123")
+              && restarted.expandedFolders("123")->empty()
+              && restarted.preferences("123").theme == "light",
+          "Closing all folders is explicit persisted state and preserves account preferences"
+      );
+      std::ofstream(foldersPath) << R"({"123":{"expanded_folders":["77",false,"bad", "0"]}})";
+      require(
+          restarted.expandedFolders("123") == std::set<std::string>{"0", "77"},
+          "Malformed persisted folder IDs cannot enter expansion state"
+      );
+    }
+    {
       app::SessionStore store(std::filesystem::path(directory) / "channel-lists.json");
       store.savePreferences("123", {.theme = "light", .colorTheme = "fen"});
       store.saveChannelList("123", "10", {true, {"20", "20", "bad", "21"}});

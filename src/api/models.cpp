@@ -565,6 +565,7 @@ namespace api {
                 const auto author = parseAccount((*original)["author"]);
                 reply.authorId = author.id;
                 reply.author = author.name;
+                reply.avatar = author.avatar;
               }
             }
           }

@@ -2,6 +2,7 @@
 
 #include "api/channel_features.h"
 #include "api/models.h"
+#include "api/server_organization.h"
 #include "api/server_preferences.h"
 #include "api/server_privacy.h"
 
@@ -51,6 +52,7 @@ namespace api {
     MarkGuildRead,
     LeaveGuild,
     MoveGuild,
+    EditGuildFolder,
     GuildPrivacy
   };
   struct Interaction {
@@ -84,6 +86,7 @@ namespace api {
     std::vector<std::pair<std::string, std::string>> readStates;
     std::uint64_t notificationFlagsMask = 0;
     std::optional<api::GuildPrivacy> guildPrivacy;
+    std::optional<GuildFolderChange> folderChange;
   };
   struct InteractionRequest {
     std::string path, method;

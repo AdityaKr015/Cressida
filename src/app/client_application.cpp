@@ -300,6 +300,8 @@ namespace app {
         demoChannelInviteStep();
       if (m_demo && (m_demoOverlay == "channel-menu-cycle" || m_demoOverlay == "channel-menu-scroll-cycle"))
         demoChannelMenuStep();
+      if (m_demo && m_demoOverlay == "folder-menu-cycle")
+        demoFolderMenuStep();
       if (m_demo && m_demoOverlay == "server-menu-cycle")
         demoServerMenuStep();
       if (m_demo && m_demoOverlay == "server-hover-cycle")
@@ -1176,6 +1178,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
                          : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
                          : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
+                         : m_demo && view && std::string_view(view) == "folder-menu-cycle"                 ? 13
                          : m_demo && view && std::string_view(view) == "server-menu-cycle"                 ? 20
                          : m_demo && view && std::string_view(view) == "channel-menu-cycle"                ? 31
                          : m_demo && view && std::string_view(view) == "channel-cycle"                     ? 18
@@ -1252,6 +1255,8 @@ namespace app {
       throw std::runtime_error("Channel creation replay did not finish");
     if (m_demoOverlay == "channel-invite-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Channel invite replay did not finish");
+    if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
+      throw std::runtime_error("Folder menu replay did not finish");
     if (m_demoOverlay == "server-menu-cycle" && m_demoInteractionStep != 20)
       throw std::runtime_error("Server menu replay did not finish");
     if (m_demoOverlay == "channel-menu-cycle" && m_demoInteractionStep != 31)
@@ -1711,7 +1716,7 @@ namespace app {
             || view == "channel-delete"
             || view == "channel-move-confirm")
           prepareChannelMenuDemo(view);
-        if (view.starts_with("server-menu")) {
+        if (view.starts_with("server-menu") || view == "folder-menu-cycle") {
           prepareChannelMenuDemo("channel-menu");
           m_demoOverlay = view;
           closeContext();
@@ -2092,6 +2097,7 @@ namespace app {
                 std::to_string(8400 + i), m_channelId, "Lysec", "they're back xD", "2026-10-17T09:41:00Z"
             };
             message.reply = api::MessageReference{"1", m_channelId, "11", "Yocraft", replies[i]};
+            message.reply->avatar = api::emojiPath("1407464763293831269", false);
             m_messages.push_back(std::move(message));
           }
           if (view == "emoji-fit") {
@@ -3071,6 +3077,7 @@ namespace app {
             count = std::min(1000000, count + guildMentions[guild]);
           countBadge(root, 68, y + (Style::space2Xl + Style::spaceXxs), count, true);
           m_hits.push_back({10, y, 56, 50, Action::Folder, row.folder->id});
+          m_contextTargets.push_back(m_hits.back());
           continue;
         }
         const auto& guild = *row.guild;
@@ -3498,7 +3505,7 @@ namespace app {
                   + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
                                       m_preferences.compact, m_preferences.messageGroupSpacing,
                                       i + 1 == m_messages.size())
-                  + (message.reply ? 24 : 0)
+                  + (message.reply ? layout::Reply::step : 0)
                   + messageFooterHeight(messageButtons(nullptr, message, 0, 0, textWidth),
                                         reactionStrip(nullptr, message, 0, 0, textWidth),
                                         threadStrip(nullptr, message, 0, 0, textWidth));
@@ -3793,34 +3800,43 @@ namespace app {
                 const auto& reply = *message.reply;
                 auto preview = std::make_unique<Node>();
                 preview->setPosition(50, y);
-                preview->setSize(textWidth, 20);
+                preview->setSize(textWidth, layout::Reply::height);
                 preview->setClipChildren(true);
                 auto* previewNode = preview.get();
                 content->addChild(std::move(preview));
+                for (const auto& image : m_messageLayouts.at(message.id).reply.pictures)
+                  avatar(*previewNode, image.x, image.y, image.width, image.media.url, reply.author);
+                const float mediaTop = (layout::Reply::height - layout::Reply::avatarSize) / 2;
                 for (const auto& run : m_messageLayouts.at(message.id).reply.runs) {
                   if (run.style.spoiler && !spoilersVisible(reply.message)) {
-                    rectangle(*previewNode, run.x, 2, run.width, 16, raised, Style::radiusSm);
+                    rectangle(
+                        *previewNode, run.x, mediaTop, run.width, layout::Reply::avatarSize, raised, Style::radiusSm
+                    );
                   } else if (!run.image.empty()) {
-                    if (!emojiImage(*previewNode, run.x, 2, 16, run.image))
-                      label(*previewNode, run.x, 3, 16, "…", Style::fontSizeDescription, muted);
+                    if (!emojiImage(*previewNode, run.x, mediaTop, layout::Reply::avatarSize, run.image))
+                      label(
+                          *previewNode, run.x, mediaTop + Style::borderWidth, layout::Reply::avatarSize, "…",
+                          Style::fontSizeDescription, muted
+                      );
                   } else {
                     const auto markup = messageMarkup(run.text, run.style);
                     const auto metrics = m_window.target().renderer().measureText(
                         markup, run.style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {}, TextEllipsize::End, true
                     );
                     label(
-                        *previewNode, run.x, (20 - (metrics.bottom - metrics.top)) / 2, run.width + Style::spaceXxs,
-                        markup, run.style.size, muted, FontWeight::Normal, 1, true
+                        *previewNode, run.x, (layout::Reply::height - (metrics.bottom - metrics.top)) / 2,
+                        run.width + Style::spaceXxs, markup, run.style.size, muted, FontWeight::Normal, 1, true
                     );
                   }
                 }
                 const float previewTop = std::max(top, top + y);
-                const float previewBottom = std::min(bottom, top + y + Style::spaceRelaxed);
+                const float previewBottom = std::min(bottom, top + y + layout::Reply::height);
                 if (previewBottom > previewTop)
                   m_hits.push_back(
-                      {left + 74, previewTop, textWidth, previewBottom - previewTop, Action::JumpReply, reply.message}
+                      {left + layout::Chat::inset + layout::Chat::authorGutter, previewTop, textWidth,
+                       previewBottom - previewTop, Action::JumpReply, reply.message}
                   );
-                y += Style::spaceXl;
+                y += layout::Reply::step;
               }
               const bool continuation = continuations[i];
               if (!continuation) {
@@ -5780,6 +5796,9 @@ namespace app {
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
           m_recentStickers = m_sessionStore.frequentStickers(m_account.id);
+          const auto expanded = m_sessionStore.expandedFolders(m_account.id);
+          m_openFolders = expanded.value_or(std::set<std::string>{});
+          m_foldersRestored = expanded.has_value();
           m_presence = event.presence.value_or(api::Presence{});
           resetGuildBootstrap();
           m_readyBootstrapPending = event.live;
@@ -5801,7 +5820,9 @@ namespace app {
             m_lastChannels[last->guild.empty() ? "@me" : last->guild] = last->channel;
           if (last && api::validSnowflake(last->guild)) {
             for (const auto& folder : m_folders)
-              if (!folder.id.empty() && std::ranges::find(folder.guildIds, last->guild) != folder.guildIds.end())
+              if (!m_foldersRestored
+                  && !folder.id.empty()
+                  && std::ranges::find(folder.guildIds, last->guild) != folder.guildIds.end())
                 m_openFolders.insert(folder.id);
             selectGuild(last->guild);
             m_revealGuild = true;
@@ -6921,6 +6942,7 @@ namespace app {
     case Action::Folder:
       if (!m_openFolders.erase(hit.id))
         m_openFolders.insert(hit.id);
+      saveExpandedFolders();
       break;
     case Action::ToggleMembers:
       if (!m_channelPanel.empty()) {

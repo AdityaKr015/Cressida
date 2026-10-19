@@ -24,7 +24,12 @@ namespace app {
     NewFolder,
     Security,
     Leave,
-    CopyId
+    CopyId,
+    FolderRead,
+    FolderMoveMenu,
+    FolderMove,
+    FolderSettings,
+    FolderCloseAll
   };
   struct ServerMenuCommand {
     ServerMenuKind kind;

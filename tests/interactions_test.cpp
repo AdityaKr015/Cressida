@@ -14,6 +14,24 @@ int main() {
   using Kind = InteractionKind;
   using nlohmann::json;
   try {
+    const auto folder = interactionRequest(
+        {.kind = Kind::EditGuildFolder, .folderChange = GuildFolderChange{.folder = "0", .name = "Orbit", .color = 0}}
+    );
+    require(
+        folder && folder->method == "PATCH" && folder->path == "/users/@me/settings-proto/1" && folder->body.is_null(),
+        "Folder changes use a fixed settings route populated only after a fresh snapshot"
+    );
+    require(
+        !interactionRequest({.kind = Kind::EditGuildFolder})
+            && !interactionRequest(
+                {.kind = Kind::EditGuildFolder, .folderChange = GuildFolderChange{.folder = "../7", .name = "Name"}}
+            ),
+        "Missing or invalid folder targets cannot be queued"
+    );
+    require(
+        interactionRequest({.kind = Kind::MoveGuild, .text = "0", .guild = "101"}).has_value(),
+        "The valid zero-ID folder remains a usable server destination"
+    );
     const auto reaction =
         interactionRequest({.kind = Kind::AddReaction, .channel = "10", .message = "20", .emoji = "❤️"});
     require(

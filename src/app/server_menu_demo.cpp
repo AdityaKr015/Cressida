@@ -3,8 +3,181 @@
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace app {
+  void ClientApplication::demoFolderMenuStep() {
+    using Kind = ServerMenuKind;
+    const auto require = [](bool value, const char* message) {
+      if (!value)
+        throw std::runtime_error(message);
+    };
+    const auto open = [&] {
+      const auto hit = std::ranges::find_if(m_contextTargets, [](const auto& target) {
+        return target.action == Action::Folder && target.id == "77";
+      });
+      require(hit != m_contextTargets.end(), "Folder rail headers expose their own context target");
+      m_window.contextClick(
+          hit->x + hit->width / 2, hit->y + hit->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
+      require(m_contextOpen && m_contextGuild.empty(), "Folder context menus never target the selected server");
+    };
+    const auto click = [&](Kind kind) {
+      const auto at = std::ranges::find_if(m_contextEntries, [&](const auto& entry) {
+        const auto index = entry.id - serverMenuBase;
+        return !entry.separator
+            && index >= 0
+            && static_cast<std::size_t>(index) < m_serverMenuCommands.size()
+            && m_serverMenuCommands[index].kind == kind;
+      });
+      require(at != m_contextEntries.end() && m_contextControl, "Folder menu mounts native actionable entries");
+      const auto index = static_cast<std::size_t>(at - m_contextEntries.begin());
+      const auto center = (m_contextControl->rowTop(index) + m_contextControl->rowBottom(index)) / 2;
+      m_window.click(
+          m_contextBounds.x + m_contextBounds.width / 2,
+          m_contextBounds.y + center - m_contextScroll + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272
+      );
+      m_window.released();
+    };
+    const auto step = m_demoInteractionStep++;
+    if (step == 0) {
+      if (std::ranges::find(m_guilds, "2", &api::Guild::id) == m_guilds.end())
+        m_guilds.push_back({"2", "Background"});
+      m_guildLayout.folders = {{"77", "Communities", 0x123456, {m_guildId, "2"}}};
+      m_guildLayout.positions = {m_guildId, "2"};
+      m_foldersRestored = true;
+      m_openFolders = {"77"};
+      arrangeGuildFolders();
+      api::Channel background{"201", "background-chat", 0};
+      background.lastMessageId = "9100";
+      m_guildChannels["2"] = {background};
+      m_channels.front().lastMessageId = "9000";
+    } else if (step == 1)
+      open();
+    else if (step == 2) {
+      require(m_contextEntries.size() == 6, "Folder menu provides all four actions and both separators");
+      click(Kind::FolderMoveMenu);
+    } else if (step == 3) {
+      require(
+          m_channelSubmenuEntries.size() == 4 && m_reactionControl,
+          "Folder move submenu provides Top, Up, Down and Bottom"
+      );
+      const auto index = m_channelSubmenuEntries.size() - 1;
+      const auto id = m_channelSubmenuEntries[index].id;
+      require(m_serverMenuCommands[id - serverMenuBase].guild == "77", "Folder submenus retain the folder identifier");
+      const auto center = (m_reactionControl->rowTop(index) + m_reactionControl->rowBottom(index)) / 2;
+      m_window.click(
+          m_reactionSubmenuBounds.x + m_reactionSubmenuBounds.width / 2,
+          m_reactionSubmenuBounds.y
+              + center
+              - m_reactionSubmenuScroll
+              + m_window.titlebarHeight()
+              - layout::Window::titlebarHeight,
+          272
+      );
+      m_window.released();
+      require(!m_contextOpen, "Choosing a folder position dispatches through the native submenu");
+      open();
+    } else if (step == 4)
+      click(Kind::FolderSettings);
+    else if (step == 5) {
+      require(
+          m_dialogKind == "server-folder-settings"
+              && m_dialogText == "Communities"
+              && m_serverFolderColor == "#123456"
+              && m_inputs.contains("server-menu:folder-color"),
+          "Folder settings opens with the actual name, color and retained native inputs"
+      );
+      focusControl("dialog");
+      m_window.key({XKB_KEY_a, "", true, false});
+      pasteControl("dialog", "Orbit");
+      focusControl("server-menu:folder-color");
+      m_window.key({XKB_KEY_a, "", true, false});
+      pasteControl("server-menu:folder-color", "invalid");
+      submitServerMenuDialog();
+      require(
+          !m_dialogPending && !m_dialogError.empty() && m_dialogText == "Orbit",
+          "Invalid folder colors retain the editable name and report an error"
+      );
+    } else if (step == 6) {
+      focusControl("server-menu:folder-color");
+      m_window.key({XKB_KEY_a, "", true, false});
+      pasteControl("server-menu:folder-color", "#ABCDEF");
+      submitServerMenuDialog();
+      require(
+          m_dialogPending
+              && m_dialogAction
+              && m_dialogAction->folderChange
+              && m_dialogAction->folderChange->name == "Orbit"
+              && m_dialogAction->folderChange->color == 0xABCDEF,
+          "Folder save submits typed name/color together"
+      );
+      api::Event failed;
+      failed.interaction = *m_dialogAction;
+      failed.error = "Settings changed on another device.";
+      serverMenuInteractionResult(failed);
+      require(
+          !m_dialogPending && !m_dialogError.empty() && m_folders.front().name == "Communities",
+          "Failed saves retain the draft and never change the rendered organization"
+      );
+    } else if (step == 7) {
+      submitServerMenuDialog();
+      api::Event saved;
+      saved.interaction = *m_dialogAction;
+      saved.layout = m_guildLayout;
+      saved.layout.folders.front().name = "Orbit";
+      saved.layout.folders.front().color = 0xABCDEF;
+      serverMenuInteractionResult(saved);
+      require(
+          m_dialogKind.empty()
+              && m_folders.front().name == "Orbit"
+              && m_folders.front().color == 0xABCDEF
+              && m_openFolders.contains("77"),
+          "Successful folder saves project the layout without collapsing the folder"
+      );
+      open();
+    } else if (step == 8) {
+      click(Kind::FolderCloseAll);
+      require(m_openFolders.empty() && m_foldersRestored, "Close All Folders records an explicit empty expansion set");
+      arrangeGuildFolders();
+      require(m_openFolders.empty(), "Layout refresh does not force the selected server folder back open");
+      open();
+    } else if (step == 9) {
+      const auto action = guildReadAction(m_folders.front().guildIds);
+      const auto request = api::interactionRequest(action);
+      require(
+          request
+              && std::ranges::find(action.readStates, std::pair<std::string, std::string>{"201", "9100"})
+                  != action.readStates.end()
+              && action.readStates.size() >= 2,
+          "Folder reads include channel cursors from both selected and background servers"
+      );
+      click(Kind::FolderRead);
+      api::Event ack;
+      ack.interaction = action;
+      serverMenuInteractionResult(ack);
+      require(m_localRead["201"] == "9100", "Folder read acknowledgements update every included server");
+    } else if (step == 10) {
+      api::Event stale;
+      stale.interaction = api::Interaction{
+          .kind = api::InteractionKind::EditGuildFolder,
+          .guild = m_guildId,
+          .stateRevision = m_guildLayoutRevision - 1,
+          .folderChange = api::GuildFolderChange{.folder = "77", .name = "Stale"}
+      };
+      stale.layout.folders = {{"77", "Stale", 0, {m_guildId}}};
+      serverMenuInteractionResult(stale);
+      require(m_folders.front().name == "Orbit", "Older folder acknowledgements cannot overwrite a newer layout");
+      open();
+    } else if (step == 11) {
+      const auto command = m_contextEntries.front().id;
+      m_guildLayout.folders.clear();
+      arrangeGuildFolders();
+      serverMenuEntry(command);
+      require(!m_contextOpen && m_dialogKind.empty(), "Deleted folder targets dismiss raced menu actions");
+    } else if (step == 12)
+      require(m_guildId == "1" && m_channelId == "101", "Folder actions preserve the selected conversation");
+  }
   void ClientApplication::demoServerMenuStep() {
     using Kind = ServerMenuKind;
     const auto require = [](bool value, const char* message) {
