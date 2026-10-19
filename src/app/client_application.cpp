@@ -108,6 +108,8 @@ namespace app {
         demoChatPreloadStep();
       if (m_demo && m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep < chatLinkReplayFrames)
         demoChatLinksStep();
+      if (m_demo && m_demoOverlay == "attachment-cycle" && m_demoInteractionStep < attachmentReplayFrames)
+        demoAttachmentsStep();
       if (m_demo && m_demoOverlay.starts_with("syntax-nix-flat-rail")) {
         const auto& boxes = m_messageLayouts.at(m_messages.front().id).layout.boxes;
         const auto code = std::ranges::find_if(boxes, [](const auto& box) { return !box.code.empty(); });
@@ -1064,7 +1066,7 @@ namespace app {
           && m_pointerX >= m_attachmentX
           && m_pointerX < m_attachmentX + m_attachmentWidth
           && m_pointerY >= m_attachmentY
-          && m_pointerY < m_attachmentY + 90)
+          && m_pointerY < m_attachmentY + layout::DraftAttachment::height + Style::spaceXs)
         scroll(m_attachmentScroll, delta);
       else if (m_pointerX < layout::Sidebar::railWidth)
         scroll(m_guildScroll, delta);
@@ -1126,6 +1128,7 @@ namespace app {
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest ? (m_demo && view && std::string_view(view) == "chat-links-cycle"             ? chatLinkReplayFrames
+                         : m_demo && view && std::string_view(view) == "attachment-cycle"       ? attachmentReplayFrames
                          : m_demo && view && std::string_view(view) == "sticker-cycle"          ? 8
                          : m_demo && view && std::string_view(view) == "dm-compose-cycle"       ? 16
                          : m_demo && view && std::string_view(view) == "dm-home-cycle"          ? 18
@@ -1188,6 +1191,8 @@ namespace app {
       throw std::runtime_error("Font settings replay did not finish");
     if (m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep != chatLinkReplayFrames)
       throw std::runtime_error("Chat link replay did not finish");
+    if (m_demoOverlay == "attachment-cycle" && m_demoInteractionStep != attachmentReplayFrames)
+      throw std::runtime_error("Draft attachment replay did not finish");
     if (m_demoOverlay == "chat-preload-cycle" && m_demoInteractionStep != 10)
       throw std::runtime_error("Chat preload replay did not finish");
     if (m_demoOverlay == "server-hover-cycle" && m_demoInteractionStep != 7)
@@ -1879,7 +1884,13 @@ namespace app {
           if (view == "reply")
             m_replies[m_channelId] = {"1", m_channelId, "11", "Maya", m_messages.front().content};
         }
-        if (view == "login-restoring" || view == "login-retry" || view.starts_with("login-themed")) {
+        if (view == "attachment-cycle" || view == "attachments" || view == "attachments-light") {
+          if (view == "attachments-light")
+            m_preferences.theme = "light";
+          prepareAttachmentsDemo();
+          if (view == "attachment-cycle")
+            m_demoOverlay = view;
+        } else if (view == "login-restoring" || view == "login-retry" || view.starts_with("login-themed")) {
           m_connected = false;
           m_connecting = m_restoringLogin = view == "login-restoring" || view == "login-themed-restoring";
           m_retrySavedLogin = view == "login-retry";
@@ -3312,7 +3323,7 @@ namespace app {
         const float fullDraftHeight =
             m_draftStops.empty() ? 22 : m_draftStops.back().y + std::max(22.0F, m_draftStops.back().height);
         m_draftHeight = std::clamp(fullDraftHeight, 22.0F, std::min(160.0F, h * 0.3F));
-        const float uploadHeight = m_attachments[m_channelId].empty() ? 0 : 106;
+        const float uploadHeight = m_attachments[m_channelId].empty() ? 0 : layout::DraftAttachment::composerReserve;
         const float stickerHeight = m_draftStickers[m_channelId].empty() ? 0 : 100;
         const float attachmentHeight = uploadHeight + stickerHeight;
         const float replyHeight = m_replies.contains(m_channelId) ? 34 : 0;
@@ -4396,27 +4407,41 @@ namespace app {
         m_attachmentY = composerY + replyHeight + Style::spaceDense;
         m_attachmentWidth = bodyWidth - 72;
         m_scrolling.limit(
-            m_attachmentScroll, std::max(0.0F, m_attachments[m_channelId].size() * 96.0F - m_attachmentWidth)
+            m_attachmentScroll,
+            std::max(0.0F, m_attachments[m_channelId].size() * layout::DraftAttachment::step - m_attachmentWidth)
         );
         auto previews = std::make_unique<Node>();
         previews->setPosition(m_attachmentX, m_attachmentY);
-        previews->setSize(m_attachmentWidth, 86);
+        previews->setSize(m_attachmentWidth, layout::DraftAttachment::height);
         previews->setClipChildren(true);
         float previewX = -m_attachmentScroll;
         for (const auto& attachment : m_attachments[m_channelId]) {
           auto preview = std::make_unique<ImageNode>();
-          preview->setPosition(previewX, 2);
-          preview->setSize(82, 82);
+          preview->setPosition(previewX, layout::DraftAttachment::topInset);
+          preview->setSize(layout::DraftAttachment::size, layout::DraftAttachment::size);
           preview->setTextureId(attachment.texture.id);
           preview->setTextureSize(attachment.texture.width, attachment.texture.height);
           preview->setFitMode(ImageFitMode::Contain);
           previews->addChild(std::move(preview));
-          button(*previews, {previewX + 58, 0, 28, 28, Action::RemoveAttachment, attachment.key}, "×");
+          const float hitLeft = std::max(m_attachmentX, m_attachmentX + previewX);
+          const float hitRight =
+              std::min(m_attachmentX + m_attachmentWidth, m_attachmentX + previewX + layout::DraftAttachment::size);
+          if (hitRight > hitLeft)
+            m_hits.push_back(
+                {hitLeft, m_attachmentY + layout::DraftAttachment::topInset, hitRight - hitLeft,
+                 layout::DraftAttachment::size, Action::ViewAttachment, attachment.key}
+            );
+          iconButton(
+              *previews,
+              {previewX + layout::DraftAttachment::removeLeft, 0, layout::DraftAttachment::removeSize,
+               layout::DraftAttachment::removeSize, Action::RemoveAttachment, attachment.key},
+              "x", "Remove attachment"
+          );
           auto& hit = m_hits.back();
           const auto right = std::min(hit.x + hit.width, m_attachmentX + m_attachmentWidth);
           hit.x = std::max(hit.x, m_attachmentX);
           hit.width = std::max(0.0F, right - hit.x);
-          previewX += 96;
+          previewX += layout::DraftAttachment::step;
         }
         root.addChild(std::move(previews));
         const float stickerSize = std::min(80.0F, std::max(32.0F, (bodyWidth - 96) / 3));
@@ -6371,6 +6396,11 @@ namespace app {
         return;
       }
       if (key.control && (key.symbol == XKB_KEY_c || key.symbol == XKB_KEY_C)) {
+        if (const auto* image = draftImage(m_viewImage)) {
+          const auto& upload = image->upload;
+          m_window.copy({upload.bytes.begin(), upload.bytes.end()}, upload.mime);
+          return;
+        }
         const auto found = m_images.find(m_viewImage);
         if (found != m_images.end() && !found->second.bytes.empty()) {
           const auto& bytes = found->second.bytes;
@@ -6760,6 +6790,7 @@ namespace app {
     case Action::ViewImage:
       m_scrolling.stopAll();
       m_viewImage = hit.id;
+      m_viewUrl.clear();
       m_viewZoom = 1;
       m_viewPanX = m_viewPanY = 0;
       for (const auto& image : m_viewerImages)
@@ -7030,6 +7061,9 @@ namespace app {
       break;
     case Action::RevealSpoiler:
       m_revealedSpoilers.insert(hit.id);
+      break;
+    case Action::ViewAttachment:
+      openDraftAttachment(hit.id);
       break;
     case Action::RemoveAttachment:
       if (!m_sending)

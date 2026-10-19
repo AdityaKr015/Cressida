@@ -60,6 +60,7 @@ namespace app {
 
   private:
     static constexpr int chatLinkReplayFrames = 6;
+    static constexpr int attachmentReplayFrames = 7;
     enum class Action {
       Settings,
       DmPage,
@@ -141,6 +142,7 @@ namespace app {
       SendGif,
       FavoriteGif,
       Composer,
+      ViewAttachment,
       RemoveAttachment,
       CopyMessage,
       CopyCode,
@@ -623,6 +625,11 @@ namespace app {
     void setPresence(const std::string& status, bool custom = false);
     void drawImageViewer(Node& root, float w, float h);
     void changeImage(int direction);
+    struct DraftImage;
+    const DraftImage* draftImage(std::string_view path) const;
+    void openDraftAttachment(const std::string& key);
+    void prepareAttachmentsDemo();
+    void demoAttachmentsStep();
     bool hovered(float x, float y, float width, float height) const;
     void updateCursor();
     float channelSidebarWidth() const;

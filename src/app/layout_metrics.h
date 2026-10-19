@@ -72,6 +72,15 @@ namespace app::layout {
     static constexpr float actionStep = 35;
     static constexpr float actionsReserve = 146;
   };
+  struct DraftAttachment {
+    static constexpr float size = 82;
+    static constexpr float topInset = Style::spaceXxs;
+    static constexpr float step = 96;
+    static constexpr float removeSize = 28;
+    static constexpr float removeLeft = size - removeSize + Style::spaceXs;
+    static constexpr float height = size + topInset * 2;
+    static constexpr float composerReserve = height + Style::spaceLg + Style::spaceXs;
+  };
   struct ChannelIntro {
     static constexpr float badgeSize = 58;
     static constexpr float badgeTop = Style::spaceXs;
