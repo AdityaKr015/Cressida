@@ -1543,11 +1543,7 @@ namespace app {
       m_revealedBlocked.insert(hit.id);
       break;
     case Action::JumpReply:
-      if (m_messageTops.contains(hit.id))
-        m_messageScroll =
-            std::clamp(m_messageScroll + m_window.height() / 2.0F - m_messageTops.at(hit.id), 0.0F, m_messageMaxScroll);
-      else
-        m_status = "The original message is outside the loaded history.";
+      jumpToMessage(m_channelId, hit.id);
       break;
     case Action::ToggleReaction: {
       const auto split = hit.id.find('\n');

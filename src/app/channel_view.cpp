@@ -68,6 +68,8 @@ namespace app {
     closeChannelPanel();
     m_channelSearchText.clear();
     m_seekMessage.clear();
+    m_jumpHighlightTimer.stop();
+    m_jumpHighlightMessage.clear();
     m_channelDetailRequests.clear();
     m_channelDetailsLoaded.clear();
     m_channelDetailErrors.clear();
@@ -1711,6 +1713,8 @@ namespace app {
     m_unreadTimeline.positioned();
     m_scrolling.stop(m_messageScroll);
     m_timelineAnchor.reset();
+    m_jumpHighlightTimer.stop();
+    m_jumpHighlightMessage.clear();
     if (std::ranges::find(m_messages, message, &api::Message::id) != m_messages.end())
       m_seekMessage = message;
     else if (!m_demo) {
@@ -1723,6 +1727,8 @@ namespace app {
           m_history.fail(*query, "Could not load this message. Try again.");
       }
     }
+    if (m_seekMessage == message)
+      m_jumpHighlightMessage = message;
     m_window.invalidate();
   }
 } // namespace app

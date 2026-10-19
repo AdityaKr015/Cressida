@@ -3466,19 +3466,28 @@ namespace app {
         m_scrolling.limit(m_messageScroll, m_messageMaxScroll);
         m_keepHistoryAnchor = false;
         if (!m_seekMessage.empty() && !m_loadingMessages) {
+          bool foundTarget = false;
           float preceding = timelineTopPadding + introHeight;
           for (std::size_t i = 0; i < m_messages.size(); ++i) {
             if (unreadIndex && i == *unreadIndex)
               preceding += unreadHeight;
             if (m_messages[i].id == m_seekMessage) {
+              foundTarget = true;
               m_scrolling.stop(m_messageScroll);
               m_messageScroll = std::clamp(
                   totalHeight - (bottom - top) - preceding + (bottom - top) * 0.35F, 0.0F, m_messageMaxScroll
               );
+              if (m_jumpHighlightMessage == m_seekMessage && !m_jumpHighlightTimer.active())
+                m_jumpHighlightTimer.start(layout::Chat::jumpHighlightDuration, [this] {
+                  m_jumpHighlightMessage.clear();
+                  m_window.invalidate();
+                });
               break;
             }
             preceding += heights[i];
           }
+          if (!foundTarget && m_jumpHighlightMessage == m_seekMessage)
+            m_jumpHighlightMessage.clear();
           m_seekMessage.clear();
           m_unreadTimeline.positioned();
           m_timelineAnchor.reset();
@@ -3669,7 +3678,18 @@ namespace app {
                 rectangle(root, left + Style::spaceDense, bandTop, 3, bandBottom - bandTop, red);
               }
             }
+            const auto drawJumpHighlight = [&] {
+              if (m_jumpHighlightMessage != message.id || !m_jumpHighlightTimer.active())
+                return;
+              auto color = accent;
+              color.a = layout::Chat::jumpHighlightOpacity;
+              rectangle(
+                  root, left + Style::spaceDense, hoverTop, bodyWidth - (Style::space2Xl + Style::spaceXxs),
+                  std::max(0.0F, hoverBottom - hoverTop), color
+              );
+            };
             if (message.type == 7) {
+              drawJumpHighlight();
               drawJoinNotice(*content, message, *layouts[i], y, textWidth);
             } else {
               if (message.flags & 64) {
@@ -3704,6 +3724,7 @@ namespace app {
                   rectangle(root, left + Style::spaceDense, bandTop, 3, bandBottom - bandTop, accent);
                 }
               }
+              drawJumpHighlight();
               if (message.reply) {
                 const auto& reply = *message.reply;
                 auto preview = std::make_unique<Node>();
@@ -4892,6 +4913,8 @@ namespace app {
   }
   void ClientApplication::selectGuild(const std::string& id) {
     m_pendingDiscordLink.reset();
+    m_jumpHighlightTimer.stop();
+    m_jumpHighlightMessage.clear();
     clearChatPreload();
     m_startupGuild.clear();
     closeCompletion();
@@ -4963,6 +4986,8 @@ namespace app {
 
   void ClientApplication::showDirectMessages(bool home) {
     m_pendingDiscordLink.reset();
+    m_jumpHighlightTimer.stop();
+    m_jumpHighlightMessage.clear();
     clearChatPreload();
     m_startupGuild.clear();
     closeCompletion();
@@ -5034,6 +5059,8 @@ namespace app {
     finishSidebarResize();
     closeChannelPanel();
     m_seekMessage.clear();
+    m_jumpHighlightTimer.stop();
+    m_jumpHighlightMessage.clear();
     m_pendingMessageJump.reset();
     const auto selected = std::ranges::find(m_channels, id, &api::Channel::id);
     const bool forum = selected != m_channels.end() && selected->isForum();
@@ -6616,6 +6643,8 @@ namespace app {
       m_timelineAnchor.reset();
       m_keepHistoryAnchor = false;
       m_seekMessage.clear();
+      m_jumpHighlightTimer.stop();
+      m_jumpHighlightMessage.clear();
       m_unreadTimeline.positioned();
       if (m_history.atLatest()) {
         if (const auto& pending = m_history.pending(); pending && pending->direction != api::HistoryDirection::Latest) {

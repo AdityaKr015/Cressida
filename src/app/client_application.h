@@ -958,6 +958,8 @@ namespace app {
     bool m_channelReturnToPermissions = false;
     std::uint64_t m_channelFeatureSerial = 0;
     std::string m_seekMessage;
+    std::string m_jumpHighlightMessage;
+    Timer m_jumpHighlightTimer;
     std::optional<std::pair<std::string, std::string>> m_pendingMessageJump;
     std::optional<DiscordLink> m_pendingDiscordLink;
     struct ComponentState {

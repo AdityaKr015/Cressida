@@ -3,6 +3,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 
@@ -41,6 +42,8 @@ namespace app::layout {
     return std::clamp(preferred, Sidebar::minimumWidth, maximum);
   }
   struct Chat {
+    static constexpr auto jumpHighlightDuration = std::chrono::seconds{2};
+    static constexpr float jumpHighlightOpacity = .18F;
     static constexpr float inset = 24;
     static constexpr float avatarSize = 40;
     static constexpr float authorGutter = 50;
