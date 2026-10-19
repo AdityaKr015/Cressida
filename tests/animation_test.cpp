@@ -21,6 +21,61 @@ namespace {
 int main(int argc, char** argv) {
   try {
     require(argc == 2, "Animation fixture directory required");
+    for (const auto* name :
+         {"detail.gif", "detail.apng", "detail.webp", "detail.mp4", "detail.webm", "detail-long.gif",
+          "detail-long.apng", "detail-long.webp", "detail-long.mp4", "detail-long.webm"}) {
+      const auto animation = media::decodeAnimation(read(std::filesystem::path(argv[1]) / name));
+      require(
+          animation && animation->width == 336 && animation->height == 600,
+          "Animated media retain native portrait detail instead of stretching a reduced canvas"
+      );
+      const bool longClip = std::string_view(name).starts_with("detail-long.");
+      require(animation->frames.size() == (longClip ? 120 : 6), "Retain every frame, including under memory pressure");
+      require(animation->byteSize() <= 64 * 1024 * 1024, "Lossless frames stay inside the animation cache budget");
+      if (longClip) {
+        require(
+            std::ranges::any_of(animation->frames, [](const auto& frame) { return !frame.packed.empty(); }),
+            "The long portrait exercises compressed frame storage"
+        );
+        require(animation->duration == std::chrono::seconds(12), "Compression preserves the complete loop timing");
+      }
+      std::vector<std::uint8_t> canvas;
+      // Read in reverse order too: seeking/looping must not depend on prior frames.
+      for (std::size_t index = animation->frames.size(); index-- > 0;) {
+        const auto pixels = animation->pixels(index, canvas);
+        require(pixels.size() == 336 * 600 * 4, "Unpack exactly one native canvas for upload");
+        for (int y = 0; y < animation->height; ++y)
+          for (int x = 0; x < animation->width; ++x) {
+            const auto at = (y * animation->width + x) * 4;
+            const int expected = (x + index) % 2 ? 255 : 0;
+            if (pixels[at] != expected || pixels[at + 1] != expected || pixels[at + 2] != expected)
+              std::cerr
+                  << name
+                  << " frame "
+                  << index
+                  << " at "
+                  << x
+                  << ','
+                  << y
+                  << ": "
+                  << int(pixels[at])
+                  << ','
+                  << int(pixels[at + 1])
+                  << ','
+                  << int(pixels[at + 2])
+                  << " expected "
+                  << expected
+                  << '\n';
+            require(
+                pixels[at] == expected
+                    && pixels[at + 1] == expected
+                    && pixels[at + 2] == expected
+                    && pixels[at + 3] == 255,
+                "Preserve individual alternating pixels instead of averaging away fine detail"
+            );
+          }
+      }
+    }
     for (const auto* name : {"clip.gif", "clip.apng", "clip.webp", "clip.mp4", "clip.webm"}) {
       const auto bytes = read(std::filesystem::path(argv[1]) / name);
       const auto animation = media::decodeAnimation(bytes);
@@ -69,14 +124,9 @@ int main(int argc, char** argv) {
         );
         for (int repeat = 0; repeat < 12; ++repeat) {
           const auto animation = media::decodeAnimation(bytes);
-          const auto ratio =
-              std::min(1.0, (std::string_view(extension) == "webp" ? 512.0 : 384.0) / std::max(width, height));
           require(
-              animation
-                  && animation->width == int(width * ratio)
-                  && animation->height == int(height * ratio)
-                  && animation->frames.size() == 6,
-              "Decode non-aligned and scaled portrait media repeatedly without corrupting memory"
+              animation && animation->width == width && animation->height == height && animation->frames.size() == 6,
+              "Decode non-aligned portrait media at native resolution repeatedly without corrupting memory"
           );
           const auto frameBytes = std::size_t(animation->width) * animation->height * 4;
           require(animation->byteSize() == frameBytes * 6, "Export packed pixels without conversion padding");
@@ -94,10 +144,14 @@ int main(int argc, char** argv) {
       }
     }
     const auto capped = media::decodeAnimation(read(std::filesystem::path(argv[1]) / "long.gif"));
-    const auto resized = media::decodeAnimation(read(std::filesystem::path(argv[1]) / "large.gif"));
+    const auto retained = media::decodeAnimation(read(std::filesystem::path(argv[1]) / "large.gif"));
     require(
-        resized && resized->frames.size() == 300 && resized->width <= 256 && resized->byteSize() <= 64 * 1024 * 1024,
-        "Downscale long GIFs to retain their complete loop inside the memory budget"
+        retained
+            && retained->frames.size() == 300
+            && retained->width == 256
+            && retained->height == 256
+            && retained->byteSize() <= 64 * 1024 * 1024,
+        "Losslessly compress long GIFs to retain their complete native loop inside the memory budget"
     );
     require(
         capped && capped->frames.size() == 1, "An over-limit animation uses its still frame instead of a partial loop"
@@ -107,6 +161,10 @@ int main(int argc, char** argv) {
           std::vector<std::uint8_t>{'G', 'I', 'F', '8', '9', 'a', 0, 0, 0, 0, 0, 0}})
       require(!media::decodeAnimation(bytes), "Reject malformed/unsupported media safely");
     media::Animation empty;
+    std::vector<std::uint8_t> canvas;
+    require(empty.pixels(0, canvas).empty(), "Missing canvases never reach the texture uploader");
+    media::Animation damaged{2, 2, {{{}, std::chrono::milliseconds(100), {1, 2, 3}}}};
+    require(damaged.pixels(0, canvas).empty(), "Reject malformed packed frames without publishing pixels");
     require(
         empty.frameAt(std::chrono::milliseconds(-10)) == 0 && empty.byteSize() == 0,
         "Empty and negative playback times are safe"

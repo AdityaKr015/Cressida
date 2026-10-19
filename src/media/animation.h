@@ -11,6 +11,10 @@ namespace media {
   struct Frame {
     std::vector<std::uint8_t> rgba;
     std::chrono::milliseconds duration{100};
+    std::vector<std::uint8_t> packed;
+    // Lossless storage for loops whose raw canvases exceed the cache budget.
+    void pack();
+    std::size_t byteSize() const;
   };
   struct Animation {
     int width = 0, height = 0;
@@ -18,6 +22,9 @@ namespace media {
     std::chrono::milliseconds duration{0};
     std::size_t byteSize() const;
     std::size_t frameAt(std::chrono::milliseconds elapsed) const;
+    // The returned span either belongs to the frame or the caller's reusable
+    // canvas. It remains valid until that canvas is reused.
+    std::span<const std::uint8_t> pixels(std::size_t frame, std::vector<std::uint8_t>& canvas) const;
   };
   // In-memory only: decoders cannot open URLs, external resources or files.
   // Bounds dimensions, frame count, decoded memory and decode time. An over-limit

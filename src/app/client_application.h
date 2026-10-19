@@ -1045,6 +1045,7 @@ namespace app {
       std::uint64_t visibleFrame = 0, playingDraw = 0;
     };
     std::map<std::string, CachedImage> m_images;
+    std::vector<std::uint8_t> m_animationPixels;
     std::set<std::string> m_pendingImages;
     std::uint64_t m_imageSerial = 0;
     std::uint64_t m_animationDraw = 0;

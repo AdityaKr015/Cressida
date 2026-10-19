@@ -8,6 +8,7 @@
 #include <limits>
 #include <stdexcept>
 #include <webp/demux.h>
+#include <zstd.h>
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -18,6 +19,8 @@ namespace media {
   namespace {
     constexpr std::size_t maxBytes = 64 * 1024 * 1024;
     constexpr int maxFrames = 1200;
+    constexpr int posterEdge = 1920;
+    constexpr int compressionLevel = 1;
     bool dimensions(int w, int h) { return w > 0 && h > 0 && w <= 4096 && h <= 4096 && std::int64_t(w) * h <= 8388608; }
     // swscale's vectorized paths need aligned strides and plane padding. Public
     // animation frames stay tightly packed; only these reusable working buffers
@@ -66,28 +69,21 @@ namespace media {
           std::memcpy(pixels.data() + row * rowBytes, m_frame->data[0] + row * m_frame->linesize[0], rowBytes);
       }
     };
-    bool shrink(Animation& animation) {
-      if (animation.width <= 64 && animation.height <= 64)
-        return false;
-      const int width = std::max(1, animation.width / 2), height = std::max(1, animation.height / 2);
-      std::unique_ptr<SwsContext, decltype(&sws_freeContext)> scale(
-          sws_getContext(
-              animation.width, animation.height, AV_PIX_FMT_RGBA, width, height, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr,
-              nullptr, nullptr
-          ),
-          sws_freeContext
-      );
-      if (!scale)
-        return false;
-      RgbaBuffer source, dest;
-      source.resize(animation.width, animation.height);
-      dest.resize(width, height);
-      for (auto& frame : animation.frames) {
-        source.copyFrom(frame.rgba);
-        dest.convert(scale.get(), source.frame(), frame.rgba);
+    bool retainFrame(Animation& animation, Frame frame, std::size_t& resident, bool& packed) {
+      if (!packed && frame.byteSize() > maxBytes - resident) {
+        packed = true;
+        resident = 0;
+        for (auto& previous : animation.frames) {
+          previous.pack();
+          resident += previous.byteSize();
+        }
       }
-      animation.width = width;
-      animation.height = height;
+      if (packed)
+        frame.pack();
+      if (frame.byteSize() > maxBytes - resident)
+        return false;
+      resident += frame.byteSize();
+      animation.frames.push_back(std::move(frame));
       return true;
     }
     void finish(Animation& animation, bool truncated) {
@@ -147,11 +143,39 @@ namespace media {
       }
     };
   } // namespace
+  void Frame::pack() {
+    if (rgba.empty())
+      return;
+    std::vector<std::uint8_t> compressed(ZSTD_compressBound(rgba.size()));
+    const auto size = ZSTD_compress(compressed.data(), compressed.size(), rgba.data(), rgba.size(), compressionLevel);
+    if (ZSTD_isError(size) || size >= rgba.size())
+      return;
+    compressed.resize(size);
+    // Do not retain compressBound capacity or the old raw canvas in the cache.
+    packed = {compressed.begin(), compressed.end()};
+    std::vector<std::uint8_t>{}.swap(rgba);
+  }
+  std::size_t Frame::byteSize() const { return rgba.size() + packed.size(); }
   std::size_t Animation::byteSize() const {
     std::size_t size = 0;
     for (const auto& frame : frames)
-      size += frame.rgba.size();
+      size += frame.byteSize();
     return size;
+  }
+  std::span<const std::uint8_t> Animation::pixels(std::size_t index, std::vector<std::uint8_t>& canvas) const {
+    if (index >= frames.size() || !dimensions(width, height))
+      return {};
+    const auto size = std::size_t(width) * height * 4;
+    const auto& frame = frames[index];
+    if (frame.rgba.size() == size)
+      return frame.rgba;
+    if (frame.packed.empty() || ZSTD_getFrameContentSize(frame.packed.data(), frame.packed.size()) != size)
+      return {};
+    canvas.resize(size);
+    const auto decoded = ZSTD_decompress(canvas.data(), canvas.size(), frame.packed.data(), frame.packed.size());
+    if (ZSTD_isError(decoded) || decoded != size)
+      return {};
+    return canvas;
   }
   std::size_t Animation::frameAt(std::chrono::milliseconds elapsed) const {
     if (frames.empty() || duration.count() <= 0)
@@ -200,6 +224,8 @@ namespace media {
       if (!gif && !webp && !mp4 && !webm && !apng)
         return {};
       auto result = std::make_shared<Animation>();
+      std::size_t resident = 0;
+      bool packed = false;
       if (webp) {
         WebPData data{bytes.data(), bytes.size()};
         std::unique_ptr<WebPDemuxer, decltype(&WebPDemuxDelete)> demux(WebPDemux(&data), WebPDemuxDelete);
@@ -221,14 +247,10 @@ namespace media {
             || !WebPAnimDecoderGetInfo(decoder.get(), &info)
             || !dimensions(info.canvas_width, info.canvas_height))
           return {};
-        const double frames = std::min<unsigned>(maxFrames, info.frame_count);
-        const double ratio = std::min(
-            {1.0, 512.0 / std::max(info.canvas_width, info.canvas_height),
-             std::sqrt(double(maxBytes) / (4.0 * info.canvas_width * info.canvas_height * frames))}
-        );
+        const double ratio =
+            poster ? std::min(1.0, double(posterEdge) / std::max(info.canvas_width, info.canvas_height)) : 1.0;
         result->width = std::max(1, int(info.canvas_width * ratio));
         result->height = std::max(1, int(info.canvas_height * ratio));
-        const auto frameBytes = std::size_t(result->width) * result->height * 4;
         std::unique_ptr<SwsContext, decltype(&sws_freeContext)> scale(
             sws_getContext(
                 info.canvas_width, info.canvas_height, AV_PIX_FMT_RGBA, result->width, result->height, AV_PIX_FMT_RGBA,
@@ -247,9 +269,7 @@ namespace media {
         while (WebPAnimDecoderHasMoreFrames(decoder.get())) {
           if (stop.stop_requested())
             return {};
-          if (result->frames.size() >= maxFrames
-              || frameBytes > maxBytes - result->frames.size() * frameBytes
-              || std::chrono::steady_clock::now() >= deadline) {
+          if (result->frames.size() >= maxFrames || std::chrono::steady_clock::now() >= deadline) {
             truncated = true;
             break;
           }
@@ -261,7 +281,10 @@ namespace media {
           Frame frame{{}, duration};
           source.copyFrom({rgba, std::size_t(info.canvas_width) * info.canvas_height * 4});
           dest.convert(scale.get(), source.frame(), frame.rgba);
-          result->frames.push_back(std::move(frame));
+          if (!retainFrame(*result, std::move(frame), resident, packed)) {
+            truncated = true;
+            break;
+          }
           if (poster)
             break;
           previous = timestamp;
@@ -327,10 +350,9 @@ namespace media {
       if (!decoder.frame || !decoder.packet)
         return {};
       const double ratio =
-          std::min(1.0, (poster ? 1920.0 : 384.0) / std::max(decoder.codec->width, decoder.codec->height));
+          poster ? std::min(1.0, double(posterEdge) / std::max(decoder.codec->width, decoder.codec->height)) : 1.0;
       result->width = std::max(1, int(decoder.codec->width * ratio));
       result->height = std::max(1, int(decoder.codec->height * ratio));
-      auto frameBytes = std::size_t(result->width) * result->height * 4;
       RgbaBuffer dest;
       bool truncated = false, flushing = false;
       std::int64_t previousPts = AV_NOPTS_VALUE;
@@ -358,9 +380,7 @@ namespace media {
         }
         if (received < 0 || !dimensions(decoder.frame->width, decoder.frame->height))
           return {};
-        if (frameBytes > maxBytes - result->frames.size() * frameBytes && shrink(*result))
-          frameBytes = std::size_t(result->width) * result->height * 4;
-        if (result->frames.size() >= maxFrames || frameBytes > maxBytes - result->frames.size() * frameBytes) {
+        if (result->frames.size() >= maxFrames) {
           truncated = true;
           break;
         }
@@ -380,7 +400,10 @@ namespace media {
           return {};
         dest.resize(result->width, result->height);
         dest.convert(decoder.scale, decoder.frame, frame.rgba);
-        result->frames.push_back(std::move(frame));
+        if (!retainFrame(*result, std::move(frame), resident, packed)) {
+          truncated = true;
+          break;
+        }
         if (poster)
           break;
         previousPts = pts;

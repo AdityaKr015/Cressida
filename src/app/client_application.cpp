@@ -1930,6 +1930,9 @@ namespace app {
             cached.texture = m_window.context().textureManager().loadFromRgba(
                 animation->frames[0].rgba.data(), animation->width, animation->height
             );
+            if (i % 2 == 0)
+              for (auto& frame : animation->frames)
+                frame.pack();
             api::Gif gif;
             gif.url = "https://klipy.com/gifs/cressida-demo-" + std::to_string(i);
             gif.src = path;
@@ -2702,11 +2705,13 @@ namespace app {
       const auto& animation = *cached.animation;
       const auto frame = playing || cached.playingDraw == m_animationDraw ? animation.frameAt(elapsed) : 0;
       if (frame != cached.animationFrame) {
-        m_window.context().textureManager().updateSubImage(
-            cached.texture, animation.frames[frame].rgba.data(), 0, 0, animation.width, animation.height,
-            TextureDataFormat::Rgba
-        );
-        cached.animationFrame = frame;
+        const auto pixels = animation.pixels(frame, m_animationPixels);
+        if (!pixels.empty()) {
+          m_window.context().textureManager().updateSubImage(
+              cached.texture, pixels.data(), 0, 0, animation.width, animation.height, TextureDataFormat::Rgba
+          );
+          cached.animationFrame = frame;
+        }
       }
       if (playing) {
         auto offset = elapsed % animation.duration;
@@ -5546,9 +5551,11 @@ namespace app {
         cached.animation = std::move(asset.animation);
         cached.animationFrame = 0;
         cached.animationStart = {};
-        cached.texture = cached.animation && !cached.animation->frames.empty()
+        const auto pixels =
+            cached.animation ? cached.animation->pixels(0, m_animationPixels) : std::span<const std::uint8_t>{};
+        cached.texture = !pixels.empty()
             ? m_window.context().textureManager().loadFromRgba(
-                  cached.animation->frames[0].rgba.data(), cached.animation->width, cached.animation->height
+                  pixels.data(), cached.animation->width, cached.animation->height
               )
             : m_window.context().textureManager().loadFromEncodedBytes(asset.bytes.data(), asset.bytes.size());
       }

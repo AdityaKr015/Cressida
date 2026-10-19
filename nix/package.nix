@@ -17,6 +17,7 @@
   harfbuzz,
   librsvg,
   libwebp,
+  zstd,
   libjxl,
   libxkbcommon,
   nlohmann_json,
@@ -80,6 +81,7 @@ stdenv.mkDerivation {
     harfbuzz
     librsvg
     libwebp
+    zstd
     libjxl
     libxkbcommon
     nlohmann_json

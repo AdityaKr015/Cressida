@@ -86,7 +86,7 @@ render_dep = declare_dependency(
   dependencies: render_deps,
 )
 
-media_deps = [dependency('libavformat'), dependency('libavcodec'), dependency('libavutil'), dependency('libswscale'), dependency('libwebpdemux'), dependency('rlottie'), dependency('nlohmann_json')]
+media_deps = [dependency('libavformat'), dependency('libavcodec'), dependency('libavutil'), dependency('libswscale'), dependency('libwebpdemux'), dependency('libzstd'), dependency('rlottie'), dependency('nlohmann_json')]
 media_library = static_library('cressida-media', 'src/media/animation.cpp', 'src/media/lottie.cpp',
   include_directories: include_directories('src'), dependencies: media_deps)
 media_dep = declare_dependency(link_with: media_library, include_directories: include_directories('src'), dependencies: media_deps)
@@ -270,6 +270,8 @@ gifs_test = executable('gifs_test', 'tests/gifs_test.cpp', dependencies: backend
 test('gifs', gifs_test)
 animation_test = executable('animation_test', 'tests/animation_test.cpp', dependencies: media_dep)
 test('animation', find_program('python3'), args: [files('tests/animation_fixture.py'), find_program('ffmpeg'), animation_test], timeout: 60)
+animation_texture_test = executable('animation_texture_test', 'tests/animation_texture_test.cpp', dependencies: [media_dep, render_dep])
+test('animation_texture', animation_texture_test)
 scroll_test = executable('scroll_motion_test', 'tests/scroll_motion_test.cpp', dependencies: render_dep)
 test('scroll_motion', scroll_test)
 emoji_test = executable('emoji_catalog_test', 'tests/emoji_catalog_test.cpp', link_with: emoji_catalog, dependencies: [backend_dep, markdown_dep])

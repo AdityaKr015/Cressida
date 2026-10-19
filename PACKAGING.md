@@ -54,6 +54,7 @@ them to the installed client's runtime dependencies.
 | HarfBuzz | `harfbuzz` | Text shaping |
 | librsvg | `librsvg-2.0` | SVG images |
 | libwebp | `libwebp`, `libwebpdemux` | Static and animated WebP |
+| Zstandard | `libzstd` | Lossless animation frame caching |
 | libjxl | `libjxl`, `libjxl_threads` | JPEG XL images |
 | libxkbcommon | `xkbcommon` | Keyboard input |
 | nlohmann JSON | `nlohmann_json` | Protocol and state data |
