@@ -2,7 +2,7 @@
 
 #include "core/input/event_codes.h"
 #include "render/scene/node.h"
-#include "shell/tooltip/tooltip_content.h"
+#include "ui/tooltip_content.h"
 
 #include <array>
 #include <chrono>

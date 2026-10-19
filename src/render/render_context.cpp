@@ -7,21 +7,13 @@
 #include "render/backend/render_backend.h"
 #include "render/core/texture_handle.h"
 #include "render/core/texture_manager.h"
-#include "render/core/wallpaper_types.h"
 #include "render/render_target.h"
-#include "render/scene/audio_spectrum_node.h"
-#include "render/scene/countdown_ring_node.h"
-#include "render/scene/effect_node.h"
-#include "render/scene/fancy_audio_visualizer_node.h"
 #include "render/scene/glyph_node.h"
-#include "render/scene/graph_node.h"
 #include "render/scene/image_node.h"
 #include "render/scene/node.h"
 #include "render/scene/rect_node.h"
-#include "render/scene/screen_corner_node.h"
 #include "render/scene/spinner_node.h"
 #include "render/scene/text_node.h"
-#include "render/scene/wallpaper_node.h"
 
 #include <algorithm>
 #include <chrono>
@@ -192,7 +184,7 @@ void RenderContext::notifyFontConfigChanged() {
   ++m_textMetricsGeneration;
 }
 
-void RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const WallpaperMaskDrawParams* wallpaperMask) {
+void RenderContext::renderScene(RenderTarget& target, Node* sceneRoot) {
   if (m_backend == nullptr || m_graphicsResetPending) {
     return;
   }
@@ -225,11 +217,6 @@ void RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
       renderNode(
           renderScale, sceneRoot, Mat3::identity(), 1.0F, sw, sh, bw, bh, 0.0F, 0.0F, sw, sh, false, false, false
       );
-    }
-    if (wallpaperMask != nullptr && wallpaperMask->texture != 0) {
-      m_backend->disableScissor();
-      m_backend->setBlendMode(RenderBlendMode::DestinationOut);
-      m_backend->drawWallpaperMask(*wallpaperMask);
     }
   }
   float ms = elapsedSince(drawStart);
@@ -460,107 +447,6 @@ void RenderContext::renderNode(
     auto style = spinner->style();
     style.color.a *= effectiveOpacity;
     m_backend->drawSpinner(sw, sh, node->width(), node->height(), style, worldTransform);
-    break;
-  }
-  case NodeType::CountdownRing: {
-    const auto* ring = static_cast<const CountdownRingNode*>(node);
-    auto style = ring->style();
-    style.color.a *= effectiveOpacity;
-    m_backend->drawCountdownRing(sw, sh, node->width(), node->height(), style, worldTransform);
-    break;
-  }
-  case NodeType::ScreenCorner: {
-    const auto* corner = static_cast<const ScreenCornerNode*>(node);
-    auto style = corner->style();
-    style.color.a *= effectiveOpacity;
-    m_backend->drawScreenCorner(sw, sh, node->width(), node->height(), style, worldTransform);
-    break;
-  }
-  case NodeType::AudioSpectrum: {
-    const auto* spectrum = static_cast<const AudioSpectrumNode*>(node);
-    auto style = spectrum->style();
-    style.color1.a *= effectiveOpacity;
-    style.color2.a *= effectiveOpacity;
-    const float pixelScaleX = sw > 0.0F ? bw / sw : 1.0F;
-    const float pixelScaleY = sh > 0.0F ? bh / sh : 1.0F;
-    m_backend->drawAudioSpectrum(
-        sw, sh, pixelScaleX, pixelScaleY, node->width(), node->height(), style, spectrum->values(), worldTransform
-    );
-    break;
-  }
-  case NodeType::FancyAudioVisualizer: {
-    const auto* visualizer = static_cast<const FancyAudioVisualizerNode*>(node);
-    if (visualizer->textureId() != 0) {
-      auto style = visualizer->style();
-      style.primaryColor.a *= effectiveOpacity;
-      style.secondaryColor.a *= effectiveOpacity;
-      m_backend->drawFancyAudioVisualizer(
-          visualizer->textureId(), visualizer->textureWidth(), sw, sh, node->width(), node->height(), style,
-          worldTransform
-      );
-    }
-    break;
-  }
-  case NodeType::Effect: {
-    const auto* effect = static_cast<const EffectNode*>(node);
-    auto style = effect->style();
-    style.bgColor.a *= effectiveOpacity;
-    m_backend->drawEffect(sw, sh, node->width(), node->height(), style, worldTransform);
-    break;
-  }
-  case NodeType::Graph: {
-    const auto* graph = static_cast<const GraphNode*>(node);
-    if (graph->textureId() != 0) {
-      auto style = graph->style();
-      style.lineColor1.a *= effectiveOpacity;
-      style.lineColor2.a *= effectiveOpacity;
-      style.lineColor3.a *= effectiveOpacity;
-      style.graphFillOpacity *= effectiveOpacity;
-      m_backend->drawGraph(
-          graph->textureId(), graph->textureWidth(), sw, sh, node->width(), node->height(), style, worldTransform
-      );
-    }
-    break;
-  }
-  case NodeType::Wallpaper: {
-    const auto* wallpaper = static_cast<const WallpaperNode*>(node);
-    const bool hasSource1 = wallpaper->sourceKind1() == WallpaperSourceKind::Color || wallpaper->texture1() != 0;
-    if (hasSource1) {
-      const bool hasSource2 = wallpaper->sourceKind2() == WallpaperSourceKind::Color || wallpaper->texture2() != 0;
-      const WallpaperSourceKind sourceKind2 = hasSource2 ? wallpaper->sourceKind2() : wallpaper->sourceKind1();
-      const TextureId texture2 = hasSource2 ? wallpaper->texture2() : wallpaper->texture1();
-      const Color& sourceColor2 = hasSource2 ? wallpaper->sourceColor2() : wallpaper->sourceColor1();
-      const float imageWidth2 = hasSource2 ? wallpaper->imageWidth2() : wallpaper->imageWidth1();
-      const float imageHeight2 = hasSource2 ? wallpaper->imageHeight2() : wallpaper->imageHeight1();
-      const float progress = hasSource2 ? wallpaper->progress() : 0.0F;
-      m_backend->drawWallpaper(
-          WallpaperDrawParams{
-              .transition = wallpaper->transition(),
-              .from =
-                  {.kind = wallpaper->sourceKind1(),
-                   .texture = wallpaper->texture1(),
-                   .color = wallpaper->sourceColor1(),
-                   .imageWidth = wallpaper->imageWidth1(),
-                   .imageHeight = wallpaper->imageHeight1()},
-              .to =
-                  {.kind = sourceKind2,
-                   .texture = texture2,
-                   .color = sourceColor2,
-                   .imageWidth = imageWidth2,
-                   .imageHeight = imageHeight2},
-              .surfaceWidth = sw,
-              .surfaceHeight = sh,
-              .quadWidth = node->width(),
-              .quadHeight = node->height(),
-              .progress = progress,
-              .fillMode = static_cast<float>(wallpaper->fillMode()),
-              .params = wallpaper->transitionParams(),
-              .fillColor = wallpaper->fillColor(),
-              .transform = worldTransform,
-              .span = wallpaper->spanParams(),
-          }
-      );
-    }
     break;
   }
   case NodeType::RenderProxy: {

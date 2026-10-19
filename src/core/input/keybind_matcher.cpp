@@ -2,6 +2,10 @@
 
 #include "core/input/key_chord.h"
 
+#include <array>
+#include <optional>
+#include <utility>
+
 namespace {
 
   std::array<std::optional<KeybindMatcher::Matcher>, 11> g_matchers{};

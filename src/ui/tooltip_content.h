@@ -2,8 +2,8 @@
 
 #include "render/core/renderer.h"
 
+#include <cstdint>
 #include <string>
-#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -20,21 +20,6 @@ enum class TooltipPlacement : std::uint8_t {
   Left,
   Right,
 };
-
-// Place tooltips on the outward side of a screen-edge surface (bar/dock).
-// `edge` is "top" | "bottom" | "left" | "right"; unknown values open below.
-[[nodiscard]] inline TooltipPlacement tooltipPlacementAwayFromEdge(std::string_view edge) noexcept {
-  if (edge == "bottom") {
-    return TooltipPlacement::Above;
-  }
-  if (edge == "left") {
-    return TooltipPlacement::Right;
-  }
-  if (edge == "right") {
-    return TooltipPlacement::Left;
-  }
-  return TooltipPlacement::Below;
-}
 
 struct TooltipAnchorInsets {
   float top = 0.0F;

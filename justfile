@@ -67,7 +67,10 @@ run m=mode *args: (build m)
 debug *args: (build "debug")
     #!/usr/bin/env bash
     set -euo pipefail
-    exec gdb -q --batch -x scripts/debug.gdb \
+    exec gdb -q --batch \
+        -ex 'set pagination off' -ex 'set debuginfod enabled off' \
+        -ex 'set print frame-arguments none' -ex 'set print entry-values no' \
+        -ex 'handle SIGPIPE nostop noprint pass' \
         -ex run -ex 'thread apply all bt 32' \
         --args ./{{build-prefix}}-debug/cressida "$@"
 

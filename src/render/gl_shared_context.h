@@ -7,11 +7,8 @@
 struct wl_display;
 
 // Owns the EGLDisplay, the chosen EGLConfig, and a root surfaceless EGLContext
-// that is the share parent for every other EGLContext in the shell
-// (RenderContext, WallpaperRenderer instances, ...). By routing all contexts
-// through this share group, GL textures uploaded in any of them are usable
-// from every other context in the group — which lets LockSurface reuse
-// wallpaper textures resident in VRAM without re-decoding.
+// shared by the renderer and its texture upload contexts. Resources uploaded
+// into this share group remain usable across the application's contexts.
 class GlSharedContext {
 public:
   GlSharedContext() = default;

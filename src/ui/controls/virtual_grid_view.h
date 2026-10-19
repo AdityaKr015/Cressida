@@ -1,8 +1,8 @@
 #pragma once
 
 #include "render/scene/node.h"
-#include "shell/tooltip/tooltip_content.h"
 #include "ui/controls/flex.h"
+#include "ui/tooltip_content.h"
 
 #include <cstddef>
 #include <cstdint>

@@ -1,8 +1,5 @@
-// Primitive builders copied from the author's native controls. Other host
-// builders stay unlinked until their services are integrated.
+// Primitive builders used by the native context menu.
 #include "ui/builders.h"
-
-#include "ui/controls/scroll_view.h"
 
 #include <utility>
 

@@ -96,8 +96,7 @@ const std::unordered_map<std::string, std::string_view> kAliases = {
     {"brightness-low", "brightness-down-filled"},
     {"brightness-high", "brightness-up-filled"},
 
-    // Wallpaper / color
-    {"wallpaper-selector", "library-photo"},
+    // Color
 
     // Battery
     {"battery-0", "battery"},

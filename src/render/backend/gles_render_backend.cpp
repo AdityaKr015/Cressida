@@ -168,7 +168,7 @@ void main() {
       );
     }
 
-    // Wallpapers upload with mipmaps, which ES 2.0 rejects on non-power-of-two textures without
+    // Images upload with mipmaps, which ES 2.0 rejects on non-power-of-two textures without
     // this extension: the texture is incomplete and renders black.
     if (TextureManager::globalMipmapsEnabled() && !hasGlExtension("GL_OES_texture_npot")) {
       kLog.warn(
@@ -630,66 +630,6 @@ void GlesRenderBackend::drawSpinner(
   m_spinnerProgram.draw(surfaceWidth, surfaceHeight, width, height, style, transform);
 }
 
-void GlesRenderBackend::drawCountdownRing(
-    float surfaceWidth, float surfaceHeight, float width, float height, const CountdownRingStyle& style,
-    const Mat3& transform
-) {
-  m_countdownRingProgram.ensureInitialized();
-  m_countdownRingProgram.draw(surfaceWidth, surfaceHeight, width, height, style, transform);
-}
-
-void GlesRenderBackend::drawScreenCorner(
-    float surfaceWidth, float surfaceHeight, float width, float height, const ScreenCornerStyle& style,
-    const Mat3& transform
-) {
-  m_screenCornerProgram.ensureInitialized();
-  m_screenCornerProgram.draw(surfaceWidth, surfaceHeight, width, height, style, transform);
-}
-
-void GlesRenderBackend::drawAudioSpectrum(
-    float surfaceWidth, float surfaceHeight, float pixelScaleX, float pixelScaleY, float width, float height,
-    const AudioSpectrumStyle& style, std::span<const float> values, const Mat3& transform
-) {
-  m_audioSpectrumProgram.ensureInitialized();
-  m_audioSpectrumProgram.draw(
-      surfaceWidth, surfaceHeight, pixelScaleX, pixelScaleY, width, height, style, values, transform
-  );
-}
-
-void GlesRenderBackend::drawFancyAudioVisualizer(
-    TextureId audioTexture, int textureWidth, float surfaceWidth, float surfaceHeight, float width, float height,
-    const FancyAudioVisualizerStyle& style, const Mat3& transform
-) {
-  (void)textureWidth;
-  m_fancyAudioVisualizerProgram.ensureInitialized();
-  m_fancyAudioVisualizerProgram.draw(audioTexture, surfaceWidth, surfaceHeight, width, height, style, transform);
-}
-
-void GlesRenderBackend::drawEffect(
-    float surfaceWidth, float surfaceHeight, float width, float height, const EffectStyle& style, const Mat3& transform
-) {
-  m_effectProgram.ensureInitialized();
-  m_effectProgram.draw(surfaceWidth, surfaceHeight, width, height, style, transform);
-}
-
-void GlesRenderBackend::drawGraph(
-    TextureId dataTexture, int textureWidth, float surfaceWidth, float surfaceHeight, float width, float height,
-    const GraphStyle& style, const Mat3& transform
-) {
-  m_graphProgram.ensureInitialized();
-  m_graphProgram.draw(dataTexture, textureWidth, surfaceWidth, surfaceHeight, width, height, style, transform);
-}
-
-void GlesRenderBackend::drawWallpaper(const WallpaperDrawParams& params) {
-  m_wallpaperProgram.ensureInitialized();
-  m_wallpaperProgram.draw(params);
-}
-
-void GlesRenderBackend::drawWallpaperMask(const WallpaperMaskDrawParams& params) {
-  m_wallpaperMaskProgram.ensureInitialized();
-  m_wallpaperMaskProgram.draw(params);
-}
-
 void GlesRenderBackend::drawFullscreenTexture(TextureId texture, bool flipY) {
   if (texture == 0) {
     return;
@@ -763,14 +703,6 @@ void GlesRenderBackend::destroyGpuObjects() {
   m_imageProgram.destroy();
   m_glyphProgram.destroy();
   m_spinnerProgram.destroy();
-  m_countdownRingProgram.destroy();
-  m_screenCornerProgram.destroy();
-  m_audioSpectrumProgram.destroy();
-  m_fancyAudioVisualizerProgram.destroy();
-  m_effectProgram.destroy();
-  m_graphProgram.destroy();
-  m_wallpaperProgram.destroy();
-  m_wallpaperMaskProgram.destroy();
   m_blurProgram.destroy();
   m_fullscreenTextureProgram.destroy();
   m_fullscreenTintProgram.destroy();
@@ -782,14 +714,6 @@ void GlesRenderBackend::abandonGpuObjects() noexcept {
   m_imageProgram.abandon();
   m_glyphProgram.abandon();
   m_spinnerProgram.abandon();
-  m_countdownRingProgram.abandon();
-  m_screenCornerProgram.abandon();
-  m_audioSpectrumProgram.abandon();
-  m_fancyAudioVisualizerProgram.abandon();
-  m_effectProgram.abandon();
-  m_graphProgram.abandon();
-  m_wallpaperProgram.abandon();
-  m_wallpaperMaskProgram.abandon();
   m_blurProgram.abandon();
   m_fullscreenTextureProgram.abandon();
   m_fullscreenTintProgram.abandon();

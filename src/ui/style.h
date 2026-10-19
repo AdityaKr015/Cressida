@@ -4,8 +4,6 @@
 
 namespace Style {
 
-  inline constexpr int barThicknessDefault = 34;
-
   inline constexpr int animFast = 100;
   inline constexpr int animNormal = 200;
   inline constexpr int animSlow = 400;
@@ -28,8 +26,6 @@ namespace Style {
   inline constexpr float cardPadding = 14.0F;
   inline constexpr float panelPadding = 14.0F;
 
-  // Default inner inset for bar widget capsules (logical px, before bar content scale).
-  inline constexpr float barCapsulePadding = 6.0F;
   inline constexpr float baseGlyphSize = 16.0F;
 
   inline constexpr float fontSizeMini = 11.0F;

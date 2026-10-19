@@ -348,7 +348,7 @@ void VirtualGridView::doLayout(Renderer& renderer) {
   // so we can address slots by `row % poolRows` and keep tiles bound to the
   // same logical index while they remain in the visible window — avoids the
   // "every scroll rebinds every slot" thrash that would otherwise release
-  // expensive per-tile state (e.g. wallpaper thumbnails).
+  // expensive per-tile state (for example, image previews).
   if (previousLayoutColumns != columns) {
     // Column count changed (resize): existing slot→logicalIndex mapping is stale.
     std::ranges::fill(m_slotBoundIndex, std::nullopt);

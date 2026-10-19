@@ -71,8 +71,7 @@ public:
   [[nodiscard]] virtual TextMetrics measureFont(float fontSize, FontWeight fontWeight = FontWeight::Normal) = 0;
 
   // Canonical "as tall as a line of text" row height: the rounded vertical
-  // extent of the given font. Bar capsule heights and content widgets that must
-  // align with text (e.g. the audio visualizer) size their cross-axis to this
+  // extent of the given font. Controls that must align with text size their cross-axis to this
   // instead of re-deriving font metrics by hand. Backed by measureFont(), which
   // is memoized — safe to call from every layout pass.
   [[nodiscard]] virtual float fontRowExtent(float fontSize, FontWeight fontWeight = FontWeight::Normal) {
