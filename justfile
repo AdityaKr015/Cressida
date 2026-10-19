@@ -93,12 +93,12 @@ uninstall m=mode: (_ensure-configured m)
 # Format project C++ and Nix files; external decoder code is excluded.
 format:
     find src tests \( -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 clang-format -i
-    nixfmt flake.nix shell.nix nix/*.nix
+    nixfmt flake.nix nix/*.nix
 
 # Check formatting without changing files.
 format-check:
     find src tests \( -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 clang-format --dry-run -Werror
-    nixfmt --check flake.nix shell.nix nix/*.nix
+    nixfmt --check flake.nix nix/*.nix
 
 # Validate workflow syntax, shell helpers and repository automation.
 lint: format-check

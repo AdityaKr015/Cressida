@@ -26,7 +26,7 @@ class ReleaseTests(unittest.TestCase):
             release_version("refs/tags/v0.1.0", self.root)
 
     def test_archive_contains_build_inputs_and_not_local_state(self):
-        for name in ("LICENSE", "flake.nix", "flake.lock", "shell.nix"):
+        for name in ("LICENSE", "flake.nix", "flake.lock"):
             (self.root / name).write_text(name)
         for name in (".git", ".codex", "build-debug", "ci-logs"):
             (self.root / name).mkdir()

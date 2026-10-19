@@ -20,7 +20,7 @@ if stb_dep.found()
 endif
 cpp = meson.get_compiler('cpp')
 if not cpp.has_header('stb/stb_image_resize2.h', dependencies: render_deps) and not cpp.has_header('stb_image_resize2.h', dependencies: render_deps)
-  error('A recent stb with stb_image_resize2.h is required (see shell.nix).')
+  error('A recent stb with stb_image_resize2.h is required (see PACKAGING.md).')
 endif
 
 scanner = find_program('wayland-scanner')
