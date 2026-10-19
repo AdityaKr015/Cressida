@@ -813,6 +813,7 @@ namespace app {
         run.y += atY;
         run.offset += offset;
         run.style.bold |= style.bold;
+        run.style.spoiler |= style.spoiler;
         if (run.style.link.empty())
           run.style.link = style.link;
         result.runs.push_back(std::move(run));
@@ -888,7 +889,151 @@ namespace app {
         y += 42;
       }
     }
+    const auto componentButton = [&](const api::EmbedComponentLink& link, float x, float atY, float available,
+                                     bool spoiler) {
+      const MessageStyle style{.spoiler = spoiler, .size = 13 * fontSize / 14};
+      const float textWidth = std::min(std::max(1.0F, available - 20), measure(link.label, style));
+      const float buttonWidth = std::min(available, textWidth + 20), height = std::max(28.0F, style.size + 12);
+      MessageBox box{x, atY, buttonWidth, height};
+      box.link = link.url;
+      box.disabled = link.disabled;
+      box.spoiler = spoiler;
+      result.boxes.push_back(std::move(box));
+      const auto offset = result.plainText.size();
+      result.plainText += link.label;
+      result.runs.push_back(
+          {link.label, {}, x + 10, atY + (height - style.size - 8) / 2, textWidth, style, offset, style.size + 8}
+      );
+      result.plainText += '\n';
+      return height;
+    };
+    const auto componentImage = [&](const api::EmbedComponentMedia& item, float x, float atY, float available,
+                                    float maxHeight, bool spoiler, const std::string& url) {
+      const auto height = picture(item.media, x, atY, available, maxHeight, url);
+      result.pictures.back().spoiler = spoiler || item.spoiler;
+      if (item.video) {
+        result.pictures.back().videoSource = item.media.url;
+        result.pictures.back().video = true;
+      }
+      return height;
+    };
+    const auto componentLayout = [&](auto&& self, const api::EmbedComponent& component, float x, float atY,
+                                     float available, bool inheritedSpoiler, const std::string& url) -> float {
+      const bool spoiler = inheritedSpoiler || component.spoiler;
+      const auto children = [&](float childX, float childY, float childWidth) {
+        float height = 0;
+        for (const auto& child : component.children) {
+          const float childHeight = self(self, child, childX, childY + height, childWidth, spoiler, url);
+          if (childHeight > 0)
+            height += childHeight + 8;
+        }
+        return height > 0 ? height - 8 : 0;
+      };
+      switch (component.type) {
+      case 17: {
+        const auto index = result.boxes.size();
+        result.boxes.push_back({x, atY, available, 0, false, {}, true, component.accent.value_or(0)});
+        result.boxes[index].embedAccent = component.accent.has_value();
+        const float inset = std::min(16.0F, available / 4);
+        const auto height = children(x + inset, atY + 12, available - 2 * inset) + 24;
+        result.boxes[index].height = height;
+        return height;
+      }
+      case 1: {
+        float dx = 0, dy = 0, rowHeight = 0;
+        for (const auto& child : component.children) {
+          if (!child.link)
+            continue;
+          const float size = std::min(available, measure(child.link->label, {.size = 13 * fontSize / 14}) + 20);
+          if (dx > 0 && dx + size > available) {
+            dy += rowHeight + 6;
+            dx = 0;
+            rowHeight = 0;
+          }
+          rowHeight =
+              std::max(rowHeight, componentButton(*child.link, x + dx, atY + dy, size, spoiler || child.spoiler));
+          dx += size + 6;
+        }
+        return dy + rowHeight;
+      }
+      case 9: {
+        const bool aside = (component.thumbnail || component.link) && available >= 200;
+        const float accessory = component.thumbnail ? 72 : std::min(120.0F, available / 3);
+        float height = children(x, atY, available - (aside ? accessory + 12 : 0));
+        if (component.thumbnail) {
+          const auto mediaHeight = componentImage(
+              *component.thumbnail, aside ? x + available - 72 : x, aside ? atY : atY + height + 8, 72, 72, spoiler, url
+          );
+          height = aside ? std::max(height, mediaHeight) : height + 8 + mediaHeight;
+        } else if (component.link) {
+          const auto linkHeight = componentButton(
+              *component.link, aside ? x + available - accessory : x, aside ? atY : atY + height + 8,
+              aside ? accessory : available, spoiler
+          );
+          height = aside ? std::max(height, linkHeight) : height + 8 + linkHeight;
+        }
+        return height;
+      }
+      case 10:
+        return append(component.content, x, atY, available, {.spoiler = spoiler});
+      case 11:
+        return component.thumbnail
+            ? componentImage(*component.thumbnail, x, atY, std::min(72.0F, available), 72, spoiler, url)
+            : 0;
+      case 12: {
+        const int columns = component.gallery.size() > 1 && available >= 280 ? 2 : 1;
+        const float cell = (available - 4 * (columns - 1)) / columns;
+        float height = 0, rowHeight = 0;
+        for (std::size_t i = 0; i < component.gallery.size(); ++i) {
+          rowHeight = std::max(
+              rowHeight,
+              componentImage(
+                  component.gallery[i], x + (i % columns) * (cell + 4), atY + height, cell, columns == 1 ? 320 : 200,
+                  spoiler, url
+              )
+          );
+          if ((i + 1) % columns == 0 || i + 1 == component.gallery.size()) {
+            height += rowHeight + 4;
+            rowHeight = 0;
+          }
+        }
+        return height > 0 ? height - 4 : 0;
+      }
+      case 14: {
+        const float height = component.spacing == 2 ? 16 : 8;
+        if (component.divider) {
+          MessageBox box{x, atY + height / 2, available, 1};
+          box.divider = true;
+          result.boxes.push_back(std::move(box));
+        }
+        return height;
+      }
+      case 2:
+        return component.link ? componentButton(*component.link, x, atY, available, spoiler) : 0;
+      default:
+        return 0;
+      }
+    };
     for (const auto& embed : message.embeds) {
+      if (!embed.components.empty()) {
+        for (const auto& component : embed.components) {
+          const auto height =
+              componentLayout(componentLayout, component, 0, y + 8, std::min(width, 480.0F), false, embed.url);
+          if (height > 0)
+            y += 8 + height;
+        }
+        continue;
+      }
+      if (embed.title.empty()
+          && embed.description.empty()
+          && embed.provider.empty()
+          && embed.author.empty()
+          && embed.footer.empty()
+          && embed.fields.empty()
+          && embed.image.url.empty()
+          && embed.thumbnail.url.empty()
+          && embed.video.url.empty())
+        continue;
       y += 8;
       if (embed.type == "video" && !embed.video.url.empty() && embed.provider != "YouTube") {
         const auto& poster = !embed.thumbnail.url.empty() ? embed.thumbnail : embed.video;
@@ -911,7 +1056,11 @@ namespace app {
       result.boxes.push_back({0, start, cardWidth, 0, false, {}, true, embed.color});
       y += 12;
       const bool video = embed.type == "video" || embed.provider == "YouTube";
-      const bool thumbnail = !video && !embed.thumbnail.url.empty() && embed.image.url.empty() && cardWidth >= 200;
+      const bool thumbnail = !video
+          && embed.type != "article"
+          && !embed.thumbnail.url.empty()
+          && embed.image.url.empty()
+          && cardWidth >= 200;
       const float contentWidth = std::max(32.0F, cardWidth - 32 - (thumbnail ? 88 : 0));
       if (!embed.provider.empty())
         y += append(embed.provider, 16, y, contentWidth, {.size = 11}) + 4;

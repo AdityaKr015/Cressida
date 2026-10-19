@@ -149,12 +149,35 @@ namespace api {
     std::string name, value;
     bool operator==(const EmbedField&) const = default;
   };
+  struct EmbedComponentMedia {
+    Media media;
+    std::string description;
+    bool spoiler = false, video = false;
+    bool operator==(const EmbedComponentMedia&) const = default;
+  };
+  struct EmbedComponentLink {
+    std::string label, url;
+    bool disabled = false;
+    bool operator==(const EmbedComponentLink&) const = default;
+  };
+  struct EmbedComponent {
+    int type = 0, spacing = 1;
+    std::string content;
+    std::vector<EmbedComponent> children;
+    std::vector<EmbedComponentMedia> gallery;
+    std::optional<EmbedComponentMedia> thumbnail;
+    std::optional<EmbedComponentLink> link;
+    std::optional<std::uint32_t> accent;
+    bool spoiler = false, divider = true;
+    bool operator==(const EmbedComponent&) const = default;
+  };
   struct Embed {
     std::string title, description, url, provider, author, footer, type;
     std::uint32_t color = 0x5865F2;
     Media image, thumbnail;
     std::vector<EmbedField> fields;
     Media video;
+    std::vector<EmbedComponent> components;
     bool operator==(const Embed&) const = default;
   };
   struct Upload {

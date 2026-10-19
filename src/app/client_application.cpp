@@ -174,6 +174,26 @@ namespace app {
           throw std::runtime_error("Forward source links must require known channel visibility");
         std::clog << "Offline forwarded snapshot, media gallery and source permission check passed\n";
       }
+      if (m_demo && m_demoOverlay.starts_with("embed-components")) {
+        const auto& layout = m_messageLayouts.at(m_messages.front().id).layout;
+        const bool missing = m_demoOverlay.ends_with("missing"), spoiler = m_demoOverlay.ends_with("spoiler");
+        if (missing) {
+          if (!layout.boxes.empty() || !layout.pictures.empty())
+            throw std::runtime_error("Unknown previews must not render an empty colored card");
+        } else {
+          if (!layout.plainText.contains("D (programming language)")
+              || layout.pictures.size() != 1
+              || layout.boxes.empty()
+              || layout.boxes.front().height < 300
+              || layout.boxes.front().embedAccent)
+            throw std::runtime_error(
+                "Modern article previews must include their text, full-size image and measured container"
+            );
+          if (spoiler && std::ranges::any_of(m_hits, [](const auto& hit) { return hit.action == Action::ViewImage; }))
+            throw std::runtime_error("Spoiler preview media must remain hidden until explicitly revealed");
+        }
+        std::clog << "Offline component embed article and media check passed\n";
+      }
       if (m_demo && m_demoOverlay.starts_with("reaction-spacing")) {
         for (std::size_t i = 0; i + 1 < m_messages.size(); ++i) {
           const auto& message = m_messages[i];
@@ -2116,6 +2136,35 @@ namespace app {
           m_channelHistoryState.clear();
           m_channelCacheOrder.clear();
           m_roleDirectory.apply({.guilds = {{.guild = m_guildId, .owner = m_account.id}}});
+        } else if (view.starts_with("embed-components")) {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          const std::string proxy = "https://media.discordapp.net/external/demo/component-preview.png";
+          auto embed = nlohmann::json::parse(
+              R"EMBED({"type":"components","url":"https://en.wikipedia.org/wiki/D_(programming_language)","components":[{"type":17,"components":[
+      {"type":10,"content":"## [D (programming language)](https://en.wikipedia.org/wiki/D_(programming_language))"},
+      {"type":10,"content":"D, also known as dlang, is a multi-paradigm system programming language."},
+      {"type":12,"items":[{"media":{"url":"https://upload.wikimedia.org/D.png","proxy_url":"https://media.discordapp.net/external/demo/component-preview.png","width":640,"height":480,"content_type":"image/png"}}]}
+    ]}]})EMBED"
+          );
+          if (view.ends_with("missing"))
+            embed["components"] = nlohmann::json::array({{{"type", 255}}});
+          if (view.ends_with("spoiler"))
+            embed["components"][0]["spoiler"] = true;
+          m_messages = {
+              {"9200", m_channelId, "Maya", "https://en.wikipedia.org/wiki/D_(programming_language) 😂",
+               "2026-10-19T12:00:00Z", "11"}
+          };
+          api::parseMessagePatch(nlohmann::json{{"embeds", nlohmann::json::array({embed})}}).apply(m_messages[0]);
+          std::vector<unsigned char> sample(160 * 120 * 4, 180);
+          for (std::size_t i = 3; i < sample.size(); i += 4)
+            sample[i] = 255;
+          m_images[proxy].texture = m_window.context().textureManager().loadFromRgba(sample.data(), 160, 120);
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          m_messageLayouts.clear();
         } else if (view.starts_with("reaction-spacing")) {
           m_demoOverlay = view;
           m_showMembers = false;
@@ -3660,6 +3709,32 @@ namespace app {
                 }
                 // Card backgrounds precede nested code/quote decoration.
                 for (const auto& box : layout.boxes) {
+                  if (box.divider) {
+                    rectangle(*content, 50 + box.x, bodyY + box.y, box.width, box.height, raised);
+                    continue;
+                  }
+                  if (!box.link.empty()) {
+                    Hit hit{left + 74 + box.x,
+                            top + bodyY + box.y,
+                            box.width,
+                            box.height,
+                            box.disabled ? Action::None : Action::OpenUrl,
+                            box.link};
+                    const bool hidden = box.spoiler && !spoilersVisible(message.id);
+                    rectangle(
+                        *content, 50 + box.x, bodyY + box.y, box.width, box.height,
+                        hidden                                                      ? raised
+                            : !box.disabled && hit.contains(m_pointerX, m_pointerY) ? raised
+                                                                                    : panel,
+                        5
+                    );
+                    if (hidden) {
+                      hit.action = Action::RevealSpoiler;
+                      hit.id = message.id;
+                    }
+                    m_hits.push_back(std::move(hit));
+                    continue;
+                  }
                   if (box.inlineCode) {
                     rectangle(*content, 50 + box.x, bodyY + box.y, box.width, box.height, withAlpha(muted, .2F), 3);
                     rectangle(*content, 51 + box.x, bodyY + box.y + 1, box.width - 2, box.height - 2, panel, 2);
@@ -3672,7 +3747,7 @@ namespace app {
                                       : panel,
                       box.quote ? 0 : 6
                   );
-                  if (box.embed)
+                  if (box.embed && box.embedAccent)
                     rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
                   if (!box.code.empty()) {
                     if (messageHovered) {
@@ -3731,6 +3806,15 @@ namespace app {
                   label(*content, 50 + marker.x, bodyY + marker.y, marker.width + 2, "(edited)", marker.size, muted);
                 }
                 for (const auto& pic : layout.pictures) {
+                  if (pic.spoiler && !spoilersVisible(message.id)) {
+                    rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, raised, 6);
+                    label(*content, 50 + pic.x + 12, bodyY + pic.y + 12, pic.width - 24, "Spoiler", 12, muted);
+                    m_hits.push_back(
+                        {left + 74 + pic.x, top + bodyY + pic.y, pic.width, pic.height, Action::RevealSpoiler,
+                         message.id}
+                    );
+                    continue;
+                  }
                   if (pic.sticker) {
                     const float sx = left + 74 + pic.x, sy = top + bodyY + pic.y;
                     const bool loaded = picture(

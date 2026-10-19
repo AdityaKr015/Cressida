@@ -32,6 +32,8 @@ namespace app {
     bool embed = false;
     std::uint32_t color = 0;
     bool inlineCode = false;
+    bool embedAccent = true, divider = false, disabled = false, spoiler = false;
+    std::string link;
   };
   struct MessagePicture {
     api::Media media;
@@ -41,6 +43,7 @@ namespace app {
     bool animated = false;
     std::string videoSource;
     std::optional<api::Sticker> sticker;
+    bool spoiler = false;
   };
   struct MessageLayout {
     struct EditedMarker {

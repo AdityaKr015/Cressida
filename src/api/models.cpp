@@ -1,6 +1,7 @@
 #include "api/models.h"
 
 #include "api/channel_features.h"
+#include "api/embed_components.h"
 #include "api/role_styles.h"
 #include "api/threads.h"
 
@@ -410,7 +411,9 @@ namespace api {
       Media media;
       if (!value.is_object())
         return media;
-      media.url = mediaUrl(text(value, "proxy_url", text(value, "url")));
+      media.url = mediaUrl(text(value, "proxy_url"));
+      if (media.url.empty())
+        media.url = mediaUrl(text(value, "url"));
       if (value.contains("width") && value["width"].is_number_integer())
         media.width = std::clamp(value["width"].get<int>(), 0, 100000);
       if (value.contains("height") && value["height"].is_number_integer())
@@ -602,6 +605,8 @@ namespace api {
         if (patch.embeds->size() >= 10)
           break;
         Embed embed;
+        if (item.contains("components"))
+          embed.components = parseEmbedComponents(item["components"]);
         embed.type = text(item, "type");
         embed.title = text(item, "title");
         embed.description = text(item, "description");
