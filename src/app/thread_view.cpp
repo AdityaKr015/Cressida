@@ -162,6 +162,7 @@ namespace app {
       m_channelMembers.erase(removedId);
       std::erase(m_channelCacheOrder, removedId);
     }
+    refreshMemberSubscription();
     m_window.invalidate();
   }
   void ClientApplication::showThreads(const std::string& parent) {

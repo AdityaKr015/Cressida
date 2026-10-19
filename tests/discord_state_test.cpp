@@ -1,5 +1,7 @@
 #include "api/member_list_identity.h"
 #include "api/models.h"
+#include "api/role_styles.h"
+#include "api/thread_member_list.h"
 
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -14,6 +16,55 @@ namespace {
 int main() {
   using nlohmann::json;
   try {
+    const json participant = {
+        {"user_id", "7"},
+        {"member", {{"user", {{"id", "7"}, {"username", "Maya"}}}, {"nick", "Thread nickname"}, {"roles", {"50"}}}},
+        {"presence", {{"status", "idle"}}}
+    };
+    json threadSnapshot = {{"guild_id", "1"}, {"thread_id", "20"}, {"members", json::array({participant})}};
+    auto participants = api::threadMemberList(threadSnapshot, "1", "20");
+    require(
+        participants
+            && participants->size() == 1
+            && participants->front().user.id == "7"
+            && participants->front().user.name == "Thread nickname"
+            && participants->front().status == "idle",
+        "Thread snapshots retain participant identity, nickname and presence"
+    );
+    api::RoleDirectory threadRoles;
+    threadRoles.apply(api::parseRoleUpdates("THREAD_MEMBER_LIST_UPDATE", threadSnapshot));
+    require(
+        threadRoles.memberships("1", "7") == std::vector<std::string>{"50"},
+        "Thread participants retain their guild role memberships"
+    );
+    require(
+        !api::threadMemberList(threadSnapshot, "2", "20") && !api::threadMemberList(threadSnapshot, "1", "21"),
+        "Other guild/thread snapshots cannot populate the selected participant list"
+    );
+    threadSnapshot["members"] = json::array();
+    require(
+        api::threadMemberList(threadSnapshot, "1", "20")->empty(),
+        "Empty participant snapshots clear a previous thread list"
+    );
+    auto invalidParticipant = participant;
+    invalidParticipant["member"]["user"]["id"] = "8";
+    threadSnapshot["members"] = json::array({invalidParticipant});
+    require(
+        !api::threadMemberList(threadSnapshot, "1", "20"), "Mismatched participant and account IDs reject the snapshot"
+    );
+    threadSnapshot["members"] = json::array({participant, participant});
+    require(!api::threadMemberList(threadSnapshot, "1", "20"), "Duplicate participants reject the snapshot");
+    threadSnapshot["members"] = json::array();
+    for (int index = 1; index <= 125; ++index) {
+      auto row = participant;
+      row["user_id"] = std::to_string(index);
+      row["member"]["user"]["id"] = std::to_string(index);
+      threadSnapshot["members"].push_back(std::move(row));
+    }
+    require(
+        api::threadMemberList(threadSnapshot, "1", "20")->size() == 125,
+        "Thread participants are not truncated to one guild range or the approximate thread count"
+    );
     // Independent fixture encoded with Python struct.pack('<Q') and base64.
     const auto layout = api::parseGuildLayout(
         json{

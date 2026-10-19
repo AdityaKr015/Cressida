@@ -14,6 +14,19 @@ namespace {
 int main() {
   using Json = nlohmann::json;
   try {
+    require(
+        app::desktopMessageTitle("Maya", "#🏡-home", "Community") == "Maya (#🏡-home, Community)",
+        "Guild notification titles include sender, channel and server"
+    );
+    require(
+        app::desktopMessageTitle("Maya", "Weekend plans") == "Maya (Weekend plans)",
+        "Group DM notifications identify the conversation"
+    );
+    require(app::desktopMessageTitle("Maya") == "Maya", "Individual DMs keep the sender as their title");
+    require(
+        app::desktopMessageTitle("Maya", {}, "Community") == "Maya (Community)",
+        "Unavailable channel metadata does not create an empty channel label"
+    );
     auto channels = api::parsePrivateChannels(Json::parse(R"([
       {"id":"100","type":1,"is_message_request":true,"is_spam":false,"is_message_request_timestamp":"2026-10-18T10:30:00Z","recipients":[{"id":"42","username":"alice"}]},
       {"id":"101","type":1,"is_spam":true},

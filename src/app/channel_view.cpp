@@ -456,7 +456,11 @@ namespace app {
             if (old.id == fresh.id)
               old = fresh;
         }
-        if (!m_demo && !m_dmMode && event.resource == m_channelId)
+        const auto selected = selectedChannel();
+        if (!m_demo
+            && !m_dmMode
+            && (event.resource == m_channelId
+                || (selected && selected->isThread() && selected->parentId == event.resource)))
           refreshMemberSubscription();
         if (m_contextOpen
             && !m_channelMenuCommands.empty()

@@ -167,6 +167,13 @@ namespace api {
         for (const auto& item : data["members"])
           member(update, item);
       result.guilds.push_back(std::move(update));
+    } else if (type == "THREAD_MEMBER_LIST_UPDATE") {
+      GuildRoleUpdate update{.guild = text(data, "guild_id")};
+      if (data.contains("members") && data["members"].is_array())
+        for (const auto& entry : data["members"])
+          if (entry.is_object() && entry.contains("member") && entry["member"].is_object())
+            member(update, entry["member"]);
+      result.guilds.push_back(std::move(update));
     } else if (type == "GUILD_MEMBER_LIST_UPDATE") {
       GuildRoleUpdate update{.guild = text(data, "guild_id")};
       if (data.contains("ops") && data["ops"].is_array())

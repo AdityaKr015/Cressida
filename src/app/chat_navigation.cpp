@@ -234,10 +234,14 @@ namespace app {
       if (part.width <= 0)
         continue;
       if (part.kind == MessageRun::ChannelChip::Part::Text) {
-        label(
-            root, x + part.x, y, part.width, messageMarkup(part.value, textStyle), run.style.size, color,
-            FontWeight::Normal, 1, true
+        const auto markup = messageMarkup(part.value, textStyle);
+        const auto metrics = m_window.target().renderer().measureText(
+            markup, run.style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {}, TextEllipsize::End, true
         );
+        const bool ink = metrics.inkBottom > metrics.inkTop;
+        const float center = ink ? (metrics.inkTop + metrics.inkBottom) / 2 : (metrics.top + metrics.bottom) / 2;
+        const float textY = y + run.height / 2 + metrics.top - center;
+        label(root, x + part.x, textY, part.width, markup, run.style.size, color, FontWeight::Normal, 1, true);
         continue;
       }
       const float atY = y + (run.height - part.width) / 2;
@@ -292,6 +296,8 @@ namespace app {
           "A hidden channel name cannot leak from a cached channel snapshot"
       );
       require(channelMention("1", "201").name == "general > discussion", "Thread mentions include their parent");
+      const auto threadIdentity = channelMemberIdentity("201");
+      require(!threadIdentity, "Unselected directory threads cannot borrow an ordinary channel member list");
       require(
           channelMention("1", "101").icon == "book" && channelMention("1", "105").icon == "hash",
           "Rules icons follow the guild setting, independently of channel names"
@@ -350,6 +356,14 @@ namespace app {
           "Thread URLs use native thread navigation"
       );
     } else if (step == 5) {
+      const auto threadIdentity = channelMemberIdentity("201");
+      require(
+          threadIdentity
+              && threadIdentity->thread
+              && threadIdentity->wireId == "201"
+              && threadIdentity->signature != channelMemberIdentity("101")->signature,
+          "An opened thread uses its own participant subscription and cache identity"
+      );
       const auto target = std::ranges::find(m_channels, "102", &api::Channel::id);
       require(target != m_channels.end(), "The fixture retains its private channel");
       target->overwrites->erase(target->overwrites->begin() + 1);

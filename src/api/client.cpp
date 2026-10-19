@@ -5,6 +5,7 @@
 #include "api/rest_transfer.h"
 #include "api/rest_transport_cache.h"
 #include "api/server_organization.h"
+#include "api/thread_member_list.h"
 #include "api/uploads.h"
 
 #include <algorithm>
@@ -811,6 +812,9 @@ namespace api {
         || (!guild.empty() && !validSnowflake(guild))
         || (channel.empty() ? !guild.empty() : !validSnowflake(channel)))
       return;
+    const bool thread = identity && identity->thread;
+    if (thread)
+      first = 0;
     bool refreshIdentity = false;
     {
       std::lock_guard lock(m_mutex);
@@ -824,7 +828,7 @@ namespace api {
       m_selectedMemberFirst = first;
     }
     wakeRequests();
-    m_gateway->subscribe(guild, channel, first, refreshIdentity);
+    m_gateway->subscribe(guild, channel, first, refreshIdentity, thread);
   }
 
   void Client::requestMembers(const std::string& guild, const std::vector<std::string>& users) {
@@ -883,8 +887,9 @@ namespace api {
       }
       std::string memberGuild, memberChannel;
       std::optional<MemberListIdentity> memberIdentity;
+      std::optional<std::vector<MemberRow>> threadMembers;
       int memberFirst = 0;
-      if (type == "GUILD_MEMBER_LIST_UPDATE") {
+      if (type == "GUILD_MEMBER_LIST_UPDATE" || type == "THREAD_MEMBER_LIST_UPDATE") {
         {
           std::lock_guard lock(m_mutex);
           memberGuild = m_selectedGuild;
@@ -894,13 +899,30 @@ namespace api {
         }
         if (memberGuild.empty() || memberChannel.empty())
           return;
-        if (!m_memberStream.select(memberGuild, memberChannel, memberIdentity))
-          m_memberList = {};
-        if (!m_memberStream.accepts(data, memberFirst))
+        const bool thread = memberIdentity && memberIdentity->thread;
+        if (thread != (type == "THREAD_MEMBER_LIST_UPDATE"))
           return;
+        if (thread) {
+          threadMembers = threadMemberList(data, memberGuild, memberChannel);
+          if (!threadMembers)
+            return;
+        } else {
+          if (!m_memberStream.select(memberGuild, memberChannel, memberIdentity))
+            m_memberList = {};
+          if (!m_memberStream.accepts(data, memberFirst))
+            return;
+        }
       }
       if (type == "READY" && data.contains("user"))
         m_self = data["user"].value("id", "");
+      if (type == "THREAD_MEMBERS_UPDATE") {
+        std::lock_guard lock(m_mutex);
+        if (m_selectedMemberIdentity
+            && m_selectedMemberIdentity->thread
+            && data.value("guild_id", "") == m_selectedGuild
+            && data.value("id", "") == m_selectedChannel)
+          m_gateway->subscribe(m_selectedGuild, m_selectedChannel, 0, true, true);
+      }
       if (type == "READY") {
         const auto at = data.find("session_id");
         std::lock_guard lock(m_mutex);
@@ -1238,6 +1260,12 @@ namespace api {
         }
         event.error = type == "CONNECTION_FAILED" ? "Live connection was rejected. Sign out and reconnect."
                                                   : "Reconnecting… " + data.value("reason", std::string{});
+        publish(std::move(event));
+      } else if (type == "THREAD_MEMBER_LIST_UPDATE") {
+        Event event{.operation = Operation::Members, .session = session, .resource = memberChannel};
+        event.members = std::move(*threadMembers);
+        event.memberIdentity = memberIdentity;
+        event.memberCount = static_cast<int>(event.members.size());
         publish(std::move(event));
       } else if (type == "GUILD_MEMBER_LIST_UPDATE") {
         m_memberList.apply(data, m_roleNames, m_users);

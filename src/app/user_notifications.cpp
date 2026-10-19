@@ -35,6 +35,14 @@ namespace app {
           guild = id;
           break;
         }
+    if (guild.empty() && !m_dmMode && serverChannel(m_guildId, channel))
+      guild = m_guildId;
+    if (guild.empty())
+      for (const auto& server : m_guilds)
+        if (m_threads.find(server.id, channel)) {
+          guild = server.id;
+          break;
+        }
     if (!guild.empty() && m_userDirectory.muted(guild))
       return;
     const auto dm = std::ranges::find(m_privateChannels, channel, &api::Channel::id);
@@ -68,12 +76,19 @@ namespace app {
       notice.avatar = message.avatar;
       if (const auto cached = m_images.find(notice.avatar); cached != m_images.end())
         notice.avatarBytes = cached->second.bytes;
-      notice.title = userName(message.authorId, message.author);
+      std::string conversation, serverName;
       if (!guild.empty()) {
         const auto server = std::ranges::find(m_guilds, guild, &api::Guild::id);
         if (server != m_guilds.end())
-          notice.title += " · " + server->name;
-      }
+          serverName = server->name;
+        const auto* location = serverChannel(guild, channel);
+        if (!location)
+          location = m_threads.find(guild, channel);
+        if (location && !location->name.empty())
+          conversation = "#" + location->name;
+      } else if (dm != m_privateChannels.end() && dm->kind() == api::ChannelType::GroupDirectMessage)
+        conversation = channelName(*dm);
+      notice.title = desktopMessageTitle(userName(message.authorId, message.author), conversation, serverName);
       if (!m_preferences.notificationPrivacy) {
         const auto guildRoles = m_roleDirectory.allRoles(guild);
         notice.body = desktopMessagePreview(message, [&](char kind, const std::string& id) -> std::string {

@@ -157,6 +157,21 @@ def serve(listener, errors):
         for phase in range(3):
             presence_restore(listener, phase)
         with upgrade(listener) as connection:
+            wait_for(connection, 2)
+            packet(connection, 0, {"session_id": "thread-session"}, "READY", 1)
+            wait_for(connection, 3)
+            initial = wait_for(connection, 37)["d"]["subscriptions"]["1"]
+            assert initial["channels"] == {} and initial["thread_member_lists"] == []
+            thread = wait_for(connection, 37)["d"]["subscriptions"]["1"]
+            assert thread["channels"] == {} and thread["thread_member_lists"] == ["40"], "threads need a participant subscription, not guild row ranges"
+            packet(connection, 0, {"guild_id": "1", "thread_id": "40", "members": [
+                {"user_id": "7", "member": {"user": {"id": "7", "username": "Maya"}, "nick": "Thread nickname", "roles": []}, "presence": {"status": "online"}},
+                {"user_id": "8", "member": {"user": {"id": "8", "username": "Noah"}, "roles": []}},
+            ]}, "THREAD_MEMBER_LIST_UPDATE", 2)
+            regular = wait_for(connection, 37)["d"]["subscriptions"]["1"]
+            assert regular["thread_member_lists"] == [] and regular["channels"] == {"2": [[0, 99], [100, 199]]}, "leaving a thread clears its participant subscription"
+            packet(connection, 0, {}, "THREAD_TEST_COMPLETE", 3)
+        with upgrade(listener) as connection:
             identify = wait_for(connection, 2)
             assert identify["d"]["token"] == "synthetic-token"
             assert identify["d"]["compress"] is False

@@ -1,6 +1,7 @@
 #include "api/client.h"
 #include "api/gateway.h"
 #include "api/role_styles.h"
+#include "api/thread_member_list.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -9,6 +10,46 @@
 #include <set>
 
 namespace {
+  bool checkThreadSubscription(const std::string& endpoint) {
+    std::atomic<std::uint64_t> generation{1};
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool complete = false, valid = true, received = false;
+    api::Gateway* active = nullptr;
+    api::Gateway gateway(
+        generation,
+        [&](auto, const auto& type, const auto& data) {
+          std::lock_guard lock(mutex);
+          if (type == "THREAD_MEMBER_LIST_UPDATE") {
+            const auto rows = api::threadMemberList(data, "1", "40");
+            received = rows
+                && rows->size() == 2
+                && rows->front().user.name == "Thread nickname"
+                && rows->front().status == "online";
+            valid &= received;
+            active->subscribe("1", "2", 0);
+          }
+          if (type == "THREAD_TEST_COMPLETE") {
+            complete = true;
+            changed.notify_all();
+          }
+        },
+        endpoint
+    );
+    active = &gateway;
+    gateway.authenticate(1, "synthetic-token", {"online"});
+    gateway.subscribe("1", "40", 0, false, true);
+    std::unique_lock lock(mutex);
+    if (!changed.wait_for(lock, std::chrono::seconds(3), [&] { return complete; })) {
+      std::cerr << "Thread member subscription did not complete\n";
+      valid = false;
+    }
+    const bool result = valid && received;
+    lock.unlock();
+    ++generation;
+    gateway.reset();
+    return result;
+  }
   bool checkPresenceRestore(const std::string& endpoint, int phase) {
     std::atomic<std::uint64_t> generation{1};
     std::mutex mutex;
@@ -107,6 +148,8 @@ int main(int argc, char** argv) {
   for (int phase = 0; phase < 3; ++phase)
     if (!checkPresenceRestore(argv[1], phase))
       return 1;
+  if (!checkThreadSubscription(argv[1]))
+    return 1;
   std::atomic<std::uint64_t> generation{1};
   std::mutex mutex;
   std::condition_variable changed;

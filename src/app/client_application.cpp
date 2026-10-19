@@ -4861,10 +4861,17 @@ namespace app {
     return true;
   }
   std::optional<api::MemberListIdentity> ClientApplication::channelMemberIdentity(const std::string& id) const {
-    if (m_dmMode || !(channelPermissionsFor(id).value_or(0) & api::viewChannel))
+    if (m_dmMode)
       return {};
     const auto channel = std::ranges::find(m_channels, id, &api::Channel::id);
     if (channel == m_channels.end())
+      return {};
+    if (channel->isThread()) {
+      if (channelMention(m_guildId, id).link.empty())
+        return {};
+      return api::MemberListIdentity{m_guildId + "/thread/" + id, id, true};
+    }
+    if (!(channelPermissionsFor(id).value_or(0) & api::viewChannel))
       return {};
     for (const auto& role : m_roleDirectory.allRoles(m_guildId))
       if (role.id == m_guildId && role.permissions)
@@ -5097,14 +5104,16 @@ namespace app {
       return;
     }
     const auto loadDetails = [&] {
-      if (!m_demo && !m_dmMode && !m_channelDetailsLoaded.contains(id)) {
-        const auto channel = selectedChannel();
+      if (!m_demo && !m_dmMode) {
+        auto channel = selectedChannel();
+        if (channel && channel->isThread())
+          channel = serverChannel(m_guildId, channel->parentId);
         if (channel
-            && !channel->isThread()
+            && !m_channelDetailsLoaded.contains(channel->id)
             && (!channel->topic || !channel->overwrites)
-            && !m_channelDetailRequests.contains(id)
-            && m_client.channelDetails(id))
-          m_channelDetailRequests.insert(id);
+            && !m_channelDetailRequests.contains(channel->id)
+            && m_client.channelDetails(channel->id))
+          m_channelDetailRequests.insert(channel->id);
       }
     };
     if (forum) {

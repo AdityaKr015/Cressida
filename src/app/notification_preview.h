@@ -6,8 +6,21 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 
 namespace app {
+  inline std::string
+  desktopMessageTitle(std::string sender, std::string_view conversation = {}, std::string_view server = {}) {
+    if (conversation.empty() && server.empty())
+      return sender;
+    sender += " (";
+    sender += conversation;
+    if (!conversation.empty() && !server.empty())
+      sender += ", ";
+    sender += server;
+    sender += ')';
+    return sender;
+  }
   using NotificationName = std::function<std::string(char, const std::string&)>;
   // Notifications carry plain text. Resolve protocol tokens before the desktop
   // worker performs capability-aware escaping; inserted names are never reparsed.

@@ -15,6 +15,7 @@ namespace api {
   struct MemberListIdentity {
     // Use the complete signature to share local data; the wire hash can collide.
     std::string signature, wireId;
+    bool thread = false;
     bool operator==(const MemberListIdentity&) const = default;
   };
 

@@ -174,18 +174,20 @@ namespace api {
     m_presenceRestored = false;
     m_guild.clear();
     m_channel.clear();
+    m_thread = false;
     ++m_subscriptionVersion;
     m_ready.notify_all();
     (void)m_wake.signal();
   }
-  void Gateway::subscribe(std::string guild, std::string channel, int first, bool force) {
+  void Gateway::subscribe(std::string guild, std::string channel, int first, bool force, bool thread) {
     std::lock_guard lock(m_mutex);
-    first = std::clamp(first / 100 * 100, 0, 10000000);
-    if (!force && guild == m_guild && channel == m_channel && first == m_first)
+    first = thread ? 0 : std::clamp(first / 100 * 100, 0, 10000000);
+    if (!force && guild == m_guild && channel == m_channel && first == m_first && thread == m_thread)
       return;
     m_guild = std::move(guild);
     m_channel = std::move(channel);
     m_first = first;
+    m_thread = thread;
     ++m_subscriptionVersion;
     (void)m_wake.signal();
   }
@@ -393,6 +395,7 @@ namespace api {
               presenceVersion = desiredVersion;
             }
             std::string guild, channel;
+            bool thread;
             int first;
             std::uint64_t version;
             {
@@ -400,6 +403,7 @@ namespace api {
               guild = m_guild;
               channel = m_channel;
               first = m_first;
+              thread = m_thread;
               version = m_subscriptionVersion;
             }
             if (version != subscription && channel == subscribedChannel && guild == subscribedGuild)
@@ -409,29 +413,28 @@ namespace api {
               Json subscriptions = Json::object();
               if (!subscribedGuild.empty() && subscribedGuild != guild)
                 subscriptions[subscribedGuild] = {
-                    {"typing", false}, {"activities", false}, {"threads", false}, {"channels", Json::object()}
+                    {"typing", false},
+                    {"activities", false},
+                    {"threads", false},
+                    {"channels", Json::object()},
+                    {"thread_member_lists", Json::array()}
                 };
               Json ranges = Json::array({Json::array({first, first + 99}), Json::array({first + 100, first + 199})});
-              Json channels = {{channel, ranges}};
+              Json channels = thread ? Json::object() : Json{{channel, ranges}};
               if (!guild.empty() && guild != subscribedGuild) {
                 // A new guild subscription must precede its channel ranges in
                 // a separate WebSocket frame; otherwise the ranges may be ignored.
                 const Json initial = {
-                    {"typing", true},
-                    {"activities", true},
-                    {"threads", true},
-                    {"member_updates", true},
-                    {"channels", Json::object()}
+                    {"typing", true},         {"activities", true},         {"threads", true},
+                    {"member_updates", true}, {"channels", Json::object()}, {"thread_member_lists", Json::array()}
                 };
                 send(curl.get(), Json{{"op", 37}, {"d", {{"subscriptions", {{guild, initial}}}}}}, connection);
               }
               if (!guild.empty() && !channel.empty())
                 subscriptions[guild] = {
-                    {"typing", true},
-                    {"activities", true},
-                    {"threads", true},
-                    {"member_updates", true},
-                    {"channels", channels}
+                    {"typing", true},       {"activities", true},
+                    {"threads", true},      {"member_updates", true},
+                    {"channels", channels}, {"thread_member_lists", thread ? Json::array({channel}) : Json::array()}
                 };
               if (!subscriptions.empty())
                 send(curl.get(), Json{{"op", 37}, {"d", {{"subscriptions", subscriptions}}}}, connection);
