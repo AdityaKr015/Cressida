@@ -92,38 +92,49 @@ namespace app {
     }
   }
   void ClientApplication::drawGifPicker(Node& root, float w, float h) {
-    const float width = std::min(440.0F, w - 32), height = std::min(520.0F, std::max(240.0F, m_composerTop - 64));
-    const float x =
-        std::clamp(w - (m_showMembers && w >= 1000 ? 240 : 0) - width - 24, 16.0F, std::max(16.0F, w - width - 16));
-    const float y = std::max(44.0F, m_composerTop - height - 8);
+    const auto frame =
+        layout::pickerFrame(w, m_composerTop, m_showMembers, layout::Picker::gifWidth, layout::Picker::minimumHeight);
+    const auto [x, y, width, height] = frame;
     m_gifBounds = {x, y, width, height, Action::None, {}};
-    m_hits.push_back({0, 36, w, h - 36, Action::CloseGif, {}});
-    rectangle(root, x, y, width, height, sidebar, 12);
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::CloseGif, {}});
+    rectangle(root, x, y, width, height, sidebar, Style::radiusXl);
     m_hits.push_back(m_gifBounds);
-    button(root, {x + 12, y + 10, 66, 32, Action::GifTab, "search"}, "GIFs", false, !m_gifFavoritesTab);
-    button(root, {x + 86, y + 10, 100, 32, Action::GifTab, "favorites"}, "Favorites", false, m_gifFavoritesTab);
-    button(root, {x + 194, y + 10, 66, 32, Action::ToggleEmoji, {}}, "Emoji");
-    button(root, {x + 268, y + 10, 88, 32, Action::ToggleStickers, {}}, "Stickers");
-    iconButton(root, {x + width - 44, y + 10, 32, 32, Action::CloseGif, {}}, "x", "Close GIF picker");
+    button(
+        root, {x + Style::spaceMd, y + Style::spaceDense, 66, 32, Action::GifTab, "search"}, "GIFs", false,
+        !m_gifFavoritesTab
+    );
+    button(
+        root, {x + 86, y + Style::spaceDense, 100, 32, Action::GifTab, "favorites"}, "Favorites", false,
+        m_gifFavoritesTab
+    );
+    button(root, {x + 194, y + Style::spaceDense, 66, 32, Action::ToggleEmoji, {}}, "Emoji");
+    button(root, {x + 268, y + Style::spaceDense, 88, 32, Action::ToggleStickers, {}}, "Stickers");
+    iconButton(root, {x + width - 44, y + Style::spaceDense, 32, 32, Action::CloseGif, {}}, "x", "Close GIF picker");
     inputControl(
-        root, x + 12, y + 52, width - 24, 38, "gif-search", m_gifQuery,
+        root, x + Style::spaceMd, y + layout::Picker::searchTop, width - 24, 38, "gif-search", m_gifQuery,
         m_gifFavoritesTab ? "Search favorites" : "Search GIFs"
     );
     const auto& error = m_gifFavoritesTab ? m_gifFavoriteError : m_gifError;
     const bool loading = m_gifFavoritesTab ? m_loadingGifFavorites : m_loadingGifs;
-    const float top = y + 104, available = height - 116;
+    const float top = y + layout::Picker::contentTop, available = height - 116;
     if (!error.empty()) {
-      label(root, x + 18, top + 14, width - 36, error, 13, muted, FontWeight::Normal, 4);
-      button(root, {x + 18, top + 94, 90, 32, Action::GifRetry, {}}, "Try again");
+      label(
+          root, x + (Style::spaceLg + Style::spaceXxs), top + Style::cardPadding, width - 36, error,
+          Style::fontSizeCaption, muted, FontWeight::Normal, 4
+      );
+      button(root, {x + (Style::spaceLg + Style::spaceXxs), top + 94, 90, 32, Action::GifRetry, {}}, "Try again");
       return;
     }
     if (loading || m_gifSearchTimer.active()) {
-      label(root, x + 18, top + 20, width - 36, m_gifFavoritesTab ? "Loading favorites…" : "Finding GIFs…", 14, muted);
+      label(
+          root, x + (Style::spaceLg + Style::spaceXxs), top + Style::spaceRelaxed, width - 36,
+          m_gifFavoritesTab ? "Loading favorites…" : "Finding GIFs…", Style::fontSizeBody, muted
+      );
       return;
     }
     auto body = std::make_unique<Node>();
-    body->setPosition(x + 12, top);
-    body->setSize(width - 24, available);
+    body->setPosition(x + Style::spaceMd, top);
+    body->setSize(width - Style::spaceXl, available);
     body->setClipChildren(true);
     const float paintedScroll = m_gifScroll;
     const float tileWidth = (width - 32) / 2;
@@ -140,27 +151,33 @@ namespace app {
       if (m_gifFavoritesTab && !query.empty() && !lower(gif.title + " " + gif.url).contains(query))
         continue;
       const auto column = columnY[0] <= columnY[1] ? 0 : 1;
-      const float tileHeight = std::clamp(gif.width > 0 ? tileWidth * gif.height / gif.width : 140, 80.0F, 220.0F);
-      const float tx = column * (tileWidth + 8), ty = columnY[column] - m_gifScroll;
-      columnY[column] += tileHeight + 8;
+      const float tileHeight = std::clamp(
+          gif.width > 0 ? tileWidth * gif.height / gif.width : layout::Picker::gifFallbackTileHeight,
+          layout::Picker::gifMinimumTileHeight, layout::Picker::gifMaximumTileHeight
+      );
+      const float tx = column * (tileWidth + Style::spaceSm), ty = columnY[column] - m_gifScroll;
+      columnY[column] += tileHeight + Style::spaceSm;
       ++count;
       if (ty + tileHeight <= 0 || ty >= available)
         continue;
-      const float gx = x + 12 + tx, gy = top + ty;
-      rectangle(*body, tx, ty, tileWidth, tileHeight, panel, 7);
+      const float gx = x + Style::spaceMd + tx, gy = top + ty;
+      rectangle(*body, tx, ty, tileWidth, tileHeight, panel, Style::hoverRadius);
       const auto source = gif.src.empty() ? gif.preview : gif.src;
-      picture(*body, tx, ty, tileWidth, tileHeight, source, 7, true);
+      picture(*body, tx, ty, tileWidth, tileHeight, source, Style::hoverRadius, true);
       m_gifTargets[gif.url] = gif;
       const float clippedTop = std::max(top, gy), clippedBottom = std::min(top + available, gy + tileHeight);
       m_hits.push_back({gx, clippedTop, tileWidth, clippedBottom - clippedTop, Action::SendGif, gif.url});
       const bool favorite = std::ranges::find(m_gifFavorites, gif.url, &api::Gif::url) != m_gifFavorites.end();
       if ((hovered(gx, clippedTop, tileWidth, clippedBottom - clippedTop) || favorite)
           && ty >= 0
-          && ty + 32 <= available) {
-        rectangle(*body, tx + tileWidth - 36, ty + 4, 30, 30, sidebar, 7);
+          && ty + Style::space2Xl <= available) {
+        rectangle(
+            *body, tx + tileWidth - layout::Window::titlebarHeight, ty + Style::spaceXs, 30, 30, sidebar,
+            Style::hoverRadius
+        );
         iconButton(
             *body,
-            {tx + tileWidth - 36, ty + 4, 30, 30,
+            {tx + tileWidth - layout::Window::titlebarHeight, ty + Style::spaceXs, 30, 30,
              m_pendingGifFavorites.contains(gif.url) ? Action::None : Action::FavoriteGif, gif.url},
             favorite ? "star-filled" : "star", favorite ? "Remove from favorites" : "Add to favorites", favorite
         );
@@ -173,13 +190,13 @@ namespace app {
       label(
           *body, 6, 20, width - 36,
           m_gifFavoritesTab ? "No favorites yet. Star a GIF to keep it here." : "No GIFs found. Try another search.",
-          14, muted, FontWeight::Normal, 3
+          Style::fontSizeBody, muted, FontWeight::Normal, 3
       );
     root.addChild(std::move(body));
   }
   void ClientApplication::demoGifStep() {
     const auto step = m_demoInteractionStep++ % 8;
-    const auto titleOffset = m_window.titlebarHeight() - 36;
+    const auto titleOffset = m_window.titlebarHeight() - layout::Window::titlebarHeight;
     auto require = [](bool condition, const char* text) {
       if (!condition)
         throw std::runtime_error(text);
@@ -190,8 +207,8 @@ namespace app {
       });
       require(it != m_hits.end(), "GIF replay needs a visible control");
       const auto hit = *it;
-      m_window.motion(hit.x + 8, hit.y + 8 + titleOffset);
-      m_window.click(hit.x + 8, hit.y + 8 + titleOffset, 272);
+      m_window.motion(hit.x + Style::spaceSm, hit.y + Style::spaceSm + titleOffset);
+      m_window.click(hit.x + Style::spaceSm, hit.y + Style::spaceSm + titleOffset, 272);
       m_window.released();
     };
     if (step == 0) {
@@ -210,7 +227,7 @@ namespace app {
         return hit.action == Action::SendGif && hit.id == m_gifs[1].url;
       });
       require(it != m_hits.end(), "GIF replay needs a visible preview");
-      m_window.motion(it->x + 20, it->y + 20 + titleOffset);
+      m_window.motion(it->x + Style::spaceRelaxed, it->y + Style::spaceRelaxed + titleOffset);
     } else if (step == 3) {
       click(Action::FavoriteGif, m_gifs[1].url);
       require(

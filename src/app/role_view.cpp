@@ -17,7 +17,7 @@ namespace app {
         m_preferences.roleColors && !m_dmMode ? m_roleDirectory.colors(m_guildId, user, roles) : std::nullopt;
     if (colors && m_preferences.roleColorMode == 1) {
       rectangle(parent, x, y + size * .4F, 7, 7, theme::accessible(rgbHex(colors->primary)), 3.5F);
-      return label(parent, x + 12, y, std::max(1.0F, width - 12), text, size, fallback, weight);
+      return label(parent, x + Style::spaceMd, y, std::max(1.0F, width - Style::spaceMd), text, size, fallback, weight);
     }
     std::optional<TextGradient> gradient;
     if (colors && colors->secondary) {
@@ -207,7 +207,10 @@ namespace app {
           return h.action == Action::SelectMessage && h.id == "8200";
         });
         require(hit != m_hits.end(), "Emoji-name message must be visible");
-        m_window.motion(hit->x + 12, hit->y + 5 + m_window.titlebarHeight() - 36);
+        m_window.motion(
+            hit->x + Style::spaceMd,
+            hit->y + (Style::spaceXs + Style::borderWidth) + m_window.titlebarHeight() - layout::Window::titlebarHeight
+        );
       } else if (step == 1) {
         require(m_roleMotion.active(), "Text gradient animation must still run beside native emoji");
         m_window.motion(-100, -100);
@@ -249,7 +252,10 @@ namespace app {
         return hit.action == Action::SelectMessage && hit.id == "8200";
       });
       require(at != m_hits.end(), "Gradient demo message must be visible");
-      m_window.motion(at->x + 12, at->y + 5 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          at->x + Style::spaceMd,
+          at->y + (Style::spaceXs + Style::borderWidth) + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
     };
     if (step == 0) {
       require(

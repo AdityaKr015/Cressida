@@ -140,25 +140,35 @@ namespace app {
   }
   void ClientApplication::drawDmCreate(Node& root, float w, float h) {
     using namespace theme;
-    const float width = std::min(480.0F, w - 32), height = std::min(660.0F, h - 72);
+    const float width = std::min(480.0F, w - Style::space2Xl), height = std::min(660.0F, h - 72);
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
     const float inner = width - 40;
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, .65F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
-    rectangle(root, x - 1, y - 1, width + 2, height + 2, raised, 13);
-    rectangle(root, x, y, width, height, background, 12);
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, .65F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
+    rectangle(
+        root, x - Style::borderWidth, y - Style::borderWidth, width + Style::spaceXxs, height + Style::spaceXxs, raised,
+        13
+    );
+    rectangle(root, x, y, width, height, background, Style::radiusXl);
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
-    label(root, x + 20, y + 20, inner - 30, "New message", 19, foreground, FontWeight::SemiBold);
+    label(
+        root, x + Style::spaceRelaxed, y + Style::spaceRelaxed, inner - (Style::space2Xl - Style::spaceXxs),
+        "New message", Style::fontSizeDialog, foreground, FontWeight::SemiBold
+    );
     iconButton(
-        root, {x + width - 40, y + 14, 26, 26, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "x", "Close"
+        root,
+        {x + width - 40, y + Style::cardPadding, 26, 26, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "x",
+        "Close"
     );
     label(
-        root, x + 20, y + 51, inner,
-        "Search friends and server members. Group DMs can have up to 10 members, including you.", 12, muted,
-        FontWeight::Normal, 2
+        root, x + Style::spaceRelaxed, y + 51, inner,
+        "Search friends and server members. Group DMs can have up to 10 members, including you.",
+        Style::fontSizeDescription, muted, FontWeight::Normal, 2
     );
-    inputControl(root, x + 20, y + 94, inner, 34, "dm-create-search", m_dmCreateSearch, "Search people");
+    inputControl(
+        root, x + Style::spaceRelaxed, y + 94, inner, 34, "dm-create-search", m_dmCreateSearch, "Search people"
+    );
     std::string selection = "Select people to start a conversation";
     if (!m_dmCreateRecipients.empty()) {
       selection = std::to_string(m_dmCreateRecipients.size()) + "/9 selected · ";
@@ -171,9 +181,10 @@ namespace app {
         }
       }
     }
-    label(root, x + 20, y + 139, inner, selection, 11, muted);
-    const float top = y + 164, footer = y + height - 86, viewportHeight = std::max(24.0F, footer - top - 8);
-    m_dmCreateBounds = {x + 12, top, width - 24, viewportHeight, Action::None, {}};
+    label(root, x + Style::spaceRelaxed, y + 139, inner, selection, Style::fontSizeMini, muted);
+    const float top = y + 164, footer = y + height - 86,
+                viewportHeight = std::max(24.0F, footer - top - Style::spaceSm);
+    m_dmCreateBounds = {x + Style::spaceMd, top, width - 24, viewportHeight, Action::None, {}};
     const auto query = fold(m_dmCreateSearch);
     std::vector<const api::Account*> matches;
     for (const auto& user : m_dmCreateCandidates)
@@ -182,12 +193,12 @@ namespace app {
     const float content = matches.size() * 48.0F;
     m_scrolling.limit(m_dmCreateScroll, std::max(0.0F, content - viewportHeight));
     auto viewport = std::make_unique<Node>();
-    viewport->setPosition(x + 12, top);
-    viewport->setSize(width - 24, viewportHeight);
+    viewport->setPosition(x + Style::spaceMd, top);
+    viewport->setSize(width - Style::spaceXl, viewportHeight);
     viewport->setClipChildren(true);
     viewport->setTextScrollOffset(-m_dmCreateScroll);
     if (matches.empty())
-      label(*viewport, 8, 12, inner, "No matching people.", 13, muted);
+      label(*viewport, 8, 12, inner, "No matching people.", Style::fontSizeCaption, muted);
     for (std::size_t i = 0; i < matches.size(); ++i) {
       const float row = i * 48.0F - m_dmCreateScroll;
       if (row + 48 <= 0 || row >= viewportHeight)
@@ -195,19 +206,24 @@ namespace app {
       const auto& user = *matches[i];
       const bool selected = std::ranges::find(m_dmCreateRecipients, user.id) != m_dmCreateRecipients.end();
       const bool enabled = !m_dialogPending && (selected || m_dmCreateRecipients.size() < 9);
-      if (selected || hovered(x + 12, top + row, width - 30, 46))
-        rectangle(*viewport, 0, row, width - 30, 46, selected ? raised : panel, 6);
-      avatar(*viewport, 8, row + 7, 30, user.avatar, user.name);
+      if (selected || hovered(x + Style::spaceMd, top + row, width - 30, 46))
+        rectangle(*viewport, 0, row, width - 30, 46, selected ? raised : panel, Style::radiusMd);
+      avatar(*viewport, 8, row + 7, layout::Avatar::member, user.avatar, user.name);
       statusBadge(*viewport, 30, row + 28, userStatus(user.id), selected ? raised : background);
       label(
-          *viewport, 48, row + 7, width - 104, m_userDirectory.name(user.id, user.name), 13,
+          *viewport, 48, row + 7, width - 104, m_userDirectory.name(user.id, user.name), Style::fontSizeCaption,
           enabled ? foreground : muted, FontWeight::Medium
       );
-      label(*viewport, 48, row + 26, width - 104, user.username, 11, muted);
-      glyph(*viewport, width - 58, row + 14, 18, selected ? "checkbox" : "square", selected ? accent : muted);
+      label(*viewport, 48, row + 26, width - 104, user.username, Style::fontSizeMini, muted);
+      glyph(
+          *viewport, width - 58, row + 14, Style::glyphSizeMedium, selected ? "checkbox" : "square",
+          selected ? accent : muted
+      );
       const float hitTop = std::max(top, top + row), hitBottom = std::min(top + viewportHeight, top + row + 46);
       if (enabled && hitBottom > hitTop)
-        m_hits.push_back({x + 12, hitTop, width - 30, hitBottom - hitTop, Action::DmAction, "recipient:" + user.id});
+        m_hits.push_back(
+            {x + Style::spaceMd, hitTop, width - 30, hitBottom - hitTop, Action::DmAction, "recipient:" + user.id}
+        );
     }
     root.addChild(std::move(viewport));
     if (content > viewportHeight)
@@ -216,12 +232,20 @@ namespace app {
           m_dmCreateScroll
       );
     if (!m_dmCreateError.empty())
-      label(root, x + 20, footer + 1, inner, m_dmCreateError, 11, danger, FontWeight::Normal, 2);
-    const float buttonWidth = (inner - 8) / 2, by = y + height - 48;
-    dmButton(root, {x + 20, by, buttonWidth, 30, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "Cancel");
+      label(
+          root, x + Style::spaceRelaxed, footer + 1, inner, m_dmCreateError, Style::fontSizeMini, danger,
+          FontWeight::Normal, 2
+      );
+    const float buttonWidth = (inner - Style::spaceSm) / 2, by = y + height - 48;
+    dmButton(
+        root, {x + Style::spaceRelaxed, by, buttonWidth, 30, m_dialogPending ? Action::None : Action::CloseDialog, {}},
+        "Cancel"
+    );
     const bool ready = !m_dialogPending && !m_dmCreateRecipients.empty();
     dmButton(
-        root, {x + 28 + buttonWidth, by, buttonWidth, 30, ready ? Action::DmAction : Action::None, "create-submit"},
+        root,
+        {x + Style::spaceWide + buttonWidth, by, buttonWidth, 30, ready ? Action::DmAction : Action::None,
+         "create-submit"},
         m_dialogPending                       ? "Creating…"
             : m_dmCreateRecipients.size() > 1 ? "Create group DM"
                                               : "Open message",

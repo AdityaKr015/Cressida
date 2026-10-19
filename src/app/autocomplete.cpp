@@ -185,6 +185,36 @@ namespace app {
             );
         }
       }
+    } else if (query->trigger == '#') {
+      for (const auto& guild : m_guilds) {
+        if (!m_dmMode && guild.id != m_guildId)
+          continue;
+        std::set<std::string> seen;
+        const auto addChannel = [&](const api::Channel& channel) {
+          if (channel.kind() == api::ChannelType::GuildCategory || !seen.insert(channel.id).second)
+            return;
+          const auto resolved = channelMention(guild.id, channel.id);
+          if (resolved.link.empty())
+            return;
+          const auto score = matchScore(resolved.name, search);
+          if (score < 100)
+            m_completionItems.push_back(
+                {CompletionItem::Channel,
+                 channel.id,
+                 "#" + resolved.name,
+                 guild.name,
+                 "<#" + channel.id + ">",
+                 {},
+                 score,
+                 0,
+                 channelGlyph(guild.id, channel)}
+            );
+        };
+        for (const auto& channel : serverChannels(guild.id))
+          addChannel(channel);
+        for (const auto& thread : m_threads.list(guild.id))
+          addChannel(thread);
+      }
     } else {
       const auto emoji = [&](const std::string& key, const std::string& origin) {
         const auto* value = m_emojiCatalog.find(key);
@@ -239,8 +269,8 @@ namespace app {
       }
       return a.name != b.name ? a.name < b.name : a.id < b.id;
     });
-    if (m_completionItems.size() > 50)
-      m_completionItems.resize(50);
+    if (m_completionItems.size() > layout::Completion::maximumResults)
+      m_completionItems.resize(layout::Completion::maximumResults);
     if (!changed && !selected.empty()) {
       const auto at = std::ranges::find(m_completionItems, selected, &CompletionItem::insert);
       m_completionSelected = at == m_completionItems.end() ? 0 : at - m_completionItems.begin();
@@ -319,8 +349,9 @@ namespace app {
     const auto count = m_completionItems.size();
     m_completionSelected = (m_completionSelected + (key.symbol == XKB_KEY_Up ? count - 1 : 1)) % count;
     m_scrolling.stop(m_completionScroll);
-    const float top = m_completionSelected * 36;
-    m_completionScroll = std::clamp(m_completionScroll, std::max(0.0F, top + 36 - m_completionViewport), top);
+    const float top = m_completionSelected * layout::Completion::rowHeight;
+    m_completionScroll =
+        std::clamp(m_completionScroll, std::max(0.0F, top + layout::Completion::rowHeight - m_completionViewport), top);
     m_window.invalidate();
     return true;
   }
@@ -331,7 +362,9 @@ namespace app {
     if (!m_completionQuery || !m_completionBounds.contains(x, y))
       return false;
     if (x >= m_completionBounds.x + m_completionBounds.width - 12) {
-      m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+      m_controlInput.pointerButton(
+          x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272, true, 0, 0, false
+      );
       return true;
     }
     for (const auto& hit : m_hits)
@@ -414,7 +447,7 @@ namespace app {
       setDraft("draft stays");
       beginMessageEdit("9901");
     } else if (step == 5) {
-      openContext(m_completionBounds.x + 100, m_completionBounds.y + 48);
+      openContext(m_completionBounds.x + 100, m_completionBounds.y + Style::spaceGroup);
       require(!m_contextOpen, "Autocomplete blocks message context targets behind the popup");
       require(
           m_completionInput == "message-edit" && m_completionQuery, "Inline editing offers the same completion list"
@@ -449,7 +482,10 @@ namespace app {
       const auto row = std::ranges::find(m_hits, Action::CompleteText, &Hit::action);
       require(row != m_hits.end(), "Autocomplete exposes clipped pointer targets");
       const auto hit = *row;
-      m_window.click(hit.x + 10, hit.y + hit.height / 2 + m_window.titlebarHeight() - 36, 272);
+      m_window.click(
+          hit.x + Style::spaceDense,
+          hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272
+      );
       m_window.released();
       require(
           m_drafts[m_channelId].starts_with("<a:umbriel:") && m_focusedInput == "composer",
@@ -490,80 +526,96 @@ namespace app {
     }
     float width = input->width();
     if (m_completionInput == "composer") {
-      x -= 46;
-      width += 142;
+      x -= layout::Completion::composerLeadingInset;
+      width += layout::Completion::composerExtraWidth;
     }
     x = std::clamp(x, 8.0F, std::max(8.0F, w - width - 8));
-    width = std::min(width, w - x - 8);
+    width = std::min(width, w - x - Style::spaceSm);
     const float anchorHeight =
         m_completionInput == "message-edit" ? messageEditHeight(input->width()) : input->height();
-    const float above = y - 110, below = h - y - anchorHeight - 16;
-    const bool upward = above >= std::min(180.0F, below);
+    const float above = y - layout::Completion::topReserve, below = h - y - anchorHeight - Style::spaceLg;
+    const bool upward = above >= std::min(layout::Completion::preferredRoom, below);
     const float room = upward ? above : below;
-    if (room < 74) {
+    if (room < layout::Completion::minimumHeight) {
       m_completionBounds = {};
       return;
     }
-    const float full = std::max<std::size_t>(1, m_completionItems.size()) * 36;
-    const float height = std::min({room, 326.0F, 38 + full});
-    y = upward ? y - height - 6 : y + anchorHeight + 6;
-    m_completionViewport = height - 38;
+    const float full = std::max<std::size_t>(1, m_completionItems.size()) * layout::Completion::rowHeight;
+    const float height = std::min({room, layout::Completion::maximumHeight, layout::Completion::chromeHeight + full});
+    y = upward ? y - height - 6 : y + anchorHeight + Style::spaceCompact;
+    m_completionViewport = height - layout::Completion::chromeHeight;
     m_completionBounds = {x, y, width, height, Action::None, {}};
-    rectangle(root, x, y, width, height, raised, 8);
-    rectangle(root, x + 1, y + 1, width - 2, height - 2, sidebar, 7);
+    rectangle(root, x, y, width, height, raised, Style::surfaceRadius);
+    rectangle(
+        root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, height - Style::spaceXxs,
+        sidebar, Style::hoverRadius
+    );
     label(
-        root, x + 12, y + 11, width - 24,
-        m_completionQuery->trigger == ':' ? "Emoji matching :" + m_completionQuery->text
+        root, x + Style::spaceMd, y + (Style::spaceDense + Style::borderWidth), width - Style::spaceXl,
+        m_completionQuery->trigger == ':'       ? "Emoji matching :" + m_completionQuery->text
+            : m_completionQuery->trigger == '#' ? "Channels"
             : !m_completionSearchError.empty() && m_completionItems.empty() ? m_completionSearchError
                                                                             : "Members & roles",
-        11, muted
+        Style::fontSizeMini, muted
     );
     m_hits.push_back(m_completionBounds);
     auto list = std::make_unique<Node>();
-    list->setPosition(x + 6, y + 32);
+    list->setPosition(x + Style::spaceCompact, y + Style::space2Xl);
     list->setSize(width - 18, m_completionViewport);
     list->setClipChildren(true);
     m_scrolling.limit(m_completionScroll, std::max(0.0F, full - m_completionViewport));
     list->setTextScrollOffset(-m_completionScroll);
     for (std::size_t i = 0; i < m_completionItems.size(); ++i) {
-      const float rowY = i * 36 - m_completionScroll;
-      if (rowY + 36 <= 0 || rowY >= m_completionViewport)
+      const float rowY = i * layout::Completion::rowHeight - m_completionScroll;
+      if (rowY + layout::Completion::rowHeight <= 0 || rowY >= m_completionViewport)
         continue;
       const auto& item = m_completionItems[i];
       const bool over =
-          hovered(x + 6, y + 32 + rowY, width - 18, 36) && m_completionBounds.contains(m_pointerX, m_pointerY);
+          hovered(x + Style::spaceCompact, y + Style::space2Xl + rowY, width - 18, layout::Completion::rowHeight)
+          && m_completionBounds.contains(m_pointerX, m_pointerY);
       if (i == m_completionSelected || over)
-        rectangle(*list, 0, rowY, width - 18, 34, raised, 5);
+        rectangle(*list, 0, rowY, width - 18, 34, raised, Style::controlRadius);
       if (item.kind == CompletionItem::Member)
-        avatar(*list, 8, rowY + 5, 24, item.image, item.name);
+        avatar(*list, 8, rowY + (Style::spaceXs + Style::borderWidth), layout::Avatar::compact, item.image, item.name);
       else if (item.kind == CompletionItem::Emoji) {
         if (!item.image.empty())
-          emojiImage(*list, 8, rowY + 5, 24, item.image);
+          emojiImage(*list, 8, rowY + (Style::spaceXs + Style::borderWidth), 24, item.image);
         else if (const auto* emoji = m_emojiCatalog.find(item.id))
-          label(*list, 8, rowY + 4, 30, emoji->unicode, 22, foreground);
+          label(*list, 8, rowY + Style::spaceXs, 30, emoji->unicode, Style::fontSizePage, foreground);
       } else
         glyph(
-            *list, 10, rowY + 8, 20, item.kind == CompletionItem::Role ? "users" : "at",
+            *list, 10, rowY + Style::spaceSm, Style::glyphSizeLarge,
+            item.kind == CompletionItem::Role          ? "users"
+                : item.kind == CompletionItem::Channel ? item.glyph
+                                                       : "at",
             item.color ? rgbHex(item.color) : muted
         );
       const float detailWidth = std::min(200.0F, width * .35F);
       if (item.kind == CompletionItem::Member || item.kind == CompletionItem::Role)
         roleLabel(
-            *list, 42, rowY + 10, width - detailWidth - 68, item.name, 13, foreground, FontWeight::Normal, item.id,
-            "complete:" + item.id, over,
+            *list, 42, rowY + Style::spaceDense, width - detailWidth - 68, item.name, Style::fontSizeCaption,
+            foreground, FontWeight::Normal, item.id, "complete:" + item.id, over,
             item.kind == CompletionItem::Role ? std::optional<std::vector<std::string>>{std::vector{item.id}}
                                               : std::nullopt
         );
       else
         label(
-            *list, 42, rowY + 10, width - detailWidth - 68, item.name, 13, item.color ? rgbHex(item.color) : foreground
+            *list, 42, rowY + Style::spaceDense, width - detailWidth - 68, item.name, Style::fontSizeCaption,
+            item.color ? rgbHex(item.color) : foreground
         );
-      label(*list, width - detailWidth - 24, rowY + 12, detailWidth, item.detail, 10, muted);
-      const float top = std::max(0.0F, rowY), bottom = std::min(m_completionViewport, rowY + 36);
-      m_hits.push_back({x + 6, y + 32 + top, width - 18, bottom - top, Action::CompleteText, std::to_string(i)});
+      label(
+          *list, width - detailWidth - Style::spaceXl, rowY + Style::spaceMd, detailWidth, item.detail,
+          Style::fontSizeDetail, muted
+      );
+      const float top = std::max(0.0F, rowY),
+                  bottom = std::min(m_completionViewport, rowY + layout::Completion::rowHeight);
+      m_hits.push_back(
+          {x + Style::spaceCompact, y + Style::space2Xl + top, width - 18, bottom - top, Action::CompleteText,
+           std::to_string(i)}
+      );
     }
     if (m_completionItems.empty())
-      label(*list, 12, 10, width - 42, "No matches", 12, muted);
+      label(*list, 12, 10, width - 42, "No matches", Style::fontSizeDescription, muted);
     root.addChild(std::move(list));
     const std::string barId = "completion-scrollbar";
     std::unique_ptr<Node> owned;
@@ -581,7 +633,7 @@ namespace app {
     }
     auto* bar = static_cast<Scrollbar*>(owned.get());
     m_widgets[barId] = bar;
-    bar->setPosition(x + width - 10, y + 32);
+    bar->setPosition(x + width - Style::spaceDense, y + Style::space2Xl);
     bar->setSize(8, m_completionViewport);
     bar->update(m_completionViewport, full, m_completionScroll);
     root.addChild(std::move(owned));

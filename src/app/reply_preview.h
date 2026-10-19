@@ -7,6 +7,34 @@
 #include <string_view>
 
 namespace app {
+  inline api::MessageReference
+  resolvedReply(api::MessageReference reply, const api::Message* original, bool deleted = false) {
+    if (original && (original->id != reply.message || (!reply.channel.empty() && original->channelId != reply.channel)))
+      original = nullptr;
+    if (reply.deleted || deleted || (original && original->deleted)) {
+      reply.deleted = true;
+      reply.available = true;
+      reply.content.clear();
+      return reply;
+    }
+    if (!original)
+      return reply;
+    reply.authorId = original->authorId;
+    reply.author = original->author;
+    reply.content = original->content;
+    reply.available = true;
+    if (reply.content.empty()) {
+      if (!original->stickers.empty())
+        reply.content = "Sticker: " + original->stickers.front().name;
+      else if (!original->attachments.empty())
+        reply.content = "Attachment: " + original->attachments.front().filename;
+      else if (!original->embeds.empty())
+        reply.content = "Embed";
+      else if (original->forwarded)
+        reply.content = "Forwarded message";
+    }
+    return reply;
+  }
   inline std::string_view boundedReplyText(std::string_view text) {
     auto size = std::min(text.size(), std::size_t{4096});
     while (size > 0 && size < text.size() && (static_cast<unsigned char>(text[size]) & 0xC0) == 0x80)

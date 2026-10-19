@@ -27,10 +27,10 @@ namespace app {
     const auto title = badge == api::GuildBadge::Verified ? "Verified server"
         : badge == api::GuildBadge::Partnered             ? "Partnered server"
                                                           : "Community server";
-    glyph(root, x, y, 18, icon, badge == api::GuildBadge::Verified ? success : accent);
+    glyph(root, x, y, Style::glyphSizeMedium, icon, badge == api::GuildBadge::Verified ? success : accent);
     if (tooltip && hovered(x, y, 18, 18) && sidebarResizeAvailable()) {
       m_tooltip = title;
-      m_tooltipX = x + 9;
+      m_tooltipX = x + (Style::spaceSm + Style::borderWidth);
       m_tooltipY = y;
     }
     return 24;
@@ -79,37 +79,60 @@ namespace app {
     const auto badge = api::guildBadge(guild);
     const float badgeWidth = badge == api::GuildBadge::None ? 0 : 24;
     auto& renderer = m_window.target().renderer();
-    const auto titleWidth = renderer.measureText(guild.name, 13, FontWeight::SemiBold).width + badgeWidth;
-    const auto activityWidth = renderer.measureText(activity, 11).width;
+    const auto titleWidth =
+        renderer.measureText(guild.name, Style::fontSizeCaption, FontWeight::SemiBold).width + badgeWidth;
+    const auto activityWidth = renderer.measureText(activity, Style::fontSizeMini).width;
     const std::string online = guild.online ? countText(*guild.online) + " online" : "";
     const std::string members = guild.members ? countText(*guild.members) + " members" : "";
-    const float onlineWidth = online.empty() ? 0 : renderer.measureText(online, 12).width + 20;
-    const float membersWidth = members.empty() ? 0 : renderer.measureText(members, 12).width + 18;
+    const float onlineWidth = online.empty() ? 0 : renderer.measureText(online, Style::fontSizeDescription).width + 20;
+    const float membersWidth =
+        members.empty() ? 0 : renderer.measureText(members, Style::fontSizeDescription).width + 18;
     const bool counts = guild.online || guild.members;
     const float width = std::min(
         std::clamp(std::max({titleWidth, activityWidth, onlineWidth + membersWidth}) + 24, 200.0F, 340.0F), w - 94
     );
     const float height = 40 + (activity.empty() ? 0 : 20) + (counts ? 24 : 0);
     const float x = 84, y = std::clamp(at->y + at->height / 2 - height / 2, 44.0F, std::max(44.0F, h - height - 8));
-    rectangle(root, x, y + 3, width, height, Color{0, 0, 0, .25F}, 8);
-    rectangle(root, x, y, width, height, lerpColor(sidebar, muted, .3F), 8);
-    rectangle(root, x + 1, y + 1, width - 2, height - 2, sidebar, 7);
-    glyph(root, x - 13, std::clamp(at->y + 15, y + 8, y + height - 24), 20, "caret-left-filled", sidebar);
-    const auto offset = drawGuildBadge(root, x + 12, y + 10, badge, false);
-    label(root, x + 12 + offset, y + 11, width - 24 - offset, guild.name, 13, foreground, FontWeight::SemiBold);
+    rectangle(
+        root, x, y + (Style::spaceXxs + Style::borderWidth), width, height, Color{0, 0, 0, .25F}, Style::surfaceRadius
+    );
+    rectangle(root, x, y, width, height, lerpColor(sidebar, muted, .3F), Style::surfaceRadius);
+    rectangle(
+        root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, height - Style::spaceXxs,
+        sidebar, Style::hoverRadius
+    );
+    glyph(
+        root, x - (Style::spaceMd + Style::borderWidth),
+        std::clamp(at->y + (Style::cardPadding + Style::borderWidth), y + Style::spaceSm, y + height - Style::spaceXl),
+        Style::glyphSizeLarge, "caret-left-filled", sidebar
+    );
+    const auto offset = drawGuildBadge(root, x + Style::spaceMd, y + Style::spaceDense, badge, false);
+    label(
+        root, x + Style::spaceMd + offset, y + (Style::spaceDense + Style::borderWidth),
+        width - Style::spaceXl - offset, guild.name, Style::fontSizeCaption, foreground, FontWeight::SemiBold
+    );
     if (!activity.empty())
-      label(root, x + 12, y + 33, width - 24, activity, 11, muted);
+      label(
+          root, x + Style::spaceMd, y + (Style::space2Xl + Style::borderWidth), width - Style::spaceXl, activity,
+          Style::fontSizeMini, muted
+      );
     if (counts) {
       const float cy = y + height - 25;
-      float cx = x + 12;
+      float cx = x + Style::spaceMd;
       if (guild.online) {
-        rectangle(root, cx, cy + 3, 9, 9, success, 5);
-        label(root, cx + 15, cy, onlineWidth - 15, online, 12, foreground);
+        rectangle(root, cx, cy + (Style::spaceXxs + Style::borderWidth), 9, 9, success, Style::controlRadius);
+        label(
+            root, cx + (Style::cardPadding + Style::borderWidth), cy,
+            onlineWidth - (Style::cardPadding + Style::borderWidth), online, Style::fontSizeDescription, foreground
+        );
         cx += onlineWidth;
       }
       if (guild.members) {
-        glyph(root, cx, cy + 1, 12, "circle", muted);
-        label(root, cx + 16, cy, std::max(0.0F, x + width - 12 - cx - 16), members, 12, muted);
+        glyph(root, cx, cy + Style::borderWidth, Style::glyphSizeTiny, "circle", muted);
+        label(
+            root, cx + Style::spaceLg, cy, std::max(0.0F, x + width - Style::spaceMd - cx - Style::spaceLg), members,
+            Style::fontSizeDescription, muted
+        );
       }
     }
     m_guildTooltipBounds = {x, y, width, height, Action::None, guild.id};
@@ -124,7 +147,9 @@ namespace app {
       const auto at =
           std::ranges::find_if(m_hits, [&](const auto& hit) { return hit.action == Action::Guild && hit.id == guild; });
       require(at != m_hits.end(), "Hover replay server must be visible");
-      m_window.motion(at->x + 24, at->y + 24 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          at->x + Style::spaceXl, at->y + Style::spaceXl + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
     };
     const auto step = m_demoInteractionStep++;
     for (std::size_t i = 0; i < 3; ++i) {
@@ -168,7 +193,7 @@ namespace app {
     } else if (step == 3) {
       require(m_guildTooltipBounds.width == 0, "Settings suppresses server hover cards");
       m_settingsOpen = false;
-      m_window.motion(107, 65 + m_window.titlebarHeight() - 36);
+      m_window.motion(107, 65 + m_window.titlebarHeight() - layout::Window::titlebarHeight);
     } else if (step == 4) {
       require(
           m_guildTooltipBounds.width == 0 && m_tooltip == "Community server",
@@ -188,7 +213,7 @@ namespace app {
           m_guildTooltipBounds.height == 60 && api::guildBadge(m_guilds.front()) == api::GuildBadge::None,
           "Live cleared counts and badges disappear without invented zero values"
       );
-      m_window.motion(chatLeft() + 100, 180 + m_window.titlebarHeight() - 36);
+      m_window.motion(chatLeft() + 100, 180 + m_window.titlebarHeight() - layout::Window::titlebarHeight);
     } else if (step == 6)
       require(m_guildTooltipBounds.width == 0, "Leaving the server rail dismisses its card");
     std::clog << "Offline server hover replay step " << step + 1 << " passed\n";

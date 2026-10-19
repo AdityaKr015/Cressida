@@ -2,6 +2,7 @@
 
 #include "api/models.h"
 #include "app/syntax_highlight.h"
+#include "ui/style.h"
 
 #include <functional>
 #include <optional>
@@ -14,9 +15,10 @@ namespace app {
     bool bold = false, italic = false, underline = false, strike = false, code = false, spoiler = false,
          mention = false, emoji = false;
     bool historical = false;
-    float size = 14;
+    float size = Style::fontSizeBody;
     std::string link;
     CodeToken syntax = CodeToken::Plain;
+    std::string userMention;
   };
   struct MessageRun {
     std::string text, image;
@@ -24,6 +26,16 @@ namespace app {
     MessageStyle style;
     std::size_t offset = 0;
     float height = 22;
+    struct ChannelChip {
+      struct Part {
+        enum Kind { Text, Glyph, GuildIcon } kind;
+        std::string value;
+        float x, width;
+        bool locked = false;
+      };
+      std::vector<Part> parts;
+    };
+    std::optional<ChannelChip> channelChip;
   };
   struct MessageBox {
     float x, y, width, height;
@@ -67,10 +79,17 @@ namespace app {
     bool discordTimestamps = false;
     bool mentionPrefix = true;
     bool attachmentGallery = false;
+    struct ChannelMention {
+      std::string name, link;
+      std::string guildName, guildIcon, channelName, parentName;
+      std::string icon = "hash", parentIcon = "hash";
+      bool locked = false;
+    };
+    std::function<ChannelMention(std::string_view, std::string_view)> channelMention;
   };
   MessageLayout layoutRichMessage(
       const api::Message& message, float width,
-      const std::function<float(std::string_view, const MessageStyle&)>& measure, float fontSize = 14,
+      const std::function<float(std::string_view, const MessageStyle&)>& measure, float fontSize = Style::fontSizeBody,
       const MessageOptions& options = {}
   );
   using MessageMeasure = std::function<float(std::string_view, const MessageStyle&)>;
@@ -80,7 +99,7 @@ namespace app {
   );
   std::string messageMarkup(std::string_view text, const MessageStyle& style);
   MessageLayout layoutMessage(
-      std::string_view content, float width, const MessageMeasure& measure, float fontSize = 14,
+      std::string_view content, float width, const MessageMeasure& measure, float fontSize = Style::fontSizeBody,
       const std::map<std::string, std::string>& mentions = {}, const MessageOptions& options = {}
   );
   MessageLayout

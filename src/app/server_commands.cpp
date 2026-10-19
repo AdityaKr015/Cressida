@@ -517,7 +517,7 @@ namespace app {
     const auto search = [&](const std::string& id, std::string& current, const std::string& placeholder) {
       auto& input =
           inputControl(form.node, 0, form.y, form.width, 30, "server-settings:commands:" + id, current, placeholder);
-      input.setFontSize(12);
+      input.setFontSize(Style::fontSizeDescription);
       input.setOnChange([this, id](const std::string& value) {
         if (id == "application-search")
           m_serverCommands.applicationSearch = value;
@@ -530,7 +530,7 @@ namespace app {
         m_window.invalidate();
       });
       input.setOnSubmit([](const std::string&) {});
-      form.y += 40;
+      form.y += Style::spaceSection;
     };
     form.section("Installed application");
     form.detail(

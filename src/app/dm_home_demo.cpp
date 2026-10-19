@@ -92,7 +92,8 @@ namespace app {
       });
       require(found != m_hits.end(), "DM replay requires a real visible action");
       const auto hit = *found;
-      const float x = hit.x + hit.width / 2, y = hit.y + hit.height / 2 + m_window.titlebarHeight() - 36;
+      const float x = hit.x + hit.width / 2,
+                  y = hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight;
       m_window.motion(x, y);
       m_window.click(x, y, 1);
       m_window.released();
@@ -186,7 +187,10 @@ namespace app {
       );
       require(textCount("Preview") == 0 && textCount("Close") == 0, "Request rows have no separate preview button");
       centeredButtons();
-      m_window.motion(m_dmPreviewBounds.x + 30, m_dmPreviewBounds.y + 200 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          m_dmPreviewBounds.x + (Style::space2Xl - Style::spaceXxs),
+          m_dmPreviewBounds.y + 200 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
       m_window.scroll(70);
       require(
           m_scrolling.active(m_dmPreviewScroll) && !m_scrolling.active(m_dmHomeScroll),
@@ -331,7 +335,8 @@ namespace app {
           std::ranges::find_if(m_hits, [&](const auto& hit) { return hit.action == action && hit.id == id; });
       require(at != m_hits.end(), "DM compose replay requires a visible control");
       const auto hit = *at;
-      const float x = hit.x + hit.width / 2, y = hit.y + hit.height / 2 + m_window.titlebarHeight() - 36;
+      const float x = hit.x + hit.width / 2,
+                  y = hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight;
       m_window.motion(x, y);
       m_window.click(x, y, 1);
       m_window.released();
@@ -416,7 +421,9 @@ namespace app {
       break;
     case 7:
       click(Action::DmAction, "recipient:20");
-      m_window.motion(m_dmCreateBounds.x + 60, m_dmCreateBounds.y + 60 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          m_dmCreateBounds.x + 60, m_dmCreateBounds.y + 60 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
       m_window.scroll(70);
       require(
           m_scrolling.target(m_dmCreateScroll) > 0 && m_channelScroll == 0,
@@ -491,7 +498,7 @@ namespace app {
         return hit.action == Action::ConversationMenu && hit.id == "9014";
       });
       require(row != m_contextTargets.end(), "A conversation has its own context target");
-      openContext(row->x + 40, row->y + 15);
+      openContext(row->x + Style::spaceSection, row->y + (Style::cardPadding + Style::borderWidth));
       require(
           m_contextOpen
               && std::ranges::any_of(

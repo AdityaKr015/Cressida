@@ -27,13 +27,14 @@ namespace app {
         primary    ? (over ? lerpColor(accent, foreground, .12F) : accent)
             : over ? lerpColor(raised, foreground, .08F)
                    : raised,
-        5
+        Style::controlRadius
     );
     const float captionWidth = std::max(1.0F, hit.width - 16);
-    const auto metrics = m_window.target().renderer().measureText(text, 12, FontWeight::Medium, captionWidth, 1);
+    const auto metrics =
+        m_window.target().renderer().measureText(text, Style::fontSizeDescription, FontWeight::Medium, captionWidth, 1);
     auto caption = std::make_unique<TextNode>();
     caption->setText(text);
-    caption->setFontSize(12);
+    caption->setFontSize(Style::fontSizeDescription);
     caption->setFontWeight(FontWeight::Medium);
     caption->setColor(primary ? ink : foreground);
     caption->setMaxWidth(captionWidth);
@@ -71,19 +72,27 @@ namespace app {
     const bool narrow = x == chatLeft();
     rectangle(root, x, y, width, height, background);
     if (!narrow)
-      rectangle(root, x - 1, y, 1, height, raised);
+      rectangle(root, x - Style::borderWidth, y, 1, height, raised);
     m_dmPreviewBounds = {x, y + 66, width, std::max(0.0F, height - 66)};
     if (narrow)
-      iconButton(root, {x + 8, y + 17, 30, 30, Action::DmAction, "close-request"}, "arrow-left", "Back to requests");
-    avatar(root, x + (narrow ? 48 : 16), y + 20, 28, user.avatar, name);
+      iconButton(
+          root,
+          {x + Style::spaceSm, y + (Style::spaceLg + Style::borderWidth), 30, 30, Action::DmAction, "close-request"},
+          "arrow-left", "Back to requests"
+      );
+    avatar(root, x + (narrow ? 48 : 16), y + Style::spaceRelaxed, layout::Avatar::dm, user.avatar, name);
     label(
-        root, x + (narrow ? 86 : 56), y + 25, width - (narrow ? 132 : 102), name, 14, foreground, FontWeight::SemiBold
+        root, x + (narrow ? 86 : 56), y + (Style::spaceXl + Style::borderWidth), width - (narrow ? 132 : 102), name,
+        Style::fontSizeBody, foreground, FontWeight::SemiBold
     );
-    iconButton(root, {x + width - 42, y + 17, 30, 30, Action::DmAction, "close-request"}, "x", "Close request");
+    iconButton(
+        root, {x + width - 42, y + (Style::spaceLg + Style::borderWidth), 30, 30, Action::DmAction, "close-request"},
+        "x", "Close request"
+    );
     if (!user.id.empty())
       m_hits.push_back(
-          {x + (narrow ? 48 : 16), y + 17, std::max(0.0F, width - (narrow ? 100 : 68)), 32, Action::DmAction,
-           "profile:" + user.id}
+          {x + (narrow ? 48 : 16), y + (Style::spaceLg + Style::borderWidth),
+           std::max(0.0F, width - (narrow ? 100 : 68)), 32, Action::DmAction, "profile:" + user.id}
       );
     rectangle(root, x, y + 65, width, 1, raised);
 
@@ -124,8 +133,8 @@ namespace app {
           text += '\n';
         text += "[Attachment hidden until accepted]";
       }
-      const float bodyHeight = measure(text, 14, std::max(1.0F, inner - 46));
-      total += 26 + bodyHeight + 18;
+      const float bodyHeight = measure(text, 14, std::max(1.0F, inner - (Style::spaceGroup - Style::spaceXxs)));
+      total += 26 + bodyHeight + (Style::spaceLg + Style::spaceXxs);
       rows.push_back({&message, std::move(text), bodyHeight});
     }
     if (rows.empty())
@@ -133,21 +142,26 @@ namespace app {
     const float viewport = std::max(0.0F, bottom - top);
     m_scrolling.limit(m_dmPreviewScroll, std::max(0.0F, total - viewport));
     auto content = std::make_unique<Node>();
-    content->setPosition(x + 20, top);
+    content->setPosition(x + Style::spaceRelaxed, top);
     content->setSize(inner, viewport);
     content->setClipChildren(true);
     content->setTextScrollOffset(-m_dmPreviewScroll);
     float rowY = std::max(0.0F, viewport - total) - m_dmPreviewScroll;
-    avatar(*content, 0, rowY, 72, user.avatar, name);
-    label(*content, 0, rowY + 88, inner, name, 21, foreground, FontWeight::SemiBold);
-    label(*content, 0, rowY + 119, inner, user.username.empty() ? name : '@' + user.username, 14, muted);
-    label(*content, 0, rowY + 148, inner, description, 13, muted, FontWeight::Normal, 0);
+    avatar(*content, 0, rowY, layout::Avatar::request, user.avatar, name);
+    label(*content, 0, rowY + 88, inner, name, Style::fontSizeProfile, foreground, FontWeight::SemiBold);
+    label(
+        *content, 0, rowY + 119, inner, user.username.empty() ? name : '@' + user.username, Style::fontSizeBody, muted
+    );
+    label(*content, 0, rowY + 148, inner, description, Style::fontSizeCaption, muted, FontWeight::Normal, 0);
     const auto button = [&](const std::string& caption, const std::string& command, float localX, float localY,
                             float size, bool primary = false) {
       dmButton(*content, {localX, localY, size, 26, Action::DmAction, command}, caption, primary);
     };
     if (m_dmPending.contains(channel->id))
-      label(*content, 0, rowY + actionY + 6, inner, "Updating request…", 12, muted);
+      label(
+          *content, 0, rowY + actionY + Style::spaceCompact, inner, "Updating request…", Style::fontSizeDescription,
+          muted
+      );
     else if (m_dmConfirm == "ignore:" + channel->id) {
       button("Ignore request?", "confirm-ignore:" + channel->id, 0, rowY + actionY, 126);
       button("Cancel", "cancel", 134, rowY + actionY, 70);
@@ -156,33 +170,53 @@ namespace app {
       button("Ignore", "ignore:" + channel->id, 112, rowY + actionY, 76);
     }
     if (!m_dmStatus.empty())
-      label(*content, 0, rowY + actionY + 38, inner, m_dmStatus, 12, muted, FontWeight::Normal, 0);
+      label(
+          *content, 0, rowY + actionY + (Style::spaceSection - Style::spaceXxs), inner, m_dmStatus,
+          Style::fontSizeDescription, muted, FontWeight::Normal, 0
+      );
     rowY += introHeight;
-    rectangle(*content, 0, rowY - 10, inner, 1, raised);
+    rectangle(*content, 0, rowY - Style::spaceDense, inner, 1, raised);
     if (rows.empty()) {
       if (m_dmPreviewLoading) {
-        rectangle(*content, 0, rowY + 4, 28, 28, lerpColor(background, muted, .17F), 14);
-        rectangle(*content, 46, rowY + 5, inner * .4F, 8, lerpColor(background, muted, .23F), 4);
-        rectangle(*content, 46, rowY + 23, inner * .65F, 9, lerpColor(background, muted, .13F), 4);
+        rectangle(*content, 0, rowY + Style::spaceXs, 28, 28, lerpColor(background, muted, .17F), 14);
+        rectangle(
+            *content, 46, rowY + (Style::spaceXs + Style::borderWidth), inner * .4F, 8,
+            lerpColor(background, muted, .23F), 4
+        );
+        rectangle(
+            *content, 46, rowY + ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth), inner * .65F, 9,
+            lerpColor(background, muted, .13F), 4
+        );
       } else if (m_dmStatus.empty())
         label(
-            *content, 0, rowY + 6, inner, "This request has no messages to display.", 13, muted, FontWeight::Normal, 2
+            *content, 0, rowY + Style::spaceCompact, inner, "This request has no messages to display.",
+            Style::fontSizeCaption, muted, FontWeight::Normal, 2
         );
       else
-        button("Retry", "retry-request", 0, rowY + 6, 76);
+        button("Retry", "retry-request", 0, rowY + Style::spaceCompact, 76);
     }
     for (const auto& row : rows) {
       const auto& message = *row.message;
-      const float rowHeight = 26 + row.bodyHeight + 18;
+      const float rowHeight = 26 + row.bodyHeight + (Style::spaceLg + Style::spaceXxs);
       if (rowY < viewport && rowY + rowHeight > 0) {
         const auto author =
             message.authorId == user.id || message.authorId.empty() ? name : userName(message.authorId, message.author);
         const auto face = message.avatar.empty() ? user.avatar : message.avatar;
-        avatar(*content, 0, rowY + 2, 30, face, author);
-        label(*content, 46, rowY + 1, std::max(1.0F, inner - 94), author, 13, foreground, FontWeight::SemiBold);
+        avatar(*content, 0, rowY + Style::spaceXxs, layout::Avatar::member, face, author);
+        label(
+            *content, 46, rowY + Style::borderWidth, std::max(1.0F, inner - 94), author, Style::fontSizeCaption,
+            foreground, FontWeight::SemiBold
+        );
         if (message.timestamp.size() >= 16)
-          label(*content, inner - 42, rowY + 3, 42, message.timestamp.substr(11, 5), 10, muted);
-        label(*content, 46, rowY + 25, std::max(1.0F, inner - 46), row.text, 14, foreground, FontWeight::Normal, 0);
+          label(
+              *content, inner - (Style::spaceSection + Style::spaceXxs), rowY + (Style::spaceXxs + Style::borderWidth),
+              42, message.timestamp.substr(11, 5), Style::fontSizeDetail, muted
+          );
+        label(
+            *content, 46, rowY + (Style::spaceXl + Style::borderWidth),
+            std::max(1.0F, inner - (Style::spaceGroup - Style::spaceXxs)), row.text, Style::fontSizeBody, foreground,
+            FontWeight::Normal, 0
+        );
       }
       rowY += rowHeight;
     }

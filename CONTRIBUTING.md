@@ -37,6 +37,11 @@ for this optional check. Its helper lives alongside the workflow scripts in
 and interface scaling, and attach redacted screenshots.
 These checks do not establish live Discord compatibility.
 
+Use the shared spacing, font, radius and control tokens in `src/ui/style.h`.
+Keep application geometry in `src/app/layout_metrics.h`, derive related sizes
+from those tokens, and share the resulting measurements with scrolling and hit
+targets. Component-specific values should have names that explain their purpose.
+
 Open a draft PR while work or validation is incomplete. Keep the required PR
 template headings and Checklist wording; ready PRs need a filled summary,
 motivation, testing notes, a selected change type and every Checklist item

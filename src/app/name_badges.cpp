@@ -19,7 +19,8 @@ namespace app {
       return 0;
     const float width = std::min(
         {available, 104.0F,
-         std::ceil(m_window.target().renderer().measureText(tag->tag, 11, FontWeight::Medium).width) + 32}
+         std::ceil(m_window.target().renderer().measureText(tag->tag, Style::fontSizeMini, FontWeight::Medium).width)
+             + 32}
     );
     float ox = 0, oy = 0;
     for (auto* node = &parent; node && node != m_scene.get(); node = node->parent()) {
@@ -27,10 +28,18 @@ namespace app {
       oy += node->y();
     }
     const bool over = clickable && hovered(ox + x, oy + y, width, 20);
-    rectangle(parent, x, y, width, 20, over ? raised : panel, 6);
-    if (!picture(parent, x + 4, y + 2, 16, 16, tag->badge, 0, false, false, ImageFitMode::Contain))
-      glyph(parent, x + 5, y + 3, 14, "shield", muted);
-    label(parent, x + 25, y + 3, width - 30, tag->tag, 11, foreground, FontWeight::Medium);
+    rectangle(parent, x, y, width, 20, over ? raised : panel, Style::radiusMd);
+    if (!picture(
+            parent, x + Style::spaceXs, y + Style::spaceXxs, 16, 16, tag->badge, 0, false, false, ImageFitMode::Contain
+        ))
+      glyph(
+          parent, x + (Style::spaceXs + Style::borderWidth), y + (Style::spaceXxs + Style::borderWidth),
+          Style::glyphSizeSmall, "shield", muted
+      );
+    label(
+        parent, x + (Style::spaceXl + Style::borderWidth), y + (Style::spaceXxs + Style::borderWidth), width - 30,
+        tag->tag, Style::fontSizeMini, foreground, FontWeight::Medium
+    );
     if (clickable && api::validSnowflake(tag->guild)) {
       m_hits.push_back({x + ox, y + oy, width, 20, Action::GuildProfile, tag->guild});
       if (over) {
@@ -55,7 +64,7 @@ namespace app {
     if (!role.icon.empty())
       emojiImage(parent, x, y, 16, role.icon);
     else
-      label(parent, x, y - 1, 20, role.unicodeEmoji, 15, foreground);
+      label(parent, x, y - Style::borderWidth, 20, role.unicodeEmoji, Style::fontSizeSubtitle, foreground);
     float ox = 0, oy = 0;
     for (auto* node = &parent; node && node != m_scene.get(); node = node->parent()) {
       ox += node->x();
@@ -76,7 +85,7 @@ namespace app {
         badge[at] = 155;
         badge[at + 1] = 220;
         badge[at + 2] = 240;
-        badge[at + 3] = std::abs(x - 16) + std::abs(y - 16) < 13 ? 255 : 0;
+        badge[at + 3] = std::abs(x - Style::spaceLg) + std::abs(y - Style::spaceLg) < 13 ? 255 : 0;
       }
     m_images["demo-profile-badge"].texture = m_window.context().textureManager().loadFromRgba(badge.data(), 32, 32);
     // Exercise protocol projection and the actual CDN cache key. Directly
@@ -128,7 +137,10 @@ namespace app {
       const auto at = std::ranges::find(m_hits.rbegin(), m_hits.rend(), kind, &Hit::action);
       require(at != m_hits.rend(), "Server tag action must be visible");
       const auto hit = *at;
-      m_window.click(hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - 36, 272);
+      m_window.click(
+          hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight,
+          272
+      );
       m_window.released();
     };
     if (step == 0) {
@@ -207,7 +219,10 @@ namespace app {
         tx += node->x();
         ty += node->y();
       }
-      m_window.click(tx + 20, ty + 12 + m_window.titlebarHeight() - 36, 272);
+      m_window.click(
+          tx + Style::spaceRelaxed, ty + Style::spaceMd + m_window.titlebarHeight() - layout::Window::titlebarHeight,
+          272
+      );
       m_window.released();
       require(
           m_preferences.showGuildTags == (step == 8),

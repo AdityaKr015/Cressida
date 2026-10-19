@@ -312,12 +312,12 @@ namespace app {
   void ClientApplication::drawChannelInvite(Node& root, float w, float h) {
     auto& state = m_channelInvite;
     const bool edit = state.editing;
-    const float width = std::min(520.0F, w - 32);
+    const float width = std::min(520.0F, w - Style::space2Xl);
     const float height = std::min(edit ? 408.0F + (m_dialogError.empty() ? 0 : 40) : 524.0F, h - 64);
-    const float x = (w - width) / 2, y = 36 + (h - 36 - height) / 2;
+    const float x = (w - width) / 2, y = 36 + (h - layout::Window::titlebarHeight - height) / 2;
     const float inner = width - 48;
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, .65F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, .65F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
     inviteSurface(root, x, y, width, height, background, raised, 18);
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
@@ -336,10 +336,12 @@ namespace app {
                      : sidebar,
           primary ? Color{0, 0, 0, 0} : raised, 7
       );
-      const auto metrics = m_window.target().renderer().measureText(caption, 13, FontWeight::Medium);
+      const auto metrics =
+          m_window.target().renderer().measureText(caption, Style::fontSizeCaption, FontWeight::Medium);
       label(
           parent, hit.x + (left ? 12 : (hit.width - metrics.width) / 2),
-          hit.y + (hit.height - (metrics.bottom - metrics.top)) / 2, metrics.width + 2, caption, 13,
+          hit.y + (hit.height - (metrics.bottom - metrics.top)) / 2, metrics.width + Style::spaceXxs, caption,
+          Style::fontSizeCaption,
           primary && enabled ? ink
               : enabled      ? foreground
                              : muted,
@@ -360,29 +362,44 @@ namespace app {
         channelName = channel->name;
     }
     label(
-        root, x + 24, y + 23, width - 82, edit ? "Server invite link settings" : "Invite friends to " + guildName, 19,
-        foreground, FontWeight::Medium
+        root, x + Style::spaceXl, y + ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth), width - 82,
+        edit ? "Server invite link settings" : "Invite friends to " + guildName, Style::fontSizeDialog, foreground,
+        FontWeight::Medium
     );
-    iconButton(root, {x + width - 46, y + 19, 28, 28, Action::CloseDialog, {}}, "x", "Close");
+    iconButton(
+        root,
+        {x + width - 46,
+         y + ((Style::spaceLg + Style::spaceXxs) + Style::borderWidth),
+         28,
+         28,
+         Action::CloseDialog,
+         {}},
+        "x", "Close"
+    );
     if (!channelName.empty()) {
-      glyph(root, x + 24, y + 56, 15, "hash", muted);
-      label(root, x + 45, y + 55, inner - 21, channelName, 12, muted);
+      glyph(root, x + Style::spaceXl, y + 56, 15, "hash", muted);
+      label(
+          root, x + ((Style::spaceSection + Style::spaceXs) + Style::borderWidth), y + 55,
+          inner - (Style::spaceRelaxed + Style::borderWidth), channelName, Style::fontSizeDescription, muted
+      );
     }
     if (edit) {
       const float selectWidth = inner;
       const float formTop = y + 87;
       const float viewport = std::max(36.0F, height - 171 - (m_dialogError.empty() ? 0 : 40));
       const std::string description = "Members are removed when they disconnect unless you assign them a role.";
-      const auto titleMetrics =
-          m_window.target().renderer().measureText("Grant temporary membership", 14, FontWeight::Medium, inner - 48, 2);
-      const auto descriptionMetrics =
-          m_window.target().renderer().measureText(description, 12, FontWeight::Normal, inner - 48, 3);
-      const float descriptionTop = 171 + titleMetrics.bottom - titleMetrics.top + 10;
-      const float content = descriptionTop + descriptionMetrics.bottom - descriptionMetrics.top + 6;
-      state.formBounds = {x + 24, formTop, inner, viewport};
+      const auto titleMetrics = m_window.target().renderer().measureText(
+          "Grant temporary membership", Style::fontSizeBody, FontWeight::Medium, inner - Style::spaceGroup, 2
+      );
+      const auto descriptionMetrics = m_window.target().renderer().measureText(
+          description, Style::fontSizeDescription, FontWeight::Normal, inner - Style::spaceGroup, 3
+      );
+      const float descriptionTop = 171 + titleMetrics.bottom - titleMetrics.top + Style::spaceDense;
+      const float content = descriptionTop + descriptionMetrics.bottom - descriptionMetrics.top + Style::spaceCompact;
+      state.formBounds = {x + Style::spaceXl, formTop, inner, viewport};
       m_scrolling.limit(state.formScroll, std::max(0.0F, content - viewport));
       auto formClip = std::make_unique<Node>();
-      formClip->setPosition(x + 24, formTop);
+      formClip->setPosition(x + Style::spaceXl, formTop);
       formClip->setFrameSize(inner, viewport);
       formClip->setClipChildren(true);
       auto contentNode = std::make_unique<Node>();
@@ -397,8 +414,8 @@ namespace app {
         hit.y = std::max(hit.y, formTop);
         hit.height = std::max(0.0F, bottom - hit.y);
       };
-      label(*form, 0, 0, selectWidth, "Expire After", 13, foreground, FontWeight::Medium);
-      label(*form, 0, 78, selectWidth, "Max Number of Uses", 13, foreground, FontWeight::Medium);
+      label(*form, 0, 0, selectWidth, "Expire After", Style::fontSizeCaption, foreground, FontWeight::Medium);
+      label(*form, 0, 78, selectWidth, "Max Number of Uses", Style::fontSizeCaption, foreground, FontWeight::Medium);
       drawButton(
           *form, {0, 25, selectWidth, 36, Action::InviteDropdown, "age"}, optionLabel(ageOptions, state.draftMaxAge),
           false, !m_dialogPending, true
@@ -409,10 +426,16 @@ namespace app {
           false, !m_dialogPending, true
       );
       clipTarget();
-      glyph(*form, selectWidth - 24, 36, 14, "chevron-down", muted);
-      glyph(*form, selectWidth - 24, 114, 14, "chevron-down", muted);
-      label(*form, 0, 171, inner - 48, "Grant temporary membership", 14, foreground, FontWeight::Medium, 2);
-      label(*form, 0, descriptionTop, inner - 48, description, 12, muted, FontWeight::Normal, 3);
+      glyph(*form, selectWidth - Style::spaceXl, 36, Style::glyphSizeSmall, "chevron-down", muted);
+      glyph(*form, selectWidth - Style::spaceXl, 114, Style::glyphSizeSmall, "chevron-down", muted);
+      label(
+          *form, 0, 171, inner - Style::spaceGroup, "Grant temporary membership", Style::fontSizeBody, foreground,
+          FontWeight::Medium, 2
+      );
+      label(
+          *form, 0, descriptionTop, inner - Style::spaceGroup, description, Style::fontSizeDescription, muted,
+          FontWeight::Normal, 3
+      );
       const std::string toggleId = "invite:temporary";
       std::unique_ptr<Node> saved;
       if (auto at = m_detachedInputs.find(toggleId); at != m_detachedInputs.end()) {
@@ -434,13 +457,23 @@ namespace app {
             state.formScroll
         );
       if (!m_dialogError.empty())
-        label(root, x + 24, y + height - 111, inner, m_dialogError, 12, danger, FontWeight::Normal, 2);
-      const float buttonWidth = (inner - 10) / 2;
+        label(
+            root, x + Style::spaceXl, y + height - 111, inner, m_dialogError, Style::fontSizeDescription, danger,
+            FontWeight::Normal, 2
+        );
+      const float buttonWidth = (inner - Style::spaceDense) / 2;
       drawButton(
-          root, {x + 24, y + height - 60, buttonWidth, 36, Action::InviteBack, {}}, "Cancel", false, !m_dialogPending
+          root, {x + Style::spaceXl, y + height - 60, buttonWidth, 36, Action::InviteBack, {}}, "Cancel", false,
+          !m_dialogPending
       );
       drawButton(
-          root, {x + 34 + buttonWidth, y + height - 60, buttonWidth, 36, Action::InviteGenerate, {}},
+          root,
+          {x + (Style::space2Xl + Style::spaceXxs) + buttonWidth,
+           y + height - 60,
+           buttonWidth,
+           36,
+           Action::InviteGenerate,
+           {}},
           m_dialogPending ? "Generating…" : "Generate a New Link", true, !m_dialogPending
       );
       if (state.dropdown) {
@@ -461,11 +494,12 @@ namespace app {
           );
         }
         const float menuHeight = ContextMenuControl::preferredHeight(entries, 8);
-        const float menuX = x + 24;
+        const float menuX = x + Style::spaceXl;
         const float anchorY = formTop + (age ? 25 : 103) - state.formScroll;
         const float menuY = std::clamp(
-            anchorY + 40 + menuHeight < h - 12 ? anchorY + 40 : anchorY - menuHeight - 4, 44.0F,
-            std::max(44.0F, h - menuHeight - 12)
+            anchorY + Style::spaceSection + menuHeight < h - Style::spaceMd ? anchorY + Style::spaceSection
+                                                                            : anchorY - menuHeight - Style::spaceXs,
+            44.0F, std::max(44.0F, h - menuHeight - Style::spaceMd)
         );
         state.dropdownBounds = {menuX, menuY, selectWidth, menuHeight};
         std::unique_ptr<Node> menu;
@@ -512,56 +546,72 @@ namespace app {
         m_scrolling.stop(state.scroll);
         state.scroll = 0;
       }
-      inviteSurface(root, x + 24, y + 87, inner, 36, sidebar, raised, 7);
-      auto& search = inputControl(root, x + 24, y + 87, inner - 32, 36, "dialog", m_dialogText, "Search for friends");
+      inviteSurface(root, x + Style::spaceXl, y + 87, inner, 36, sidebar, raised, 7);
+      auto& search = inputControl(
+          root, x + Style::spaceXl, y + 87, inner - Style::space2Xl, 36, "dialog", m_dialogText, "Search for friends"
+      );
       search.setFrameVisible(false);
       search.setHorizontalPadding(12);
-      search.setFontSize(13);
+      search.setFontSize(Style::fontSizeCaption);
       search.setEnabled(true);
-      glyph(root, x + width - 50, y + 97, 16, "search", muted);
+      glyph(root, x + width - 50, y + 97, Style::baseGlyphSize, "search", muted);
       const float listTop = y + 137, listHeight = std::max(48.0F, height - 288);
-      state.listBounds = {x + 24, listTop, inner, listHeight};
+      state.listBounds = {x + Style::spaceXl, listTop, inner, listHeight};
       const float contentHeight = state.matches.size() * 48.0F;
       m_scrolling.limit(state.scroll, std::max(0.0F, contentHeight - listHeight));
       auto clip = std::make_unique<Node>();
-      clip->setPosition(x + 24, listTop);
+      clip->setPosition(x + Style::spaceXl, listTop);
       clip->setFrameSize(inner, listHeight);
       clip->setClipChildren(true);
       auto* list = clip.get();
       root.addChild(std::move(clip));
       if (state.matches.empty()) {
         label(
-            *list, 8, 24, inner - 16, state.query.empty() ? "No recent conversations to invite." : "No friends found.",
-            13, muted
+            *list, 8, 24, inner - Style::spaceLg,
+            state.query.empty() ? "No recent conversations to invite." : "No friends found.", Style::fontSizeCaption,
+            muted
         );
       } else {
         for (std::size_t row = 0; row < state.matches.size(); ++row) {
           const float rowY = row * 48.0F - state.scroll;
-          if (rowY + 48 < 0 || rowY > listHeight)
+          if (rowY + Style::spaceGroup < 0 || rowY > listHeight)
             continue;
           const auto& recipient = state.recipients[state.matches[row]];
           const bool pending = state.pending.contains(recipient.key), sent = state.sent.contains(recipient.key);
           const bool failed = state.errors.contains(recipient.key);
-          const float rowWidth = inner - 12;
-          const bool over = ChannelInviteBounds{x + 24, listTop + rowY, rowWidth, 46}.contains(m_pointerX, m_pointerY);
+          const float rowWidth = inner - Style::spaceMd;
+          const bool over =
+              ChannelInviteBounds{x + Style::spaceXl, listTop + rowY, rowWidth, 46}.contains(m_pointerX, m_pointerY);
           if (over)
-            rectangle(*list, 0, rowY, rowWidth, 46, sidebar, 6);
-          avatar(*list, 4, rowY + 7, 32, recipient.avatar, recipient.name);
+            rectangle(*list, 0, rowY, rowWidth, 46, sidebar, Style::radiusMd);
+          avatar(
+              *list, 4, rowY + (Style::spaceCompact + Style::borderWidth), layout::Avatar::small, recipient.avatar,
+              recipient.name
+          );
           if (!recipient.user.empty())
-            statusBadge(*list, 27, rowY + 29, userStatus(recipient.user), over ? sidebar : background);
+            statusBadge(
+                *list, 27, rowY + (Style::spaceWide + Style::borderWidth), userStatus(recipient.user),
+                over ? sidebar : background
+            );
           label(
-              *list, 47, rowY + (failed || !recipient.username.empty() ? 6 : 14), rowWidth - 141, recipient.name, 13,
-              foreground, FontWeight::Medium
+              *list, 47, rowY + (failed || !recipient.username.empty() ? 6 : 14), rowWidth - 141, recipient.name,
+              Style::fontSizeCaption, foreground, FontWeight::Medium
           );
           if (failed || !recipient.username.empty())
             label(
-                *list, 47, rowY + 26, rowWidth - 141, failed ? "Couldn't send invite. Try again." : recipient.username,
-                11, failed ? danger : muted
+                *list, 47, rowY + (Style::spaceXl + Style::spaceXxs), rowWidth - 141,
+                failed ? "Couldn't send invite. Try again." : recipient.username, Style::fontSizeMini,
+                failed ? danger : muted
             );
-          const Hit hit{x + 24 + rowWidth - 82, listTop + rowY + 8, 82, 30, Action::InviteRecipient, recipient.key};
+          const Hit hit{x + Style::spaceXl + rowWidth - 82,
+                        listTop + rowY + Style::spaceSm,
+                        82,
+                        30,
+                        Action::InviteRecipient,
+                        recipient.key};
           // Draw in local coordinates but clip the manual target to the same visible row.
           drawButton(
-              *list, {rowWidth - 82, rowY + 8, 82, 30, hit.action, hit.id},
+              *list, {rowWidth - 82, rowY + Style::spaceSm, 82, 30, hit.action, hit.id},
               pending      ? "Sending…"
                   : sent   ? "Sent"
                   : failed ? "Retry"
@@ -585,37 +635,44 @@ namespace app {
         );
       const float footerTop = y + height - 136;
       label(
-          root, x + 24, footerTop, inner, "Or, send a server invite link to a friend", 13, foreground,
-          FontWeight::Medium
+          root, x + Style::spaceXl, footerTop, inner, "Or, send a server invite link to a friend",
+          Style::fontSizeCaption, foreground, FontWeight::Medium
       );
-      inviteSurface(root, x + 24, footerTop + 28, inner - 92, 36, sidebar, raised, 7);
+      inviteSurface(root, x + Style::spaceXl, footerTop + Style::spaceWide, inner - 92, 36, sidebar, raised, 7);
       label(
-          root, x + 36, footerTop + 38, inner - 116,
+          root, x + (Style::space2Xl + Style::spaceXs), footerTop + (Style::spaceSection - Style::spaceXxs),
+          inner - 116,
           !m_sidebarInviteUrl.empty() ? m_sidebarInviteUrl
               : m_dialogPending       ? "Generating invite link…"
                                       : "Invite link unavailable",
-          12, m_sidebarInviteUrl.empty() ? muted : foreground
+          Style::fontSizeDescription, m_sidebarInviteUrl.empty() ? muted : foreground
       );
       drawButton(
-          root, {x + width - 108, footerTop + 28, 84, 36, Action::InviteCopy, {}}, state.copied ? "Copied" : "Copy",
-          true, !m_sidebarInviteUrl.empty()
+          root, {x + width - 108, footerTop + Style::spaceWide, 84, 36, Action::InviteCopy, {}},
+          state.copied ? "Copied" : "Copy", true, !m_sidebarInviteUrl.empty()
       );
       const std::string expiry = state.maxAge == 0
           ? "This invite link never expires."
           : "This invite link expires in " + optionLabel(ageOptions, state.maxAge) + ".";
-      label(root, x + 24, footerTop + 76, inner - 126, expiry, 11, muted, FontWeight::Normal, 2);
+      label(
+          root, x + Style::spaceXl, footerTop + 76, inner - 126, expiry, Style::fontSizeMini, muted, FontWeight::Normal,
+          2
+      );
       const Hit editHit{
           x + width - 142, footerTop + 71, 118, 25, m_dialogPending ? Action::None : Action::InviteEditLink, {}
       };
       label(
-          root, editHit.x, editHit.y + 5, editHit.width, "Edit invite link", 12, m_dialogPending ? muted : accent,
-          FontWeight::Medium
+          root, editHit.x, editHit.y + (Style::spaceXs + Style::borderWidth), editHit.width, "Edit invite link",
+          Style::fontSizeDescription, m_dialogPending ? muted : accent, FontWeight::Medium
       );
       m_hits.push_back(editHit);
       if (!m_dialogError.empty()) {
-        label(root, x + 24, footerTop + 101, inner - 84, m_dialogError, 11, danger);
+        label(root, x + Style::spaceXl, footerTop + 101, inner - 84, m_dialogError, Style::fontSizeMini, danger);
         const Hit retry{x + width - 86, footerTop + 98, 62, 23, Action::InviteGenerate, {}};
-        label(root, retry.x, retry.y + 4, retry.width, "Retry", 12, accent, FontWeight::Medium);
+        label(
+            root, retry.x, retry.y + Style::spaceXs, retry.width, "Retry", Style::fontSizeDescription, accent,
+            FontWeight::Medium
+        );
         m_hits.push_back(retry);
       }
     }
@@ -684,8 +741,13 @@ namespace app {
         return hit.action == action && (id.empty() || hit.id == id);
       });
       require(at != m_hits.end(), "Expected invite action must be visible and enabled");
-      m_window.motion(at->x + at->width / 2, at->y + at->height / 2 + m_window.titlebarHeight() - 36);
-      m_window.click(at->x + at->width / 2, at->y + at->height / 2 + m_window.titlebarHeight() - 36, 272);
+      m_window.motion(
+          at->x + at->width / 2, at->y + at->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
+      m_window.click(
+          at->x + at->width / 2, at->y + at->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight,
+          272
+      );
       m_window.released();
     };
     const auto ack = [&](const api::Interaction& action, const std::string& error = std::string{}) {
@@ -729,7 +791,7 @@ namespace app {
           + 9
           - m_channelInvite.formScroll
           + m_window.titlebarHeight()
-          - 36;
+          - (Style::space2Xl + Style::spaceXs);
       m_window.motion(x, y);
       m_window.click(x, y, 272);
       m_window.released();
@@ -810,7 +872,7 @@ namespace app {
       const float py = m_channelInvite.dropdownBounds.y
           + (menu->rowTop(last) + menu->rowBottom(last)) / 2
           + m_window.titlebarHeight()
-          - 36;
+          - (Style::space2Xl + Style::spaceXs);
       m_window.motion(px, py);
       m_window.click(px, py, 272);
       m_window.released();

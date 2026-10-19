@@ -258,7 +258,7 @@ namespace app {
                leaving = m_dialogKind == "server-leave", folder = m_dialogKind == "server-folder";
     const auto guild = std::ranges::find(m_guilds, m_serverDialogGuild, &api::Guild::id);
     const std::string guildName = guild == m_guilds.end() ? "Unavailable server" : guild->name;
-    const float width = std::min(500.0F, w - 32), inner = width - 40;
+    const float width = std::min(500.0F, w - Style::space2Xl), inner = width - 40;
     struct Row {
       enum Kind { Heading, Paragraph, Toggle, Radio, Field } kind;
       std::string title, description, id;
@@ -350,12 +350,13 @@ namespace app {
       else if (row.kind == Row::Field)
         row.height = 64;
       else if (row.kind == Row::Toggle)
-        row.height = std::max(
-                         30.0F,
-                         measured(row.title, 13, FontWeight::SemiBold, inner - 44)
-                             + 4
-                             + measured(row.description, 12, FontWeight::Normal, inner - 44)
-                     )
+        row.height =
+            std::max(
+                30.0F,
+                measured(row.title, 13, FontWeight::SemiBold, inner - (Style::spaceSection + Style::spaceXs))
+                    + 4
+                    + measured(row.description, 12, FontWeight::Normal, inner - (Style::spaceSection + Style::spaceXs))
+            )
             + 16;
       else
         row.height = measured(row.title, 12, FontWeight::Normal, inner) + 18;
@@ -365,8 +366,8 @@ namespace app {
     const float height = std::min(contentHeight + errorHeight + 136, std::max(160.0F, h - 70));
     const float x = (w - width) / 2, y = std::max(42.0F, (h - height + 36) / 2);
     const float bodyTop = y + 72, viewport = std::max(12.0F, height - 136 - errorHeight);
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, .65F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, .65F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
     auto surface = std::make_unique<RectNode>();
     surface->setPosition(x, y);
     surface->setFrameSize(width, height);
@@ -374,11 +375,18 @@ namespace app {
     root.addChild(std::move(surface));
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
-    label(root, x + 20, y + 18, inner - 30, m_dialogTitle, 19, foreground, FontWeight::SemiBold);
-    label(root, x + 20, y + 45, inner, guildName, 12, muted);
-    iconButton(root, {x + width - 40, y + 14, 26, 26, Action::CloseDialog, {}}, "x", "Close");
+    label(
+        root, x + Style::spaceRelaxed, y + (Style::spaceLg + Style::spaceXxs),
+        inner - (Style::space2Xl - Style::spaceXxs), m_dialogTitle, Style::fontSizeDialog, foreground,
+        FontWeight::SemiBold
+    );
+    label(
+        root, x + Style::spaceRelaxed, y + ((Style::spaceSection + Style::spaceXs) + Style::borderWidth), inner,
+        guildName, Style::fontSizeDescription, muted
+    );
+    iconButton(root, {x + width - 40, y + Style::cardPadding, 26, 26, Action::CloseDialog, {}}, "x", "Close");
     auto clip = std::make_unique<Node>();
-    clip->setPosition(x + 20, bodyTop);
+    clip->setPosition(x + Style::spaceRelaxed, bodyTop);
     clip->setSize(inner, viewport);
     clip->setClipChildren(true);
     auto body = std::make_unique<Node>();
@@ -390,10 +398,12 @@ namespace app {
     float cursor = 0;
     for (const auto& row : rows) {
       if (row.kind == Row::Heading)
-        label(page, 0, cursor + 8, inner, row.title, 12, muted, FontWeight::SemiBold);
+        label(
+            page, 0, cursor + Style::spaceSm, inner, row.title, Style::fontSizeDescription, muted, FontWeight::SemiBold
+        );
       else if (row.kind == Row::Radio) {
         Hit hit{
-            x + 20,
+            x + Style::spaceRelaxed,
             bodyTop + cursor - m_serverDialogScroll,
             inner,
             28,
@@ -401,14 +411,26 @@ namespace app {
             row.id
         };
         if (hit.contains(m_pointerX, m_pointerY))
-          rectangle(page, 0, cursor, inner, 28, sidebar, 5);
-        glyph(page, 3, cursor + 5, 17, row.checked ? "circle-dot" : "circle", row.checked ? accent : muted);
-        label(page, 29, cursor + 6, inner - 32, row.title, 12, foreground);
+          rectangle(page, 0, cursor, inner, 28, sidebar, Style::controlRadius);
+        glyph(
+            page, 3, cursor + (Style::spaceXs + Style::borderWidth), 17, row.checked ? "circle-dot" : "circle",
+            row.checked ? accent : muted
+        );
+        label(
+            page, 29, cursor + Style::spaceCompact, inner - Style::space2Xl, row.title, Style::fontSizeDescription,
+            foreground
+        );
         m_hits.push_back(std::move(hit));
       } else if (row.kind == Row::Toggle) {
-        const float titleHeight =
-            label(page, 0, cursor + 1, inner - 44, row.title, 13, foreground, FontWeight::SemiBold, 0);
-        label(page, 0, cursor + titleHeight + 5, inner - 44, row.description, 12, muted, FontWeight::Normal, 0);
+        const float titleHeight = label(
+            page, 0, cursor + Style::borderWidth, inner - (Style::spaceSection + Style::spaceXs), row.title,
+            Style::fontSizeCaption, foreground, FontWeight::SemiBold, 0
+        );
+        label(
+            page, 0, cursor + titleHeight + (Style::spaceXs + Style::borderWidth),
+            inner - (Style::spaceSection + Style::spaceXs), row.description, Style::fontSizeDescription, muted,
+            FontWeight::Normal, 0
+        );
         const std::string key = "toggle:server-menu:" + row.id;
         std::unique_ptr<Node> saved;
         if (auto old = m_detachedInputs.find(key); old != m_detachedInputs.end()) {
@@ -420,17 +442,17 @@ namespace app {
         m_widgets[key] = control.get();
         control->setToggleSize(ToggleSize::Small);
         control->setFrameSize(30, 18);
-        control->setPosition(inner - 30, cursor + 1);
+        control->setPosition(inner - (Style::space2Xl - Style::spaceXxs), cursor + Style::borderWidth);
         control->setCheckedImmediate(row.checked);
         control->setEnabled(!m_dialogPending);
         control->setOnChange([this, id = row.id](bool) { serverMenuDialogAction(id); });
         page.addChild(std::move(control));
       } else if (row.kind == Row::Field) {
-        label(page, 0, cursor, inner, row.title, 13, foreground, FontWeight::SemiBold);
-        auto& input = inputControl(page, 0, cursor + 24, inner, 32, "dialog", m_dialogText, "New folder");
+        label(page, 0, cursor, inner, row.title, Style::fontSizeCaption, foreground, FontWeight::SemiBold);
+        auto& input = inputControl(page, 0, cursor + Style::spaceXl, inner, 32, "dialog", m_dialogText, "New folder");
         input.setEnabled(!m_dialogPending);
       } else
-        label(page, 0, cursor, inner, row.title, 12, foreground, FontWeight::Normal, 0);
+        label(page, 0, cursor, inner, row.title, Style::fontSizeDescription, foreground, FontWeight::Normal, 0);
       cursor += row.height;
     }
     for (std::size_t i = firstHit; i < m_hits.size(); ++i) {
@@ -446,7 +468,10 @@ namespace app {
         m_serverDialogScroll
     );
     if (!m_dialogError.empty())
-      label(root, x + 20, y + height - 57 - errorHeight, inner, m_dialogError, 12, danger, FontWeight::Normal, 0);
+      label(
+          root, x + Style::spaceRelaxed, y + height - 57 - errorHeight, inner, m_dialogError,
+          Style::fontSizeDescription, danger, FontWeight::Normal, 0
+      );
     const auto actionButton = [&](Hit hit, const std::string& text, bool primary, bool enabled) {
       const bool hover = enabled && hit.contains(m_pointerX, m_pointerY);
       const Color fill = primary ? (leaving ? destructive : accent) : sidebar;
@@ -462,10 +487,10 @@ namespace app {
            .borderWidth = primary ? 0.0F : 1.0F}
       );
       root.addChild(std::move(shape));
-      const auto metrics = renderer.measureText(text, 12, FontWeight::Normal);
+      const auto metrics = renderer.measureText(text, Style::fontSizeDescription, FontWeight::Normal);
       label(
           root, hit.x + (hit.width - metrics.width) / 2, hit.y + (hit.height - (metrics.bottom - metrics.top)) / 2,
-          metrics.width + 2, text, 12,
+          metrics.width + Style::spaceXxs, text, Style::fontSizeDescription,
           !enabled      ? muted
               : primary ? (leaving ? rgbHex(0xFFFFFF) : ink)
                         : foreground
@@ -474,8 +499,8 @@ namespace app {
         hit.action = Action::None;
       m_hits.push_back(std::move(hit));
     };
-    const float buttonWidth = (inner - 8) / 2, buttonY = y + height - 44;
-    actionButton({x + 20, buttonY, buttonWidth, 26, Action::CloseDialog, {}}, "Cancel", false, true);
+    const float buttonWidth = (inner - Style::spaceSm) / 2, buttonY = y + height - 44;
+    actionButton({x + Style::spaceRelaxed, buttonY, buttonWidth, 26, Action::CloseDialog, {}}, "Cancel", false, true);
     const bool retry = privacy && !m_serverPrivacyLoaded && !m_dialogPending;
     const bool valid = guild != m_guilds.end()
         && !m_dialogPending
@@ -483,8 +508,8 @@ namespace app {
         && (!leaving || m_roleDirectory.owner(m_serverDialogGuild) != m_account.id)
         && (!folder || m_dialogText.find_first_not_of(" \t\r\n") != std::string::npos);
     actionButton(
-        {x + 28 + buttonWidth, buttonY, buttonWidth, 26, retry ? Action::ServerMenuDialogAction : Action::SubmitDialog,
-         retry ? "privacy-retry" : ""},
+        {x + Style::spaceWide + buttonWidth, buttonY, buttonWidth, 26,
+         retry ? Action::ServerMenuDialogAction : Action::SubmitDialog, retry ? "privacy-retry" : ""},
         m_dialogPending ? (privacy && !m_serverPrivacyLoaded ? "Loading…" : "Saving…")
             : retry     ? "Retry"
             : leaving   ? "Leave Server"

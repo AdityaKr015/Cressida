@@ -154,7 +154,7 @@ namespace app {
     frame->setPosition(0, form.y);
     frame->setSize(width, height);
     frame->setClipChildren(true);
-    rectangle(*frame, 0, 0, width, height, background, 5);
+    rectangle(*frame, 0, 0, width, height, background, Style::controlRadius);
     picture(
         *frame, -bounds.x * scale, -bounds.y * scale, crop.width * scale, crop.height * scale, crop.texture, 0, true,
         false, ImageFitMode::Stretch
@@ -195,7 +195,7 @@ namespace app {
       });
       form.node.addChild(std::move(control));
       if (stacked)
-        form.y += 32;
+        form.y += Style::space2Xl;
     };
     slider("Zoom", "zoom", crop.zoom, 1, 4);
     slider("Horizontal position", "x", crop.x, 0, 1);
@@ -203,11 +203,11 @@ namespace app {
     form.buttonControl(form.node, 0, form.y, 98, "Apply crop", "crop-apply", ButtonVariant::Primary, true);
     form.buttonControl(form.node, 110, form.y, 98, "Use original", "crop-original", ButtonVariant::Default, true);
     if (form.width < 300)
-      form.y += 38;
+      form.y += (Style::spaceSection - Style::spaceXxs);
     form.buttonControl(
         form.node, form.width < 300 ? 0 : 220, form.y, 70, "Cancel", "crop-cancel", ButtonVariant::Default, true
     );
-    form.y += 40;
+    form.y += Style::spaceSection;
     return true;
   }
 } // namespace app

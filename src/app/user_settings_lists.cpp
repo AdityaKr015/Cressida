@@ -688,20 +688,23 @@ namespace app {
     const auto buttons = [&](const std::vector<ListButton>& items) {
       float x = 0, y = form.y;
       for (const auto& item : items) {
-        const auto measured = m_window.target().renderer().measureText(item.caption, 12, FontWeight::Medium).width;
+        const auto measured = m_window.target()
+                                  .renderer()
+                                  .measureText(item.caption, Style::fontSizeDescription, FontWeight::Medium)
+                                  .width;
         const auto w = std::min(form.width, std::max(76.0F, std::ceil(measured) + 20));
         if (x && x + w > form.width) {
           x = 0;
-          y += 36;
+          y += (Style::space2Xl + Style::spaceXs);
         }
         form.buttonControl(
             form.node, x, y, w, item.caption, "lists:" + item.id, item.variant,
             !state.busy && !state.mfaRequest && !state.confirmationRequest
         );
-        x += w + 8;
+        x += w + Style::spaceSm;
       }
       if (!items.empty())
-        form.y = y + 38;
+        form.y = y + (Style::spaceSection - Style::spaceXxs);
     };
     if (state.mfaRequest) {
       form.section("Verify your identity");
@@ -1257,7 +1260,7 @@ namespace app {
         x += parent->x();
         y += parent->y();
       }
-      m_window.click(x, y + m_window.titlebarHeight() - 36, 272);
+      m_window.click(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272);
       m_window.released();
     };
     const auto request = [&]() -> api::UserSettingsRequest {

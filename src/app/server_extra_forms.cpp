@@ -220,7 +220,7 @@ namespace app {
                            float height = 32) {
       f.detail(title, description);
       auto& field = inputControl(node, 0, y, width, height, "server-settings:extra:" + id, initial, {}, height > 32);
-      field.setFontSize(12);
+      field.setFontSize(Style::fontSizeDescription);
       field.setEnabled(editable);
       field.setOnChange(std::move(change));
       field.setOnSubmit([](const std::string&) {});
@@ -282,7 +282,7 @@ namespace app {
                   + '/'
                   + hash
                   + (hash.starts_with("a_") ? ".gif?size=128" : ".png?size=128"),
-              5
+              Style::controlRadius
           );
           y += 60;
         }
@@ -292,7 +292,7 @@ namespace app {
         if (state.guideIconDrafts[field].value("icon", Json()).is_null())
           f.row("Icon removed", "Save changes to remove this guide image.");
         else {
-          picture(node, 0, y, 48, 48, "server-guide-upload:" + state.guild + ':' + field, 5);
+          picture(node, 0, y, 48, 48, "server-guide-upload:" + state.guild + ':' + field, Style::controlRadius);
           y += 60;
         }
       }
@@ -337,21 +337,25 @@ namespace app {
             + (hash.starts_with("a_") ? ".gif?size=512" : ".png?size=512");
       };
       const auto headerHeight = std::min(156.0F, width * 0.35F);
-      rectangle(node, 0, y, width, headerHeight + 74, panel, 8);
-      if (!picture(node, 0, y, width, headerHeight, asset(banner, "banners"), 8))
-        rectangle(node, 0, y, width, headerHeight, raised, 8);
-      rectangle(node, 16, y + headerHeight - 34, 72, 72, panel, 36);
-      if (!picture(node, 20, y + headerHeight - 30, 64, 64, asset(icon, "icons"), 32))
-        glyph(node, 36, y + headerHeight - 14, 32, "building-community", muted);
+      rectangle(node, 0, y, width, headerHeight + 74, panel, Style::surfaceRadius);
+      if (!picture(node, 0, y, width, headerHeight, asset(banner, "banners"), Style::surfaceRadius))
+        rectangle(node, 0, y, width, headerHeight, raised, Style::surfaceRadius);
+      rectangle(node, 16, y + headerHeight - (Style::space2Xl + Style::spaceXxs), 72, 72, panel, 36);
+      if (!picture(node, 20, y + headerHeight - (Style::space2Xl - Style::spaceXxs), 64, 64, asset(icon, "icons"), 32))
+        glyph(node, 36, y + headerHeight - Style::cardPadding, Style::glyphSizeDisplay, "building-community", muted);
       // Use the actual draft string; JSON scalars intentionally do not use object lookup.
       const auto name = value("name", "");
       if (name.is_string())
         label(
-            node, 102, y + headerHeight + 10, width - 118, name.get<std::string>(), 16, foreground, FontWeight::SemiBold
+            node, 102, y + headerHeight + Style::spaceDense, width - 118, name.get<std::string>(), Style::fontSizeTitle,
+            foreground, FontWeight::SemiBold
         );
       const auto description = value("description", "");
       if (description.is_string())
-        label(node, 102, y + headerHeight + 36, width - 118, description.get<std::string>(), 11, muted);
+        label(
+            node, 102, y + headerHeight + (Style::space2Xl + Style::spaceXs), width - 118,
+            description.get<std::string>(), Style::fontSizeMini, muted
+        );
       y += headerHeight + 90;
       return true;
     }
@@ -385,9 +389,10 @@ namespace app {
       slider->setOnValueChanged([this](double value) { setServerSettingsValue("volume", value / 100); });
       node.addChild(std::move(slider));
       label(
-          node, width - 54, y + 5, 54, std::to_string(static_cast<int>(std::round(current * 100))) + "%", 12, foreground
+          node, width - 54, y + (Style::spaceXs + Style::borderWidth), 54,
+          std::to_string(static_cast<int>(std::round(current * 100))) + "%", Style::fontSizeDescription, foreground
       );
-      y += 38;
+      y += (Style::spaceSection - Style::spaceXxs);
       return true;
     }
     if (part == "template-summary") {
@@ -650,7 +655,7 @@ namespace app {
         f.buttonControl(
             node, 194, y, 82, "Remove", "remove-welcome:" + std::to_string(i), ButtonVariant::Default, editable
         );
-        y += 38;
+        y += (Style::spaceSection - Style::spaceXxs);
       }
       if (channels.size() < 5)
         f.button("Add channel", "add-welcome");

@@ -13,8 +13,8 @@ namespace app {
   ) {
     using namespace theme;
     const float absoluteX = chatLeft() + 74, absoluteY = m_messageViewportTop + y;
-    const bool over = hovered(chatLeft() + 24, absoluteY, width + 50, layout.height);
-    glyph(parent, 8, y + 2, 20, "arrow-right", success);
+    const bool over = hovered(chatLeft() + Style::spaceXl, absoluteY, width + 50, layout.height);
+    glyph(parent, 8, y + Style::spaceXxs, Style::glyphSizeLarge, "arrow-right", success);
     m_messageText[message.id] = layout.plainText;
     m_hits.push_back({absoluteX, absoluteY, width, layout.height, Action::SelectMessage, message.id});
     for (const auto& run : layout.runs) {
@@ -35,7 +35,7 @@ namespace app {
           const float offset = run.image.empty() ? measure(std::string_view(run.text).substr(0, from - run.offset)) : 0;
           const float length =
               run.image.empty() ? measure(std::string_view(run.text).substr(from - run.offset, to - from)) : run.width;
-          rectangle(parent, x + offset, top, length, run.height, withAlpha(accent, .3F), 2);
+          rectangle(parent, x + offset, top, length, run.height, withAlpha(accent, .3F), Style::radiusXs);
         }
       }
       if (!run.image.empty()) {
@@ -43,12 +43,12 @@ namespace app {
           label(parent, x, top, run.width, "…", run.style.size, foreground);
       } else if (run.style.mention)
         roleLabel(
-            parent, x, top, run.width + 2, run.text, run.style.size, foreground, FontWeight::Normal, message.authorId,
-            "join:" + message.id, over, message.memberRoles
+            parent, x, top, run.width + Style::spaceXxs, run.text, run.style.size, foreground, FontWeight::Normal,
+            message.authorId, "join:" + message.id, over, message.memberRoles
         );
       else
         label(
-            parent, x, top, run.width + 2, messageMarkup(run.text, run.style), run.style.size, muted,
+            parent, x, top, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size, muted,
             FontWeight::Normal, 1, true
         );
       m_textAreas.push_back({run, message.id, absoluteX + run.x, absoluteY + run.y});
@@ -65,9 +65,9 @@ namespace app {
     if (!layout.runs.empty() && message.timestamp.size() >= 16) {
       const auto& last = layout.runs.back();
       label(
-          parent, 50 + last.x + last.width + 6, y + last.y + 4, message.deleted ? 120 : 36,
-          message.timestamp.substr(11, 5) + (message.deleted ? " · Deleted" : ""), 10,
-          message.deleted ? theme::danger : muted
+          parent, 50 + last.x + last.width + Style::spaceCompact, y + last.y + Style::spaceXs,
+          message.deleted ? 120 : 36, message.timestamp.substr(11, 5) + (message.deleted ? " · Deleted" : ""),
+          Style::fontSizeDetail, message.deleted ? theme::danger : muted
       );
     }
     reactionStrip(&parent, message, 50, y + std::max(22.0F, layout.height) + 6, width, true);
@@ -107,7 +107,10 @@ namespace app {
     const auto add = std::ranges::find_if(m_hits, [](const auto& hit) { return hit.action == Action::AddReaction; });
     require(step == 1 || add != m_hits.end(), "Join reaction rows expose the native add-reaction control");
     if (step == 0) {
-      m_window.click(add->x + 8, add->y + 8 + m_window.titlebarHeight() - 36, 272);
+      m_window.click(
+          add->x + Style::spaceSm, add->y + Style::spaceSm + m_window.titlebarHeight() - layout::Window::titlebarHeight,
+          272
+      );
       m_window.released();
       require(m_emojiMenu, "Join reaction buttons must open the real emoji picker");
     } else if (step == 1) {

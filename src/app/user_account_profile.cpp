@@ -189,7 +189,7 @@ namespace app {
     image->setPosition(0, form.y);
     image->setSize(width, height);
     image->setClipChildren(true);
-    rectangle(*image, 0, 0, width, height, theme::background, 5);
+    rectangle(*image, 0, 0, width, height, theme::background, Style::controlRadius);
     picture(
         *image, -area.x * scale, -area.y * scale, crop.width * scale, crop.height * scale, crop.texture, 0, true, false,
         ImageFitMode::Stretch

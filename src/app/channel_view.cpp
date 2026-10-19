@@ -57,6 +57,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::clearChannelFeatures() {
+    m_pendingDiscordLink.reset();
     clearChatPreload();
     m_channelMuteTimer.stop();
     m_channelListPreferences = {};
@@ -177,15 +178,23 @@ namespace app {
   void ClientApplication::drawChannelHeader(Node& root, float w) {
     const float left = chatLeft();
     const float width = w - left;
-    rectangle(root, left, 36, width, 66, background);
+    rectangle(root, left, layout::Window::titlebarHeight, width, layout::ChannelHeader::height, background);
     const auto* channel = selectedChannel();
     if (!channel) {
-      label(root, left + 24, 57, width - 48, "Choose a channel", 19, foreground, FontWeight::SemiBold);
+      label(
+          root, left + Style::spaceXl, 57, width - Style::spaceGroup, "Choose a channel", Style::fontSizeDialog,
+          foreground, FontWeight::SemiBold
+      );
       return;
     }
     const bool thread = channel->isThread();
-    const float searchWidth = width >= 690 ? std::clamp(width * 0.28F, 180.0F, 260.0F) : 32;
-    const float searchX = w - 18 - searchWidth;
+    const float searchWidth = width >= layout::ChannelHeader::searchBreakpoint
+        ? std::clamp(
+              width * layout::ChannelHeader::searchWidthFraction, layout::ChannelHeader::searchMinimumWidth,
+              layout::ChannelHeader::searchMaximumWidth
+          )
+        : 32;
+    const float searchX = w - (Style::spaceLg + Style::spaceXxs) - searchWidth;
     if (searchWidth > 32)
       inputControl(root, searchX, 52, searchWidth, 32, "channel-search", m_channelSearchText, "Search messages…");
     else
@@ -193,7 +202,7 @@ namespace app {
           root, {searchX, 52, 32, 32, Action::ChannelSearch, {}}, "search", "Search messages (Ctrl+F)",
           m_channelPanel == "search"
       );
-    float icons = searchX - 146;
+    float icons = searchX - layout::ChannelHeader::actionsReserve;
     iconButton(
         root,
         {icons, 52, 30, 32, m_dmMode ? Action::ChannelInfo : Action::BrowseThreads,
@@ -201,37 +210,42 @@ namespace app {
         m_dmMode ? "info-circle" : "messages", m_dmMode ? "Conversation details" : "Threads"
     );
     iconButton(
-        root, {icons + 35, 52, 30, 32, Action::ToggleChannelMute, {}},
+        root, {icons + layout::ChannelHeader::actionStep, 52, 30, 32, Action::ToggleChannelMute, {}},
         m_userDirectory.muted(m_channelId) ? "bell-off" : "bell",
         m_userDirectory.muted(m_channelId) ? "Unmute channel" : "Mute channel", m_userDirectory.muted(m_channelId)
     );
     iconButton(
-        root, {icons + 70, 52, 30, 32, Action::ChannelPins, {}}, "pin", "Pinned messages", m_channelPanel == "pins"
+        root, {icons + layout::ChannelHeader::actionStep * 2, 52, 30, 32, Action::ChannelPins, {}}, "pin",
+        "Pinned messages", m_channelPanel == "pins"
     );
     iconButton(
-        root, {icons + 105, 52, 30, 32, Action::ToggleMembers, {}}, "users", "Member list",
-        m_showMembers && m_channelPanel.empty()
+        root, {icons + layout::ChannelHeader::actionStep * 3, 52, 30, 32, Action::ToggleMembers, {}}, "users",
+        "Member list", m_showMembers && m_channelPanel.empty()
     );
-    float nameX = left + 22;
+    float nameX = left + (Style::spaceXl - Style::spaceXxs);
     if (thread) {
       iconButton(
-          root, {left + 13, 52, 28, 32, Action::ThreadParent, channel->parentId}, "arrow-left", "Back to channel"
+          root, {left + (Style::spaceMd + Style::borderWidth), 52, 28, 32, Action::ThreadParent, channel->parentId},
+          "arrow-left", "Back to channel"
       );
-      nameX += 28;
+      nameX += Style::spaceWide;
     } else if (m_dmMode && channel->type == 1 && !channel->recipients.empty()) {
-      statusBadge(root, nameX + 5, 68, userStatus(channel->recipients.front().id), background);
-      nameX += 23;
+      statusBadge(
+          root, nameX + (Style::spaceXs + Style::borderWidth), 68, userStatus(channel->recipients.front().id),
+          background
+      );
+      nameX += ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth);
     } else if (!m_dmMode) {
-      glyph(root, nameX, 58, 21, channel->isForum() ? "messages" : "hash", muted);
-      nameX += 31;
+      channelIcon(root, nameX, layout::ChannelHeader::iconTop, layout::Sidebar::iconSize, *channel, muted, background);
+      nameX += ((Style::space2Xl - Style::spaceXxs) + Style::borderWidth);
     }
-    const float available = std::max(20.0F, icons - nameX - 12);
+    const float available = std::max(20.0F, icons - nameX - Style::spaceMd);
     const auto name = channelName(*channel);
-    const auto measured = m_window.target().renderer().measureText(name, 16, FontWeight::SemiBold);
+    const auto measured = m_window.target().renderer().measureText(name, Style::fontSizeTitle, FontWeight::SemiBold);
     const float nameWidth = std::min(available, std::max(40.0F, measured.width + 4));
-    label(root, nameX, 60, nameWidth, name, 16, foreground, FontWeight::SemiBold);
+    label(root, nameX, 60, nameWidth, name, Style::fontSizeTitle, foreground, FontWeight::SemiBold);
     m_hits.push_back({nameX, 48, nameWidth, 44, Action::ChannelInfo, {}});
-    float topicX = nameX + nameWidth + 18;
+    float topicX = nameX + nameWidth + (Style::spaceLg + Style::spaceXxs);
     if (thread && available - nameWidth > 96) {
       const auto action = channel->archived.value_or(false) ? Action::ReopenThread
           : channel->joined.value_or(false)                 ? Action::LeaveThread
@@ -244,7 +258,7 @@ namespace app {
                                                 : "Join"
       );
     } else if (!m_dmMode && channel->topic && !channel->topic->empty() && icons - topicX > 75) {
-      rectangle(root, topicX - 9, 56, 1, 25, raised);
+      rectangle(root, topicX - (Style::spaceSm + Style::borderWidth), 56, 1, 25, raised);
       const auto measure = [this](std::string_view text, const MessageStyle& style) {
         return m_window.target()
             .renderer()
@@ -255,27 +269,28 @@ namespace app {
             .width;
       };
       const auto preview = layoutMessage(
-          oneLineReplyText(*channel->topic), 16384, measure, 12, {}, {.compact = true, .discordTimestamps = true}
+          oneLineReplyText(*channel->topic), 16384, measure, Style::fontSizeDescription, {},
+          {.compact = true, .discordTimestamps = true}
       );
       auto topic = std::make_unique<Node>();
       topic->setPosition(topicX, 58);
-      topic->setSize(icons - topicX - 12, 24);
+      topic->setSize(icons - topicX - Style::spaceMd, 24);
       topic->setClipChildren(true);
       for (const auto& run : preview.runs) {
         if (run.y > 3)
           continue;
         if (run.style.spoiler)
-          rectangle(*topic, run.x, 2, run.width, run.height, raised, 3);
+          rectangle(*topic, run.x, 2, run.width, run.height, raised, Style::radiusSm);
         else if (!run.image.empty())
           emojiImage(*topic, run.x, 0, run.width, run.image);
         else
           label(
-              *topic, run.x, 2, run.width + 2, messageMarkup(run.text, run.style), run.style.size, muted,
+              *topic, run.x, 2, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size, muted,
               FontWeight::Normal, 1, true
           );
       }
       root.addChild(std::move(topic));
-      m_hits.push_back({topicX, 48, std::max(1.0F, icons - topicX - 12), 44, Action::ChannelInfo, {}});
+      m_hits.push_back({topicX, 48, std::max(1.0F, icons - topicX - Style::spaceMd), 44, Action::ChannelInfo, {}});
     }
   }
   float ClientApplication::channelIntro(Node* root, float x, float y, float width) {
@@ -296,8 +311,7 @@ namespace app {
       return 0;
     const auto roles = m_roleDirectory.allRoles(m_guildId);
     const auto access = api::channelAccessRoles(m_guildId, roles, *channel);
-    const auto base = api::channelPermissions(m_guildId, "", "", roles, std::vector<std::string>{}, *channel);
-    const bool privateChannel = base && !(*base & api::viewChannel);
+    const bool privateChannel = channelPrivate(m_guildId, *channel);
     const auto permissions = selectedChannelPermissions().value_or(0);
     const auto measure = [&](std::string_view text, const MessageStyle& style) {
       return m_window.target()
@@ -309,14 +323,14 @@ namespace app {
           .width;
     };
     const auto description = layoutMessage(
-        channel->topic.value_or(""), width, measure, 13, {},
+        channel->topic.value_or(""), width, measure, Style::fontSizeCaption, {},
         {.compact = true,
          .unicodeEmoji = [this](std::string_view value) { return m_emojiCatalog.isUnicode(value); },
          .discordTimestamps = true}
     );
     const float topicHeight = std::min(180.0F, description.height);
     const bool controls = permissions & (api::manageChannel | api::managePermissions);
-    const float controlsY = 142 + (channel->topic && !channel->topic->empty() ? topicHeight + 14 : 0);
+    const float controlsY = 142 + (channel->topic && !channel->topic->empty() ? topicHeight + Style::cardPadding : 0);
     const float chipsY = controlsY + (controls ? 42 : 0);
     struct Chip {
       const api::ColoredRole* role;
@@ -328,43 +342,54 @@ namespace app {
       for (const auto& role : access) {
         if (role.id == m_guildId)
           continue;
-        const float size = std::min(width, m_window.target().renderer().measureText(role.name, 11).width + 34);
+        const float size =
+            std::min(width, m_window.target().renderer().measureText(role.name, Style::fontSizeMini).width + 34);
         if (cx > 0 && cx + size > width) {
           cx = 0;
-          cy += 30;
+          cy += (Style::space2Xl - Style::spaceXxs);
         }
         if (cy >= 60)
           break;
         chips.push_back({&role, cx, cy, size});
         cx += size + 7;
       }
-    const float chipHeight = chips.empty() ? 0 : chips.back().y + 30;
-    const float height = chipsY + chipHeight + 30;
+    const float chipHeight = chips.empty() ? 0 : chips.back().y + (Style::space2Xl - Style::spaceXxs);
+    const float height = chipsY + chipHeight + (Style::space2Xl - Style::spaceXxs);
     if (!root)
       return height;
-    rectangle(*root, x, y + 4, 58, 58, panel, 29);
-    glyph(*root, x + 12, y + 16, 34, privateChannel ? "lock" : "hash", foreground);
-    label(*root, x, y + 78, width, "Welcome to #" + channel->name + "!", 24, foreground, FontWeight::Bold);
+    rectangle(
+        *root, x, y + layout::ChannelIntro::badgeTop, layout::ChannelIntro::badgeSize, layout::ChannelIntro::badgeSize,
+        panel, layout::ChannelIntro::badgeSize / 2
+    );
+    channelIcon(
+        *root, x + layout::ChannelIntro::iconInset,
+        y + layout::ChannelIntro::badgeTop + layout::ChannelIntro::iconInset, layout::ChannelIntro::iconSize, *channel,
+        foreground, panel
+    );
+    label(
+        *root, x, y + 78, width, "Welcome to #" + channel->name + "!", Style::fontSizeHero, foreground, FontWeight::Bold
+    );
     label(
         *root, x, y + 117, width,
-        "This is the start of the #" + channel->name + (privateChannel ? " private channel." : " channel."), 12, muted
+        "This is the start of the #" + channel->name + (privateChannel ? " private channel." : " channel."),
+        Style::fontSizeDescription, muted
     );
     auto hitsBegin = m_hits.size();
     for (const auto& run : description.runs) {
       if (run.y + run.height > topicHeight)
         continue;
       if (run.style.spoiler)
-        rectangle(*root, x + run.x, y + 142 + run.y, run.width, run.height, raised, 3);
+        rectangle(*root, x + run.x, y + 142 + run.y, run.width, run.height, raised, Style::radiusSm);
       else if (!run.image.empty())
         emojiImage(*root, x + run.x, y + 142 + run.y, run.width, run.image);
       else
         label(
-            *root, x + run.x, y + 142 + run.y, run.width + 2, messageMarkup(run.text, run.style), run.style.size,
-            run.style.link.empty() ? foreground : accent, FontWeight::Normal, 1, true
+            *root, x + run.x, y + 142 + run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style),
+            run.style.size, run.style.link.empty() ? foreground : accent, FontWeight::Normal, 1, true
         );
       if (!run.style.link.empty() && !run.style.spoiler)
         m_hits.push_back(
-            {chatLeft() + 24 + x + run.x, m_messageViewportTop + y + 142 + run.y, run.width, run.height,
+            {chatLeft() + Style::spaceXl + x + run.x, m_messageViewportTop + y + 142 + run.y, run.width, run.height,
              Action::OpenUrl, run.style.link}
         );
     }
@@ -383,18 +408,24 @@ namespace app {
       h.height = std::max(0.0F, end - h.y);
     }
     for (const auto& chip : chips) {
-      rectangle(*root, x + chip.x, y + chipsY + chip.y, chip.width, 24, panel, 7);
+      rectangle(*root, x + chip.x, y + chipsY + chip.y, chip.width, 24, panel, Style::hoverRadius);
       rectangle(
-          *root, x + chip.x + 9, y + chipsY + chip.y + 8, 9, 9,
-          chip.role->colors.primary ? rgbHex(chip.role->colors.primary) : muted, 5
+          *root, x + chip.x + (Style::spaceSm + Style::borderWidth), y + chipsY + chip.y + Style::spaceSm, 9, 9,
+          chip.role->colors.primary ? rgbHex(chip.role->colors.primary) : muted, Style::controlRadius
       );
-      label(*root, x + chip.x + 25, y + chipsY + chip.y + 7, chip.width - 30, chip.role->name, 11, foreground);
+      label(
+          *root, x + chip.x + (Style::spaceXl + Style::borderWidth),
+          y + chipsY + chip.y + (Style::spaceCompact + Style::borderWidth), chip.width - 30, chip.role->name,
+          Style::fontSizeMini, foreground
+      );
     }
-    rectangle(*root, x, y + height - 12, width, 1, raised);
+    rectangle(*root, x, y + height - Style::spaceMd, width, 1, raised);
     return height;
   }
   void ClientApplication::channelFeatureEvent(const api::Event& event) {
     if (event.operation == api::Operation::ChannelDetails) {
+      m_messageLayouts.clear();
+      m_completionDirty = true;
       m_channelDetailRequests.erase(event.resource);
       if (!event.error.empty())
         m_channelDetailErrors[event.resource] = event.error;
@@ -487,25 +518,33 @@ namespace app {
     rectangle(root, x, y, width, height, sidebar);
     rectangle(root, x, y, 1, height, raised);
     label(
-        root, x + 18, y + 19, width - 74, m_channelPanel == "pins" ? "Pinned messages" : "Search results", 18,
-        foreground, FontWeight::SemiBold
+        root, x + (Style::spaceLg + Style::spaceXxs), y + ((Style::spaceLg + Style::spaceXxs) + Style::borderWidth),
+        width - 74, m_channelPanel == "pins" ? "Pinned messages" : "Search results", Style::fontSizeHeading, foreground,
+        FontWeight::SemiBold
     );
-    iconButton(root, {x + width - 44, y + 10, 32, 32, Action::CloseChannelPanel, {}}, "x", "Close panel");
+    iconButton(
+        root, {x + width - 44, y + Style::spaceDense, 32, 32, Action::CloseChannelPanel, {}}, "x", "Close panel"
+    );
     float top = y + 60;
     if (m_channelPanel == "search") {
-      inputControl(root, x + 16, top, width - 32, 34, "channel-search-panel", m_channelSearchText, "Search messages…");
-      top += 46;
+      inputControl(
+          root, x + Style::spaceLg, top, width - 32, 34, "channel-search-panel", m_channelSearchText, "Search messages…"
+      );
+      top += (Style::spaceGroup - Style::spaceXxs);
       if (m_channelPageShown)
-        label(root, x + 18, top, width - 36, std::to_string(m_channelPage.total) + " results", 11, muted);
-      top += 24;
+        label(
+            root, x + (Style::spaceLg + Style::spaceXxs), top, width - 36,
+            std::to_string(m_channelPage.total) + " results", Style::fontSizeMini, muted
+        );
+      top += Style::spaceXl;
     }
     const float footer = !m_channelPanelError.empty() ? 112 : 58, viewport = std::max(20.0F, y + height - top - footer);
     constexpr float rowHeight = 138;
     const float fullHeight = m_channelPage.messages.size() * rowHeight;
     m_scrolling.limit(m_channelPanelScroll, std::max(0.0F, fullHeight - viewport));
     auto content = std::make_unique<Node>();
-    content->setPosition(x + 12, top);
-    content->setSize(width - 24, viewport);
+    content->setPosition(x + Style::spaceMd, top);
+    content->setSize(width - Style::spaceXl, viewport);
     content->setClipChildren(true);
     content->setTextScrollOffset(-m_channelPanelScroll);
     for (std::size_t i = 0; i < m_channelPage.messages.size(); ++i) {
@@ -513,27 +552,28 @@ namespace app {
       const float ry = i * rowHeight - m_channelPanelScroll;
       if (ry + rowHeight <= 0 || ry >= viewport)
         continue;
-      const auto rowTop = std::max(top, top + ry), rowEnd = std::min(top + viewport, top + ry + rowHeight - 10);
+      const auto rowTop = std::max(top, top + ry),
+                 rowEnd = std::min(top + viewport, top + ry + rowHeight - Style::spaceDense);
       rectangle(
-          *content, 0, ry, width - 30, rowHeight - 10,
-          hovered(x + 12, rowTop, width - 30, rowEnd - rowTop) ? raised : panel, 9
+          *content, 0, ry, width - 30, rowHeight - Style::spaceDense,
+          hovered(x + Style::spaceMd, rowTop, width - 30, rowEnd - rowTop) ? raised : panel, Style::radiusLg
       );
       label(
-          *content, 12, ry + 13, width - 56, userName(message.authorId, message.author), 13, foreground,
-          FontWeight::SemiBold
+          *content, 12, ry + (Style::spaceMd + Style::borderWidth), width - 56,
+          userName(message.authorId, message.author), Style::fontSizeCaption, foreground, FontWeight::SemiBold
       );
       const auto channel = std::ranges::find(m_channels, message.channelId, &api::Channel::id);
       label(
-          *content, 12, ry + 35, width - 56,
-          (channel == m_channels.end() ? "Channel" : "#" + channel->name) + " · " + message.timestamp.substr(0, 10), 10,
-          muted
+          *content, 12, ry + ((Style::space2Xl + Style::spaceXxs) + Style::borderWidth), width - 56,
+          (channel == m_channels.end() ? "Channel" : "#" + channel->name) + " · " + message.timestamp.substr(0, 10),
+          Style::fontSizeDetail, muted
       );
       auto text = oneLineReplyText(message.content);
       if (text.empty())
         text = !message.attachments.empty() ? "Attachment" : "Message";
-      label(*content, 12, ry + 58, width - 56, text, 12, foreground, FontWeight::Normal, 3);
+      label(*content, 12, ry + 58, width - 56, text, Style::fontSizeDescription, foreground, FontWeight::Normal, 3);
       m_hits.push_back(
-          {x + 12, rowTop, width - 30, std::max(0.0F, rowEnd - rowTop), Action::ChannelPanelJump,
+          {x + Style::spaceMd, rowTop, width - 30, std::max(0.0F, rowEnd - rowTop), Action::ChannelPanelJump,
            message.channelId + ":" + message.id}
       );
     }
@@ -544,7 +584,7 @@ namespace app {
               : !m_channelPanelError.empty() ? ""
               : m_channelPanel == "pins"     ? "No pinned messages."
                                              : "Enter a search above.",
-          13, muted
+          Style::fontSizeCaption, muted
       );
     root.addChild(std::move(content));
     if (fullHeight > viewport) {
@@ -571,13 +611,18 @@ namespace app {
     }
     const float fy = top + viewport + 12;
     if (!m_channelPanelError.empty()) {
-      label(root, x + 16, fy, width - 32, m_channelPanelError, 12, rgbHex(0xED4245), FontWeight::Normal, 3);
-      button(root, {x + 16, y + height - 42, 80, 30, Action::ChannelPanelRetry, {}}, "Retry");
+      label(
+          root, x + Style::spaceLg, fy, width - Style::space2Xl, m_channelPanelError, Style::fontSizeDescription,
+          rgbHex(0xED4245), FontWeight::Normal, 3
+      );
+      button(root, {x + Style::spaceLg, y + height - 42, 80, 30, Action::ChannelPanelRetry, {}}, "Retry");
     } else if (m_channelPageRequest)
-      label(root, x + 18, fy, width - 36, "Loading…", 12, muted);
+      label(
+          root, x + (Style::spaceLg + Style::spaceXxs), fy, width - 36, "Loading…", Style::fontSizeDescription, muted
+      );
     else {
       if (m_channelPageShown && (m_channelPageShown->offset > 0 || !m_pinCursors.empty()))
-        button(root, {x + 16, fy, 90, 30, Action::ChannelPanelPrevious, {}}, "Previous");
+        button(root, {x + Style::spaceLg, fy, 90, 30, Action::ChannelPanelPrevious, {}}, "Previous");
       if (m_channelPage.more)
         button(root, {x + width - 106, fy, 90, 30, Action::ChannelPanelNext, {}}, "Next");
     }
@@ -660,17 +705,17 @@ namespace app {
       const float top = 112,
                   footer = changed || access || !m_dialogError.empty() ? (stackedFooter ? 112.0F : 84.0F) : 28.0F;
       const float viewport = std::max(80.0F, h - top - footer);
-      rectangle(root, 0, 36, w, h - 36, background);
-      rectangle(root, 0, 36, navRight, h - 36, sidebar);
-      m_dialogBounds = {0, 36, w, h - 36, Action::None, {}};
+      rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, background);
+      rectangle(root, 0, 36, navRight, h - layout::Window::titlebarHeight, sidebar);
+      m_dialogBounds = {0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}};
       m_hits.push_back(m_dialogBounds);
       label(
-          root, navX + 8, 60, navWidth - 16,
+          root, navX + Style::spaceSm, 60, navWidth - Style::spaceLg,
           (category                              ? ""
                : m_channelEditOriginal.type == 2 ? ""
                                                  : "# ")
               + m_channelEditOriginal.name,
-          12, muted, FontWeight::SemiBold
+          Style::fontSizeDescription, muted, FontWeight::SemiBold
       );
       const auto editButton = [&](Node& parent, Hit hit, const std::string& text, bool primary = false,
                                   bool selected = false, bool = false) {
@@ -686,7 +731,7 @@ namespace app {
         const bool navigation = (hit.action == Action::ChannelEditPage && (&parent == &root))
             || hit.action == Action::ChannelPermissionTarget;
         item->setText(text);
-        item->setFontSize(12);
+        item->setFontSize(Style::fontSizeDescription);
         item->setVariant(
             primary                                 ? ButtonVariant::Primary
                 : selected                          ? ButtonVariant::TabActive
@@ -713,13 +758,16 @@ namespace app {
         m_hits.push_back(std::move(hit));
       };
       editButton(
-          root, {navX, 93, navWidth - 12, 32, m_dialogPending ? Action::None : Action::ChannelEditPage, "overview"},
+          root,
+          {navX, 93, navWidth - Style::spaceMd, 32, m_dialogPending ? Action::None : Action::ChannelEditPage,
+           "overview"},
           "Overview", false, !permissions, !permissions
       );
       if (canPermissions)
         editButton(
             root,
-            {navX, 130, navWidth - 12, 32, m_dialogPending ? Action::None : Action::ChannelEditPage, "permissions"},
+            {navX, 130, navWidth - Style::spaceMd, 32, m_dialogPending ? Action::None : Action::ChannelEditPage,
+             "permissions"},
             "Permissions", false, permissions, permissions
         );
       label(
@@ -727,14 +775,14 @@ namespace app {
           access            ? "Add members or roles"
               : permissions ? "Permissions"
                             : "Overview",
-          21, foreground, FontWeight::SemiBold
+          Style::fontSizeProfile, foreground, FontWeight::SemiBold
       );
-      const float closeX = std::min(w - 40, contentX + width + 24);
+      const float closeX = std::min(w - Style::spaceSection, contentX + width + 24);
       iconButton(
           root, {closeX, 58, 30, 30, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "circle-x",
           "Close settings"
       );
-      label(root, closeX + 3, 93, 30, "ESC", 10, muted);
+      label(root, closeX + (Style::spaceXxs + Style::borderWidth), 93, 30, "ESC", Style::fontSizeDetail, muted);
 
       auto clipped = std::make_unique<Node>();
       clipped->setPosition(contentX, top);
@@ -755,8 +803,8 @@ namespace app {
         return std::max(size * 1.3F, std::ceil(bounds.bottom - bounds.top));
       };
       const auto detail = [&](const std::string& text, float y, float textWidth) {
-        label(*body, 0, y, textWidth, text, 12, muted, FontWeight::Normal, 0);
-        return textHeight(text, 12, textWidth);
+        label(*body, 0, y, textWidth, text, Style::fontSizeDescription, muted, FontWeight::Normal, 0);
+        return textHeight(text, Style::fontSizeDescription, textWidth);
       };
       const auto toggle = [&](const std::string& id, bool enabled, float y, const std::string& command, bool allowed) {
         std::unique_ptr<Node> saved;
@@ -791,21 +839,22 @@ namespace app {
       };
       if (!permissions) {
         label(
-            *body, 0, cursor, width, category ? "Category Name" : "Channel Name", 13, foreground, FontWeight::SemiBold
+            *body, 0, cursor, width, category ? "Category Name" : "Channel Name", Style::fontSizeCaption, foreground,
+            FontWeight::SemiBold
         );
         inputControl(
-            *body, 0, cursor + 25, width, 38, "channel-name", m_channelFormName,
+            *body, 0, cursor + (Style::spaceXl + Style::borderWidth), width, 38, "channel-name", m_channelFormName,
             category ? "New category" : "new-channel"
         )
             .setEnabled(canManage && !m_dialogPending);
         cursor += 90;
         if (!category) {
           label(
-              *body, 0, cursor, width, m_channelEditOriginal.isForum() ? "Post Guidelines" : "Channel Topic", 13,
-              foreground, FontWeight::SemiBold
+              *body, 0, cursor, width, m_channelEditOriginal.isForum() ? "Post Guidelines" : "Channel Topic",
+              Style::fontSizeCaption, foreground, FontWeight::SemiBold
           );
           inputControl(
-              *body, 0, cursor + 25, width, 150, "channel-topic", m_channelFormTopic,
+              *body, 0, cursor + (Style::spaceXl + Style::borderWidth), width, 150, "channel-topic", m_channelFormTopic,
               m_channelEditOriginal.isForum() ? "Help members create great posts…"
                                               : "Let everyone know how to use this channel!",
               true
@@ -816,11 +865,12 @@ namespace app {
           const auto limit = m_channelEditOriginal.isForum() ? 4096 : 1024;
           label(
               *body, width - 100, cursor + 183, 100,
-              std::to_string(api::utf8Length(m_channelFormTopic)) + " / " + std::to_string(limit), 11, muted
+              std::to_string(api::utf8Length(m_channelFormTopic)) + " / " + std::to_string(limit), Style::fontSizeMini,
+              muted
           );
           cursor += 225;
           if (m_channelEditOriginal.type != 2) {
-            label(*body, 0, cursor, width - 95, "Slowmode", 13, foreground, FontWeight::SemiBold);
+            label(*body, 0, cursor, width - 95, "Slowmode", Style::fontSizeCaption, foreground, FontWeight::SemiBold);
             static constexpr std::array<int, 14> durations{0,   5,   10,  15,   30,   60,   120,
                                                            300, 600, 900, 1800, 3600, 7200, 21600};
             const auto durationName = [](int value) {
@@ -832,7 +882,10 @@ namespace app {
                 return std::to_string(value / 60) + (value == 60 ? " minute" : " minutes");
               return std::to_string(value / 3600) + (value == 3600 ? " hour" : " hours");
             };
-            label(*body, width - 95, cursor + 1, 95, durationName(m_channelFormRateLimit), 12, muted);
+            label(
+                *body, width - 95, cursor + Style::borderWidth, 95, durationName(m_channelFormRateLimit),
+                Style::fontSizeDescription, muted
+            );
             std::unique_ptr<Node> saved;
             const std::string id = "channel-edit:slowmode";
             if (auto found = m_detachedInputs.find(id); found != m_detachedInputs.end()) {
@@ -848,7 +901,7 @@ namespace app {
             control->setStep(1);
             control->setValue(std::min<std::size_t>(at - durations.begin(), durations.size() - 1));
             control->setEnabled(canManage && !m_dialogPending);
-            control->setPosition(0, cursor + 27);
+            control->setPosition(0, cursor + ((Style::spaceXl + Style::spaceXxs) + Style::borderWidth));
             control->setFrameSize(width, 28);
             control->setOnValueChanged([this](double value) {
               static constexpr std::array<int, 14> values{0,   5,   10,  15,   30,   60,   120,
@@ -866,9 +919,12 @@ namespace app {
                       )
                 + 30;
           }
-          label(*body, 0, cursor, width - 50, "Age-Restricted Channel", 13, foreground, FontWeight::SemiBold);
+          label(
+              *body, 0, cursor, width - 50, "Age-Restricted Channel", Style::fontSizeCaption, foreground,
+              FontWeight::SemiBold
+          );
           toggle("channel-edit:nsfw", m_channelFormNsfw, cursor, "nsfw", canManage);
-          cursor += 25;
+          cursor += (Style::spaceXl + Style::borderWidth);
           cursor +=
               detail("Members must confirm they are at least 18 years old to view this channel.", cursor, width - 45)
               + 24;
@@ -883,8 +939,8 @@ namespace app {
             "Members", false, m_channelAccessMode == 1, m_channelAccessMode == 1
         );
         inputControl(
-            *body, 0, cursor + 46, width, 38, "channel-access-filter", m_channelAccessFilter,
-            m_channelAccessMode == 0 ? "Search roles" : "Search members or enter a user ID"
+            *body, 0, cursor + (Style::spaceGroup - Style::spaceXxs), width, 38, "channel-access-filter",
+            m_channelAccessFilter, m_channelAccessMode == 0 ? "Search roles" : "Search members or enter a user ID"
         )
             .setEnabled(canPermissions && !m_dialogPending);
         cursor += 105;
@@ -912,54 +968,71 @@ namespace app {
         }
         for (const auto& [id, name] : targets) {
           const bool selected = m_channelAccessTarget == id;
-          rectangle(*body, 0, cursor, width, 40, selected ? raised : panel, 5);
-          glyph(*body, 13, cursor + 11, 18, selected ? "circle-check" : "circle", selected ? accent : muted);
-          label(*body, 43, cursor + 11, width - 55, name, 13, foreground);
+          rectangle(*body, 0, cursor, width, 40, selected ? raised : panel, Style::controlRadius);
+          glyph(
+              *body, 13, cursor + (Style::spaceDense + Style::borderWidth), Style::glyphSizeMedium,
+              selected ? "circle-check" : "circle", selected ? accent : muted
+          );
+          label(
+              *body, 43, cursor + (Style::spaceDense + Style::borderWidth), width - 55, name, Style::fontSizeCaption,
+              foreground
+          );
           m_hits.push_back(
               {contentX, top + cursor - m_channelDialogScroll, width, 40,
                m_dialogPending ? Action::None : Action::ChannelAccessTarget, id}
           );
-          cursor += 46;
+          cursor += (Style::spaceGroup - Style::spaceXxs);
         }
         if (targets.empty())
           cursor += detail("No matching roles or members.", cursor, width) + 30;
       } else {
         const bool privateChannel = triState(m_guildId, 0, api::viewChannel) == -1;
-        label(*body, 0, cursor, width - 46, "Private Channel", 14, foreground, FontWeight::SemiBold);
+        label(*body, 0, cursor, width - 46, "Private Channel", Style::fontSizeBody, foreground, FontWeight::SemiBold);
         toggle("channel-edit:private", privateChannel, cursor, "private", canPermissions);
-        cursor += 26;
+        cursor += (Style::spaceXl + Style::spaceXxs);
         cursor += detail("Only selected members and roles will be able to view this channel.", cursor, width - 45) + 24;
         const auto accessRoles =
             api::channelAccessRoles(m_guildId, m_roleDirectory.allRoles(m_guildId), m_channelEditOriginal);
-        label(*body, 0, cursor, width, "Who can access this channel", 13, foreground, FontWeight::SemiBold);
-        cursor += 27;
+        label(
+            *body, 0, cursor, width, "Who can access this channel", Style::fontSizeCaption, foreground,
+            FontWeight::SemiBold
+        );
+        cursor += ((Style::spaceXl + Style::spaceXxs) + Style::borderWidth);
         if (!privateChannel) {
-          label(*body, 0, cursor, width, "@everyone", 13, foreground);
-          cursor += 31;
+          label(*body, 0, cursor, width, "@everyone", Style::fontSizeCaption, foreground);
+          cursor += ((Style::space2Xl - Style::spaceXxs) + Style::borderWidth);
         }
         for (const auto& role : accessRoles) {
           if (role.id == m_guildId)
             continue;
           rectangle(*body, 0, cursor, 8, 8, role.colors.primary ? rgbHex(role.colors.primary) : muted, 4);
-          label(*body, 20, cursor - 4, width - 20, role.name, 13, foreground);
-          cursor += 28;
+          label(
+              *body, 20, cursor - Style::spaceXs, width - Style::spaceRelaxed, role.name, Style::fontSizeCaption,
+              foreground
+          );
+          cursor += Style::spaceWide;
         }
         if (m_channelEditOriginal.overwrites)
           for (const auto& overwrite : *m_channelEditOriginal.overwrites)
             if (overwrite.type == 1 && (api::permissionBits(overwrite.allow).value_or(0) & api::viewChannel)) {
-              glyph(*body, 0, cursor - 3, 16, "user", muted);
-              label(*body, 23, cursor - 3, width - 23, userName(overwrite.id, "User " + overwrite.id), 13, foreground);
-              cursor += 28;
+              glyph(*body, 0, cursor - (Style::spaceXxs + Style::borderWidth), Style::baseGlyphSize, "user", muted);
+              label(
+                  *body, 23, cursor - (Style::spaceXxs + Style::borderWidth), width - 23,
+                  userName(overwrite.id, "User " + overwrite.id), Style::fontSizeCaption, foreground
+              );
+              cursor += Style::spaceWide;
             }
         editButton(
             *body,
-            {0, cursor + 3, std::min(210.0F, width), 32, m_dialogPending ? Action::None : Action::ChannelEditPage,
-             "access"},
+            {0, cursor + (Style::spaceXxs + Style::borderWidth), std::min(210.0F, width), 32,
+             m_dialogPending ? Action::None : Action::ChannelEditPage, "access"},
             "Add members or roles"
         );
         cursor += 69;
-        label(*body, 0, cursor, width, "Advanced permissions", 15, foreground, FontWeight::SemiBold);
-        cursor += 30;
+        label(
+            *body, 0, cursor, width, "Advanced permissions", Style::fontSizeSubtitle, foreground, FontWeight::SemiBold
+        );
+        cursor += (Style::space2Xl - Style::spaceXxs);
         struct PermissionTarget {
           std::string id, name;
           int type;
@@ -989,11 +1062,11 @@ namespace app {
                (target.type ? "member:" : "role:") + target.id},
               target.name, false, selected, selected
           );
-          targetY += 35;
+          targetY += ((Style::space2Xl + Style::spaceXxs) + Style::borderWidth);
         }
         if (!columns)
-          cursor = targetY + 20;
-        const float permissionX = columns ? targetWidth + 24 : 0, permissionWidth = width - permissionX;
+          cursor = targetY + Style::spaceRelaxed;
+        const float permissionX = columns ? targetWidth + Style::spaceXl : 0, permissionWidth = width - permissionX;
         struct PermissionRow {
           std::uint64_t bit;
           const char* name;
@@ -1043,34 +1116,40 @@ namespace app {
           if (permission.bit == (1ULL << 9) && !category && m_channelEditOriginal.type != 2)
             continue;
           const float titleWidth = std::max(70.0F, permissionWidth - 112);
-          const float heading = textHeight(permission.name, 13, titleWidth, FontWeight::SemiBold);
-          label(*body, permissionX, cursor + 5, titleWidth, permission.name, 13, foreground, FontWeight::SemiBold, 0);
+          const float heading = textHeight(permission.name, Style::fontSizeCaption, titleWidth, FontWeight::SemiBold);
           label(
-              *body, permissionX, cursor + heading + 13, permissionWidth, permission.description, 12, muted,
-              FontWeight::Normal, 0
+              *body, permissionX, cursor + (Style::spaceXs + Style::borderWidth), titleWidth, permission.name,
+              Style::fontSizeCaption, foreground, FontWeight::SemiBold, 0
+          );
+          label(
+              *body, permissionX, cursor + heading + 13, permissionWidth, permission.description,
+              Style::fontSizeDescription, muted, FontWeight::Normal, 0
           );
           const int value = triState(m_channelPermissionTarget, m_channelPermissionType, permission.bit);
           const float controlsX = width - 102;
-          rectangle(*body, controlsX, cursor + 2, 102, 30, panel, 4);
+          rectangle(*body, controlsX, cursor + Style::spaceXxs, 102, 30, panel, 4);
           for (int state = -1; state <= 1; ++state) {
             const float rx = controlsX + (state + 1) * 34;
             const Color selectedColor = state < 0 ? destructive : state > 0 ? success : raised;
             if (value == state)
-              rectangle(*body, rx + 1, cursor + 3, 32, 28, selectedColor, 3);
+              rectangle(
+                  *body, rx + Style::borderWidth, cursor + (Style::spaceXxs + Style::borderWidth), 32, 28,
+                  selectedColor, Style::radiusSm
+              );
             glyph(
-                *body, rx + 8, cursor + 9, 16,
+                *body, rx + Style::spaceSm, cursor + (Style::spaceSm + Style::borderWidth), Style::baseGlyphSize,
                 state < 0       ? "x"
                     : state > 0 ? "check"
                                 : "slash",
                 value == state && state ? rgbHex(0xFFFFFF) : muted
             );
             m_hits.push_back(
-                {contentX + rx, top + cursor + 2 - m_channelDialogScroll, 34, 30,
+                {contentX + rx, top + cursor + Style::spaceXxs - m_channelDialogScroll, 34, 30,
                  canPermissions && !m_dialogPending ? Action::ChannelEditOption : Action::None,
                  "permission:" + std::to_string(permission.bit) + ":" + std::to_string(state)}
             );
           }
-          cursor += heading + 26 + textHeight(permission.description, 12, permissionWidth) + 20;
+          cursor += heading + 26 + textHeight(permission.description, Style::fontSizeDescription, permissionWidth) + 20;
         }
         cursor = std::max(cursor, targetY);
       }
@@ -1093,21 +1172,26 @@ namespace app {
         );
       if (changed || access || !m_dialogError.empty()) {
         const float saveY = h - (stackedFooter ? 94 : 66), buttonY = saveY + (stackedFooter ? 30 : 0);
-        rectangle(root, contentX - 8, saveY - 7, width + 16, stackedFooter ? 81 : 53, panel, 7);
+        rectangle(
+            root, contentX - Style::spaceSm, saveY - (Style::spaceCompact + Style::borderWidth), width + Style::spaceLg,
+            stackedFooter ? 81 : 53, panel, Style::hoverRadius
+        );
         if (!m_dialogError.empty())
           label(
-              root, contentX + 9, saveY + 9, stackedFooter ? width - 18 : std::max(70.0F, width - 235), m_dialogError,
-              12, danger, FontWeight::Normal, 2
+              root, contentX + (Style::spaceSm + Style::borderWidth), saveY + (Style::spaceSm + Style::borderWidth),
+              stackedFooter ? width - 18 : std::max(70.0F, width - 235), m_dialogError, Style::fontSizeDescription,
+              danger, FontWeight::Normal, 2
           );
         else if (!access)
           label(
-              root, contentX + 9, saveY + 10, stackedFooter ? width - 18 : std::max(70.0F, width - 235),
-              "Careful — you have unsaved changes!", 12, foreground
+              root, contentX + (Style::spaceSm + Style::borderWidth), saveY + Style::spaceDense,
+              stackedFooter ? width - 18 : std::max(70.0F, width - 235), "Careful — you have unsaved changes!",
+              Style::fontSizeDescription, foreground
           );
         const float resetWidth = access ? 64 : 55, saveWidth = access ? 120 : 118;
         editButton(
             root,
-            {contentX + width - saveWidth - resetWidth - 12, buttonY, resetWidth, 34,
+            {contentX + width - saveWidth - resetWidth - Style::spaceMd, buttonY, resetWidth, 34,
              m_dialogPending ? Action::None
                  : access    ? Action::ChannelEditPage
                              : Action::ResetChannelEdit,
@@ -1133,15 +1217,21 @@ namespace app {
       return;
     }
 
-    const float width = std::min(560.0F, w - 32), height = std::min(530.0F, h - 64);
+    const float width = std::min(560.0F, w - Style::space2Xl), height = std::min(530.0F, h - 64);
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.55F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, 0.55F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
     rectangle(root, x, y, width, height, background, 10);
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
-    label(root, x + 24, y + 23, width - 90, "# " + m_channelEditOriginal.name, 20, foreground, FontWeight::SemiBold);
-    iconButton(root, {x + width - 44, y + 15, 30, 30, Action::CloseDialog, {}}, "x", "Close");
+    label(
+        root, x + Style::spaceXl, y + ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth), width - 90,
+        "# " + m_channelEditOriginal.name, Style::fontSizeHeader, foreground, FontWeight::SemiBold
+    );
+    iconButton(
+        root, {x + width - 44, y + (Style::cardPadding + Style::borderWidth), 30, 30, Action::CloseDialog, {}}, "x",
+        "Close"
+    );
     const auto measure = [&](std::string_view value, const MessageStyle& style) {
       return m_window.target()
           .renderer()
@@ -1152,45 +1242,54 @@ namespace app {
           .width;
     };
     const auto description = layoutMessage(
-        m_channelEditOriginal.topic.value_or(""), width - 60, measure, 14, {},
+        m_channelEditOriginal.topic.value_or(""), width - 60, measure, Style::fontSizeBody, {},
         {.compact = true, .discordTimestamps = true}
     );
     const auto roles = api::channelAccessRoles(m_guildId, m_roleDirectory.allRoles(m_guildId), m_channelEditOriginal);
     const float viewport = height - 150, full = std::max(30.0F, description.height) + 48 + roles.size() * 28;
     m_scrolling.limit(m_channelDialogScroll, std::max(0.0F, full - viewport));
     auto content = std::make_unique<Node>();
-    content->setPosition(x + 24, y + 74);
-    content->setSize(width - 48, viewport);
+    content->setPosition(x + Style::spaceXl, y + 74);
+    content->setSize(width - Style::spaceGroup, viewport);
     content->setClipChildren(true);
     for (const auto& run : description.runs) {
       const float ry = run.y - m_channelDialogScroll;
       if (run.style.spoiler)
-        rectangle(*content, run.x, ry, run.width, run.height, raised, 3);
+        rectangle(*content, run.x, ry, run.width, run.height, raised, Style::radiusSm);
       else if (!run.image.empty())
         emojiImage(*content, run.x, ry, run.width, run.image);
       else
         label(
-            *content, run.x, ry, run.width + 2, messageMarkup(run.text, run.style), run.style.size, foreground,
-            FontWeight::Normal, 1, true
+            *content, run.x, ry, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
+            foreground, FontWeight::Normal, 1, true
         );
     }
     if (m_channelEditOriginal.topic.value_or("").empty())
-      label(*content, 0, -m_channelDialogScroll, width - 60, "No channel description.", 14, muted);
+      label(*content, 0, -m_channelDialogScroll, width - 60, "No channel description.", Style::fontSizeBody, muted);
     const float roleY = std::max(30.0F, description.height) + 22 - m_channelDialogScroll;
-    label(*content, 0, roleY, width - 60, "Roles with channel access", 12, muted, FontWeight::SemiBold);
+    label(
+        *content, 0, roleY, width - 60, "Roles with channel access", Style::fontSizeDescription, muted,
+        FontWeight::SemiBold
+    );
     for (std::size_t i = 0; i < roles.size(); ++i) {
-      const float ry = roleY + 28 + i * 28;
-      rectangle(*content, 2, ry + 4, 9, 9, roles[i].colors.primary ? rgbHex(roles[i].colors.primary) : muted, 5);
-      label(*content, 22, ry + 1, width - 84, roles[i].name, 12, foreground);
+      const float ry = roleY + Style::spaceWide + i * 28;
+      rectangle(
+          *content, 2, ry + Style::spaceXs, 9, 9, roles[i].colors.primary ? rgbHex(roles[i].colors.primary) : muted,
+          Style::controlRadius
+      );
+      label(*content, 22, ry + Style::borderWidth, width - 84, roles[i].name, Style::fontSizeDescription, foreground);
     }
     root.addChild(std::move(content));
     const auto permissions = channelPermissionsFor(m_channelEditOriginal.id).value_or(0);
     if (permissions & (api::manageChannel | api::managePermissions))
-      button(root, {x + 24, y + height - 52, 112, 32, Action::EditChannel, {}}, "Edit Channel");
+      button(root, {x + Style::spaceXl, y + height - 52, 112, 32, Action::EditChannel, {}}, "Edit Channel");
     if (permissions & api::managePermissions)
       button(root, {x + 146, y + height - 52, 181, 32, Action::AddChannelAccess, {}}, "Add members or roles");
     if (m_channelDetailErrors.contains(m_channelEditOriginal.id)) {
-      label(root, x + 24, y + 54, width - 144, m_channelDetailErrors[m_channelEditOriginal.id], 11, muted);
+      label(
+          root, x + Style::spaceXl, y + 54, width - 144, m_channelDetailErrors[m_channelEditOriginal.id],
+          Style::fontSizeMini, muted
+      );
       button(root, {x + width - 111, y + 55, 80, 28, Action::ChannelDetailsRetry, {}}, "Retry");
     }
     m_tooltip.clear();
@@ -1467,7 +1566,7 @@ namespace app {
       if (button.disabled)
         break;
       if (button.style == 5) {
-        if (api::externalLink(button.url))
+        if (api::externalLink(button.url) && !openDiscordLink(button.url))
           auth::openExternalUrl(button.url);
         break;
       }
@@ -1588,6 +1687,7 @@ namespace app {
     return true;
   }
   void ClientApplication::jumpToMessage(const std::string& channel, const std::string& message) {
+    m_pendingDiscordLink.reset();
     if (!api::validSnowflake(channel) || !api::validSnowflake(message))
       return;
     if (m_channelId != channel) {

@@ -21,7 +21,7 @@ namespace app {
         x += node->x();
         y += node->y();
       }
-      m_window.click(x, y + m_window.titlebarHeight() - 36, 272);
+      m_window.click(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272);
       m_window.released();
     };
     const auto record = [&](const std::string& name) {

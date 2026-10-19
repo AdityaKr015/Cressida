@@ -8,14 +8,15 @@
 
 namespace app {
   float ClientApplication::channelSidebarWidth() const {
-    const float preferred = std::isfinite(m_preferences.channelSidebarWidth) ? m_preferences.channelSidebarWidth : 248;
-    // Leave a usable conversation column when the window or UI zoom changes.
-    return std::clamp(preferred, 200.0F, std::max(200.0F, std::min(480.0F, m_window.width() - 438.0F)));
+    return layout::sidebarWidth(m_preferences.channelSidebarWidth, m_window.width());
   }
-  float ClientApplication::chatLeft() const { return 78 + channelSidebarWidth(); }
+  float ClientApplication::chatLeft() const { return layout::Sidebar::railWidth + channelSidebarWidth(); }
   float ClientApplication::channelPanelWidth() const {
     const float available = m_window.width() - chatLeft();
-    return std::min({380.0F, std::max(250.0F, available - 250), available / 2});
+    return std::min(
+        {layout::Sidebar::panelPreferredWidth,
+         std::max(layout::Sidebar::panelMinimumWidth, available - layout::Sidebar::panelMinimumWidth), available / 2}
+    );
   }
   bool ClientApplication::sidebarResizeAvailable() const {
     return m_connected
@@ -30,9 +31,9 @@ namespace app {
   }
   bool ClientApplication::sidebarResizeAt(float x, float y) const {
     return sidebarResizeAvailable()
-        && std::abs(x - chatLeft()) <= 4
-        && y >= 36
-        && y < m_window.height() + 36 - m_window.titlebarHeight();
+        && std::abs(x - chatLeft()) <= layout::Sidebar::resizeSlop
+        && y >= layout::Window::titlebarHeight
+        && y < m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
   }
   void ClientApplication::finishSidebarResize() {
     if (!m_resizingSidebar)
@@ -47,8 +48,12 @@ namespace app {
       if (!ok)
         throw std::runtime_error(reason);
     };
-    const auto move = [&](float x, float y) { m_window.motion(x, y + m_window.titlebarHeight() - 36); };
-    const auto click = [&](float x, float y) { m_window.click(x, y + m_window.titlebarHeight() - 36, 1); };
+    const auto move = [&](float x, float y) {
+      m_window.motion(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight);
+    };
+    const auto click = [&](float x, float y) {
+      m_window.click(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 1);
+    };
     const auto controlPoint = [&](const std::string& id) {
       auto* control = m_inputs.at(id);
       float x = control->width() / 2, y = control->height() / 2;
@@ -56,7 +61,7 @@ namespace app {
         x += node->x();
         y += node->y();
       }
-      return std::pair{x, y + 36 - m_window.titlebarHeight()};
+      return std::pair{x, y + layout::Window::titlebarHeight - m_window.titlebarHeight()};
     };
     const auto shape = [&](std::uint32_t expected) {
       require(m_window.cursorShape() == expected, "Cursor must match the active control/drag");
@@ -76,9 +81,9 @@ namespace app {
       m_window.released();
       move(40, 160);
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
-      move(chatLeft() + 2, 180);
+      move(chatLeft() + Style::spaceXxs, 180);
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_COL_RESIZE);
-      click(chatLeft() + 2, 180);
+      click(chatLeft() + Style::spaceXxs, 180);
       move(78 + 360 + 2, 180);
     } else if (step == 2) {
       require(
@@ -89,7 +94,7 @@ namespace app {
         if (hit.action == Action::Channel)
           require(hit.width == 336, "Channel hit areas must follow the resized sidebar");
       const auto [x, y] = controlPoint("composer");
-      require(x > chatLeft() + 24, "Composer must move with the sidebar");
+      require(x > chatLeft() + Style::spaceXl, "Composer must move with the sidebar");
       move(5000, 180);
     } else if (step == 3) {
       require(channelSidebarWidth() == 480, "Sidebar drag must respect the maximum width");
@@ -132,7 +137,7 @@ namespace app {
     } else if (step == 9) {
       move(chatLeft(), 180);
       click(chatLeft(), 180);
-      move(chatLeft() - 40, 180);
+      move(chatLeft() - Style::spaceSection, 180);
       m_window.pointerLeft();
       require(!m_resizingSidebar, "Leaving the surface must end sidebar dragging");
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT);

@@ -599,11 +599,11 @@ namespace app {
     const bool duplicate = m_dialogKind == "sidebar-create";
     const bool deleting = m_dialogKind == "sidebar-delete";
     const bool moving = m_dialogKind == "sidebar-move";
-    const float width = std::min(448.0F, w - 32);
+    const float width = std::min(448.0F, w - Style::space2Xl);
     const float height = (duplicate ? 238 : moving ? 242 : deleting ? 216 : 194) + (m_dialogError.empty() ? 0 : 30);
     const float x = (w - width) / 2, y = std::max(42.0F, (h - height + 36) / 2);
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, .65F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, .65F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
     auto surface = std::make_unique<RectNode>();
     surface->setPosition(x, y);
     surface->setSize(width, height);
@@ -611,19 +611,33 @@ namespace app {
     root.addChild(std::move(surface));
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
-    label(root, x + 24, y + 23, width - 80, m_dialogTitle, 18, foreground, FontWeight::SemiBold);
+    label(
+        root, x + Style::spaceXl, y + ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth), width - 80,
+        m_dialogTitle, Style::fontSizeHeading, foreground, FontWeight::SemiBold
+    );
     iconButton(
-        root, {x + width - 42, y + 14, 28, 28, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "x", "Close"
+        root,
+        {x + width - 42, y + Style::cardPadding, 28, 28, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "x",
+        "Close"
     );
     if (duplicate) {
-      label(root, x + 24, y + 67, width - 48, "Channel Name", 13, foreground, FontWeight::Medium);
-      rectangle(root, x + 24, y + 92, width - 48, 36, sidebar, 7);
-      glyph(root, x + 35, y + 101, 18, "hash", muted);
+      label(
+          root, x + Style::spaceXl, y + 67, width - Style::spaceGroup, "Channel Name", Style::fontSizeCaption,
+          foreground, FontWeight::Medium
+      );
+      rectangle(root, x + Style::spaceXl, y + 92, width - Style::spaceGroup, 36, sidebar, Style::hoverRadius);
+      glyph(
+          root, x + ((Style::space2Xl + Style::spaceXxs) + Style::borderWidth), y + 101, Style::glyphSizeMedium, "hash",
+          muted
+      );
       auto& name = inputControl(root, x + 57, y + 92, width - 81, 36, "dialog", m_dialogText, "new-channel");
       name.setFrameVisible(false);
       name.setHorizontalPadding(3);
       name.setEnabled(!m_dialogPending);
-      label(root, x + 24, y + 139, width - 48, "A new channel with the same settings and permissions.", 12, muted);
+      label(
+          root, x + Style::spaceXl, y + 139, width - Style::spaceGroup,
+          "A new channel with the same settings and permissions.", Style::fontSizeDescription, muted
+      );
     } else {
       std::string description;
       const auto target =
@@ -643,15 +657,21 @@ namespace app {
             + "? This replaces its permission overrides with the category's. You can also keep its current "
               "permissions.";
       }
-      label(root, x + 24, y + 69, width - 48, description, 13, foreground, FontWeight::Normal, 4);
+      label(
+          root, x + Style::spaceXl, y + 69, width - Style::spaceGroup, description, Style::fontSizeCaption, foreground,
+          FontWeight::Normal, 4
+      );
     }
     if (!m_dialogError.empty())
-      label(root, x + 24, y + height - 90, width - 48, m_dialogError, 11, danger, FontWeight::Normal, 2);
+      label(
+          root, x + Style::spaceXl, y + height - 90, width - Style::spaceGroup, m_dialogError, Style::fontSizeMini,
+          danger, FontWeight::Normal, 2
+      );
     const float buttonWidth = (width - 56) / 2;
     const float buttonY = y + height - 58;
     button(
         root,
-        {x + 24, buttonY, buttonWidth, 36,
+        {x + Style::spaceXl, buttonY, buttonWidth, 36,
          m_dialogPending ? Action::None
              : moving    ? Action::ChannelMoveSync
                          : Action::CloseDialog,
@@ -660,7 +680,7 @@ namespace app {
     );
     if (duplicate || deleting || moving) {
       const Hit hit{
-          x + 32 + buttonWidth,
+          x + Style::space2Xl + buttonWidth,
           buttonY,
           buttonWidth,
           36,
@@ -676,16 +696,17 @@ namespace app {
             m_dialogPending ? lerpColor(background, destructive, .4F)
                 : over      ? lerpColor(destructive, foreground, .12F)
                             : destructive,
-            8
+            Style::surfaceRadius
         );
         const bool category = m_dialogAction && std::ranges::any_of(m_channels, [&](const auto& channel) {
                                 return channel.id == m_dialogAction->channel && channel.type == 4;
                               });
         const std::string caption = m_dialogPending ? "Deleting…" : category ? "Delete Category" : "Delete Channel";
-        const auto metrics = m_window.target().renderer().measureText(caption, 14, FontWeight::Medium);
+        const auto metrics = m_window.target().renderer().measureText(caption, Style::fontSizeBody, FontWeight::Medium);
         label(
             root, hit.x + (hit.width - metrics.width) / 2, hit.y + (hit.height - (metrics.bottom - metrics.top)) / 2,
-            metrics.width + 2, caption, 14, m_dialogPending ? muted : rgbHex(0xFFFFFF), FontWeight::Medium
+            metrics.width + Style::spaceXxs, caption, Style::fontSizeBody, m_dialogPending ? muted : rgbHex(0xFFFFFF),
+            FontWeight::Medium
         );
         m_hits.push_back(hit);
       } else {
@@ -832,7 +853,10 @@ namespace app {
       const auto at = std::ranges::find(m_contextEntries, id, &ContextMenuControlEntry::id);
       const auto index = static_cast<std::size_t>(at - m_contextEntries.begin());
       const float y = m_contextBounds.y + (m_contextControl->rowTop(index) + m_contextControl->rowBottom(index)) / 2;
-      m_window.click(m_contextBounds.x + m_contextBounds.width / 2, y + m_window.titlebarHeight() - 36, 272);
+      m_window.click(
+          m_contextBounds.x + m_contextBounds.width / 2, y + m_window.titlebarHeight() - layout::Window::titlebarHeight,
+          272
+      );
       m_window.released();
     };
     const auto open = [&](const std::string& id) {
@@ -842,7 +866,10 @@ namespace app {
                           : target.action == Action::ChannelMenu && target.id == id;
       });
       require(at != m_contextTargets.end(), "Right-click target must exist in the drawn sidebar");
-      m_window.contextClick(at->x + 10, (id.empty() ? 590 : at->y + 10) + m_window.titlebarHeight() - 36);
+      m_window.contextClick(
+          at->x + Style::spaceDense,
+          (id.empty() ? 590 : at->y + Style::spaceDense) + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
     };
     const auto child = [&](const std::string& label) {
       const auto at = std::ranges::find(m_channelSubmenuEntries, label, &ContextMenuControlEntry::label);
@@ -855,7 +882,7 @@ namespace app {
           m_reactionSubmenuBounds.y
               + (m_reactionControl->rowTop(index) + m_reactionControl->rowBottom(index)) / 2
               + m_window.titlebarHeight()
-              - 36,
+              - (Style::space2Xl + Style::spaceXs),
           272
       );
       m_window.released();
@@ -887,7 +914,8 @@ namespace app {
       } else if (step == 1) {
         require(
             m_contextScroll > 0
-                && m_contextBounds.y + m_contextBounds.height <= m_window.height() + 36 - m_window.titlebarHeight() - 8,
+                && m_contextBounds.y + m_contextBounds.height
+                    <= m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight() - Style::spaceSm,
             "Keyboard navigation reveals the last action while keeping the popup inside the window"
         );
         m_window.key({.symbol = XKB_KEY_Return});

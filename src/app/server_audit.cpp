@@ -296,7 +296,7 @@ namespace app {
           saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
       m_widgets[id] = control.get();
       control->setText(caption);
-      control->setFontSize(12);
+      control->setFontSize(Style::fontSizeDescription);
       control->setPosition(x, y);
       control->setControlHeight(26);
       control->setRadius(5);
@@ -309,24 +309,24 @@ namespace app {
     const auto card = [&](float top, float height) {
       auto node = std::make_unique<RectNode>();
       node->setPosition(-14, top);
-      node->setSize(width + 28, height);
+      node->setSize(width + Style::spaceWide, height);
       node->setStyle({.fill = sidebar, .radius = 8});
       node->setZIndex(-1);
       parent.addChild(std::move(node));
     };
     const auto description = [&](const std::string& title, const std::string& text) {
-      cursor += label(parent, 0, cursor, width, title, 13, foreground, FontWeight::SemiBold, 0);
+      cursor += label(parent, 0, cursor, width, title, Style::fontSizeCaption, foreground, FontWeight::SemiBold, 0);
       if (!text.empty()) {
-        cursor += 4;
-        cursor += label(parent, 0, cursor, width, text, 12, muted, FontWeight::Normal, 0);
+        cursor += Style::spaceXs;
+        cursor += label(parent, 0, cursor, width, text, Style::fontSizeDescription, muted, FontWeight::Normal, 0);
       }
-      cursor += 10;
+      cursor += Style::spaceDense;
     };
     if (!permitted) {
       cursor = 16;
       description("Audit log unavailable", "Your current roles do not allow you to view this server's audit log.");
-      card(0, cursor + 4);
-      return cursor + 4;
+      card(0, cursor + Style::spaceXs);
+      return cursor + Style::spaceXs;
     }
     const auto select = [&](const std::string& name, std::vector<std::string> options, std::size_t index,
                             std::function<void(std::size_t)> callback) {
@@ -336,7 +336,7 @@ namespace app {
           saved ? std::unique_ptr<Select>(static_cast<Select*>(saved.release())) : std::make_unique<Select>();
       m_widgets[id] = control.get();
       control->setOptions(std::move(options));
-      control->setFontSize(12);
+      control->setFontSize(Style::fontSizeDescription);
       control->setControlHeight(30);
       control->setHorizontalPadding(10);
       control->setPosition(0, cursor);
@@ -346,7 +346,7 @@ namespace app {
         callback(at);
       });
       parent.addChild(std::move(control));
-      cursor += 42;
+      cursor += (Style::spaceSection + Style::spaceXxs);
     };
     const auto changeFilter = [this] {
       auto& view = m_serverAudit;
@@ -365,12 +365,14 @@ namespace app {
     description(
         "Filters", "View administrative actions from the past 45 days, filtered by the person or action you choose."
     );
-    cursor += label(parent, 0, cursor, width, "Performed by", 12, foreground, FontWeight::SemiBold, 0) + 8;
+    cursor +=
+        label(parent, 0, cursor, width, "Performed by", Style::fontSizeDescription, foreground, FontWeight::SemiBold, 0)
+        + 8;
     auto& input = inputControl(
         parent, 0, cursor, width, 30, "server-settings:audit-user-search", view.actorQuery,
         "Find a user or enter their user ID"
     );
-    input.setFontSize(12);
+    input.setFontSize(Style::fontSizeDescription);
     input.setOnChange([this](const std::string& value) {
       m_serverAudit.actorQuery = value;
       m_window.invalidate();
@@ -381,7 +383,7 @@ namespace app {
         changeFilter();
       }
     });
-    cursor += 38;
+    cursor += (Style::spaceSection - Style::spaceXxs);
     std::map<std::string, std::string> actors;
     for (const auto& [id, user] : view.references.users)
       actors[id] = view.references.user(id);
@@ -408,7 +410,8 @@ namespace app {
         changeFilter();
       }
     });
-    cursor += label(parent, 0, cursor, width, "Action", 12, foreground, FontWeight::SemiBold, 0) + 8;
+    cursor +=
+        label(parent, 0, cursor, width, "Action", Style::fontSizeDescription, foreground, FontWeight::SemiBold, 0) + 8;
     std::vector<int> actionIds{0};
     std::vector<std::string> actionNames{"All actions"};
     std::size_t selectedAction = 0;
@@ -427,9 +430,9 @@ namespace app {
     button(0, cursor, 92, "Refresh", "audit:refresh", !view.loading);
     if (!view.actor.empty() || view.action)
       button(102, cursor, 112, "Reset filters", "audit:reset");
-    cursor += 38;
+    cursor += (Style::spaceSection - Style::spaceXxs);
     card(0, cursor);
-    cursor += 16;
+    cursor += Style::spaceLg;
     const AuditLookup lookup = [&](const std::string& id) -> std::string {
       if (id.empty())
         return {};
@@ -454,16 +457,16 @@ namespace app {
     };
     if (!view.error.empty()) {
       const auto top = cursor;
-      cursor += 14;
+      cursor += Style::cardPadding;
       description("Could not load audit log", view.error);
       button(0, cursor, 80, "Retry", "audit:retry", !view.loading);
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
       card(top, cursor - top);
-      cursor += 16;
+      cursor += Style::spaceLg;
     }
     if (view.loading && view.entries.empty()) {
       const auto top = cursor;
-      cursor += 14;
+      cursor += Style::cardPadding;
       description("Loading audit log", "The server's recent administrative actions are loading.");
       card(top, cursor - top);
       return cursor;
@@ -479,13 +482,14 @@ namespace app {
       const auto day = auditEntryTime(entry, true);
       if (date != day) {
         if (!date.empty()) {
-          card(dateTop, cursor - dateTop + 4);
-          cursor += 20;
+          card(dateTop, cursor - dateTop + Style::spaceXs);
+          cursor += Style::spaceRelaxed;
         }
         date = day;
         dateTop = cursor;
-        cursor += 14;
-        cursor += label(parent, 0, cursor, width, date, 12, muted, FontWeight::SemiBold, 0) + 12;
+        cursor += Style::cardPadding;
+        cursor +=
+            label(parent, 0, cursor, width, date, Style::fontSizeDescription, muted, FontWeight::SemiBold, 0) + 12;
       }
       const auto entryId = auditEntryId(entry);
       const auto actor = string(entry, "user_id");
@@ -495,60 +499,77 @@ namespace app {
         if (!hash.empty())
           path = "https://cdn.discordapp.com/avatars/" + actor + "/" + hash + ".png?size=64";
       }
-      avatar(parent, 0, cursor + 2, 28, path, actor.empty() ? "Discord" : lookup(actor));
+      avatar(parent, 0, cursor + Style::spaceXxs, layout::Avatar::dm, path, actor.empty() ? "Discord" : lookup(actor));
       const auto bodyX = 38.0F, bodyWidth = std::max(40.0F, width - bodyX);
       const auto summary = auditEntrySummary(entry, lookup);
       const auto details = auditEntryDetails(entry, lookup);
       const auto top = cursor;
-      cursor += label(parent, bodyX, cursor, bodyWidth, summary, 13, foreground, FontWeight::SemiBold, 0);
-      cursor += 4;
-      cursor += label(parent, bodyX, cursor, bodyWidth, auditEntryTime(entry), 11, muted, FontWeight::Normal, 0);
+      cursor +=
+          label(parent, bodyX, cursor, bodyWidth, summary, Style::fontSizeCaption, foreground, FontWeight::SemiBold, 0);
+      cursor += Style::spaceXs;
+      cursor += label(
+          parent, bodyX, cursor, bodyWidth, auditEntryTime(entry), Style::fontSizeMini, muted, FontWeight::Normal, 0
+      );
       if (const auto reason = string(entry, "reason"); !reason.empty()) {
-        cursor += 6;
-        cursor += label(parent, bodyX, cursor, bodyWidth, "Reason: " + reason, 12, foreground, FontWeight::Normal, 0);
+        cursor += Style::spaceCompact;
+        cursor += label(
+            parent, bodyX, cursor, bodyWidth, "Reason: " + reason, Style::fontSizeDescription, foreground,
+            FontWeight::Normal, 0
+        );
       }
-      cursor = std::max(cursor, top + 32);
+      cursor = std::max(cursor, top + Style::space2Xl);
       if (!details.empty()) {
-        cursor += 8;
+        cursor += Style::spaceSm;
         const bool expanded = view.expanded.contains(entryId);
         button(bodyX, cursor, 128, expanded ? "Hide details" : "Show details", "audit:expand:" + entryId);
-        cursor += 34;
+        cursor += (Style::space2Xl + Style::spaceXxs);
         if (expanded) {
           const bool columns = bodyWidth >= 390;
-          const float cellWidth = columns ? (bodyWidth - 18) / 2 : bodyWidth;
+          const float cellWidth = columns ? (bodyWidth - (Style::spaceLg + Style::spaceXxs)) / 2 : bodyWidth;
           for (const auto& detail : details) {
-            cursor += 8;
-            cursor +=
-                label(parent, bodyX, cursor, bodyWidth, detail.title, 12, foreground, FontWeight::SemiBold, 0) + 6;
+            cursor += Style::spaceSm;
+            cursor += label(
+                          parent, bodyX, cursor, bodyWidth, detail.title, Style::fontSizeDescription, foreground,
+                          FontWeight::SemiBold, 0
+                      )
+                + 6;
             if (!detail.hadBefore && detail.hasAfter) {
-              cursor += label(parent, bodyX, cursor, bodyWidth, detail.after, 12, foreground, FontWeight::Normal, 0);
-            } else if (columns) {
-              const auto oldHeight =
-                  label(parent, bodyX, cursor, cellWidth, "Before\n" + detail.before, 12, muted, FontWeight::Normal, 0);
-              const auto newHeight = label(
-                  parent, bodyX + cellWidth + 18, cursor, cellWidth, "After\n" + detail.after, 12, foreground,
+              cursor += label(
+                  parent, bodyX, cursor, bodyWidth, detail.after, Style::fontSizeDescription, foreground,
                   FontWeight::Normal, 0
+              );
+            } else if (columns) {
+              const auto oldHeight = label(
+                  parent, bodyX, cursor, cellWidth, "Before\n" + detail.before, Style::fontSizeDescription, muted,
+                  FontWeight::Normal, 0
+              );
+              const auto newHeight = label(
+                  parent, bodyX + cellWidth + (Style::spaceLg + Style::spaceXxs), cursor, cellWidth,
+                  "After\n" + detail.after, Style::fontSizeDescription, foreground, FontWeight::Normal, 0
               );
               cursor += std::max(oldHeight, newHeight);
             } else {
-              cursor +=
-                  label(parent, bodyX, cursor, cellWidth, "Before: " + detail.before, 12, muted, FontWeight::Normal, 0)
+              cursor += label(
+                            parent, bodyX, cursor, cellWidth, "Before: " + detail.before, Style::fontSizeDescription,
+                            muted, FontWeight::Normal, 0
+                        )
                   + 4;
               cursor += label(
-                  parent, bodyX, cursor, cellWidth, "After: " + detail.after, 12, foreground, FontWeight::Normal, 0
+                  parent, bodyX, cursor, cellWidth, "After: " + detail.after, Style::fontSizeDescription, foreground,
+                  FontWeight::Normal, 0
               );
             }
           }
-          cursor += 10;
+          cursor += Style::spaceDense;
         }
       }
-      cursor += 18;
+      cursor += (Style::spaceLg + Style::spaceXxs);
     }
     if (!date.empty())
-      card(dateTop, cursor - dateTop + 4);
+      card(dateTop, cursor - dateTop + Style::spaceXs);
     if (!visible && view.error.empty()) {
       const auto top = cursor;
-      cursor += 14;
+      cursor += Style::cardPadding;
       description(
           view.actor.empty() && !view.action ? "No recent administrative actions" : "No matching actions",
           view.actor.empty() && !view.action ? "This server has no audit log entries from the past 45 days."
@@ -557,13 +578,15 @@ namespace app {
       card(top, cursor - top);
     }
     if (view.loading && visible) {
-      cursor += 16;
-      cursor += label(parent, 0, cursor, width, "Loading older actions…", 12, muted, FontWeight::Normal, 0);
+      cursor += Style::spaceLg;
+      cursor += label(
+          parent, 0, cursor, width, "Loading older actions…", Style::fontSizeDescription, muted, FontWeight::Normal, 0
+      );
     } else if (view.more) {
-      cursor += 16;
+      cursor += Style::spaceLg;
       button(0, cursor, 144, "Load older actions", "audit:more", view.error.empty());
-      cursor += 36;
+      cursor += (Style::space2Xl + Style::spaceXs);
     }
-    return cursor + 8;
+    return cursor + Style::spaceSm;
   }
 } // namespace app

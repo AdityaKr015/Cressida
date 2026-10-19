@@ -109,10 +109,10 @@ namespace app {
       m_selectControl->setMaxVisible(entries.size());
       m_selectControl->setEntries(entries);
     }
-    const float minimum = std::min(std::max(120.0F, request.menuWidth), w - 16);
+    const float minimum = std::min(std::max(120.0F, request.menuWidth), w - Style::spaceLg);
     const float width = std::clamp(
         ContextMenuControl::preferredWidth(m_window.target().renderer(), entries, scale), minimum,
-        std::max(minimum, std::min(request.maxMenuWidth, w - 16))
+        std::max(minimum, std::min(request.maxMenuWidth, w - Style::spaceLg))
     );
     if (m_selectControl->width() != width)
       m_selectControl->setMenuWidth(width);
@@ -122,10 +122,11 @@ namespace app {
         {m_selectContent, h - 64, ContextMenuControl::preferredHeight(entries, request.maxVisibleOptions, scale)}
     );
     const float x = std::clamp(static_cast<float>(request.anchorX), 8.0F, std::max(8.0F, w - width - 8));
-    const float anchorTop = request.anchorY + 36 - m_window.titlebarHeight();
-    const float below = anchorTop + request.anchorHeight + 4;
-    const float y =
-        std::clamp(below + height < h - 8 ? below : anchorTop - height - 4, 40.0F, std::max(40.0F, h - height - 8));
+    const float anchorTop = request.anchorY + layout::Window::titlebarHeight - m_window.titlebarHeight();
+    const float below = anchorTop + request.anchorHeight + Style::spaceXs;
+    const float y = std::clamp(
+        below + height < h - Style::spaceSm ? below : anchorTop - height - 4, 40.0F, std::max(40.0F, h - height - 8)
+    );
     m_selectBounds = {x, y, width, height, Action::None, {}};
     if (m_selectDirty) {
       m_selectControl->setHighlightedIndex(std::min(request.selectedIndex, request.options.size() - 1));
@@ -133,8 +134,11 @@ namespace app {
       m_selectDirty = false;
     }
     m_scrolling.limit(m_selectScroll, std::max(0.0F, m_selectContent - height));
-    rectangle(root, x - 1, y - 1, width + 2, height + 2, theme::raised, 7);
-    rectangle(root, x, y, width, height, theme::panel, 6);
+    rectangle(
+        root, x - Style::borderWidth, y - Style::borderWidth, width + Style::spaceXxs, height + Style::spaceXxs,
+        theme::raised, Style::hoverRadius
+    );
+    rectangle(root, x, y, width, height, theme::panel, Style::radiusMd);
     auto viewport = std::make_unique<Node>();
     viewport->setPosition(x, y);
     viewport->setSize(width, height);
@@ -152,7 +156,9 @@ namespace app {
     if (!m_selectRequest)
       return false;
     if (m_selectBounds.contains(x, y))
-      m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+      m_controlInput.pointerButton(
+          x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272, true, 0, 0, false
+      );
     else
       closeSelectDropdown();
     return true;

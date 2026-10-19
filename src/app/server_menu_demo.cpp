@@ -43,7 +43,7 @@ namespace app {
           y > m_contextBounds.y && y < m_contextBounds.y + m_contextBounds.height,
           "Native server-menu replay clicks are inside the clipped popup"
       );
-      m_window.click(m_contextBounds.x + 72, y + m_window.titlebarHeight() - 36, 272);
+      m_window.click(m_contextBounds.x + 72, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272);
       m_window.released();
     };
     const auto child = [&](Kind kind, int value = 0, const std::string& argument = "") {
@@ -66,7 +66,7 @@ namespace app {
           m_reactionSubmenuBounds.y
               + (m_reactionControl->rowTop(index) + m_reactionControl->rowBottom(index)) / 2
               + m_window.titlebarHeight()
-              - 36,
+              - (Style::space2Xl + Style::spaceXs),
           272
       );
       m_window.released();

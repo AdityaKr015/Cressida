@@ -55,9 +55,13 @@ namespace app {
       return;
     const float inset = 22, inner = width - 2 * inset;
     inputControl(
-        root, x + inset, y + 18, std::max(80.0F, inner - 142), 42, "forum-search", m_forumSearch, "Search posts…"
+        root, x + inset, y + (Style::spaceLg + Style::spaceXxs), std::max(80.0F, inner - 142), 42, "forum-search",
+        m_forumSearch, "Search posts…"
     );
-    button(root, {x + width - inset - 130, y + 22, 130, 34, Action::NewForumPost, {}}, "New Post", true);
+    button(
+        root, {x + width - inset - 130, y + (Style::spaceXl - Style::spaceXxs), 130, 34, Action::NewForumPost, {}},
+        "New Post", true
+    );
     const float sortWidth = 146;
     button(
         root, {x + inset, y + 76, sortWidth, 30, Action::ForumSort, {}},
@@ -65,20 +69,20 @@ namespace app {
     );
     button(
         root,
-        {x + inset + sortWidth + 8, y + 76, 96, 30, Action::ThreadTab,
+        {x + inset + sortWidth + Style::spaceSm, y + 76, 96, 30, Action::ThreadTab,
          m_threadTab == api::ThreadList::Archived ? "forum-active" : "forum-archived"},
         m_threadTab == api::ThreadList::Archived ? "Active posts" : "Archived"
     );
     float tx = sortWidth + 116, ty = 76;
     for (const auto& tag : parent->availableTags) {
       const float tw = std::min(
-          inner - sortWidth - 12,
-          m_window.target().renderer().measureText(tag.name, 12).width
+          inner - sortWidth - Style::spaceMd,
+          m_window.target().renderer().measureText(tag.name, Style::fontSizeDescription).width
               + (tag.emojiId.empty() && tag.emojiName.empty() ? 22 : 42)
       );
       if (tx + tw > inner) {
         tx = 0;
-        ty += 36;
+        ty += (Style::space2Xl + Style::spaceXs);
       }
       if (ty > 112)
         break;
@@ -91,17 +95,17 @@ namespace app {
                                         : panel,
           15
       );
-      float textX = bx + 11;
+      float textX = bx + (Style::spaceDense + Style::borderWidth);
       if (!tag.emojiId.empty()) {
-        emojiImage(root, textX, by + 7, 16, api::emojiPath(tag.emojiId));
-        textX += 22;
+        emojiImage(root, textX, by + (Style::spaceCompact + Style::borderWidth), 16, api::emojiPath(tag.emojiId));
+        textX += (Style::spaceXl - Style::spaceXxs);
       } else if (!tag.emojiName.empty()) {
-        label(root, textX, by + 6, 22, tag.emojiName, 16, foreground);
-        textX += 22;
+        label(root, textX, by + Style::spaceCompact, 22, tag.emojiName, Style::fontSizeTitle, foreground);
+        textX += (Style::spaceXl - Style::spaceXxs);
       }
       label(
-          root, textX, by + 8, std::max(1.0F, tw - (textX - bx) - 8), tag.name, 12, selected ? accent : foreground,
-          FontWeight::Medium
+          root, textX, by + Style::spaceSm, std::max(1.0F, tw - (textX - bx) - Style::spaceSm), tag.name,
+          Style::fontSizeDescription, selected ? accent : foreground, FontWeight::Medium
       );
       m_hits.push_back({bx, by, tw, 30, Action::ForumTag, tag.id});
       tx += tw + 7;
@@ -110,7 +114,7 @@ namespace app {
     const auto error = m_threadErrors.find(m_channelId);
     const bool failed = error != m_threadErrors.end() && !error->second.empty();
     const bool more = m_threadPages.contains(m_channelId) && m_threadPages.at(m_channelId).more;
-    const float top = y + ty + 48, footer = failed ? 82 : loading || more ? 48 : 16;
+    const float top = y + ty + Style::spaceGroup, footer = failed ? 82 : loading || more ? 48 : 16;
     const float viewport = std::max(20.0F, y + height - top - footer);
     auto threads = m_threads.list(m_guildId, m_channelId);
     const auto query = folded(m_forumSearch);
@@ -146,12 +150,14 @@ namespace app {
     };
     for (std::size_t i = 0; i < threads.size(); ++i) {
       const auto& thread = threads[i];
-      const float ry = i * rowHeight - m_forumScroll, cardHeight = rowHeight - 14, cardWidth = inner - 10;
+      const float ry = i * rowHeight - m_forumScroll, cardHeight = rowHeight - Style::cardPadding,
+                  cardWidth = inner - Style::spaceDense;
       if (ry + cardHeight <= 0 || ry >= viewport)
         continue;
       const float sy = std::max(top, top + ry), end = std::min(top + viewport, top + ry + cardHeight);
       rectangle(
-          *content, 0, ry, cardWidth, cardHeight, hovered(x + inset, sy, cardWidth, end - sy) ? raised : panel, 12
+          *content, 0, ry, cardWidth, cardHeight, hovered(x + inset, sy, cardWidth, end - sy) ? raised : panel,
+          Style::radiusXl
       );
       m_hits.push_back({x + inset, sy, cardWidth, end - sy, Action::OpenThread, thread.id});
       const auto first = m_forumFirstMessages.find(thread.id);
@@ -170,41 +176,53 @@ namespace app {
               break;
           }
       }
-      const float textWidth = std::max(32.0F, cardWidth - 32 - (thumbnail.empty() ? 0 : 102));
+      const float textWidth = std::max(32.0F, cardWidth - Style::space2Xl - (thumbnail.empty() ? 0 : 102));
       float chipX = 14;
       if (thread.appliedTags)
         for (const auto& id : *thread.appliedTags) {
           const auto tag = std::ranges::find(parent->availableTags, id, &api::ForumTag::id);
           if (tag == parent->availableTags.end())
             continue;
-          const float tw = m_window.target().renderer().measureText(tag->name, 10).width
+          const float tw = m_window.target().renderer().measureText(tag->name, Style::fontSizeDetail).width
               + 20
               + (tag->emojiId.empty() && tag->emojiName.empty() ? 0 : 18);
           if (chipX + tw > textWidth)
             break;
-          rectangle(*content, chipX, ry + 12, tw, 23, lerpColor(panel, muted, 0.13F), 11);
-          float cx = chipX + 9;
+          rectangle(*content, chipX, ry + Style::spaceMd, tw, 23, lerpColor(panel, muted, 0.13F), 11);
+          float cx = chipX + (Style::spaceSm + Style::borderWidth);
           if (!tag->emojiId.empty()) {
-            emojiImage(*content, cx, ry + 16, 14, api::emojiPath(tag->emojiId));
-            cx += 18;
+            emojiImage(*content, cx, ry + Style::spaceLg, 14, api::emojiPath(tag->emojiId));
+            cx += (Style::spaceLg + Style::spaceXxs);
           } else if (!tag->emojiName.empty()) {
-            label(*content, cx, ry + 15, 18, tag->emojiName, 13, foreground);
-            cx += 18;
+            label(
+                *content, cx, ry + (Style::cardPadding + Style::borderWidth), 18, tag->emojiName,
+                Style::fontSizeCaption, foreground
+            );
+            cx += (Style::spaceLg + Style::spaceXxs);
           }
-          label(*content, cx, ry + 18, tw - (cx - chipX) - 4, tag->name, 10, muted);
+          label(
+              *content, cx, ry + (Style::spaceLg + Style::spaceXxs), tw - (cx - chipX) - Style::spaceXs, tag->name,
+              Style::fontSizeDetail, muted
+          );
           chipX += tw + 6;
         }
       if (chipX == 14) {
-        glyph(*content, 15, ry + 16, 15, thread.locked.value_or(false) ? "lock" : "message", muted);
+        glyph(*content, 15, ry + Style::spaceLg, 15, thread.locked.value_or(false) ? "lock" : "message", muted);
         if (thread.joined.value_or(false))
-          label(*content, 37, ry + 18, textWidth - 30, "Following", 10, muted);
+          label(
+              *content, 37, ry + (Style::spaceLg + Style::spaceXxs), textWidth - (Style::space2Xl - Style::spaceXxs),
+              "Following", Style::fontSizeDetail, muted
+          );
       }
-      label(*content, 14, ry + 45, textWidth, thread.name, 17, foreground, FontWeight::SemiBold);
+      label(
+          *content, 14, ry + ((Style::spaceSection + Style::spaceXs) + Style::borderWidth), textWidth, thread.name,
+          Style::fontSizeSection, foreground, FontWeight::SemiBold
+      );
       if (preview) {
         const auto name = userName(preview->authorId, preview->author);
         const auto plain = oneLineReplyText(name + ": " + (preview->content.empty() ? "Attachment" : preview->content));
         const auto layout = layoutMessage(
-            plain, textWidth, measure, 12, {},
+            plain, textWidth, measure, Style::fontSizeDescription, {},
             {.compact = true, .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
         );
         auto line = std::make_unique<Node>();
@@ -218,8 +236,8 @@ namespace app {
             emojiImage(*line, run.x, run.y, run.width, run.image);
           else
             label(
-                *line, run.x, run.y, run.width + 2, messageMarkup(run.text, run.style), run.style.size, muted,
-                FontWeight::Normal, 1, true
+                *line, run.x, run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
+                muted, FontWeight::Normal, 1, true
             );
         }
         content->addChild(std::move(line));
@@ -227,35 +245,55 @@ namespace app {
       float detailX = 14;
       if (preview && !preview->reactions.empty()) {
         const auto& reaction = preview->reactions.front();
-        rectangle(*content, detailX, ry + 102, 62, 24, lerpColor(background, accent, reaction.me ? 0.2F : 0.07F), 7);
+        rectangle(
+            *content, detailX, ry + 102, 62, 24, lerpColor(background, accent, reaction.me ? 0.2F : 0.07F),
+            Style::hoverRadius
+        );
         if (!reaction.id.empty())
-          emojiImage(*content, detailX + 7, ry + 105, 18, api::emojiPath(reaction.id));
+          emojiImage(
+              *content, detailX + (Style::spaceCompact + Style::borderWidth), ry + 105, 18, api::emojiPath(reaction.id)
+          );
         else
-          label(*content, detailX + 7, ry + 103, 28, reaction.name, 18, foreground);
-        label(*content, detailX + 34, ry + 108, 24, std::to_string(reaction.count), 11, muted);
+          label(
+              *content, detailX + (Style::spaceCompact + Style::borderWidth), ry + 103, 28, reaction.name,
+              Style::fontSizeHeading, foreground
+          );
+        label(
+            *content, detailX + (Style::space2Xl + Style::spaceXxs), ry + 108, 24, std::to_string(reaction.count),
+            Style::fontSizeMini, muted
+        );
         detailX += 76;
       }
-      glyph(*content, detailX, ry + 108, 14, "message", muted);
+      glyph(*content, detailX, ry + 108, Style::glyphSizeSmall, "message", muted);
       const auto count = thread.messageCount ? std::to_string(*thread.messageCount) : "";
-      label(*content, detailX + 21, ry + 108, 46, count, 11, muted);
+      label(
+          *content, detailX + (Style::spaceRelaxed + Style::borderWidth), ry + 108, 46, count, Style::fontSizeMini,
+          muted
+      );
       std::uint64_t snowflake = 0;
       const auto& last = thread.lastMessageId.empty() ? thread.id : thread.lastMessageId;
       const auto parsed = std::from_chars(last.data(), last.data() + last.size(), snowflake);
       if (parsed.ec == std::errc{} && snowflake > (1ULL << 22)) {
         const auto relative = discordTimestamp("t:" + std::to_string((snowflake >> 22) / 1000 + 1420070400ULL) + ":R");
         if (relative)
-          label(*content, detailX + 68, ry + 108, std::max(1.0F, textWidth - detailX - 70), *relative, 11, muted);
+          label(
+              *content, detailX + 68, ry + 108, std::max(1.0F, textWidth - detailX - 70), *relative,
+              Style::fontSizeMini, muted
+          );
       }
       if (!thumbnail.empty())
-        picture(*content, cardWidth - 106, ry + 15, 90, 90, thumbnail, 9, true);
+        picture(
+            *content, cardWidth - 106, ry + (Style::cardPadding + Style::borderWidth), 90, 90, thumbnail,
+            Style::radiusLg, true
+        );
     }
     if (threads.empty())
       label(
-          *content, 14, 22, inner - 28,
+          *content, 14, 22, inner - Style::spaceWide,
           loading                                             ? "Loading posts…"
               : !m_forumSearch.empty() || !m_forumTag.empty() ? "No matching posts."
                                                               : "No posts yet.",
-          14, muted
+          Style::fontSizeBody, muted
       );
     root.addChild(std::move(content));
     if (fullHeight > viewport) {
@@ -283,10 +321,13 @@ namespace app {
     }
     const float footerY = top + viewport + 9;
     if (failed) {
-      label(root, x + inset, footerY, inner - 94, error->second, 12, rgbHex(0xED4245), FontWeight::Normal, 3);
-      button(root, {x + width - inset - 84, footerY + 4, 84, 30, Action::ForumRetry, {}}, "Retry");
+      label(
+          root, x + inset, footerY, inner - 94, error->second, Style::fontSizeDescription, rgbHex(0xED4245),
+          FontWeight::Normal, 3
+      );
+      button(root, {x + width - inset - 84, footerY + Style::spaceXs, 84, 30, Action::ForumRetry, {}}, "Retry");
     } else if (loading)
-      label(root, x + inset, footerY, inner, "Loading posts…", 12, muted);
+      label(root, x + inset, footerY, inner, "Loading posts…", Style::fontSizeDescription, muted);
     else if (more)
       button(root, {x + inset, footerY, 120, 30, Action::ForumMore, {}}, "Load more");
   }
@@ -310,30 +351,36 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::drawForumPostDialog(Node& root, float w, float h) {
-    const float width = std::min(540.0F, w - 32), height = std::min(480.0F, h - 64);
+    const float width = std::min(540.0F, w - Style::space2Xl), height = std::min(480.0F, h - 64);
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.55F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, 0.55F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
     rectangle(root, x, y, width, height, sidebar, 14);
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
-    label(root, x + 24, y + 23, width - 80, "New post", 23, foreground, FontWeight::SemiBold);
-    iconButton(
-        root, {x + width - 46, y + 16, 30, 30, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "x", "Close"
+    label(
+        root, x + Style::spaceXl, y + ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth), width - 80, "New post",
+        Style::fontSizeModal, foreground, FontWeight::SemiBold
     );
-    inputControl(root, x + 24, y + 70, width - 48, 42, "dialog", m_dialogText, "Post title");
+    iconButton(
+        root, {x + width - 46, y + Style::spaceLg, 30, 30, m_dialogPending ? Action::None : Action::CloseDialog, {}},
+        "x", "Close"
+    );
+    inputControl(root, x + Style::spaceXl, y + 70, width - 48, 42, "dialog", m_dialogText, "Post title");
     inputControl(
-        root, x + 24, y + 126, width - 48, std::max(60.0F, height - 332), "forum-body", m_drafts[m_channelId],
-        "Write your post…", true
+        root, x + Style::spaceXl, y + 126, width - 48, std::max(60.0F, height - 332), "forum-body",
+        m_drafts[m_channelId], "Write your post…", true
     );
     const auto channel = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
     float tx = 24, ty = height - 190;
     if (channel != m_channels.end())
       for (const auto& tag : channel->availableTags) {
-        const float tw = std::min(width - 48, m_window.target().renderer().measureText(tag.name, 12).width + 26);
+        const float tw = std::min(
+            width - 48, m_window.target().renderer().measureText(tag.name, Style::fontSizeDescription).width + 26
+        );
         if (tx + tw > width - 24) {
           tx = 24;
-          ty += 32;
+          ty += Style::space2Xl;
         }
         if (ty > height - 126)
           break;
@@ -343,8 +390,14 @@ namespace app {
         );
         tx += tw + 6;
       }
-    label(root, x + 24, y + height - 92, width - 48, m_dialogError, 12, rgbHex(0xED4245), FontWeight::Normal, 2);
-    button(root, {x + 24, y + height - 52, 88, 32, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "Cancel");
+    label(
+        root, x + Style::spaceXl, y + height - 92, width - Style::spaceGroup, m_dialogError, Style::fontSizeDescription,
+        rgbHex(0xED4245), FontWeight::Normal, 2
+    );
+    button(
+        root, {x + Style::spaceXl, y + height - 52, 88, 32, m_dialogPending ? Action::None : Action::CloseDialog, {}},
+        "Cancel"
+    );
     button(
         root, {x + width - 136, y + height - 52, 112, 32, m_dialogPending ? Action::None : Action::SubmitDialog, {}},
         m_dialogPending ? "Posting…" : "Post", true

@@ -190,17 +190,17 @@ namespace app {
                                        : "Upload sound",
         "new", allowed(Verb::Create) && !full, ButtonVariant::Primary
     );
-    cursor += 40;
+    cursor += Style::spaceSection;
     if (state.page == "emoji" && !state.emojiUploads.empty()) {
       form.section("Ready to upload — " + std::to_string(state.emojiUploads.size()));
       for (const auto& file : state.emojiUploads) {
         const auto id = text(file, "id");
-        picture(p, 0, cursor + 3, 32, 32, "server-emoji-upload:" + id, 4);
+        picture(p, 0, cursor + (Style::spaceXxs + Style::borderWidth), 32, 32, "server-emoji-upload:" + id, 4);
         auto& alias = inputControl(
             p, 44, cursor, std::max(50.0F, width - 84), 30, "server-settings:emoji-upload:" + id, text(file, "name"),
             "Emoji name"
         );
-        alias.setFontSize(12);
+        alias.setFontSize(Style::fontSizeDescription);
         alias.setEnabled(!state.saving && !state.mfaRequest);
         const auto name = text(file, "name");
         alias.setInvalid(name.size() < 2 || name.size() > 32 || !std::ranges::all_of(name, [](unsigned char c) {
@@ -215,11 +215,14 @@ namespace app {
         alias.setOnSubmit([](const std::string&) {});
         if (!state.saving && !state.mfaRequest)
           iconButton(
-              p, {width - 28, cursor + 2, 26, 26, Action::ServerSettingsAction, "emoji-upload-remove:" + id}, "x",
-              "Remove upload"
+              p,
+              {width - 28, cursor + Style::spaceXxs, 26, 26, Action::ServerSettingsAction, "emoji-upload-remove:" + id},
+              "x", "Remove upload"
           );
-        cursor += 36;
-        cursor += label(p, 44, cursor, width - 44, text(file, "filename"), 11, muted, FontWeight::Normal, 0) + 12;
+        cursor += (Style::space2Xl + Style::spaceXs);
+        cursor +=
+            label(p, 44, cursor, width - 44, text(file, "filename"), Style::fontSizeMini, muted, FontWeight::Normal, 0)
+            + 12;
       }
       form.section("Current emoji");
     }
@@ -227,13 +230,13 @@ namespace app {
         p, 0, cursor, width, 32, "server-settings:expressions-search", state.search,
         state.page == "emoji" ? "Search emoji" : "Search by name"
     );
-    search.setFontSize(12);
+    search.setFontSize(Style::fontSizeDescription);
     search.setOnChange([this](const std::string& value) {
       m_serverSettings.search = value;
       m_window.invalidate();
     });
     search.setOnSubmit([](const std::string&) {});
-    cursor += 44;
+    cursor += (Style::spaceSection + Style::spaceXs);
     const auto found = state.lists.find(state.page);
     std::vector<Json> records;
     if (found != state.lists.end() && found->second.is_array())
@@ -261,9 +264,9 @@ namespace app {
           continue;
         }
         if (width >= 420) {
-          label(p, 50, cursor, width - 344, "Name", 11, muted, FontWeight::Medium);
-          label(p, width - 282, cursor, 150, "Uploaded by", 11, muted, FontWeight::Medium);
-          cursor += 24;
+          label(p, 50, cursor, width - 344, "Name", Style::fontSizeMini, muted, FontWeight::Medium);
+          label(p, width - 282, cursor, 150, "Uploaded by", Style::fontSizeMini, muted, FontWeight::Medium);
+          cursor += Style::spaceXl;
         }
         for (const auto& record : group) {
           const auto id = identity(record), original = text(record, "name");
@@ -273,12 +276,13 @@ namespace app {
           const auto name =
               state.expressionDrafts.contains(id) ? state.expressionDrafts[id].value("name", original) : original;
           const auto image = api::guildExpressionAsset(section, record);
-          if (!picture(p, 0, top + 7, 36, 36, image, 4))
-            label(p, 3, top + 6, 34, text(record, "demo_emoji", "🙂"), 27, foreground);
+          if (!picture(p, 0, top + (Style::spaceCompact + Style::borderWidth), 36, 36, image, 4))
+            label(p, 3, top + Style::spaceCompact, 34, text(record, "demo_emoji", "🙂"), 27, foreground);
           const auto nameWidth = std::max(50.0F, compact ? width - 90 : width - 344);
-          auto& input =
-              inputControl(p, 50, top + 10, nameWidth, 30, "server-settings:emoji-alias:" + id, name, "Emoji name");
-          input.setFontSize(12);
+          auto& input = inputControl(
+              p, 50, top + Style::spaceDense, nameWidth, 30, "server-settings:emoji-alias:" + id, name, "Emoji name"
+          );
+          input.setFontSize(Style::fontSizeDescription);
           input.setEnabled(allowed(Verb::Update, id) && !state.saving && !state.mfaRequest);
           input.setFrameRadius(5);
           input.setInvalid(name.size() < 2 || name.size() > 32 || !std::ranges::all_of(name, [](unsigned char c) {
@@ -298,19 +302,20 @@ namespace app {
           });
           input.setOnSubmit([](const std::string&) {});
           label(
-              p, compact ? 50 : width - 282, compact ? top + 46 : top + 18, compact ? width - 150 : 150,
-              creatorName(record), 11, muted
+              p, compact ? 50 : width - 282,
+              compact ? top + (Style::spaceGroup - Style::spaceXxs) : top + (Style::spaceLg + Style::spaceXxs),
+              compact ? width - 150 : 150, creatorName(record), Style::fontSizeMini, muted
           );
           const auto roleCount = record.contains("roles") && record["roles"].is_array() ? record["roles"].size() : 0;
           button(
-              compact ? 50 : width - 118, compact ? top + 66 : top + 12, 80,
+              compact ? 50 : width - 118, compact ? top + 66 : top + Style::spaceMd, 80,
               roleCount ? "Roles (" + std::to_string(roleCount) + ")" : "Roles", "record:" + id,
               allowed(Verb::Update, id)
           );
           if (allowed(Verb::Delete, id))
             iconButton(
-                p, {width - 28, top + 12, 26, 26, Action::ServerSettingsAction, "expression-delete:" + id}, "trash",
-                "Delete emoji"
+                p, {width - 28, top + Style::spaceMd, 26, 26, Action::ServerSettingsAction, "expression-delete:" + id},
+                "trash", "Delete emoji"
             );
           cursor += rowHeight;
         }
@@ -323,20 +328,33 @@ namespace app {
         const auto& record = records[i];
         const auto id = identity(record);
         const float x = (i % columns) * (tileWidth + gap), y = start + (i / columns) * (tileHeight + gap);
-        rectangle(p, x, y, tileWidth, tileHeight, panel, 7);
-        const auto imageSize = std::min(138.0F, tileWidth - 28);
+        rectangle(p, x, y, tileWidth, tileHeight, panel, Style::hoverRadius);
+        const auto imageSize = std::min(138.0F, tileWidth - Style::spaceWide);
         const auto image = api::guildExpressionAsset(section, record);
         if (!picture(
-                p, x + (tileWidth - imageSize) / 2, y + 12, imageSize, imageSize, image, 5, true, false,
-                ImageFitMode::Contain
+                p, x + (tileWidth - imageSize) / 2, y + Style::spaceMd, imageSize, imageSize, image,
+                Style::controlRadius, true, false, ImageFitMode::Contain
             ))
-          label(p, x + (tileWidth - 64) / 2, y + 45, 64, text(record, "demo_emoji", "👋"), 52, foreground);
-        label(p, x + 12, y + 158, tileWidth - 24, text(record, "name"), 13, foreground, FontWeight::SemiBold);
-        label(p, x + 12, y + 181, tileWidth - 24, creatorName(record), 11, muted);
-        button(x + 12, y + 215, std::max(60.0F, tileWidth - 58), "Edit", "record:" + id, allowed(Verb::Update, id));
+          label(
+              p, x + (tileWidth - 64) / 2, y + ((Style::spaceSection + Style::spaceXs) + Style::borderWidth), 64,
+              text(record, "demo_emoji", "👋"), 52, foreground
+          );
+        label(
+            p, x + Style::spaceMd, y + 158, tileWidth - Style::spaceXl, text(record, "name"), Style::fontSizeCaption,
+            foreground, FontWeight::SemiBold
+        );
+        label(
+            p, x + Style::spaceMd, y + 181, tileWidth - Style::spaceXl, creatorName(record), Style::fontSizeMini, muted
+        );
+        button(
+            x + Style::spaceMd, y + 215, std::max(60.0F, tileWidth - 58), "Edit", "record:" + id,
+            allowed(Verb::Update, id)
+        );
         if (allowed(Verb::Delete, id))
           iconButton(
-              p, {x + tileWidth - 38, y + 215, 26, 26, Action::ServerSettingsAction, "expression-delete:" + id},
+              p,
+              {x + tileWidth - (Style::spaceSection - Style::spaceXxs), y + 215, 26, 26, Action::ServerSettingsAction,
+               "expression-delete:" + id},
               "trash", "Delete sticker"
           );
       }
@@ -351,18 +369,21 @@ namespace app {
       for (const auto& record : records) {
         const auto id = identity(record), emoji = text(record, "emoji_name");
         const auto top = cursor, height = width < 420 ? 122.0F : 88.0F;
-        rectangle(p, -4, top, width + 8, height - 8, panel, 7);
+        rectangle(p, -Style::spaceXs, top, width + Style::spaceSm, height - Style::spaceSm, panel, Style::hoverRadius);
         if (!emoji.empty())
-          label(p, 8, top + 14, 40, emoji, 28, foreground);
+          label(p, 8, top + Style::cardPadding, 40, emoji, Style::fontSizeDisplay, foreground);
         else if (!text(record, "emoji_id").empty())
-          picture(p, 8, top + 14, 32, 32, api::emojiPath(text(record, "emoji_id")), 4);
+          picture(p, 8, top + Style::cardPadding, 32, 32, api::emojiPath(text(record, "emoji_id")), 4);
         else
-          glyph(p, 10, top + 18, 26, "volume", muted);
-        label(p, 56, top + 12, width - 68, text(record, "name"), 13, foreground, FontWeight::SemiBold);
+          glyph(p, 10, top + (Style::spaceLg + Style::spaceXxs), 26, "volume", muted);
         label(
-            p, 56, top + 34, width - 68,
-            creatorName(record) + " · " + std::to_string(static_cast<int>(record.value("volume", 1.0) * 100)) + "%", 11,
-            muted
+            p, 56, top + Style::spaceMd, width - 68, text(record, "name"), Style::fontSizeCaption, foreground,
+            FontWeight::SemiBold
+        );
+        label(
+            p, 56, top + (Style::space2Xl + Style::spaceXxs), width - 68,
+            creatorName(record) + " · " + std::to_string(static_cast<int>(record.value("volume", 1.0) * 100)) + "%",
+            Style::fontSizeMini, muted
         );
         const auto by = top + (width < 420 ? 82 : 52);
         button(

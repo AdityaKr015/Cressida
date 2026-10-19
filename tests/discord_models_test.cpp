@@ -14,6 +14,43 @@ namespace {
 int main() {
   using nlohmann::json;
   try {
+    const auto specialChannels = api::parseChannels(
+        json::array(
+            {{{"id", "901"}, {"type", 5}, {"name", "news"}},
+             {{"id", "902"}, {"type", 13}, {"name", "stage"}},
+             {{"id", "903"}, {"type", 14}, {"name", "directory"}},
+             {{"id", "904"}, {"type", 16}, {"name", "media"}},
+             {{"id", "905"}, {"type", 11}, {"name", "thread"}}}
+        )
+    );
+    require(
+        specialChannels.size() == 4
+            && specialChannels[1].kind() == api::ChannelType::GuildStageVoice
+            && specialChannels[2].kind() == api::ChannelType::GuildDirectory,
+        "Guild snapshots retain announcements, stages, directories and media while threads stay separate"
+    );
+    api::Message replyMessage;
+    const json reference = {{"message_id", "123"}, {"channel_id", "456"}};
+    api::parseMessagePatch(
+        {{"message_reference", reference},
+         {"referenced_message", {{"content", "Original text"}, {"author", {{"id", "789"}, {"username", "Maya"}}}}}}
+    ).apply(replyMessage);
+    require(
+        replyMessage.reply && replyMessage.reply->available && replyMessage.reply->content == "Original text",
+        "Received reply snapshots retain original text and availability"
+    );
+    api::parseMessagePatch({{"message_reference", reference}}).apply(replyMessage);
+    require(
+        replyMessage.reply->content == "Original text" && replyMessage.reply->author == "Maya",
+        "Reference-only updates do not erase a received preview"
+    );
+    api::parseMessagePatch({{"message_reference", reference}, {"referenced_message", nullptr}}).apply(replyMessage);
+    require(
+        replyMessage.reply->deleted && replyMessage.reply->content.empty(),
+        "Explicit deleted originals replace the previous reply preview"
+    );
+    api::parseMessagePatch({{"message_reference", nullptr}}).apply(replyMessage);
+    require(!replyMessage.reply, "Explicit null references still clear the reply");
     auto guild = api::parseGuilds(
                      json::array(
                          {{{"id", "12"},
@@ -77,6 +114,37 @@ int main() {
     require(!unknownGuild.members && !unknownGuild.online, "Missing counts remain unknown");
     journal.apply(unknownGuild);
     require(unknownGuild.name == "Unknown counts", "A metadata patch cannot affect a different server");
+    auto rulesGuild =
+        api::parseGuilds(json::array({{{"id", "14"}, {"name", "Rules fixture"}, {"rules_channel_id", "501"}}})).front();
+    require(rulesGuild.rulesChannelId == "501", "REST server snapshots retain the configured rules channel");
+    api::GuildUpdate rulesJournal{.id = "14"};
+    for (const auto& patch : api::parseGuildUpdates(
+             "READY", {{"guilds", json::array({{{"id", "14"}, {"properties", {{"rules_channel_id", "502"}}}}})}}
+         ))
+      rulesJournal.merge(patch);
+    for (const auto& patch : api::parseGuildUpdates("GUILD_UPDATE", {{"id", "14"}, {"name", "Renamed"}}))
+      rulesJournal.merge(patch);
+    rulesJournal.apply(rulesGuild);
+    require(
+        rulesGuild.rulesChannelId == "502" && rulesGuild.name == "Renamed",
+        "READY properties and later partial updates preserve the rules-channel setting"
+    );
+    for (const auto& patch : api::parseGuildUpdates("GUILD_UPDATE", {{"id", "14"}, {"rules_channel_id", false}}))
+      patch.apply(rulesGuild);
+    require(rulesGuild.rulesChannelId == "502", "Malformed rules settings do not replace known values");
+    for (const auto& patch : api::parseGuildUpdates("GUILD_UPDATE", {{"id", "14"}, {"rules_channel_id", nullptr}}))
+      rulesJournal.merge(patch);
+    rulesJournal.apply(rulesGuild);
+    require(
+        rulesGuild.rulesChannelId && rulesGuild.rulesChannelId->empty(),
+        "An explicit null clears the setting and remains authoritative over older snapshots"
+    );
+    for (const auto& patch : api::parseGuildUpdates(
+             "GUILD_CREATE",
+             {{"id", "14"}, {"properties", {{"name", "Partial properties"}}}, {"rules_channel_id", "503"}}
+         ))
+      patch.apply(rulesGuild);
+    require(rulesGuild.rulesChannelId == "503", "Top-level rules settings survive a partial properties wrapper");
     auto account = api::parseAccount(json{{"id", "123"}, {"username", "alex"}, {"global_name", nullptr}});
     require(account.name == "alex", "A null global name must fall back to the username");
     require(

@@ -223,7 +223,10 @@ namespace app {
         x += node->x();
         y += node->y();
       }
-      m_window.click(x + 15, y + 9 + m_window.titlebarHeight() - 36, 272);
+      m_window.click(
+          x + (Style::cardPadding + Style::borderWidth),
+          y + (Style::spaceSm + Style::borderWidth) + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272
+      );
       m_window.released();
       require(
           m_channelPermissionDraft.contains(api::viewChannel)

@@ -19,7 +19,8 @@ namespace app {
       });
       require(found != m_hits.end(), "The channel creation action must be visible and enabled");
       const auto hit = *found;
-      const float x = hit.x + hit.width / 2, y = hit.y + hit.height / 2 + m_window.titlebarHeight() - 36;
+      const float x = hit.x + hit.width / 2,
+                  y = hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight;
       m_window.motion(x, y);
       m_window.click(x, y, 272);
       m_window.released();
@@ -161,7 +162,7 @@ namespace app {
     } else if (step == 9) {
       m_window.setUiScale(1.8F);
     } else if (step == 10) {
-      const float logicalBottom = m_window.height() + 36 - m_window.titlebarHeight();
+      const float logicalBottom = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
       require(
           m_dialogBounds.x >= 0 && m_dialogBounds.y >= 36 && m_dialogBounds.y + m_dialogBounds.height <= logicalBottom,
           "The creation form and footer remain within the zoomed small window"
@@ -175,7 +176,7 @@ namespace app {
       Node::mapToScene(thumb, thumb->width() / 2, thumb->height() / 2, x, y);
       m_window.motion(x, y);
       m_window.click(x, y, 272);
-      m_window.motion(x, y + 45);
+      m_window.motion(x, y + ((Style::spaceSection + Style::spaceXs) + Style::borderWidth));
       require(
           m_controlInput.pointerCaptured() && m_channelCreateScroll > 0,
           "Dragging the actual native scrollbar scrolls private access and captures the pointer"

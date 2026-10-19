@@ -37,7 +37,7 @@ namespace app {
     auto begin = cursor;
     while (begin > 0 && cursor - begin <= 128) {
       const auto c = text[begin - 1];
-      if (c == '@' || c == ':') {
+      if (c == '@' || c == ':' || c == '#') {
         --begin;
         const auto prior = begin ? text[begin - 1] : ' ';
         if (prior != ' ' && prior != '\n' && prior != '\t' && prior != '(' && prior != '[' && prior != '{')

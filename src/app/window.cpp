@@ -1,5 +1,6 @@
 #include "app/window.h"
 
+#include "app/layout_metrics.h"
 #include "app/surface_scale.h"
 #include "core/deferred_call.h"
 #include "core/environment.h"
@@ -954,7 +955,9 @@ namespace app {
     invalidate();
   }
   float Window::titlebarHeight() const {
-    return m->fullscreen || m->decorationMode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE ? 0 : 36;
+    return m->fullscreen || m->decorationMode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+        ? 0
+        : layout::Window::titlebarHeight;
   }
   void Window::setCursorShape(std::uint32_t shape) {
     if (m->cursorShape == shape)

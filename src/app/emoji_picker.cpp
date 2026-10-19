@@ -30,7 +30,7 @@ namespace app {
               for (int y = 0; y < 48; ++y)
                 for (int x = 0; x < 48; ++x) {
                   const auto at = (y * 48 + x) * 4;
-                  if ((x - 24) * (x - 24) + (y - 24) * (y - 24) < 380) {
+                  if ((x - Style::spaceXl) * (x - Style::spaceXl) + (y - Style::spaceXl) * (y - Style::spaceXl) < 380) {
                     frame.rgba[at] = 110 + i * 7;
                     frame.rgba[at + 1] = 110 + f * 50;
                     frame.rgba[at + 2] = 240;
@@ -217,27 +217,36 @@ namespace app {
       m_focusedInput = "emoji-search";
     }
     prepareEmojiPicker();
-    const float width = std::min(552.0F, w - 32), height = std::min(520.0F, std::max(250.0F, m_composerTop - 64));
-    const float x =
-        std::clamp(w - (m_showMembers && w >= 1000 ? 240 : 0) - width - 24, 16.0F, std::max(16.0F, w - width - 16));
-    const float y = std::max(44.0F, m_composerTop - height - 8);
+    const auto frame = layout::pickerFrame(
+        w, m_composerTop, m_showMembers, layout::Picker::emojiWidth, layout::Picker::emojiMinimumHeight
+    );
+    const auto [x, y, width, height] = frame;
     m_emojiBounds = {x, y, width, height, Action::None, {}};
-    m_hits.push_back({0, 36, w, h - 36, Action::CloseEmoji, {}});
-    rectangle(root, x, y, width, height, sidebar, 12);
+    m_hits.push_back(
+        {0, layout::Window::titlebarHeight, w, h - layout::Window::titlebarHeight, Action::CloseEmoji, {}}
+    );
+    rectangle(root, x, y, width, height, sidebar, Style::radiusXl);
     m_hits.push_back(m_emojiBounds);
     if (m_reactionMessage.empty())
-      button(root, {x + 12, y + 10, 66, 30, Action::ToggleGif, {}}, "GIFs");
+      button(root, {x + Style::spaceMd, y + Style::spaceDense, 66, 30, Action::ToggleGif, {}}, "GIFs");
     if (m_reactionMessage.empty())
-      button(root, {x + 160, y + 10, 88, 30, Action::ToggleStickers, {}}, "Stickers");
+      button(root, {x + 160, y + Style::spaceDense, 88, 30, Action::ToggleStickers, {}}, "Stickers");
     label(
-        root, x + (m_reactionMessage.empty() ? 92 : 16), y + 17, width - 150,
-        m_reactionMessage.empty() ? "Emoji" : "Add reaction", 16, foreground, FontWeight::SemiBold
+        root, x + (m_reactionMessage.empty() ? 92 : 16), y + (Style::spaceLg + Style::borderWidth), width - 150,
+        m_reactionMessage.empty() ? "Emoji" : "Add reaction", Style::fontSizeTitle, foreground, FontWeight::SemiBold
     );
-    iconButton(root, {x + width - 44, y + 9, 32, 32, Action::CloseEmoji, {}}, "x", "Close emoji picker");
-    inputControl(root, x + 12, y + 52, width - 24, 38, "emoji-search", m_emojiQuery, "Search emoji");
-    const float top = y + 104, available = height - 158, gridX = x + 64, gridWidth = width - 76;
+    iconButton(
+        root, {x + width - 44, y + (Style::spaceSm + Style::borderWidth), 32, 32, Action::CloseEmoji, {}}, "x",
+        "Close emoji picker"
+    );
+    inputControl(
+        root, x + Style::spaceMd, y + layout::Picker::searchTop, width - 24, 38, "emoji-search", m_emojiQuery,
+        "Search emoji"
+    );
+    const float top = y + layout::Picker::contentTop, available = height - 158, gridX = x + layout::Picker::railWidth,
+                gridWidth = width - 76;
     auto rail = std::make_unique<Node>();
-    rail->setPosition(x + 8, top);
+    rail->setPosition(x + Style::spaceSm, top);
     rail->setSize(44, available);
     rail->setClipChildren(true);
     const float paintedRailScroll = m_emojiRailScroll;
@@ -245,22 +254,30 @@ namespace app {
     auto railItem = [&](const std::string& id, const std::string& icon, const std::string& title,
                         const api::Guild* guild = nullptr) {
       const float ry = railY - m_emojiRailScroll;
-      railY += 44;
-      if (ry + 36 <= 0 || ry >= available)
+      railY += layout::Picker::railStep;
+      if (ry + layout::Picker::railItemSize <= 0 || ry >= available)
         return;
-      const float clippedTop = std::max(0.0F, ry), clippedBottom = std::min(available, ry + 36);
+      const float clippedTop = std::max(0.0F, ry),
+                  clippedBottom = std::min(available, ry + layout::Picker::railItemSize);
       if (guild) {
-        if (m_emojiSection == id || hovered(x + 8, top + ry, 36, 36))
-          rectangle(*rail, 0, ry, 36, 36, raised, 9);
-        avatar(*rail, 4, ry + 4, 28, guild->icon, guild->name);
-        m_hits.push_back({x + 8, top + clippedTop, 36, clippedBottom - clippedTop, Action::EmojiSection, id});
-        if (hovered(x + 8, top + clippedTop, 36, clippedBottom - clippedTop)) {
+        if (m_emojiSection == id
+            || hovered(x + Style::spaceSm, top + ry, layout::Picker::railItemSize, layout::Picker::railItemSize))
+          rectangle(*rail, 0, ry, layout::Picker::railItemSize, layout::Picker::railItemSize, raised, Style::radiusLg);
+        avatar(*rail, 4, ry + Style::spaceXs, layout::Avatar::dm, guild->icon, guild->name);
+        m_hits.push_back(
+            {x + Style::spaceSm, top + clippedTop, layout::Picker::railItemSize, clippedBottom - clippedTop,
+             Action::EmojiSection, id}
+        );
+        if (hovered(x + Style::spaceSm, top + clippedTop, layout::Picker::railItemSize, clippedBottom - clippedTop)) {
           m_tooltip = title;
-          m_tooltipX = x + 24;
+          m_tooltipX = x + Style::spaceXl;
           m_tooltipY = top + ry;
         }
       } else {
-        iconButton(*rail, {0, ry, 36, 36, Action::EmojiSection, id}, icon, title, m_emojiSection == id);
+        iconButton(
+            *rail, {0, ry, layout::Picker::railItemSize, layout::Picker::railItemSize, Action::EmojiSection, id}, icon,
+            title, m_emojiSection == id
+        );
         m_hits.back().y = top + clippedTop;
         m_hits.back().height = clippedBottom - clippedTop;
       }
@@ -346,7 +363,7 @@ namespace app {
       if (!query.empty() && group.items.empty())
         continue;
       offsets[group.id] = cursor;
-      cursor += 32 + std::max(1, int((group.items.size() + columns - 1) / columns)) * 48 + 12;
+      cursor += Style::space2Xl + std::max(1, int((group.items.size() + columns - 1) / columns)) * 48 + 12;
     }
     m_scrolling.limit(m_emojiScroll, std::max(0.0F, cursor - available));
     if (!m_emojiJump.empty() && offsets.contains(m_emojiJump)) {
@@ -368,40 +385,51 @@ namespace app {
       if (!offsets.contains(group.id))
         continue;
       const float gy = offsets[group.id] - m_emojiScroll;
-      if (gy + 32 > 0 && gy < available)
-        label(*grid, 0, gy + 6, gridWidth, group.title, 12, muted, FontWeight::SemiBold);
-      if (group.items.empty() && gy + 32 >= 0 && gy + 32 < available) {
+      if (gy + Style::space2Xl > 0 && gy < available)
+        label(
+            *grid, 0, gy + Style::spaceCompact, gridWidth, group.title, Style::fontSizeDescription, muted,
+            FontWeight::SemiBold
+        );
+      if (group.items.empty() && gy + Style::space2Xl >= 0 && gy + Style::space2Xl < available) {
         const bool loading =
             m_loadingEmojiGuilds.contains(group.id) || (group.id == "favorites" && m_loadingEmojiPreferences);
         const bool error = m_emojiGuildErrors.contains(group.id);
         label(
-            *grid, 4, gy + 36, gridWidth - 44,
+            *grid, 4, gy + layout::Picker::railItemSize, gridWidth - (Style::spaceSection + Style::spaceXs),
             error                         ? m_emojiGuildErrors[group.id]
                 : loading                 ? "Loading…"
                 : group.id == "favorites" ? "Star an emoji to keep it here."
                                           : "No emoji to show.",
-            12, muted
+            Style::fontSizeDescription, muted
         );
         if (error && gy + 62 < available)
           iconButton(
-              *grid, {gridWidth - 32, gy + 32, 28, 28, Action::EmojiRetry, group.id}, "reload", "Retry server emoji"
+              *grid, {gridWidth - Style::space2Xl, gy + Style::space2Xl, 28, 28, Action::EmojiRetry, group.id},
+              "reload", "Retry server emoji"
           );
       }
       for (std::size_t i = 0; i < group.items.size(); ++i) {
         const auto& emoji = *group.items[i];
-        const float ex = (i % columns) * cell, ey = gy + 32 + (i / columns) * 48;
-        if (ey + 44 <= 0 || ey >= available)
+        const float ex = (i % columns) * cell, ey = gy + Style::space2Xl + (i / columns) * layout::Picker::emojiRowStep;
+        if (ey + layout::Picker::emojiCellHeight <= 0 || ey >= available)
           continue;
-        const float clippedTop = std::max(0.0F, ey), clippedBottom = std::min(available, ey + 44);
+        const float clippedTop = std::max(0.0F, ey),
+                    clippedBottom = std::min(available, ey + layout::Picker::emojiCellHeight);
         const bool over = hovered(gridX + ex, top + clippedTop, cell, clippedBottom - clippedTop);
         if (over) {
-          rectangle(*grid, ex, ey, cell, 44, raised, 7);
+          rectangle(*grid, ex, ey, cell, layout::Picker::emojiCellHeight, raised, Style::hoverRadius);
           m_emojiHovered = emoji.key();
         }
         if (emoji.id.empty())
-          label(*grid, ex + (cell - 36) / 2, ey + 4, 40, emoji.unicode, 30, emoji.available ? foreground : muted);
-        else if (!emojiImage(*grid, ex + (cell - 36) / 2, ey + 4, 36, api::emojiPath(emoji.id, emoji.animated)))
-          glyph(*grid, ex + 12, ey + 10, 20, "loader", muted);
+          label(
+              *grid, ex + (cell - layout::Picker::railItemSize) / 2, ey + Style::spaceXs, 40, emoji.unicode,
+              layout::Emoji::pickerFont, emoji.available ? foreground : muted
+          );
+        else if (!emojiImage(
+                     *grid, ex + (cell - layout::Picker::railItemSize) / 2, ey + Style::spaceXs,
+                     layout::Picker::railItemSize, api::emojiPath(emoji.id, emoji.animated)
+                 ))
+          glyph(*grid, ex + Style::spaceMd, ey + Style::spaceDense, Style::glyphSizeLarge, "loader", muted);
         const bool selectable = m_reactionMessage.empty() ? m_preferences.emojiImageLinks
                 || !api::emojiNeedsImage(emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0))
                                                           : emoji.available;
@@ -410,7 +438,10 @@ namespace app {
               {gridX + ex, top + clippedTop, cell, clippedBottom - clippedTop, Action::PickEmoji, emoji.key()}
           );
         else
-          glyph(*grid, ex + 3, ey + 25, 14, "lock", muted);
+          glyph(
+              *grid, ex + (Style::spaceXxs + Style::borderWidth), ey + (Style::spaceXl + Style::borderWidth),
+              Style::glyphSizeSmall, "lock", muted
+          );
         const auto foundFavorite = favorites.find(emoji.key());
         const auto favorite = foundFavorite == favorites.end() ? std::string{} : foundFavorite->second;
         if (over || !favorite.empty()) {
@@ -418,9 +449,11 @@ namespace app {
           if (over)
             rectangle(*grid, sx, sy, 17, 17, sidebar, 4);
           glyph(
-              *grid, sx + 1, sy + 1, 14, favorite.empty() ? "star" : "star-filled", favorite.empty() ? muted : accent
+              *grid, sx + Style::borderWidth, sy + Style::borderWidth, Style::glyphSizeSmall,
+              favorite.empty() ? "star" : "star-filled", favorite.empty() ? muted : accent
           );
-          const float starTop = std::max(0.0F, sy), starBottom = std::min(available, sy + 17);
+          const float starTop = std::max(0.0F, sy),
+                      starBottom = std::min(available, sy + (Style::spaceLg + Style::borderWidth));
           if (starBottom > starTop && !m_pendingEmojiFavorites.contains(favorite.empty() ? emoji.key() : favorite))
             m_hits.push_back({gridX + sx, top + starTop, 17, starBottom - starTop, Action::FavoriteEmoji, emoji.key()});
         }
@@ -428,18 +461,23 @@ namespace app {
     }
     root.addChild(std::move(grid));
     if (!m_emojiError.empty()) {
-      label(root, gridX, y + height - 45, gridWidth - 80, m_emojiError, 11, muted, FontWeight::Normal, 2);
+      label(
+          root, gridX, y + height - 45, gridWidth - 80, m_emojiError, Style::fontSizeMini, muted, FontWeight::Normal, 2
+      );
       iconButton(
           root, {x + width - 44, y + height - 44, 28, 28, Action::EmojiRetry, {}}, "reload", "Retry emoji favorites"
       );
     } else if (const auto* emoji = m_emojiCatalog.find(m_emojiHovered)) {
       if (emoji->id.empty())
-        label(root, gridX, y + height - 43, 36, emoji->unicode, 27, foreground);
+        label(
+            root, gridX, y + height - 43, layout::Picker::railItemSize, emoji->unicode, layout::Emoji::previewFont,
+            foreground
+        );
       else
         emojiImage(root, gridX, y + height - 43, 32, api::emojiPath(emoji->id, emoji->animated));
       label(
-          root, gridX + 44, y + height - 44, gridWidth - 48, ":" + emoji->name + ":", 13, foreground,
-          FontWeight::SemiBold
+          root, gridX + (Style::spaceSection + Style::spaceXs), y + height - 44, gridWidth - Style::spaceGroup,
+          ":" + emoji->name + ":", Style::fontSizeCaption, foreground, FontWeight::SemiBold
       );
       const auto guild = std::ranges::find(m_guilds, emoji->guild, &api::Guild::id);
       auto source = emoji->guild.empty() ? std::string("Unicode emoji")
@@ -449,7 +487,10 @@ namespace app {
           && api::emojiNeedsImage(*emoji, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0)))
         source = m_preferences.emojiImageLinks ? "Sends as an image link"
                                                : "Enable Emoji image links in Cressida → General → Expressions";
-      label(root, gridX + 44, y + height - 24, gridWidth - 48, source, 11, muted);
+      label(
+          root, gridX + (Style::spaceSection + Style::spaceXs), y + height - Style::spaceXl,
+          gridWidth - Style::spaceGroup, source, Style::fontSizeMini, muted
+      );
     }
   }
 } // namespace app

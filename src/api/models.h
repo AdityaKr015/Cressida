@@ -52,6 +52,9 @@ namespace api {
     std::string icon;
     std::vector<std::string> features;
     std::optional<int> members, online;
+    // Absent means a partial snapshot did not provide the setting; an empty
+    // value explicitly means this server has no rules channel.
+    std::optional<std::string> rulesChannelId;
   };
 
   enum class GuildBadge { None, Community, Partnered, Verified };
@@ -61,6 +64,7 @@ namespace api {
     std::optional<std::string> name, icon;
     std::optional<std::vector<std::string>> features;
     std::optional<std::optional<int>> members, online;
+    std::optional<std::string> rulesChannelId;
     void apply(Guild& guild) const;
     void merge(const GuildUpdate& update);
   };
@@ -106,6 +110,21 @@ namespace api {
     std::string id, allow, deny;
     int type = 0;
   };
+  enum class ChannelType : int {
+    GuildText = 0,
+    DirectMessage = 1,
+    GuildVoice = 2,
+    GroupDirectMessage = 3,
+    GuildCategory = 4,
+    GuildAnnouncement = 5,
+    AnnouncementThread = 10,
+    PublicThread = 11,
+    PrivateThread = 12,
+    GuildStageVoice = 13,
+    GuildDirectory = 14,
+    GuildForum = 15,
+    GuildMedia = 16
+  };
   struct Channel {
     std::string id;
     std::string name;
@@ -127,8 +146,13 @@ namespace api {
     std::optional<std::vector<PermissionOverwrite>> overwrites;
     std::optional<bool> nsfw;
     std::optional<int> rateLimitPerUser;
-    bool isThread() const { return type == 10 || type == 11 || type == 12; }
-    bool isForum() const { return type == 15 || type == 16; }
+    ChannelType kind() const { return static_cast<ChannelType>(type); }
+    bool isThread() const {
+      return kind() == ChannelType::AnnouncementThread
+          || kind() == ChannelType::PublicThread
+          || kind() == ChannelType::PrivateThread;
+    }
+    bool isForum() const { return kind() == ChannelType::GuildForum || kind() == ChannelType::GuildMedia; }
     std::optional<bool> messageRequest, spam;
     std::optional<std::string> messageRequestTimestamp;
     bool isMessageRequest() const { return messageRequest.value_or(false) || spam.value_or(false); }
@@ -209,6 +233,9 @@ namespace api {
     std::string message, channel, authorId, author, content;
     bool deleted = false;
     bool mention = false;
+    // A reference-only payload must not erase an already received preview.
+    bool available = false;
+    bool operator==(const MessageReference&) const = default;
   };
   struct ReactionUpdate {
     enum class Kind { Add, Remove, RemoveEmoji, RemoveAll };

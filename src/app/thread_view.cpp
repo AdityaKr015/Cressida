@@ -82,6 +82,8 @@ namespace app {
     m_channels = std::move(result);
   }
   void ClientApplication::threadEvent(const api::Event& event) {
+    m_messageLayouts.clear();
+    m_completionDirty = true;
     const auto selected = m_threads.find(m_guildId, m_channelId);
     const auto oldParent = selected ? selected->parentId : "";
     if (event.operation == api::Operation::ThreadUpdate) {
@@ -200,29 +202,35 @@ namespace app {
       m_threadError = "Could not load archived threads. Try again.";
   }
   void ClientApplication::drawThreads(Node& root, float w, float h) {
-    const float width = std::min(620.0F, w - 32), height = std::min(584.0F, h - 72);
+    const float width = std::min(620.0F, w - Style::space2Xl), height = std::min(584.0F, h - 72);
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.5F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, 0.5F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
     rectangle(root, x, y, width, height, sidebar, 14);
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
-    glyph(root, x + 22, y + 24, 24, "messages", accent);
-    label(root, x + 58, y + 23, width - 120, "Threads", 23, foreground, FontWeight::SemiBold);
-    iconButton(root, {x + width - 46, y + 16, 30, 30, Action::CloseDialog, {}}, "x", "Close threads");
+    glyph(
+        root, x + (Style::spaceXl - Style::spaceXxs), y + Style::spaceXl, Style::glyphSizeFeature, "messages", accent
+    );
+    label(
+        root, x + 58, y + ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth), width - 120, "Threads",
+        Style::fontSizeModal, foreground, FontWeight::SemiBold
+    );
+    iconButton(root, {x + width - 46, y + Style::spaceLg, 30, 30, Action::CloseDialog, {}}, "x", "Close threads");
     const auto parent = std::ranges::find(m_channels, m_threadParent, &api::Channel::id);
     label(
-        root, x + 24, y + 59, width - 48, parent == m_channels.end() ? "Channel threads" : "# " + parent->name, 13,
-        muted
+        root, x + Style::spaceXl, y + 59, width - Style::spaceGroup,
+        parent == m_channels.end() ? "Channel threads" : "# " + parent->name, Style::fontSizeCaption, muted
     );
-    float tx = x + 22;
+    float tx = x + (Style::spaceXl - Style::spaceXxs);
     for (const auto& [id, title] :
          {std::pair{"active", "Active"}, {"archived", "Archived"}, {"private", "Private · joined"}}) {
       const bool chosen = m_threadTab
           == (std::string_view(id) == "active"         ? api::ThreadList::Active
                   : std::string_view(id) == "archived" ? api::ThreadList::Archived
                                                        : api::ThreadList::PrivateArchived);
-      const float bw = m_window.target().renderer().measureText(title, 13, FontWeight::Medium).width + 28;
+      const float bw =
+          m_window.target().renderer().measureText(title, Style::fontSizeCaption, FontWeight::Medium).width + 28;
       button(root, {tx, y + 90, bw, 32, Action::ThreadTab, id}, title, chosen);
       tx += bw + 8;
     }
@@ -238,8 +246,8 @@ namespace app {
     const float fullHeight = threads.size() * 68.0F;
     m_scrolling.limit(m_threadScroll, std::max(0.0F, fullHeight - viewport));
     auto content = std::make_unique<Node>();
-    content->setPosition(x + 20, top);
-    content->setSize(width - 40, viewport);
+    content->setPosition(x + Style::spaceRelaxed, top);
+    content->setSize(width - Style::spaceSection, viewport);
     content->setClipChildren(true);
     content->setTextScrollOffset(-m_threadScroll);
     for (std::size_t i = 0; i < threads.size(); ++i) {
@@ -248,17 +256,28 @@ namespace app {
       if (ry + 62 < 0 || ry > viewport)
         continue;
       const float sy = std::max(top, top + ry), end = std::min(top + viewport, top + ry + 62);
-      const bool over = hovered(x + 20, sy, width - 48, end - sy);
-      rectangle(*content, 0, ry, width - 48, 60, over ? raised : panel, 9);
-      glyph(*content, 14, ry + 18, 21, thread.locked.value_or(false) || thread.type == 12 ? "lock" : "message", accent);
-      label(*content, 48, ry + 11, width - 120, thread.name, 14, foreground, FontWeight::SemiBold);
+      const bool over = hovered(x + Style::spaceRelaxed, sy, width - Style::spaceGroup, end - sy);
+      rectangle(*content, 0, ry, width - Style::spaceGroup, 60, over ? raised : panel, Style::radiusLg);
+      glyph(
+          *content, 14, ry + (Style::spaceLg + Style::spaceXxs), 21,
+          thread.locked.value_or(false) || thread.type == 12 ? "lock" : "message", accent
+      );
+      label(
+          *content, 48, ry + (Style::spaceDense + Style::borderWidth), width - 120, thread.name, Style::fontSizeBody,
+          foreground, FontWeight::SemiBold
+      );
       std::string detail = thread.archived.value_or(false) ? "Archived" : "Active";
       if (thread.messageCount)
         detail += " · " + std::to_string(*thread.messageCount) + " messages";
       if (thread.joined.value_or(false))
         detail += " · Joined";
-      label(*content, 48, ry + 35, width - 120, detail, 11, muted);
-      m_hits.push_back({x + 20, sy, width - 48, std::max(0.0F, end - sy), Action::OpenThread, thread.id});
+      label(
+          *content, 48, ry + ((Style::space2Xl + Style::spaceXxs) + Style::borderWidth), width - 120, detail,
+          Style::fontSizeMini, muted
+      );
+      m_hits.push_back(
+          {x + Style::spaceRelaxed, sy, width - 48, std::max(0.0F, end - sy), Action::OpenThread, thread.id}
+      );
     }
     root.addChild(std::move(content));
     if (fullHeight > viewport) {
@@ -279,7 +298,7 @@ namespace app {
       }
       auto* bar = static_cast<Scrollbar*>(owned.get());
       m_widgets[id] = bar;
-      bar->setPosition(x + width - 16, top);
+      bar->setPosition(x + width - Style::spaceLg, top);
       bar->setSize(bar->reservedThickness(), viewport);
       bar->update(viewport, fullHeight, m_threadScroll);
       root.addChild(std::move(owned));
@@ -289,24 +308,32 @@ namespace app {
     const auto error = m_threadTab == api::ThreadList::Active ? m_threadErrors[m_threadParent] : m_threadError;
     if (threads.empty())
       label(
-          root, x + 30, top + 28, width - 60,
+          root, x + (Style::space2Xl - Style::spaceXxs), top + Style::spaceWide, width - 60,
           loading              ? "Loading threads…"
               : !error.empty() ? error
                                : "No threads here yet.",
-          14, muted, FontWeight::Normal, 3
+          Style::fontSizeBody, muted, FontWeight::Normal, 3
       );
     else if (!error.empty())
-      label(root, x + 22, y + height - 68, width - 44, error, 11, rgbHex(0xED4245), FontWeight::Normal, 2);
+      label(
+          root, x + (Style::spaceXl - Style::spaceXxs), y + height - 68, width - 44, error, Style::fontSizeMini,
+          rgbHex(0xED4245), FontWeight::Normal, 2
+      );
     if (!error.empty())
-      button(root, {x + 22, y + height - 48, 80, 30, Action::ThreadRetry, {}}, "Retry");
+      button(root, {x + (Style::spaceXl - Style::spaceXxs), y + height - 48, 80, 30, Action::ThreadRetry, {}}, "Retry");
     else if (loading)
-      label(root, x + 24, y + height - 40, width - 48, "Loading…", 12, muted);
+      label(
+          root, x + Style::spaceXl, y + height - Style::spaceSection, width - Style::spaceGroup, "Loading…",
+          Style::fontSizeDescription, muted
+      );
     else if (
         m_threadTab == api::ThreadList::Active
             ? m_threadPages.contains(m_threadParent) && m_threadPages.at(m_threadParent).more
             : m_threadMore
     )
-      button(root, {x + 22, y + height - 48, 120, 30, Action::ThreadMore, {}}, "Load more");
+      button(
+          root, {x + (Style::spaceXl - Style::spaceXxs), y + height - 48, 120, 30, Action::ThreadMore, {}}, "Load more"
+      );
     if (parent != m_channels.end() && (parent->type == 0 || parent->type == 5))
       button(
           root, {x + width - 164, y + height - 48, 142, 30, Action::CreateThread, m_threadParent}, "Create Thread", true
@@ -314,6 +341,7 @@ namespace app {
     m_tooltip.clear();
   }
   void ClientApplication::openThread(const std::string& id) {
+    m_pendingDiscordLink.reset();
     if (m_dmMode || !api::validSnowflake(id))
       return;
     if (!m_threads.find(m_guildId, id)) {
@@ -520,18 +548,29 @@ namespace app {
     if (!root)
       return 48;
     const float cardWidth = std::min(width, 390.0F);
-    rectangle(*root, x, y, cardWidth, 40, panel, 8);
-    glyph(*root, x + 10, y + 11, 18, "messages", accent);
+    rectangle(*root, x, y, cardWidth, 40, panel, Style::surfaceRadius);
+    glyph(
+        *root, x + Style::spaceDense, y + (Style::spaceDense + Style::borderWidth), Style::glyphSizeMedium, "messages",
+        accent
+    );
     label(
-        *root, x + 38, y + 5, cardWidth - 72, thread && !thread->name.empty() ? thread->name : "Open thread", 12,
-        foreground, FontWeight::Medium
+        *root, x + (Style::spaceSection - Style::spaceXxs), y + (Style::spaceXs + Style::borderWidth), cardWidth - 72,
+        thread && !thread->name.empty() ? thread->name : "Open thread", Style::fontSizeDescription, foreground,
+        FontWeight::Medium
     );
     const std::string detail =
         thread && thread->messageCount ? std::to_string(*thread->messageCount) + " messages" : "View conversation";
-    label(*root, x + 38, y + 23, cardWidth - 72, detail, 10, muted);
-    glyph(*root, x + cardWidth - 24, y + 13, 14, "chevron-right", muted);
+    label(
+        *root, x + (Style::spaceSection - Style::spaceXxs),
+        y + ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth), cardWidth - 72, detail, Style::fontSizeDetail,
+        muted
+    );
+    glyph(
+        *root, x + cardWidth - Style::spaceXl, y + (Style::spaceMd + Style::borderWidth), Style::glyphSizeSmall,
+        "chevron-right", muted
+    );
     m_hits.push_back(
-        {chatLeft() + 24 + x, m_messageViewportTop + y, cardWidth, 40, Action::OpenThread,
+        {chatLeft() + Style::spaceXl + x, m_messageViewportTop + y, cardWidth, 40, Action::OpenThread,
          thread ? thread->id : message.id}
     );
     return 48;

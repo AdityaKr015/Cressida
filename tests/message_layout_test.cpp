@@ -163,6 +163,39 @@ int main(int argc, char** argv) {
         app::replyPreview(reference, "Maya") == "↳ Maya: Original message deleted",
         "Deleted reply previews retain a readable fallback"
     );
+    api::Message original;
+    original.id = "1";
+    original.channelId = "2";
+    original.authorId = "3";
+    original.author = "Maya";
+    original.content = "Already loaded original";
+    api::MessageReference unresolved{"1", "2"};
+    auto resolved = app::resolvedReply(unresolved, &original);
+    require(
+        resolved.content == original.content && resolved.author == "Maya" && resolved.available,
+        "Reference-only replies use already loaded content and author identity"
+    );
+    original.content = "Edited original";
+    require(
+        app::resolvedReply(resolved, &original).content == "Edited original",
+        "Reply previews follow loaded edits instead of retaining stale text"
+    );
+    original.channelId = "4";
+    require(
+        app::resolvedReply(unresolved, &original).content.empty(),
+        "Loaded content from another channel cannot fill a reply preview"
+    );
+    original.channelId = "2";
+    require(
+        app::resolvedReply(resolved, &original, true).content.empty()
+            && app::resolvedReply(resolved, &original, true).deleted,
+        "A deletion journal overrides loaded original content"
+    );
+    unresolved.deleted = true;
+    require(
+        app::resolvedReply(unresolved, &original).deleted && app::resolvedReply(unresolved, &original).content.empty(),
+        "An explicit unavailable original is never resurrected from loaded content"
+    );
     require(argc == 2, "Emoji assets directory required");
     app::EmojiCatalog catalog;
     catalog.load(std::filesystem::path(argv[1]) / "emoji.json", std::filesystem::path(argv[1]) / "emoji-aliases.json");

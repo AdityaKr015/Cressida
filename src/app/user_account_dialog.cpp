@@ -561,7 +561,9 @@ namespace app {
         || y < state.dialogY
         || y >= state.dialogY + state.dialogHeight)
       return true;
-    (void)m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+    (void)m_controlInput.pointerButton(
+        x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272, true, 0, 0, false
+    );
     m_window.invalidate();
     return true;
   }
@@ -704,13 +706,21 @@ namespace app {
       password = dangerous = true;
       submit = deleting ? "Delete account" : "Disable account";
     }
-    rectangle(root, 0, 36, w, h - 36, rgba(0, 0, 0, .68F));
-    const float width = std::min(490.0F, std::max(220.0F, w - 48));
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, rgba(0, 0, 0, .68F));
+    const float width = std::min(490.0F, std::max(220.0F, w - Style::spaceGroup));
     auto content = std::make_unique<Node>();
     auto& body = *content;
     float y = 0;
-    y += label(body, 0, y, width - 48, title, 19, theme::foreground, FontWeight::SemiBold, 0) + 12;
-    y += label(body, 0, y, width - 48, description, 12, theme::muted, FontWeight::Normal, 0) + 14;
+    y += label(
+             body, 0, y, width - Style::spaceGroup, title, Style::fontSizeDialog, theme::foreground,
+             FontWeight::SemiBold, 0
+         )
+        + 12;
+    y += label(
+             body, 0, y, width - Style::spaceGroup, description, Style::fontSizeDescription, theme::muted,
+             FontWeight::Normal, 0
+         )
+        + 14;
     const auto button = [&](const std::string& caption, const std::string& action, float bw,
                             ButtonVariant variant = ButtonVariant::Default) {
       const auto id = "user-account-dialog-button:" + action;
@@ -723,19 +733,23 @@ namespace app {
           saved ? std::unique_ptr<Button>(static_cast<Button*>(saved.release())) : std::make_unique<Button>();
       m_widgets[id] = control.get();
       control->setText(caption);
-      control->setFontSize(12);
+      control->setFontSize(Style::fontSizeDescription);
       control->setControlHeight(26);
       control->setRadius(5);
-      control->setFrameSize(std::min(bw, width - 48), 26);
+      control->setFrameSize(std::min(bw, width - Style::spaceGroup), 26);
       control->setPosition(0, y);
       control->setVariant(variant);
       control->setEnabled(!state.busy);
       control->setOnClick([this, action] { userAccountAction(action); });
       body.addChild(std::move(control));
-      y += 36;
+      y += (Style::space2Xl + Style::spaceXs);
     };
     const auto field = [&](const std::string& name, const std::string& caption, bool secret = false) {
-      y += label(body, 0, y, width - 48, caption, 12, theme::foreground, FontWeight::Medium) + 5;
+      y += label(
+               body, 0, y, width - Style::spaceGroup, caption, Style::fontSizeDescription, theme::foreground,
+               FontWeight::Medium
+           )
+          + 5;
       const auto id = "user-account:secret:" + name;
       auto& input = inputControl(body, 0, y, width - 48, 32, id, state.fields[name], {}, false, secret);
       input.setEnabled(!state.busy);
@@ -748,7 +762,7 @@ namespace app {
         m_window.invalidate();
       });
       input.setOnSubmit([this](const std::string&) { userAccountAction("dialog-submit"); });
-      y += 44;
+      y += (Style::spaceSection + Style::spaceXs);
     };
     if (state.mfaRequest) {
       for (const auto& method : state.mfaMethods)
@@ -759,9 +773,9 @@ namespace app {
           );
       if (state.mfaMethod.empty()) {
         y += label(
-                 body, 0, y, width - 48,
+                 body, 0, y, width - Style::spaceGroup,
                  "Discord requires an SMS or security-key method. Complete this action in Discord's browser settings.",
-                 12, theme::muted, FontWeight::Normal, 0
+                 Style::fontSizeDescription, theme::muted, FontWeight::Normal, 0
              )
             + 12;
         button("Open Discord", "key-register", 128);
@@ -805,10 +819,10 @@ namespace app {
           saved ? std::unique_ptr<Select>(static_cast<Select*>(saved.release())) : std::make_unique<Select>();
       m_widgets[id] = control.get();
       control->setOptions(names);
-      control->setFontSize(12);
+      control->setFontSize(Style::fontSizeDescription);
       control->setControlHeight(30);
       control->setPosition(0, y);
-      control->setFrameSize(width - 48, 30);
+      control->setFrameSize(width - Style::spaceGroup, 30);
       control->setEnabled(!state.busy);
       const auto selected = std::ranges::find(providers, state.fields["provider"]);
       control->setSelectedIndexSilently(selected == providers.end() ? 0 : selected - providers.begin());
@@ -818,25 +832,34 @@ namespace app {
         m_window.invalidate();
       });
       body.addChild(std::move(control));
-      y += 42;
+      y += (Style::spaceSection + Style::spaceXxs);
     }
     if (kind == "backup-codes") {
       for (const auto& entry : state.backupCodes) {
         const auto value = entry.is_string() ? entry.get<std::string>() : string(entry, "code");
         const auto used = entry.is_object() && entry.contains("consumed") && entry["consumed"] == true;
-        y += label(body, 0, y, width - 48, value + (used ? " · Used" : ""), 14, used ? theme::muted : theme::foreground)
+        y += label(
+                 body, 0, y, width - Style::spaceGroup, value + (used ? " · Used" : ""), Style::fontSizeBody,
+                 used ? theme::muted : theme::foreground
+             )
             + 4;
       }
-      y += 8;
+      y += Style::spaceSm;
       button("Copy codes", "backup-copy", 112);
       button("Generate new codes", "backup-regenerate", 160);
     }
     if (!state.error.empty())
-      y += label(body, 0, y, width - 48, state.error, 12, theme::danger, FontWeight::Normal, 0) + 10;
+      y += label(
+               body, 0, y, width - Style::spaceGroup, state.error, Style::fontSizeDescription, theme::danger,
+               FontWeight::Normal, 0
+           )
+          + 10;
     if (state.busy)
-      y += label(body, 0, y, width - 48, "Waiting for Discord…", 12, theme::muted) + 8;
+      y +=
+          label(body, 0, y, width - Style::spaceGroup, "Waiting for Discord…", Style::fontSizeDescription, theme::muted)
+          + 8;
     const bool canSubmit = kind != "backup-codes" && (!state.mfaRequest || !state.mfaMethod.empty());
-    const float footerY = y + 6, contentWidth = width - 48;
+    const float footerY = y + Style::spaceCompact, contentWidth = width - 48;
     y = footerY;
     button(kind == "backup-codes" ? "Done" : "Cancel", "dialog-cancel", 90);
     auto* cancel = m_widgets.at("user-account-dialog-button:dialog-cancel");
@@ -856,11 +879,14 @@ namespace app {
     state.dialogHeight = height;
     state.dialogX = (w - width) / 2;
     state.dialogY = std::max(44.0F, (h - height) / 2);
-    rectangle(root, state.dialogX - 1, state.dialogY - 1, width + 2, height + 2, theme::raised, 11);
+    rectangle(
+        root, state.dialogX - Style::borderWidth, state.dialogY - Style::borderWidth, width + Style::spaceXxs,
+        height + Style::spaceXxs, theme::raised, 11
+    );
     rectangle(root, state.dialogX, state.dialogY, width, height, theme::panel, 10);
     auto clip = std::make_unique<Node>();
-    clip->setPosition(state.dialogX + 24, state.dialogY + 24);
-    clip->setSize(width - 48, viewport);
+    clip->setPosition(state.dialogX + Style::spaceXl, state.dialogY + Style::spaceXl);
+    clip->setSize(width - Style::spaceGroup, viewport);
     clip->setClipChildren(true);
     m_scrolling.limit(state.dialogScroll, std::max(0.0F, y - viewport));
     content->setPosition(0, -state.dialogScroll);
@@ -868,8 +894,8 @@ namespace app {
     root.addChild(std::move(clip));
     if (y > viewport)
       settingsScrollbar(
-          root, "user-account-dialog-scrollbar", {state.dialogX + width - 10, state.dialogY + 24, 6, viewport}, y,
-          state.dialogScroll
+          root, "user-account-dialog-scrollbar",
+          {state.dialogX + width - 10, state.dialogY + Style::spaceXl, 6, viewport}, y, state.dialogScroll
       );
   }
 } // namespace app

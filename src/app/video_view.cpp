@@ -91,7 +91,7 @@ namespace app {
       return;
     const bool selected = source == m_videoSource;
     const auto& state = m_video.state();
-    rectangle(parent, x, y, width, height, rgbHex(0x08090D), 7);
+    rectangle(parent, x, y, width, height, rgbHex(0x08090D), Style::hoverRadius);
     bool frame = false;
     if (selected && (expanded || !m_videoExpanded)) {
       m_videoVisible = true;
@@ -126,62 +126,79 @@ namespace app {
       }
     }
     if (!frame && !poster.empty())
-      picture(parent, x, y, width, height, poster, 7, false, true);
+      picture(parent, x, y, width, height, poster, Style::hoverRadius, false, true);
     m_hits.push_back(
         {gx, gy, width, height, selected && state.error.empty() ? Action::PauseVideo : Action::PlayVideo, source}
     );
     if (!selected || !state.playing || state.loading || !state.error.empty()) {
-      rectangle(parent, x + width / 2 - 24, y + height / 2 - 24, 48, 48, panel, 24);
+      rectangle(parent, x + width / 2 - Style::spaceXl, y + height / 2 - Style::spaceXl, 48, 48, panel, 24);
       glyph(
-          parent, x + width / 2 - 12, y + height / 2 - 12, 24,
+          parent, x + width / 2 - Style::spaceMd, y + height / 2 - Style::spaceMd, Style::glyphSizeFeature,
           selected && (state.loading || state.buffering) ? "loader" : "player-play-filled", foreground
       );
     }
     if (selected && !state.error.empty()) {
-      label(parent, x + 12, y + height / 2 + 30, width - 24, state.error, 12, foreground, FontWeight::Normal, 2);
+      label(
+          parent, x + Style::spaceMd, y + height / 2 + 30, width - Style::spaceXl, state.error,
+          Style::fontSizeDescription, foreground, FontWeight::Normal, 2
+      );
     }
     if (selected && (expanded || !m_videoExpanded)) {
       const float controlsY = y + height - 38;
       Color scrim = rgbHex(0x08090D);
       scrim.a = .9F;
-      rectangle(parent, x, controlsY - 8, width, 46, scrim, 6);
+      rectangle(parent, x, controlsY - Style::spaceSm, width, 46, scrim, Style::radiusMd);
       const float progress = state.duration > 0 ? std::clamp(float(state.position / state.duration), 0.0F, 1.0F) : 0;
       const auto shown = m_videoDrag == 1 ? m_videoScrub : progress;
       const float trackWidth = width - 24;
-      rectangle(parent, x + 12, controlsY - 4, trackWidth, 4, raised, 2);
-      rectangle(parent, x + 12, controlsY - 4, trackWidth * shown, 4, accent, 2);
-      rectangle(parent, x + 8 + trackWidth * shown, controlsY - 6, 8, 8, accent, 4);
-      m_videoSeek = {gx + 10, oy + controlsY - 11, width - 20, 16, Action::SeekVideo, source};
+      rectangle(parent, x + Style::spaceMd, controlsY - Style::spaceXs, trackWidth, 4, raised, Style::radiusXs);
+      rectangle(parent, x + Style::spaceMd, controlsY - Style::spaceXs, trackWidth * shown, 4, accent, Style::radiusXs);
+      rectangle(parent, x + Style::spaceSm + trackWidth * shown, controlsY - Style::spaceCompact, 8, 8, accent, 4);
+      m_videoSeek = {
+          gx + Style::spaceDense,
+          oy + controlsY - (Style::spaceDense + Style::borderWidth),
+          width - 20,
+          16,
+          Action::SeekVideo,
+          source
+      };
       m_hits.push_back(m_videoSeek);
       iconButton(
-          parent, {x + 6, controlsY + 4, 28, 28, Action::PauseVideo, source},
+          parent, {x + Style::spaceCompact, controlsY + Style::spaceXs, 28, 28, Action::PauseVideo, source},
           state.playing ? "player-pause-filled" : "player-play-filled", state.playing ? "Pause" : "Play"
       );
       label(
-          parent, x + 42, controlsY + 11, width - 185,
+          parent, x + (Style::spaceSection + Style::spaceXxs), controlsY + (Style::spaceDense + Style::borderWidth),
+          width - 185,
           videoTime((m_videoDrag == 1 ? m_videoScrub * state.duration : state.position))
               + " / "
               + videoTime(state.duration),
-          11, foreground
+          Style::fontSizeMini, foreground
       );
       if (width >= 310) {
         iconButton(
-            parent, {x + width - 140, controlsY + 4, 28, 28, Action::MuteVideo, source},
+            parent, {x + width - 140, controlsY + Style::spaceXs, 28, 28, Action::MuteVideo, source},
             state.muted || state.volume == 0 ? "volume-off" : "volume", state.muted ? "Unmute" : "Mute"
         );
-        rectangle(parent, x + width - 104, controlsY + 16, 54, 3, raised, 1.5);
-        rectangle(parent, x + width - 104, controlsY + 16, 54 * (state.muted ? 0 : state.volume / 100), 3, accent, 1.5);
-        m_videoVolume = {gx + width - 107, oy + controlsY + 6, 60, 24, Action::VolumeVideo, source};
+        rectangle(parent, x + width - 104, controlsY + Style::spaceLg, 54, 3, raised, 1.5);
+        rectangle(
+            parent, x + width - 104, controlsY + Style::spaceLg, 54 * (state.muted ? 0 : state.volume / 100), 3, accent,
+            1.5
+        );
+        m_videoVolume = {gx + width - 107, oy + controlsY + Style::spaceCompact, 60, 24, Action::VolumeVideo, source};
         m_hits.push_back(m_videoVolume);
       }
       iconButton(
-          parent, {x + width - 38, controlsY + 4, 28, 28, Action::ExpandVideo, source},
+          parent, {x + width - 38, controlsY + Style::spaceXs, 28, 28, Action::ExpandVideo, source},
           expanded ? "arrows-minimize" : "arrows-maximize", expanded ? "Exit expanded player" : "Expand video"
       );
       if (state.loading || state.buffering)
-        label(parent, x + 12, y + 12, width - 24, state.loading ? "Loading video…" : "Buffering…", 12, foreground);
+        label(
+            parent, x + Style::spaceMd, y + Style::spaceMd, width - Style::spaceXl,
+            state.loading ? "Loading video…" : "Buffering…", Style::fontSizeDescription, foreground
+        );
     } else {
-      glyph(parent, x + width - 28, y + height - 27, 18, "video", foreground);
+      glyph(parent, x + width - Style::spaceWide, y + height - 27, Style::glyphSizeMedium, "video", foreground);
     }
   }
   void ClientApplication::drawVideoViewer(Node& root, float width, float height) {
@@ -199,7 +216,7 @@ namespace app {
     drawVideo(
         root, (width - w) / 2, 90 + (height - 180 - h) / 2, w, h, m_videoSource, m_videoPosters[m_videoSource], true
     );
-    label(root, 28, 52, width - 140, "Video", 17, foreground, FontWeight::SemiBold);
+    label(root, 28, 52, width - 140, "Video", Style::fontSizeSection, foreground, FontWeight::SemiBold);
     iconButton(root, {width - 64, 46, 32, 32, Action::ExpandVideo, m_videoSource}, "x", "Close expanded player");
     button(root, {width - 182, height - 62, 156, 34, Action::OpenUrl, m_videoSource}, "Open original");
   }
@@ -311,14 +328,19 @@ namespace app {
       });
       require(at != m_hits.end(), "Video control must have a hit region");
       const auto hit = *at;
-      m_window.motion(hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
       const auto over = std::find_if(m_hits.rbegin(), m_hits.rend(), [&](const Hit& other) {
         return other.contains(hit.x + hit.width / 2, hit.y + hit.height / 2);
       });
       require(
           over != m_hits.rend() && over->action == action, "Video control must not be covered by another hit region"
       );
-      m_window.click(hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - 36, 272);
+      m_window.click(
+          hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight,
+          272
+      );
       if (action != Action::SeekVideo)
         m_window.released();
     };
@@ -341,7 +363,10 @@ namespace app {
       require(m_videoDrag == 1, "Timeline receives pointer capture");
     } else if (m_demoInteractionStep == 3) {
       require(m_videoDrag == 1, "Timeline drag survives repaint");
-      m_window.motion(m_videoSeek.x + m_videoSeek.width * .75F, m_videoSeek.y + 6 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          m_videoSeek.x + m_videoSeek.width * .75F,
+          m_videoSeek.y + Style::spaceCompact + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
       m_window.released();
     } else if (m_demoInteractionStep == 4) {
       if (std::abs(state.position - state.duration * .75) > .2) {
@@ -363,7 +388,8 @@ namespace app {
     } else if (m_demoInteractionStep == 7) {
       require(m_videoDrag == 2, "Volume drag survives repaint");
       m_window.motion(
-          m_videoVolume.x + m_videoVolume.width * .4F, m_videoVolume.y + 8 + m_window.titlebarHeight() - 36
+          m_videoVolume.x + m_videoVolume.width * .4F,
+          m_videoVolume.y + Style::spaceSm + m_window.titlebarHeight() - layout::Window::titlebarHeight
       );
       m_window.released();
       require(std::abs(state.volume - 40) < 1, "Dragging volume changes the actual playback volume");

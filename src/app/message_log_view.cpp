@@ -88,6 +88,19 @@ namespace app {
         clearChatPreload();
     }
     m_messageLog.removed(channel, ids);
+    const auto invalidateReplies = [&](auto& rows) {
+      for (auto& message : rows)
+        if (message.reply
+            && (message.reply->channel.empty() ? message.channelId : message.reply->channel) == channel
+            && std::ranges::find(ids, message.reply->message) != ids.end()) {
+          message.reply->deleted = true;
+          message.reply->available = true;
+          message.reply->content.clear();
+        }
+    };
+    invalidateReplies(m_messages);
+    for (auto& [id, rows] : m_channelMessages)
+      invalidateReplies(rows);
     if (const auto preview = m_forumFirstMessages.find(channel);
         preview != m_forumFirstMessages.end() && deleted(preview->second))
       m_forumFirstMessages.erase(preview);

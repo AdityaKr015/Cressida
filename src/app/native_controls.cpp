@@ -41,7 +41,7 @@ namespace app {
     }
     const bool over = hovered(hit.x + ox, hit.y + oy, hit.width, hit.height);
     if (over || selected)
-      rectangle(parent, hit.x, hit.y, hit.width, hit.height, over ? theme::raised : theme::panel, 7);
+      rectangle(parent, hit.x, hit.y, hit.width, hit.height, over ? theme::raised : theme::panel, Style::hoverRadius);
     const float size = std::min(20.0F, hit.height - 8);
     glyph(
         parent, hit.x + (hit.width - size) / 2, hit.y + (hit.height - size) / 2, size, icon,
@@ -63,18 +63,24 @@ namespace app {
         || (!m_dialogKind.empty() && m_dialogKind != "profile"))
       return;
     auto& renderer = m_window.target().renderer();
-    const auto natural =
-        renderer.measureText(m_tooltip, 12, FontWeight::Normal, 0, 0, TextAlign::Start, {}, TextEllipsize::End);
-    const float width = std::min(std::min(480.0F, w - 16), std::ceil(natural.width) + 20);
+    const auto natural = renderer.measureText(
+        m_tooltip, Style::fontSizeDescription, FontWeight::Normal, 0, 0, TextAlign::Start, {}, TextEllipsize::End
+    );
+    const float width = std::min(std::min(480.0F, w - Style::spaceLg), std::ceil(natural.width) + 20);
     const auto metrics = renderer.measureText(
-        m_tooltip, 12, FontWeight::Normal, width - 20, 0, TextAlign::Start, {}, TextEllipsize::End
+        m_tooltip, Style::fontSizeDescription, FontWeight::Normal, width - 20, 0, TextAlign::Start, {},
+        TextEllipsize::End
     );
     const float height = std::ceil(metrics.bottom - metrics.top) + 16;
     const float x = std::clamp(m_tooltipX - width / 2, 8.0F, std::max(8.0F, w - width - 8));
-    const float preferredY = m_tooltipY - height - 8 >= 40 ? m_tooltipY - height - 8 : m_tooltipY + 38;
+    const float preferredY =
+        m_tooltipY - height - 8 >= 40 ? m_tooltipY - height - 8 : m_tooltipY + (Style::spaceSection - Style::spaceXxs);
     const float y = std::clamp(preferredY, 40.0F, std::max(40.0F, h - height - 8));
-    rectangle(root, x, y, width, height, theme::raised, 6);
-    label(root, x + 10, y + 8, width - 20, m_tooltip, 12, theme::foreground, FontWeight::Normal, 0);
+    rectangle(root, x, y, width, height, theme::raised, Style::radiusMd);
+    label(
+        root, x + Style::spaceDense, y + Style::spaceSm, width - Style::spaceRelaxed, m_tooltip,
+        Style::fontSizeDescription, theme::foreground, FontWeight::Normal, 0
+    );
   }
   ClientApplication::~ClientApplication() {
     closeSelectDropdown();
@@ -98,7 +104,7 @@ namespace app {
     if (m_controlFontGeneration != generation) {
       m_controlFontGeneration = generation;
       for (const auto& [id, input] : m_inputs)
-        input->setFontSize(id == "message-edit" ? m_preferences.messageSize : 14);
+        input->setFontSize(id == "message-edit" ? m_preferences.messageSize : Style::fontSizeBody);
     }
     m_buildingScene = true;
     if (!m_controlClipboard) {
@@ -225,7 +231,7 @@ namespace app {
       m_detachedInputs.erase(stored);
     } else {
       auto field = std::make_unique<Input>();
-      field->setFontSize(14);
+      field->setFontSize(Style::fontSizeBody);
       field->setMultiline(multiline);
       field->setMultilineCenterWhenFits(id == "composer");
       if (id == "composer")
@@ -410,6 +416,7 @@ namespace app {
                 : id == "composer"     ? !m_demo
                     || m_demoOverlay == "sidebar-cycle"
                     || m_demoOverlay == "inline-edit-cycle"
+                    || m_demoOverlay == "chat-links-cycle"
                     || m_demoOverlay.starts_with("autocomplete")
                                    : !m_savingProfile)
     );

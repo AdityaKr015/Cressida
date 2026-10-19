@@ -1,4 +1,6 @@
 #pragma once
+#include "app/layout_metrics.h"
+
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -8,13 +10,13 @@
 namespace app {
   struct Preferences {
     std::string theme = "dark";
-    float messageSize = 14;
+    float messageSize = Style::fontSizeBody;
     bool compact = false, showEmbeds = true, showImages = true;
     bool autoplayGifs = true;
     bool emojiImageLinks = false;
     bool roleColors = true, animateRoleColors = true;
     bool showGuildTags = true;
-    float channelSidebarWidth = 248;
+    float channelSidebarWidth = layout::Sidebar::preferredWidth;
     bool logDeletedMessages = false, logEditHistory = false;
     std::string fontFamily;
     std::string colorTheme = "cressida";

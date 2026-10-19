@@ -2,8 +2,11 @@
 
 #include "api/emoji.h"
 #include "api/models.h"
+#include "app/discord_link.h"
 #include "app/discord_timestamp.h"
+#include "app/layout_metrics.h"
 #include "app/reply_preview.h"
+#include "ui/style.h"
 
 #include <algorithm>
 #include <cmath>
@@ -128,6 +131,12 @@ namespace app {
       void flush() {
         auto value = std::move(pending);
         pending.clear();
+        if (options && options->channelMention && !style.code && value == style.link)
+          if (const auto target = discordLink(value)) {
+            const auto resolved = options->channelMention(target->guild, target->channel);
+            channel(resolved, resolved.link.empty() ? std::string{} : value, true, value);
+            return;
+          }
         if (!value.empty())
           text(restoreEmoji(std::move(value)));
       }
@@ -157,6 +166,72 @@ namespace app {
       void boundary() {
         if (x > indent)
           newline(true);
+      }
+      void channel(
+          const MessageOptions::ChannelMention& target, std::string link, bool breadcrumb, std::string_view source = {}
+      ) {
+        using Part = MessageRun::ChannelChip::Part;
+        const float available = std::max(0.0F, width - indent);
+        auto current = style;
+        current.link = std::move(link);
+        current.userMention.clear();
+        current.mention = true;
+        current.spoiler |= spoilerOn;
+        current.underline = false;
+        auto textStyle = current;
+        textStyle.link.clear();
+        const float padding = layout::ChannelLink::padding;
+        const float gap = layout::ChannelLink::gap;
+        const float iconSize = std::min(
+            current.size + layout::ChannelLink::iconExtra,
+            std::max(0.0F, available - padding * 2 - gap - Style::borderWidth)
+        );
+        MessageRun::ChannelChip chip;
+        const auto part = [&](Part::Kind kind, std::string value, bool locked = false) {
+          const float measured = kind == Part::Text ? measure(value, textStyle) : iconSize;
+          chip.parts.push_back({kind, std::move(value), 0, measured, locked});
+        };
+        const bool full = available >= layout::ChannelLink::breadcrumbMinimumWidth;
+        if (breadcrumb && full && !target.guildName.empty()) {
+          part(Part::GuildIcon, target.guildIcon);
+          part(Part::Text, target.guildName);
+          part(Part::Glyph, "chevron-right");
+        }
+        if (full && !target.parentName.empty()) {
+          part(Part::Glyph, target.parentIcon);
+          part(Part::Text, target.parentName);
+          part(Part::Glyph, "chevron-right");
+        }
+        part(Part::Glyph, target.icon, target.locked);
+        part(Part::Text, target.channelName.empty() ? target.name : target.channelName);
+        float fixed = padding * 2 + (chip.parts.size() - 1) * gap, text = 0;
+        for (const auto& item : chip.parts)
+          if (item.kind == Part::Text)
+            text += item.width;
+          else
+            fixed += item.width;
+        const float fraction = text > 0 ? std::min(1.0F, std::max(0.0F, available - fixed) / text) : 1;
+        float chipWidth = padding;
+        for (auto& item : chip.parts) {
+          if (item.kind == Part::Text)
+            item.width *= fraction;
+          item.x = chipWidth;
+          chipWidth += item.width + gap;
+        }
+        chipWidth += padding - gap;
+        chipWidth = std::min(chipWidth, available);
+        for (auto& item : chip.parts) {
+          item.x = std::min(item.x, chipWidth);
+          item.width = std::min(item.width, std::max(0.0F, chipWidth - item.x - padding));
+        }
+        if (x > indent && x + chipWidth > width)
+          newline();
+        const std::string plain = source.empty() ? "#" + target.name : std::string(source);
+        const float height = current.size + layout::ChannelLink::lineExtra;
+        output.runs.push_back({plain, {}, x, y, chipWidth, current, output.plainText.size(), height, std::move(chip)});
+        output.plainText += plain;
+        x += chipWidth;
+        lineHeight = std::max(lineHeight, height);
       }
       void add(std::string text, std::string image = {}, bool unicodeEmoji = false) {
         auto current = style;
@@ -298,13 +373,23 @@ namespace app {
                       : token.starts_with('#')                     ? "unknown-channel"
                       : token.starts_with("@&")                    ? "unknown-role"
                                                                    : "unknown-user";
-                  const auto previous = style.mention;
+                  const auto previous = style;
                   style.mention = true;
+                  style.link.clear();
+                  style.userMention.clear();
+                  if (token.starts_with('#') && options && options->channelMention) {
+                    const auto resolved = options->channelMention({}, id);
+                    channel(resolved, resolved.link, false);
+                    style = previous;
+                    pos = end + 1;
+                    continue;
+                  } else if (token.starts_with('@') && !token.starts_with("@&"))
+                    style.userMention = id;
                   word(
                       std::string((!options || options->mentionPrefix) ? (token.starts_with('#') ? "#" : "@") : "")
                       + name
                   );
-                  style.mention = previous;
+                  style = previous;
                   pos = end + 1;
                   continue;
                 }
@@ -567,6 +652,7 @@ namespace app {
         return;
       style.size = style.emoji || !image.empty() ? 16 : 12;
       style.link.clear(); // The entire preview jumps to its referenced message.
+      style.userMention.clear();
       const auto size = image.empty() ? measure(text, style) : 16;
       runs.push_back({std::move(text), std::move(image), 0, 0, size, style, 0, 20});
     };
@@ -1075,12 +1161,14 @@ namespace app {
         y += append(field.value, 16, y, contentWidth) + 8;
       }
       if (thumbnail) {
-        picture(embed.thumbnail, cardWidth - 88, start + 12, 72, 72, embed.url);
+        picture(embed.thumbnail, cardWidth - 88, start + Style::spaceMd, 72, 72, embed.url);
         y = std::max(y, start + 84);
       }
       if (!embed.image.url.empty() || (!thumbnail && !embed.thumbnail.url.empty())) {
         y += 4;
-        y += picture(embed.image.url.empty() ? embed.thumbnail : embed.image, 16, y, cardWidth - 32, 280, embed.url);
+        y += picture(
+            embed.image.url.empty() ? embed.thumbnail : embed.image, 16, y, cardWidth - Style::space2Xl, 280, embed.url
+        );
         result.pictures.back().video = video;
       }
       if (!embed.footer.empty()) {

@@ -184,7 +184,13 @@ namespace app {
       const auto row =
           std::ranges::find_if(m_hits, [&](const auto& hit) { return hit.action == Action::Channel && hit.id == id; });
       require(row != m_hits.end(), "Preload replay requires a visible conversation row");
-      m_window.motion(row->x + 15, row->y + 15 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          row->x + (Style::cardPadding + Style::borderWidth),
+          row->y
+              + (Style::cardPadding + Style::borderWidth)
+              + m_window.titlebarHeight()
+              - layout::Window::titlebarHeight
+      );
       updateChatPreload();
     };
     const auto result = [&] {

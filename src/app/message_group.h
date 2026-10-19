@@ -1,6 +1,7 @@
 #pragma once
 
 #include "api/models.h"
+#include "app/layout_metrics.h"
 
 #include <algorithm>
 #include <chrono>
@@ -13,14 +14,22 @@ namespace app {
       return 0;
     // Footers are drawn six pixels below the body. Reaction strips reserve four
     // pixels after their final chip; another four keeps the next text clear.
-    return 6 + components + reactions + thread + (reactions > 0 && thread <= 0 ? 4 : 0);
+    return layout::Chat::footerGap
+        + components
+        + reactions
+        + thread
+        + (reactions > 0 && thread <= 0 ? layout::Chat::reactionTailGap : 0);
   }
-  inline float
-  messageRowPadding(bool continuation, bool nextContinuation, bool compact, int spacing = 16, bool last = false) {
+  inline float messageRowPadding(
+      bool continuation, bool nextContinuation, bool compact,
+      int spacing = static_cast<int>(layout::Chat::defaultGroupGap), bool last = false
+  ) {
     // Rich text already reserves a full line height. A second row gap would
     // make separate messages looser than wrapping/newlines within one message.
-    return (continuation ? 0.0F : 18.0F)
-        + (nextContinuation || last ? 0.0F : (compact ? std::min(8, spacing) : spacing));
+    return (continuation ? 0.0F : layout::Chat::headerHeight)
+        + (nextContinuation || last
+               ? 0.0F
+               : (compact ? std::min(layout::Chat::maximumCompactGroupGap, static_cast<float>(spacing)) : spacing));
   }
   inline std::optional<std::chrono::sys_time<std::chrono::milliseconds>> messageTime(std::string_view value) {
     using namespace std::chrono;

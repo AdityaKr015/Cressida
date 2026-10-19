@@ -49,7 +49,9 @@ namespace app {
           }
           break;
         }
-      auto* area = m_controlInput.inputAreaAt(m_pointerX, m_pointerY + m_window.titlebarHeight() - 36);
+      auto* area = m_controlInput.inputAreaAt(
+          m_pointerX, m_pointerY + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
       // Covered native controls remain in the scene. Only the active overlay
       // may supply a cursor; InputAreas are children of retained controls.
       const auto allowed = [&](const std::string& id) {
@@ -130,8 +132,8 @@ namespace app {
     });
     Color backdrop = rgbHex(0x08090D);
     backdrop.a = 0.96F;
-    rectangle(root, 0, 36, w, h - 36, backdrop);
-    m_hits.push_back({0, 36, w, h - 36, Action::CloseImage, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, backdrop);
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::CloseImage, {}});
     const float left = 60, top = 94, availableW = w - 120, availableH = h - 174;
     const auto found = m_images.find(m_viewImage);
     const auto texture = found == m_images.end() ? TextureHandle{} : found->second.texture;
@@ -151,7 +153,7 @@ namespace app {
     imageLayer->setSize(availableW, availableH);
     imageLayer->setClipChildren(true);
     const float x = (availableW - iw) / 2 + m_viewPanX, y = (availableH - ih) / 2 + m_viewPanY;
-    picture(*imageLayer, x, y, iw, ih, m_viewImage, 8, true);
+    picture(*imageLayer, x, y, iw, ih, m_viewImage, Style::surfaceRadius, true);
     root.addChild(std::move(imageLayer));
     const float hitX = std::max(left, left + x), hitY = std::max(top, top + y);
     const float hitRight = std::min(left + availableW, left + x + iw),
@@ -159,7 +161,7 @@ namespace app {
     m_hits.push_back(
         {hitX, hitY, std::max(0.0F, hitRight - hitX), std::max(0.0F, hitBottom - hitY), Action::ImagePan, {}}
     );
-    label(root, 28, 53, w - 140, "Image", 17, rgbHex(0xEEEFF5), FontWeight::SemiBold);
+    label(root, 28, 53, w - 140, "Image", Style::fontSizeSection, rgbHex(0xEEEFF5), FontWeight::SemiBold);
     iconButton(root, {w - 64, 46, 32, 32, Action::CloseImage, {}}, "x", "Close image");
     if (m_viewerImages.size() > 1) {
       iconButton(

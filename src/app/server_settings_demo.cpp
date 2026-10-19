@@ -216,7 +216,7 @@ namespace app {
           for (int y = 0; y < 64; ++y)
             for (int x = 0; x < 64; ++x) {
               const auto at = (y * 64 + x) * 4;
-              const auto dx = x - 32, dy = y - 32;
+              const auto dx = x - Style::space2Xl, dy = y - Style::space2Xl;
               const bool circle = dx * dx + dy * dy < 850;
               const bool eyes = y >= 21 && y <= 26 && ((x >= 19 && x <= 24) || (x >= 40 && x <= 45));
               const bool mouth = y >= 39 + frame * 3 && y <= 44 + frame * 3 && x >= 23 && x <= 41;
@@ -481,7 +481,7 @@ namespace app {
         x += parent->x();
         y += parent->y();
       }
-      m_window.click(x, y + m_window.titlebarHeight() - 36, 272);
+      m_window.click(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272);
       m_window.released();
     };
     const auto acknowledge = [&](Json data = Json::object(), std::string error = {}) {
@@ -825,7 +825,7 @@ namespace app {
         x += parent->x();
         y += parent->y();
       }
-      m_window.click(x, y + m_window.titlebarHeight() - 36, 272);
+      m_window.click(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272);
       m_window.released();
     };
     const auto acknowledge = [&](Json data, std::string error = {}) {
@@ -907,7 +907,8 @@ namespace app {
           std::ranges::find_if(m_hits, [](const auto& hit) { return hit.id == "expression-delete:302"; });
       require(target != m_hits.end(), "Visible sticker trash has a clipped manual hit region");
       m_window.click(
-          target->x + target->width / 2, target->y + target->height / 2 + m_window.titlebarHeight() - 36, 272
+          target->x + target->width / 2,
+          target->y + target->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272
       );
       m_window.released();
       require(
@@ -1014,7 +1015,11 @@ namespace app {
       for (const auto& hit : m_hits)
         if (hit.action == Action::ServerSettingsAction && hit.id.starts_with("expression-delete:")) {
           require(
-              hit.y >= 108 && hit.y + hit.height <= m_window.height() + 36 - m_window.titlebarHeight() - 24,
+              hit.y >= 108
+                  && hit.y + hit.height <= m_window.height()
+                          + layout::Window::titlebarHeight
+                          - m_window.titlebarHeight()
+                          - Style::spaceXl,
               "Clamped manual expression hits remain inside the settings viewport"
           );
           require(

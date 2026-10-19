@@ -9,6 +9,7 @@ namespace Style {
   inline constexpr int animSlow = 400;
 
   inline constexpr float radiusSm = 3.0F;
+  inline constexpr float radiusXs = 2.0F;
   inline constexpr float radiusMd = 6.0F;
   inline constexpr float radiusLg = 9.0F;
   inline constexpr float radiusXl = 12.0F;
@@ -22,6 +23,15 @@ namespace Style {
   inline constexpr float spaceSm = 8.0F;
   inline constexpr float spaceMd = 12.0F;
   inline constexpr float spaceLg = 16.0F;
+  inline constexpr float spaceXxs = 2.0F;
+  inline constexpr float spaceCompact = 6.0F;
+  inline constexpr float spaceDense = 10.0F;
+  inline constexpr float spaceRelaxed = 20.0F;
+  inline constexpr float spaceXl = 24.0F;
+  inline constexpr float spaceWide = 28.0F;
+  inline constexpr float space2Xl = 32.0F;
+  inline constexpr float spaceSection = 40.0F;
+  inline constexpr float spaceGroup = 48.0F;
 
   inline constexpr float cardPadding = 14.0F;
   inline constexpr float panelPadding = 14.0F;
@@ -29,10 +39,35 @@ namespace Style {
   inline constexpr float baseGlyphSize = 16.0F;
 
   inline constexpr float fontSizeMini = 11.0F;
+  inline constexpr float fontSizeFine = 9.0F;
+  inline constexpr float fontSizeDetail = 10.0F;
+  inline constexpr float fontSizeDescription = 12.0F;
   inline constexpr float fontSizeCaption = 13.0F;
   inline constexpr float fontSizeBody = 14.0F;
   inline constexpr float fontSizeTitle = 16.0F;
   inline constexpr float fontSizeHeader = 20.0F;
+  inline constexpr float fontSizeSubtitle = 15.0F;
+  inline constexpr float fontSizeSection = 17.0F;
+  inline constexpr float fontSizeHeading = 18.0F;
+  inline constexpr float fontSizeDialog = 19.0F;
+  inline constexpr float fontSizeProfile = 21.0F;
+  inline constexpr float fontSizePage = 22.0F;
+  inline constexpr float fontSizeModal = 23.0F;
+  inline constexpr float fontSizeHero = 24.0F;
+  inline constexpr float fontSizeWelcome = 26.0F;
+  inline constexpr float fontSizeFeature = 25.0F;
+  inline constexpr float fontSizeDisplay = 28.0F;
+
+  inline constexpr float glyphSizeTiny = 12.0F;
+  inline constexpr float glyphSizeSmall = 14.0F;
+  inline constexpr float glyphSizeMedium = 18.0F;
+  inline constexpr float glyphSizeLarge = 20.0F;
+  inline constexpr float glyphSizeFeature = 24.0F;
+  inline constexpr float glyphSizeHero = 28.0F;
+  inline constexpr float glyphSizeDisplay = 32.0F;
+  inline constexpr float controlRadius = 5.0F;
+  inline constexpr float hoverRadius = 7.0F;
+  inline constexpr float surfaceRadius = 8.0F;
 
   inline constexpr float controlHeightSm = 32.0F;
   inline constexpr float controlHeight = 38.0F;

@@ -18,7 +18,8 @@ namespace app {
     const auto& user = m_dialogAccount;
     const bool own = user.id == m_account.id;
     const int relation = m_userDirectory.relationship(user.id);
-    const float width = std::min(370.0F, w - 24), inset = 18, inner = width - inset * 2;
+    const float width = std::min(layout::Profile::width, w - Style::spaceXl), inset = layout::Profile::inset,
+                inner = width - inset * 2;
     const auto measure = [&](std::string_view text, const MessageStyle& style) {
       return m_window.target()
           .renderer()
@@ -29,16 +30,18 @@ namespace app {
           .width;
     };
     const auto bio = layoutMessage(
-        user.bio, inner - 8, measure, 13, {},
+        user.bio, inner - Style::spaceSm, measure, Style::fontSizeCaption, {},
         {.compact = true,
          .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); },
          .discordTimestamps = true}
     );
     const auto roles = m_roleDirectory.roles(profile.guild, user.id, profile.roles);
     const bool bioCut = !m_profileExpanded && bio.height > 72;
-    const float bioHeight = bioCut ? 63 : bio.height;
-    const float bannerHeight = h < 510 ? 76 : 108;
-    const float bodyStart = bannerHeight + (user.pronouns.empty() ? 112 : 136);
+    const float bioHeight = bioCut ? layout::Profile::maximumBioHeight : bio.height;
+    const float bannerHeight =
+        h < layout::Profile::compactHeight ? layout::Profile::compactBannerHeight : layout::Profile::bannerHeight;
+    const float bodyStart = bannerHeight
+        + (user.pronouns.empty() ? layout::Profile::identityHeight : layout::Profile::pronounIdentityHeight);
     const float bioSection = m_dialogPending ? 64
         : !m_dialogError.empty()             ? 84
         : profile.privateProfile             ? 38
@@ -51,65 +54,92 @@ namespace app {
       float x, y, width;
     };
     std::vector<Chip> chips;
-    float chipX = 0, chipY = roleTop + 22;
+    float chipX = 0, chipY = roleTop + (Style::spaceXl - Style::spaceXxs);
     const auto shown = m_profileExpanded ? roles.size() : std::min<std::size_t>(roles.size(), 6);
     for (std::size_t i = 0; i < shown; ++i) {
       const bool icon = !roles[i].icon.empty() || !roles[i].unicodeEmoji.empty();
-      const auto size =
-          std::min(inner - 8, m_window.target().renderer().measureText(roles[i].name, 12).width + 29 + (icon ? 20 : 0));
-      if (chipX > 0 && chipX + size > inner - 8) {
+      const auto size = std::min(
+          inner - Style::spaceSm,
+          m_window.target().renderer().measureText(roles[i].name, Style::fontSizeDescription).width
+              + 29
+              + (icon ? 20 : 0)
+      );
+      if (chipX > 0 && chipX + size > inner - Style::spaceSm) {
         chipX = 0;
-        chipY += 28;
+        chipY += Style::spaceWide;
       }
       chips.push_back({&roles[i], chipX, chipY, size});
       chipX += size + 6;
     }
-    const float roleHeight = chips.empty() ? 0 : chipY + 26 - roleTop + (shown < roles.size() ? 30 : 0);
+    const float roleHeight =
+        chips.empty() ? 0 : chipY + (Style::spaceXl + Style::spaceXxs) - roleTop + (shown < roles.size() ? 30 : 0);
     const float bodyHeight = std::max(20.0F, roleTop + roleHeight);
-    const float height = std::min(h - 64, bodyStart + bodyHeight + 70);
+    const float height =
+        std::min(h - layout::Profile::viewportReserve, bodyStart + bodyHeight + layout::Profile::footerHeight);
     const float x = std::clamp(
         m_profileAnchorX < 0           ? (w - width) / 2
-            : m_profileAnchorX < w / 2 ? m_profileAnchorX + 16
+            : m_profileAnchorX < w / 2 ? m_profileAnchorX + Style::spaceLg
                                        : m_profileAnchorX - width - 16,
         12.0F, std::max(12.0F, w - width - 12)
     );
     const float y = std::clamp(
-        m_profileAnchorY < 0 ? (h - height) / 2 : m_profileAnchorY - 96, 44.0F, std::max(44.0F, h - height - 12)
+        m_profileAnchorY < 0 ? (h - height) / 2 : m_profileAnchorY - layout::Profile::anchorOffset, 44.0F,
+        std::max(44.0F, h - height - 12)
     );
-    const float viewport = std::max(1.0F, height - bodyStart - 70);
+    const float viewport = std::max(1.0F, height - bodyStart - layout::Profile::footerHeight);
     m_scrolling.limit(m_profileScroll, bodyHeight - viewport);
     m_dialogBounds = {x, y, width, height, Action::None, {}};
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.24F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
-    rectangle(root, x - 2, y + 4, width + 4, height + 2, Color{0, 0, 0, 0.3F}, 17);
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, 0.24F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
+    rectangle(
+        root, x - Style::spaceXxs, y + Style::spaceXs, width + Style::spaceXs, height + Style::spaceXxs,
+        Color{0, 0, 0, 0.3F}, 17
+    );
     const auto bodyColor = profile.theme ? lerpColor(sidebar, rgbHex((*profile.theme)[1]), 0.15F) : sidebar;
     rectangle(root, x, y, width, height, lerpColor(bodyColor, muted, 0.2F), 15);
-    rectangle(root, x + 1, y + 1, width - 2, height - 2, bodyColor, 14);
+    rectangle(
+        root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, height - Style::spaceXxs,
+        bodyColor, 14
+    );
     m_hits.push_back(m_dialogBounds);
     const auto bannerColor = profile.accent ? rgbHex(*profile.accent)
         : profile.theme                     ? rgbHex((*profile.theme)[0])
                                             : lerpColor(accent, panel, 0.4F);
     // Clip the banner in its own rounded frame; the avatar remains outside it.
-    picture(root, x + 1, y + 1, width - 2, bannerHeight + 12, profile.banner, 14);
+    picture(
+        root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, bannerHeight + Style::spaceMd,
+        profile.banner, 14
+    );
     if (profile.banner.empty() || !m_images.contains(profile.banner) || !m_images.at(profile.banner).texture.valid())
-      rectangle(root, x + 1, y + 1, width - 2, bannerHeight + 12, bannerColor, 14);
-    rectangle(root, x + 1, y + bannerHeight, width - 2, 16, bodyColor);
-    rectangle(root, x + 14, y + bannerHeight - 40, 96, 96, bodyColor, 48);
+      rectangle(
+          root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, bannerHeight + Style::spaceMd,
+          bannerColor, 14
+      );
+    rectangle(root, x + Style::borderWidth, y + bannerHeight, width - Style::spaceXxs, 16, bodyColor);
+    rectangle(root, x + Style::cardPadding, y + bannerHeight - Style::spaceSection, 96, 96, bodyColor, 48);
     const auto name = userName(user.id, user.name);
-    avatar(root, x + 20, y + bannerHeight - 34, 84, user.avatar, name);
+    avatar(
+        root, x + Style::spaceRelaxed, y + bannerHeight - (Style::space2Xl + Style::spaceXxs), layout::Avatar::profile,
+        user.avatar, name
+    );
     if (!profile.decoration.empty())
-      picture(root, x + 9, y + bannerHeight - 45, 106, 106, profile.decoration, 0, false, false, ImageFitMode::Contain);
+      picture(
+          root, x + (Style::spaceSm + Style::borderWidth),
+          y + bannerHeight - ((Style::spaceSection + Style::spaceXs) + Style::borderWidth), 106, 106,
+          profile.decoration, 0, false, false, ImageFitMode::Contain
+      );
     auto presence = std::make_unique<Node>();
-    presence->setPosition(x + 87, y + bannerHeight + 30);
+    presence->setPosition(x + 87, y + bannerHeight + (Style::space2Xl - Style::spaceXxs));
     presence->setScale(1.8F);
     statusBadge(*presence, 0, 0, user.id == m_account.id ? m_presence.status : userStatus(user.id), bodyColor);
     root.addChild(std::move(presence));
-    rectangle(root, x + width - 42, y + 10, 30, 30, Color{0, 0, 0, 0.42F}, 15);
-    iconButton(root, {x + width - 42, y + 10, 30, 30, Action::CloseDialog, {}}, "x", "Close profile");
+    rectangle(root, x + width - 42, y + Style::spaceDense, 30, 30, Color{0, 0, 0, 0.42F}, 15);
+    iconButton(root, {x + width - 42, y + Style::spaceDense, 30, 30, Action::CloseDialog, {}}, "x", "Close profile");
     if (!own && relation != 2 && relation != 4) {
-      rectangle(root, x + width - 80, y + 10, 30, 30, Color{0, 0, 0, 0.42F}, 15);
+      rectangle(root, x + width - 80, y + Style::spaceDense, 30, 30, Color{0, 0, 0, 0.42F}, 15);
       iconButton(
-          root, {x + width - 80, y + 10, 30, 30, Action::ProfileFriend, {}}, relation == 1 ? "user-check" : "user-plus",
+          root, {x + width - 80, y + Style::spaceDense, 30, 30, Action::ProfileFriend, {}},
+          relation == 1 ? "user-check" : "user-plus",
           relation == 1       ? "Remove friend"
               : relation == 3 ? "Accept friend request"
                               : "Add friend"
@@ -117,8 +147,8 @@ namespace app {
     }
     for (std::size_t i = 0; i < profile.badges.size(); ++i) {
       const int columns = std::max(1, static_cast<int>((width - 138) / 24));
-      const float bx = x + 124 + (i % columns) * 24, by = y + bannerHeight + 12 + (i / columns) * 24;
-      if (by + 22 > y + bannerHeight + 58)
+      const float bx = x + 124 + (i % columns) * 24, by = y + bannerHeight + Style::spaceMd + (i / columns) * 24;
+      if (by + (Style::spaceXl - Style::spaceXxs) > y + bannerHeight + 58)
         break;
       picture(root, bx, by, 20, 20, profile.badges[i].image, 0, false, false, ImageFitMode::Contain);
       if (hovered(bx, by, 20, 20)) {
@@ -128,22 +158,27 @@ namespace app {
       }
     }
     roleLabel(
-        root, x + inset, y + bannerHeight + 64, inner, name, 20, foreground, FontWeight::Bold, user.id,
-        "profile:" + user.id, false, profile.roles
+        root, x + inset, y + bannerHeight + 64, inner, name, Style::fontSizeHeader, foreground, FontWeight::Bold,
+        user.id, "profile:" + user.id, false, profile.roles
     );
     const auto username = user.username.empty() ? user.name : user.username;
     const auto userTag = m_userDirectory.guildTag(user.id, user.guildTag);
-    const float usernameWidth =
-        std::min(inner - (userTag ? 100 : 0), m_window.target().renderer().measureText(username, 13).width + 2);
-    label(root, x + inset, y + bannerHeight + 92, usernameWidth, username, 13, foreground);
-    const auto tagWidth =
-        drawGuildTag(root, x + inset + usernameWidth + 8, y + bannerHeight + 89, inner - usernameWidth - 8, userTag);
-    if (usernameWidth + tagWidth + 30 < inner)
+    const float usernameWidth = std::min(
+        inner - (userTag ? 100 : 0),
+        m_window.target().renderer().measureText(username, Style::fontSizeCaption).width + 2
+    );
+    label(root, x + inset, y + bannerHeight + 92, usernameWidth, username, Style::fontSizeCaption, foreground);
+    const auto tagWidth = drawGuildTag(
+        root, x + inset + usernameWidth + Style::spaceSm, y + bannerHeight + 89, inner - usernameWidth - Style::spaceSm,
+        userTag
+    );
+    if (usernameWidth + tagWidth + (Style::space2Xl - Style::spaceXxs) < inner)
       drawRoleIcon(
-          root, x + inset + usernameWidth + tagWidth + 8, y + bannerHeight + 91, profile.guild, user.id, profile.roles
+          root, x + inset + usernameWidth + tagWidth + Style::spaceSm, y + bannerHeight + 91, profile.guild, user.id,
+          profile.roles
       );
     if (!user.pronouns.empty())
-      label(root, x + inset, y + bannerHeight + 115, inner, user.pronouns, 12, muted);
+      label(root, x + inset, y + bannerHeight + 115, inner, user.pronouns, Style::fontSizeDescription, muted);
 
     auto clip = std::make_unique<Node>();
     clip->setPosition(x + inset, y + bodyStart);
@@ -162,40 +197,46 @@ namespace app {
         m_hits.push_back({x + inset + bx, top, bw, bottom - top, action, std::move(id)});
     };
     if (m_dialogPending) {
-      rectangle(*body, 0, 3, inner - 8, 11, lerpColor(bodyColor, muted, 0.16F), 5);
-      rectangle(*body, 0, 24, inner * 0.76F, 11, lerpColor(bodyColor, muted, 0.12F), 5);
-      rectangle(*body, 0, 45, inner * 0.45F, 11, lerpColor(bodyColor, muted, 0.1F), 5);
+      rectangle(*body, 0, 3, inner - Style::spaceSm, 11, lerpColor(bodyColor, muted, 0.16F), Style::controlRadius);
+      rectangle(*body, 0, 24, inner * 0.76F, 11, lerpColor(bodyColor, muted, 0.12F), Style::controlRadius);
+      rectangle(*body, 0, 45, inner * 0.45F, 11, lerpColor(bodyColor, muted, 0.1F), Style::controlRadius);
     } else if (!m_dialogError.empty()) {
-      label(*body, 0, 0, inner - 8, "Could not load this profile.", 13, muted);
-      label(*body, 0, 21, inner - 8, m_dialogError, 11, muted, FontWeight::Normal, 2);
-      label(*body, 0, 62, inner, "Try again", 12, accent, FontWeight::Medium);
+      label(*body, 0, 0, inner - Style::spaceSm, "Could not load this profile.", Style::fontSizeCaption, muted);
+      label(*body, 0, 21, inner - Style::spaceSm, m_dialogError, Style::fontSizeMini, muted, FontWeight::Normal, 2);
+      label(*body, 0, 62, inner, "Try again", Style::fontSizeDescription, accent, FontWeight::Medium);
       bodyHit(0, 57, inner, 26, Action::ProfileRetry);
     } else if (profile.privateProfile) {
-      label(*body, 0, 0, inner - 8, "This profile is private.", 13, muted);
+      label(*body, 0, 0, inner - Style::spaceSm, "This profile is private.", Style::fontSizeCaption, muted);
     } else if (!user.bio.empty()) {
       auto bioClip = std::make_unique<Node>();
-      bioClip->setSize(inner - 8, bioHeight);
+      bioClip->setSize(inner - Style::spaceSm, bioHeight);
       bioClip->setClipChildren(true);
       auto* text = bioClip.get();
       body->addChild(std::move(bioClip));
       for (const auto& box : bio.boxes) {
         if (box.inlineCode) {
-          rectangle(*text, box.x, box.y, box.width, box.height, withAlpha(muted, .2F), 3);
-          rectangle(*text, box.x + 1, box.y + 1, box.width - 2, box.height - 2, panel, 2);
+          rectangle(*text, box.x, box.y, box.width, box.height, withAlpha(muted, .2F), Style::radiusSm);
+          rectangle(
+              *text, box.x + Style::borderWidth, box.y + Style::borderWidth, box.width - Style::spaceXxs,
+              box.height - Style::spaceXxs, panel, Style::radiusXs
+          );
         } else
-          rectangle(*text, box.x, box.y, box.width, box.height, box.quote ? muted : panel, box.quote ? 0 : 5);
+          rectangle(
+              *text, box.x, box.y, box.width, box.height, box.quote ? muted : panel,
+              box.quote ? 0 : Style::controlRadius
+          );
       }
       for (const auto& run : bio.runs) {
         const bool hidden = run.style.spoiler && !m_profileRevealSpoilers;
         if (hidden) {
-          rectangle(*text, run.x, run.y, run.width, run.height, raised, 3);
+          rectangle(*text, run.x, run.y, run.width, run.height, raised, Style::radiusSm);
           if (run.y < bioHeight)
             bodyHit(run.x, run.y, run.width, std::min(run.height, bioHeight - run.y), Action::ProfileSpoiler);
         } else if (!run.image.empty())
           emojiImage(*text, run.x, run.y, run.width, run.image);
         else
           label(
-              *text, run.x, run.y, run.width + 2, messageMarkup(run.text, run.style), run.style.size,
+              *text, run.x, run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
               run.style.syntax != CodeToken::Plain ? syntaxColor(run.style.syntax)
                   : run.style.link.empty()         ? foreground
                                                    : accent,
@@ -206,8 +247,8 @@ namespace app {
       }
       if (bio.height > 72) {
         label(
-            *body, 0, bioHeight + 6, inner, m_profileExpanded ? "Show Less" : "View Full Bio", 12, accent,
-            FontWeight::Medium
+            *body, 0, bioHeight + Style::spaceCompact, inner, m_profileExpanded ? "Show Less" : "View Full Bio",
+            Style::fontSizeDescription, accent, FontWeight::Medium
         );
         bodyHit(0, bioHeight, inner, 30, Action::ProfileExpand);
       }
@@ -216,12 +257,12 @@ namespace app {
       const float my = bioSection + 6;
       float textX = 0;
       for (const auto& friendUser : profile.mutualFriends) {
-        rectangle(*body, textX - 2, my - 2, 26, 26, bodyColor, 13);
+        rectangle(*body, textX - Style::spaceXxs, my - Style::spaceXxs, 26, 26, bodyColor, 13);
         avatar(*body, textX, my, 22, friendUser.avatar, friendUser.name);
-        textX += 16;
+        textX += Style::spaceLg;
       }
       if (textX)
-        textX += 12;
+        textX += Style::spaceMd;
       std::string summary;
       if (profile.mutualFriendCount)
         summary = std::to_string(*profile.mutualFriendCount)
@@ -234,26 +275,38 @@ namespace app {
             + " mutual "
             + (*profile.mutualGuildCount == 1 ? "server" : "servers");
       }
-      label(*body, textX, my + 4, inner - textX - 8, summary, 11, muted);
+      label(*body, textX, my + Style::spaceXs, inner - textX - Style::spaceSm, summary, Style::fontSizeMini, muted);
     }
     if (!chips.empty()) {
-      label(*body, 0, roleTop + 2, inner, "SERVER ROLES", 10, muted, FontWeight::SemiBold);
+      label(
+          *body, 0, roleTop + Style::spaceXxs, inner, "SERVER ROLES", Style::fontSizeDetail, muted, FontWeight::SemiBold
+      );
       for (const auto& chip : chips) {
-        rectangle(*body, chip.x, chip.y, chip.width, 23, lerpColor(bodyColor, muted, 0.14F), 7);
+        rectangle(*body, chip.x, chip.y, chip.width, 23, lerpColor(bodyColor, muted, 0.14F), Style::hoverRadius);
         rectangle(
-            *body, chip.x + 7, chip.y + 7, 9, 9, chip.role->colors.primary ? rgbHex(chip.role->colors.primary) : muted,
-            5
+            *body, chip.x + (Style::spaceCompact + Style::borderWidth),
+            chip.y + (Style::spaceCompact + Style::borderWidth), 9, 9,
+            chip.role->colors.primary ? rgbHex(chip.role->colors.primary) : muted, Style::controlRadius
         );
         const bool icon = !chip.role->icon.empty() || !chip.role->unicodeEmoji.empty();
-        label(*body, chip.x + 22, chip.y + 4, chip.width - 28 - (icon ? 20 : 0), chip.role->name, 12, foreground);
+        label(
+            *body, chip.x + (Style::spaceXl - Style::spaceXxs), chip.y + Style::spaceXs,
+            chip.width - Style::spaceWide - (icon ? 20 : 0), chip.role->name, Style::fontSizeDescription, foreground
+        );
         if (!chip.role->icon.empty())
-          emojiImage(*body, chip.x + chip.width - 22, chip.y + 4, 15, chip.role->icon);
+          emojiImage(*body, chip.x + chip.width - 22, chip.y + Style::spaceXs, 15, chip.role->icon);
         else if (!chip.role->unicodeEmoji.empty())
-          label(*body, chip.x + chip.width - 22, chip.y + 3, 19, chip.role->unicodeEmoji, 14, foreground);
+          label(
+              *body, chip.x + chip.width - 22, chip.y + (Style::spaceXxs + Style::borderWidth), 19,
+              chip.role->unicodeEmoji, Style::fontSizeBody, foreground
+          );
       }
       if (shown < roles.size()) {
-        const float moreY = chipY + 28;
-        label(*body, 0, moreY + 3, inner, "Show all " + std::to_string(roles.size()) + " roles", 12, accent);
+        const float moreY = chipY + Style::spaceWide;
+        label(
+            *body, 0, moreY + (Style::spaceXxs + Style::borderWidth), inner,
+            "Show all " + std::to_string(roles.size()) + " roles", Style::fontSizeDescription, accent
+        );
         bodyHit(0, moreY, inner, 28, Action::ProfileExpand);
       }
     }
@@ -275,7 +328,7 @@ namespace app {
       }
       auto* bar = static_cast<Scrollbar*>(owned.get());
       m_widgets[id] = bar;
-      bar->setPosition(x + width - 12, y + bodyStart);
+      bar->setPosition(x + width - Style::spaceMd, y + bodyStart);
       bar->setSize(bar->reservedThickness(), viewport);
       bar->update(viewport, bodyHeight, m_profileScroll);
       root.addChild(std::move(owned));
@@ -368,7 +421,7 @@ namespace app {
         badge[at] = 220;
         badge[at + 1] = 200;
         badge[at + 2] = 255;
-        badge[at + 3] = std::abs(x - 16) + std::abs(y - 16) < 13 ? 255 : 0;
+        badge[at + 3] = std::abs(x - Style::spaceLg) + std::abs(y - Style::spaceLg) < 13 ? 255 : 0;
       }
     m_images["demo-profile-badge"].texture = m_window.context().textureManager().loadFromRgba(badge.data(), 32, 32);
     profile.badges = {

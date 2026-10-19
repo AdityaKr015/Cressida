@@ -131,7 +131,7 @@ namespace app {
         m_messageEdit->text.empty() ? " " : m_messageEdit->text, m_preferences.messageSize, FontWeight::Normal,
         std::max(1.0F, width - 24), 0
     );
-    const float field = std::clamp(measured.bottom - measured.top + 24, 44.0F, 180.0F);
+    const float field = std::clamp(measured.bottom - measured.top + Style::spaceXl, 44.0F, 180.0F);
     return field + 30 + (m_messageEdit->error.empty() ? 0 : 34);
   }
 
@@ -146,9 +146,12 @@ namespace app {
     input.setFrameRadius(6);
     input.setHorizontalPadding(12);
     input.setClearButtonEnabled(false);
-    const float footerY = y + fieldHeight + 4;
+    const float footerY = y + fieldHeight + Style::spaceXs;
     if (width > 320)
-      label(parent, x + 2, footerY + 6, width - 150, "Escape to cancel · Enter to save", 10, muted);
+      label(
+          parent, x + Style::spaceXxs, footerY + Style::spaceCompact, width - 150, "Escape to cancel · Enter to save",
+          Style::fontSizeDetail, muted
+      );
     const auto control = [&](float bx, float bw, const std::string& text, Action action, bool primary) {
       const bool enabled = !m_messageEdit->request;
       Hit hit{bx, footerY, bw, 24, enabled ? action : Action::None, {}};
@@ -160,10 +163,11 @@ namespace app {
       }
       const bool over = enabled && hovered(bx + ox, footerY + oy, bw, 24);
       rectangle(parent, bx, footerY, bw, 24, primary ? accent : over ? raised : panel, 4);
-      const auto measured = m_window.target().renderer().measureText(text, 12, FontWeight::Medium);
+      const auto measured =
+          m_window.target().renderer().measureText(text, Style::fontSizeDescription, FontWeight::Medium);
       label(
           parent, bx + (bw - measured.width) / 2, footerY + (24 - (measured.bottom - measured.top)) / 2,
-          measured.width + 2, text, 12,
+          measured.width + Style::spaceXxs, text, Style::fontSizeDescription,
           primary       ? ink
               : enabled ? foreground
                         : muted,
@@ -176,7 +180,10 @@ namespace app {
     control(x + width - 136, 58, "Cancel", Action::CancelMessageEdit, false);
     control(x + width - 72, 72, m_messageEdit->request ? "Saving…" : "Save", Action::SaveMessageEdit, true);
     if (!m_messageEdit->error.empty())
-      label(parent, x + 2, footerY + 29, width - 4, m_messageEdit->error, 11, theme::danger, FontWeight::Normal, 2);
+      label(
+          parent, x + Style::spaceXxs, footerY + (Style::spaceWide + Style::borderWidth), width - Style::spaceXs,
+          m_messageEdit->error, Style::fontSizeMini, theme::danger, FontWeight::Normal, 2
+      );
   }
 
   void ClientApplication::demoMessageEditStep() {
@@ -347,44 +354,56 @@ namespace app {
     const auto message = std::ranges::find(m_messages, m_dialogAction->message, &api::Message::id);
     if (message == m_messages.end())
       return;
-    const float width = std::min(500.0F, w - 32), textWidth = width - 40;
-    const auto measured =
-        m_window.target().renderer().measureText(message->content, 14, FontWeight::Normal, textWidth - 54, 0);
-    const float previewHeight = std::clamp(measured.bottom - measured.top + 46, 76.0F, 112.0F);
+    const float width = std::min(500.0F, w - Style::space2Xl), textWidth = width - 40;
+    const auto measured = m_window.target().renderer().measureText(
+        message->content, Style::fontSizeBody, FontWeight::Normal, textWidth - 54, 0
+    );
+    const float previewHeight =
+        std::clamp(measured.bottom - measured.top + (Style::spaceGroup - Style::spaceXxs), 76.0F, 112.0F);
     const float errorHeight = m_dialogError.empty() ? 0 : 38;
     const float height = (160 + previewHeight) + errorHeight;
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
     const auto red = theme::destructive;
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, .65F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
-    rectangle(root, x, y, width, height, sidebar, 12);
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, .65F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
+    rectangle(root, x, y, width, height, sidebar, Style::radiusXl);
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
-    label(root, x + 20, y + 21, width - 72, "Delete message", 18, foreground, FontWeight::SemiBold);
+    label(
+        root, x + Style::spaceRelaxed, y + (Style::spaceRelaxed + Style::borderWidth), width - 72, "Delete message",
+        Style::fontSizeHeading, foreground, FontWeight::SemiBold
+    );
     iconButton(
-        root, {x + width - 42, y + 12, 30, 30, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "x", "Close"
+        root, {x + width - 42, y + Style::spaceMd, 30, 30, m_dialogPending ? Action::None : Action::CloseDialog, {}},
+        "x", "Close"
     );
     {
-      label(root, x + 20, y + 58, textWidth, "This message will be deleted for everyone.", 13, foreground);
+      label(
+          root, x + Style::spaceRelaxed, y + 58, textWidth, "This message will be deleted for everyone.",
+          Style::fontSizeCaption, foreground
+      );
       auto preview = std::make_unique<Node>();
-      preview->setPosition(x + 20, y + 86);
+      preview->setPosition(x + Style::spaceRelaxed, y + 86);
       preview->setSize(textWidth, previewHeight);
       preview->setClipChildren(true);
-      rectangle(*preview, 0, 0, textWidth, previewHeight, background, 8);
-      avatar(*preview, 12, 12, 32, message->avatar, message->author);
+      rectangle(*preview, 0, 0, textWidth, previewHeight, background, Style::surfaceRadius);
+      avatar(*preview, 12, 12, layout::Avatar::small, message->avatar, message->author);
       label(
-          *preview, 54, 12, textWidth - 66, userName(message->authorId, message->author), 13, foreground,
-          FontWeight::SemiBold
+          *preview, 54, 12, textWidth - 66, userName(message->authorId, message->author), Style::fontSizeCaption,
+          foreground, FontWeight::SemiBold
       );
       std::string excerpt = message->content;
       if (excerpt.empty())
         excerpt = message->attachments.empty() ? "[Message]" : message->attachments.front().filename;
-      label(*preview, 54, 33, textWidth - 66, excerpt, 13, muted, FontWeight::Normal, 3);
+      label(*preview, 54, 33, textWidth - 66, excerpt, Style::fontSizeCaption, muted, FontWeight::Normal, 3);
       root.addChild(std::move(preview));
     }
     if (!m_dialogError.empty())
-      label(root, x + 20, y + height - 94, textWidth, m_dialogError, 12, red, FontWeight::Normal, 2);
-    rectangle(root, x, y + height - 58, width, 58, panel, 12);
+      label(
+          root, x + Style::spaceRelaxed, y + height - 94, textWidth, m_dialogError, Style::fontSizeDescription, red,
+          FontWeight::Normal, 2
+      );
+    rectangle(root, x, y + height - 58, width, 58, panel, Style::radiusXl);
     rectangle(root, x, y + height - 58, width, 12, panel);
     const auto actionButton = [&](float bx, float bw, const std::string& caption, bool primary, bool enabled) {
       Hit hit{
@@ -395,12 +414,14 @@ namespace app {
       const auto fill = primary ? red : over ? raised : panel;
       rectangle(
           root, hit.x, hit.y, bw, 32,
-          enabled ? (over && primary ? lerpColor(fill, foreground, .12F) : fill) : lerpColor(panel, fill, .4F), 6
+          enabled ? (over && primary ? lerpColor(fill, foreground, .12F) : fill) : lerpColor(panel, fill, .4F),
+          Style::radiusMd
       );
-      const auto metrics = m_window.target().renderer().measureText(caption, 13, FontWeight::Medium);
+      const auto metrics =
+          m_window.target().renderer().measureText(caption, Style::fontSizeCaption, FontWeight::Medium);
       label(
-          root, hit.x + (bw - metrics.width) / 2, hit.y + (32 - (metrics.bottom - metrics.top)) / 2, metrics.width + 2,
-          caption, 13,
+          root, hit.x + (bw - metrics.width) / 2, hit.y + (32 - (metrics.bottom - metrics.top)) / 2,
+          metrics.width + Style::spaceXxs, caption, Style::fontSizeCaption,
           !enabled       ? muted
               : !primary ? foreground
                          : rgbHex(0xFFFFFF),

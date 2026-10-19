@@ -329,27 +329,32 @@ namespace app {
     const bool selectedRequest = requests && !m_dmPreviewId.empty();
     const bool split = selectedRequest && available >= 760;
     const float panelWidth = split ? std::clamp(available * .38F, 320.0F, 420.0F) : available;
-    const float listRight = split ? width - panelWidth - 16 : width;
+    const float listRight = split ? width - panelWidth - Style::spaceLg : width;
     if (selectedRequest && !split) {
       drawDmRequestPanel(root, left, 36, available, height - 36);
       return;
     }
-    glyph(root, left + 24, 60, 22, requests ? "mail" : "users", muted);
+    glyph(root, left + Style::spaceXl, 60, 22, requests ? "mail" : "users", muted);
     label(
-        root, left + 58, 60, listRight - left - 82, requests ? "Message Requests" : "Friends", 19, foreground,
-        FontWeight::SemiBold
+        root, left + 58, 60, listRight - left - 82, requests ? "Message Requests" : "Friends", Style::fontSizeDialog,
+        foreground, FontWeight::SemiBold
     );
-    float tabX = left + 24, tabY = 119;
+    float tabX = left + Style::spaceXl, tabY = 119;
     const auto tab = [&](const std::string& id, const std::string& title) {
-      const float size = std::ceil(m_window.target().renderer().measureText(title, 13, FontWeight::Medium).width) + 24;
-      if (tabX + size > listRight - 24) {
-        tabX = left + 24;
-        tabY += 36;
+      const float size =
+          std::ceil(m_window.target().renderer().measureText(title, Style::fontSizeCaption, FontWeight::Medium).width)
+          + 24;
+      if (tabX + size > listRight - Style::spaceXl) {
+        tabX = left + Style::spaceXl;
+        tabY += (Style::space2Xl + Style::spaceXs);
       }
       const bool selected = m_dmFilter == id;
       if (selected || hovered(tabX, tabY, size, 28))
-        rectangle(root, tabX, tabY, size, 28, selected ? raised : panel, 5);
-      label(root, tabX + 12, tabY + 6, size - 24, title, 13, selected ? foreground : muted, FontWeight::Medium);
+        rectangle(root, tabX, tabY, size, 28, selected ? raised : panel, Style::controlRadius);
+      label(
+          root, tabX + Style::spaceMd, tabY + Style::spaceCompact, size - Style::spaceXl, title, Style::fontSizeCaption,
+          selected ? foreground : muted, FontWeight::Medium
+      );
       m_hits.push_back({tabX, tabY, size, 28, Action::DmAction, "filter:" + id});
       tabX += size + 6;
     };
@@ -366,23 +371,36 @@ namespace app {
       tab("blocked", "Blocked");
       tab("add", "Add Friend");
     }
-    const float top = tabY + 48, bottom = height - (m_dmStatus.empty() || selectedRequest ? 20 : 70);
+    const float top = tabY + Style::spaceGroup, bottom = height - (m_dmStatus.empty() || selectedRequest ? 20 : 70);
     if (!m_dmStatus.empty() && !selectedRequest)
-      label(root, left + 24, height - 58, listRight - left - 48, m_dmStatus, 12, muted, FontWeight::Normal, 3);
+      label(
+          root, left + Style::spaceXl, height - 58, listRight - left - Style::spaceGroup, m_dmStatus,
+          Style::fontSizeDescription, muted, FontWeight::Normal, 3
+      );
     if (!requests && m_dmFilter == "add") {
-      label(root, left + 24, top, available - 48, "Add a friend by their Discord username.", 14, muted);
+      label(
+          root, left + Style::spaceXl, top, available - Style::spaceGroup, "Add a friend by their Discord username.",
+          Style::fontSizeBody, muted
+      );
       inputControl(
-          root, left + 24, top + 32, std::max(100.0F, available - 48), 36, "dm-friend-name", m_dmFriendName, "Username"
+          root, left + Style::spaceXl, top + Style::space2Xl, std::max(100.0F, available - Style::spaceGroup), 36,
+          "dm-friend-name", m_dmFriendName, "Username"
       );
       if (!m_dmFriendRequest)
-        dmButton(root, {left + 24, top + 84, 180, 30, Action::DmAction, "add-friend"}, "Send Friend Request", true);
+        dmButton(
+            root, {left + Style::spaceXl, top + 84, 180, 30, Action::DmAction, "add-friend"}, "Send Friend Request",
+            true
+        );
       else
-        label(root, left + 24, top + 90, available - 48, "Sending friend request…", 13, muted);
+        label(
+            root, left + Style::spaceXl, top + 90, available - Style::spaceGroup, "Sending friend request…",
+            Style::fontSizeCaption, muted
+        );
       return;
     }
     auto content = std::make_unique<Node>();
-    content->setPosition(left + 24, top);
-    content->setSize(std::max(1.0F, listRight - left - 48), std::max(0.0F, bottom - top));
+    content->setPosition(left + Style::spaceXl, top);
+    content->setSize(std::max(1.0F, listRight - left - Style::spaceGroup), std::max(0.0F, bottom - top));
     content->setClipChildren(true);
     const float inner = content->width();
     const bool narrow = inner < (requests ? 400 : 560);
@@ -422,13 +440,23 @@ namespace app {
       dmButton(*content, {x, rowY, buttonWidth, 26, Action::DmAction, command}, title, primary);
     };
     const auto person = [&](const api::Account& user, const std::string& subtitle, float rowY, float textWidth) {
-      avatar(*content, 8, rowY + 10, 36, user.avatar, user.name);
-      statusBadge(*content, 34, rowY + 36, userStatus(user.id), panel);
-      label(*content, 56, rowY + 10, textWidth, userName(user.id, user.name), 14, foreground, FontWeight::SemiBold);
-      label(*content, 56, rowY + 33, textWidth, subtitle, 12, muted);
+      avatar(*content, 8, rowY + Style::spaceDense, 36, user.avatar, user.name);
+      statusBadge(*content, 34, rowY + (Style::space2Xl + Style::spaceXs), userStatus(user.id), panel);
+      label(
+          *content, 56, rowY + Style::spaceDense, textWidth, userName(user.id, user.name), Style::fontSizeBody,
+          foreground, FontWeight::SemiBold
+      );
+      label(
+          *content, 56, rowY + (Style::space2Xl + Style::borderWidth), textWidth, subtitle, Style::fontSizeDescription,
+          muted
+      );
       const float start = std::max(top, top + rowY), end = std::min(bottom, top + rowY + 60);
       if (end > start && !requests) {
-        Hit target{left + 24 + 8,       start, std::max(40.0F, textWidth + 48), end - start, Action::DmAction,
+        Hit target{left + Style::spaceXl + 8,
+                   start,
+                   std::max(40.0F, textWidth + Style::spaceGroup),
+                   end - start,
+                   Action::DmAction,
                    "profile:" + user.id};
         m_hits.push_back(target);
         target.action = Action::UserMenu;
@@ -443,19 +471,18 @@ namespace app {
         const bool selected = m_dmPreviewId == channel.id;
         const float rowHeight = baseHeight;
         if (y < bottom - top && y + rowHeight > 0) {
-          const float hitTop = std::max(top, top + y), hitBottom = std::min(bottom, top + y + rowHeight - 8);
-          const Hit rowHit{left + 24,
-                           hitTop,
-                           inner,
-                           std::max(0.0F, hitBottom - hitTop),
-                           Action::DmAction,
-                           "open-request:" + channel.id};
+          const float hitTop = std::max(top, top + y),
+                      hitBottom = std::min(bottom, top + y + rowHeight - Style::spaceSm);
+          const Hit rowHit{
+              left + Style::spaceXl,       hitTop, inner, std::max(0.0F, hitBottom - hitTop), Action::DmAction,
+              "open-request:" + channel.id
+          };
           rectangle(
-              *content, 0, y, inner, rowHeight - 8,
+              *content, 0, y, inner, rowHeight - Style::spaceSm,
               selected                                      ? raised
                   : rowHit.contains(m_pointerX, m_pointerY) ? lerpColor(panel, raised, .5F)
                                                             : panel,
-              7
+              Style::hoverRadius
           );
           m_hits.push_back(rowHit);
           const auto user = channel.recipients.empty() ? api::Account{"", channel.name} : channel.recipients.front();
@@ -467,7 +494,10 @@ namespace app {
           const float actionsY = y + (narrow ? 67 : 22),
                       start = narrow ? 8 : inner - (m_dmConfirm == "ignore:" + channel.id ? 220 : 196);
           if (m_dmPending.contains(channel.id))
-            label(*content, start, actionsY + 5, inner - start - 8, "Updating request…", 12, muted);
+            label(
+                *content, start, actionsY + (Style::spaceXs + Style::borderWidth), inner - start - Style::spaceSm,
+                "Updating request…", Style::fontSizeDescription, muted
+            );
           else if (m_dmConfirm == "ignore:" + channel.id) {
             actionButton("Ignore request?", "confirm-ignore:" + channel.id, start, actionsY, 126);
             actionButton("Cancel", "cancel", start + 134, actionsY, 70);
@@ -484,7 +514,7 @@ namespace app {
         ++count;
         const float rowHeight = narrow ? 108 : 72;
         if (y < bottom - top && y + rowHeight > 0) {
-          rectangle(*content, 0, y, inner, rowHeight - 8, panel, 7);
+          rectangle(*content, 0, y, inner, rowHeight - Style::spaceSm, panel, Style::hoverRadius);
           const std::string detail = relation == 3 ? "Incoming friend request"
               : relation == 4                      ? "Outgoing friend request"
               : relation == 2                      ? "Blocked"
@@ -492,7 +522,10 @@ namespace app {
           person(user, detail, y, std::max(40.0F, inner - (narrow ? 76 : 286)));
           const float actionsY = y + (narrow ? 67 : 22), start = narrow ? 8 : inner - 202;
           if (m_dmPending.contains(user.id))
-            label(*content, start, actionsY + 5, 180, "Updating…", 12, muted);
+            label(
+                *content, start, actionsY + (Style::spaceXs + Style::borderWidth), 180, "Updating…",
+                Style::fontSizeDescription, muted
+            );
           else if (m_dmConfirm == "remove:" + user.id) {
             actionButton("Confirm", "confirm-remove:" + user.id, start, actionsY, 84);
             actionButton("Cancel", "cancel", start + 92, actionsY, 76);
@@ -515,18 +548,19 @@ namespace app {
     }
     if (!count)
       label(
-          *content, 8, 12, inner - 16,
+          *content, 8, 12, inner - Style::spaceLg,
           !m_dmSearch.empty()           ? "No matching people."
               : requests                ? "No message requests here."
               : m_dmFilter == "online"  ? "No friends online right now."
               : m_dmFilter == "pending" ? "No pending friend requests."
               : m_dmFilter == "blocked" ? "No blocked accounts."
                                         : "Your friends will appear here.",
-          14, muted
+          Style::fontSizeBody, muted
       );
     root.addChild(std::move(content));
     settingsScrollbar(
-        root, "dm-home-scroll", {listRight - 12, top, 6, std::max(0.0F, bottom - top)}, total, m_dmHomeScroll
+        root, "dm-home-scroll", {listRight - Style::spaceMd, top, 6, std::max(0.0F, bottom - top)}, total,
+        m_dmHomeScroll
     );
     if (split)
       drawDmRequestPanel(root, width - panelWidth, 36, panelWidth, height - 36);

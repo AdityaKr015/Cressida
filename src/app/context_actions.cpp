@@ -318,11 +318,11 @@ namespace app {
     }
     const auto width = std::clamp(
         ContextMenuControl::preferredWidth(m_window.target().renderer(), m_contextEntries),
-        m_contextMessage.empty() ? 210.0F : 230.0F, std::max(230.0F, w - 16)
+        m_contextMessage.empty() ? 210.0F : 230.0F, std::max(230.0F, w - Style::spaceLg)
     );
     const float header = m_contextMessage.empty() || m_messageLog.known(m_contextChannel, m_contextMessage) ? 0 : 58;
     const auto fullHeight = m_contextControl->preferredHeight();
-    const float height = std::min(fullHeight + header, h - 48);
+    const float height = std::min(fullHeight + header, h - Style::spaceGroup);
     m_contextFullHeight = fullHeight + header;
     m_scrolling.limit(m_contextScroll, std::max(0.0F, fullHeight - (height - header)));
     if (m_contextControl->width() != width)
@@ -330,22 +330,32 @@ namespace app {
     const auto x = std::clamp(m_contextX, 8.0F, std::max(8.0F, w - width - 8));
     const auto y = std::clamp(m_contextY, 40.0F, std::max(40.0F, h - height - 8));
     m_contextBounds = {x, y, width, height, Action::None, {}};
-    rectangle(root, x - 1, y - 1, width + 2, height + 2, raised, 9);
-    rectangle(root, x, y, width, height, panel, 8);
+    rectangle(
+        root, x - Style::borderWidth, y - Style::borderWidth, width + Style::spaceXxs, height + Style::spaceXxs, raised,
+        Style::radiusLg
+    );
+    rectangle(root, x, y, width, height, panel, Style::surfaceRadius);
     if (header) {
       const float gap = 5, cell = (width - 24 - gap * 3) / 4;
       for (std::size_t i = 0; i < 4 && i < m_frequentReactions.size(); ++i) {
-        const float bx = x + 12 + i * (cell + gap), by = y + 10;
+        const float bx = x + Style::spaceMd + i * (cell + gap), by = y + Style::spaceDense;
         const auto& emoji = m_frequentReactions[i];
         rectangle(
             root, bx, by, cell, 42,
-            hovered(bx, by, cell, 42) || m_contextQuickIndex == static_cast<int>(i) ? accent : raised, 7
+            hovered(bx, by, cell, 42) || m_contextQuickIndex == static_cast<int>(i) ? accent : raised,
+            Style::hoverRadius
         );
         const auto colon = emoji.find(':');
         if (colon == std::string::npos)
-          label(root, bx + (cell - 30) / 2, by + 7, 32, emoji, 24, foreground);
+          label(
+              root, bx + (cell - 30) / 2, by + (Style::spaceCompact + Style::borderWidth), 32, emoji,
+              Style::fontSizeHero, foreground
+          );
         else
-          emojiImage(root, bx + (cell - 24) / 2, by + 9, 24, api::emojiPath(emoji.substr(colon + 1)));
+          emojiImage(
+              root, bx + (cell - Style::spaceXl) / 2, by + (Style::spaceSm + Style::borderWidth), 24,
+              api::emojiPath(emoji.substr(colon + 1))
+          );
         m_hits.push_back({bx, by, cell, 42, Action::QuickReaction, emoji});
       }
     }
@@ -405,24 +415,29 @@ namespace app {
         m_reactionControl->setHighlightedIndex(std::min(highlighted, visible - 1));
         m_reactionSubmenuDirty = false;
       }
-      const float sw = std::min(260.0F, w - 16);
+      const float sw = std::min(260.0F, w - Style::spaceLg);
       if (m_reactionControl->width() != sw)
         m_reactionControl->setMenuWidth(sw);
       const auto sh = m_reactionControl->preferredHeight();
       m_reactionSubmenuHeight = sh;
       const float sx = x + width + sw + 8 <= w ? x + width + 3 : std::max(8.0F, x - sw - 3);
-      const float sy =
-          std::clamp(y + header + m_reactionSubmenuAnchor - m_contextScroll - 22, 40.0F, std::max(40.0F, h - sh - 8));
+      const float sy = std::clamp(
+          y + header + m_reactionSubmenuAnchor - m_contextScroll - (Style::spaceXl - Style::spaceXxs), 40.0F,
+          std::max(40.0F, h - sh - 8)
+      );
       m_reactionSubmenuBounds = {sx, sy, sw, sh, Action::None, {}};
-      rectangle(root, sx - 1, sy - 1, sw + 2, sh + 2, raised, 9);
-      rectangle(root, sx, sy, sw, sh, panel, 8);
+      rectangle(
+          root, sx - Style::borderWidth, sy - Style::borderWidth, sw + Style::spaceXxs, sh + Style::spaceXxs, raised,
+          Style::radiusLg
+      );
+      rectangle(root, sx, sy, sw, sh, panel, Style::surfaceRadius);
       child->setPosition(sx, sy);
       root.addChild(std::move(child));
       if (m_reactionChoices.size() > visible) {
         const float track = sh - 16, thumb = std::max(20.0F, track * visible / m_reactionChoices.size());
         rectangle(
-            root, sx + sw - 5, sy + 8 + (track - thumb) * offset / std::max<std::size_t>(1, maxOffset), 2, thumb, muted,
-            1
+            root, sx + sw - 5, sy + Style::spaceSm + (track - thumb) * offset / std::max<std::size_t>(1, maxOffset), 2,
+            thumb, muted, 1
         );
       }
     }
@@ -509,7 +524,7 @@ namespace app {
   void ClientApplication::scrollContext(float delta) {
     if (!m_reactionSubmenu || !m_reactionSubmenuBounds.contains(m_pointerX, m_pointerY))
       return;
-    const auto visible = std::max(1.0F, std::floor((m_reactionSubmenuHeight - 12) / 32));
+    const auto visible = std::max(1.0F, std::floor((m_reactionSubmenuHeight - Style::spaceMd) / 32));
     m_reactionSubmenuScroll = std::clamp(
         m_reactionSubmenuScroll + (delta > 0 ? 3 : -3), 0.0F,
         std::max(0.0F, static_cast<float>(m_reactionChoices.size()) - visible)
@@ -542,7 +557,9 @@ namespace app {
     if (m_contextOpen) {
       if (m_reactionSubmenu && m_reactionSubmenuBounds.contains(x, y)) {
         m_reactionSubmenuFocus = true;
-        m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+        m_controlInput.pointerButton(
+            x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272, true, 0, 0, false
+        );
       } else if (!m_contextBounds.contains(x, y))
         closeContext();
       else {
@@ -551,7 +568,9 @@ namespace app {
             chooseReaction(it->id);
             return true;
           }
-        m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+        m_controlInput.pointerButton(
+            x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272, true, 0, 0, false
+        );
       }
       return true;
     }
@@ -565,7 +584,9 @@ namespace app {
           && x < bar->second->x() + bar->second->width()
           && y >= bar->second->y()
           && y < bar->second->y() + bar->second->height()) {
-        m_controlInput.pointerButton(x, y + m_window.titlebarHeight() - 36, 272, true, 0, 0, false);
+        m_controlInput.pointerButton(
+            x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272, true, 0, 0, false
+        );
       } else {
         for (auto it = m_hits.rbegin(); it != m_hits.rend(); ++it)
           if (it->contains(x, y)) {
@@ -1038,18 +1059,21 @@ namespace app {
       drawMessageDialog(root, w, h);
       return;
     }
-    const float width = std::min(500.0F, w - 32), height = 230;
+    const float width = std::min(500.0F, w - Style::space2Xl), height = 230;
     const float x = (w - width) / 2, y = std::max(44.0F, (h - height) / 2);
-    rectangle(root, 0, 36, w, h - 36, Color{0, 0, 0, 0.65F});
-    m_hits.push_back({0, 36, w, h - 36, Action::None, {}});
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, Color{0, 0, 0, 0.65F});
+    m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::None, {}});
     m_dialogBounds = {x, y, width, height, Action::None, {}};
-    rectangle(root, x, y, width, height, sidebar, 12);
+    rectangle(root, x, y, width, height, sidebar, Style::radiusXl);
     m_hits.push_back(m_dialogBounds);
-    label(root, x + 24, y + 22, width - 70, m_dialogTitle, 21, foreground, FontWeight::SemiBold);
+    label(
+        root, x + Style::spaceXl, y + (Style::spaceXl - Style::spaceXxs), width - 70, m_dialogTitle,
+        Style::fontSizeProfile, foreground, FontWeight::SemiBold
+    );
     iconButton(
         root,
         {x + width - 42,
-         y + 12,
+         y + Style::spaceMd,
          30,
          30,
          m_dialogPending && m_dialogKind != "profile" ? Action::None : Action::CloseDialog,
@@ -1059,20 +1083,25 @@ namespace app {
     {
       if (m_dialogKind == "nickname" || m_dialogKind == "thread-create")
         inputControl(
-            root, x + 24, y + 70, width - 48, 44, "dialog", m_dialogText,
+            root, x + Style::spaceXl, y + 70, width - 48, 44, "dialog", m_dialogText,
             m_dialogKind == "nickname" ? "Nickname (leave empty to clear)" : "Thread name"
         );
       else
         label(
-            root, x + 24, y + 76, width - 48,
+            root, x + Style::spaceXl, y + 76, width - Style::spaceGroup,
             m_dialogAction && m_dialogAction->kind == api::InteractionKind::DeleteMessage
                 ? "This permanently deletes the message."
                 : "This changes your Discord relationship with this user.",
-            14, foreground, FontWeight::Normal, 2
+            Style::fontSizeBody, foreground, FontWeight::Normal, 2
         );
-      label(root, x + 24, y + height - 92, width - 48, m_dialogError, 12, theme::danger, FontWeight::Normal, 2);
+      label(
+          root, x + Style::spaceXl, y + height - 92, width - Style::spaceGroup, m_dialogError,
+          Style::fontSizeDescription, theme::danger, FontWeight::Normal, 2
+      );
       button(
-          root, {x + 24, y + height - 52, 100, 32, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "Cancel"
+          root,
+          {x + Style::spaceXl, y + height - 52, 100, 32, m_dialogPending ? Action::None : Action::CloseDialog, {}},
+          "Cancel"
       );
       button(
           root, {x + width - 130, y + height - 52, 106, 32, m_dialogPending ? Action::None : Action::SubmitDialog, {}},
@@ -1402,10 +1431,11 @@ namespace app {
     float rx = 0, ry = 0;
     for (const auto& reaction : message.reactions) {
       const auto count = std::to_string(reaction.count);
-      const float chip = 42 + m_window.target().renderer().measureText(count, 13, FontWeight::Medium).width;
+      const float chip =
+          42 + m_window.target().renderer().measureText(count, Style::fontSizeCaption, FontWeight::Medium).width;
       if (rx && rx + chip > width) {
         rx = 0;
-        ry += 32;
+        ry += Style::space2Xl;
       }
       if (parent) {
         const auto ax = x + rx, ay = y + ry;
@@ -1435,19 +1465,20 @@ namespace app {
           // Color-emoji fallback fonts can have a wider em than the requested
           // point size. Fit the actual metrics, so Pango cannot ellipsize the
           // reaction into a row of dots inside its reserved square.
-          const auto natural = m_window.target().renderer().measureText(reaction.name, 20);
+          const auto natural = m_window.target().renderer().measureText(reaction.name, Style::fontSizeHeader);
           const float size = 20
               * std::min({1.0F, 20 / std::max(1.0F, natural.width), 20 / std::max(1.0F, natural.bottom - natural.top)});
           const auto emoji = m_window.target().renderer().measureText(reaction.name, size);
           label(
               *parent, ax + 7 + (20 - emoji.width) / 2, ay + (28 - (emoji.bottom - emoji.top)) / 2,
-              std::ceil(emoji.width) + 2, reaction.name, size, foreground
+              std::ceil(emoji.width) + Style::spaceXxs, reaction.name, size, foreground
           );
         } else
-          emojiImage(*parent, ax + 7, ay + 4, 20, api::emojiPath(reaction.id));
-        const auto metrics = m_window.target().renderer().measureText(count, 13, FontWeight::Medium);
+          emojiImage(*parent, ax + 7, ay + Style::spaceXs, 20, api::emojiPath(reaction.id));
+        const auto metrics =
+            m_window.target().renderer().measureText(count, Style::fontSizeCaption, FontWeight::Medium);
         label(
-            *parent, ax + 34, ay + (28 - (metrics.bottom - metrics.top)) / 2, chip - 39, count, 13,
+            *parent, ax + 34, ay + (28 - (metrics.bottom - metrics.top)) / 2, chip - 39, count, Style::fontSizeCaption,
             mine ? accent : foreground, FontWeight::Medium
         );
         if (!message.deleted) {
@@ -1458,14 +1489,14 @@ namespace app {
       rx += chip + 6;
     }
     if (addButton && !message.deleted) {
-      if (rx + 28 > width) {
+      if (rx + Style::spaceWide > width) {
         rx = 0;
-        ry += 32;
+        ry += Style::space2Xl;
       }
       if (parent)
         iconButton(*parent, {x + rx, y + ry, 28, 28, Action::AddReaction, message.id}, "mood-smile", "Add reaction");
     }
-    return ry + 32;
+    return ry + Style::space2Xl;
   }
   bool ClientApplication::interactionAction(const Hit& hit) {
     if (channelFeatureAction(hit))
@@ -1564,7 +1595,7 @@ namespace app {
   void ClientApplication::demoInteractionStep() {
     // Exercise actual window callbacks and scene rebuilds, entirely offline.
     const auto step = m_demoInteractionStep++ % 16;
-    const auto titleOffset = m_window.titlebarHeight() - 36;
+    const auto titleOffset = m_window.titlebarHeight() - layout::Window::titlebarHeight;
     auto require = [](bool condition, const char* text) {
       if (!condition)
         throw std::runtime_error(text);
@@ -1573,7 +1604,7 @@ namespace app {
       return hit.action == Action::MessageMenu && hit.id == "3";
     });
     require(message != m_contextTargets.end(), "Interaction replay needs a visible message");
-    const float x = message->x + 110, y = message->y + 10;
+    const float x = message->x + 110, y = message->y + Style::spaceDense;
     if (step == 0) {
       closeContext();
       m_window.motion(x, y + titleOffset);
@@ -1584,8 +1615,8 @@ namespace app {
         return hit.action == Action::AddReaction && hit.id == "3";
       });
       if (button != m_hits.end()) {
-        m_window.motion(button->x + 8, button->y + 8 + titleOffset);
-        m_window.click(button->x + 8, button->y + 8 + titleOffset, 272);
+        m_window.motion(button->x + Style::spaceSm, button->y + Style::spaceSm + titleOffset);
+        m_window.click(button->x + Style::spaceSm, button->y + Style::spaceSm + titleOffset, 272);
         m_window.released();
       } else {
         // The prior submenu may have moved hover away from the toolbar.
@@ -1598,16 +1629,21 @@ namespace app {
         return hit.action == Action::MessageMenu && hit.id == (step == 2 ? "1" : "4");
       });
       require(target != m_contextTargets.end(), "Replay needs a different visible message");
-      m_window.motion(target->x + 110, target->y + 10 + titleOffset);
-      m_window.contextClick(target->x + 110, target->y + 10 + titleOffset);
+      m_window.motion(target->x + 110, target->y + Style::spaceDense + titleOffset);
+      m_window.contextClick(target->x + 110, target->y + Style::spaceDense + titleOffset);
       require(m_contextOpen && !m_emojiMenu, "Right-click must replace the picker with the message menu");
     } else if (step == 3 || step == 7) {
       require(m_contextControl != nullptr && m_contextOpen, "Context menu must survive the picker transition");
-      m_window.motion(m_contextBounds.x + 30, m_contextBounds.y + 58 + m_contextControl->rowTop(0) + 12 + titleOffset);
+      m_window.motion(
+          m_contextBounds.x + (Style::space2Xl - Style::spaceXxs),
+          m_contextBounds.y + 58 + m_contextControl->rowTop(0) + 12 + titleOffset
+      );
       require(m_reactionSubmenu, "Hover must open the reaction submenu");
     } else if (step == 4) {
       require(m_reactionControl != nullptr, "Reaction submenu must survive a scene rebuild");
-      m_window.motion(m_reactionSubmenuBounds.x + 20, m_reactionSubmenuBounds.y + 20 + titleOffset);
+      m_window.motion(
+          m_reactionSubmenuBounds.x + Style::spaceRelaxed, m_reactionSubmenuBounds.y + Style::spaceRelaxed + titleOffset
+      );
       m_window.scroll(30);
     }
     if (step >= 8) {
@@ -1619,25 +1655,41 @@ namespace app {
         closeContext();
         (void)interactionAction({0, 0, 0, 0, Action::AddReaction, "3"});
         require(m_emojiMenu, "Rapid toolbar activation opens the picker");
-        m_window.motion(other->x + 110, other->y + 10 + titleOffset);
-        m_window.contextClick(other->x + 110, other->y + 10 + titleOffset);
+        m_window.motion(other->x + 110, other->y + Style::spaceDense + titleOffset);
+        m_window.contextClick(other->x + 110, other->y + Style::spaceDense + titleOffset);
         require(m_contextOpen && !m_emojiMenu, "Rapid right-click replaces the picker");
       } else if (step == 9) {
         const auto user = std::ranges::find_if(m_contextTargets, [](const auto& hit) {
           return hit.action == Action::UserMenu && hit.id == "11";
         });
         require(user != m_contextTargets.end(), "Replay needs a visible user");
-        m_window.motion(user->x + 5, user->y + 5 + titleOffset);
-        m_window.contextClick(user->x + 5, user->y + 5 + titleOffset);
+        m_window.motion(
+            user->x + (Style::spaceXs + Style::borderWidth),
+            user->y + (Style::spaceXs + Style::borderWidth) + titleOffset
+        );
+        m_window.contextClick(
+            user->x + (Style::spaceXs + Style::borderWidth),
+            user->y + (Style::spaceXs + Style::borderWidth) + titleOffset
+        );
       } else if (step == 10) {
-        m_window.motion(m_contextBounds.x + 30, m_contextBounds.y + 20 + titleOffset);
+        m_window.motion(
+            m_contextBounds.x + (Style::space2Xl - Style::spaceXxs),
+            m_contextBounds.y + Style::spaceRelaxed + titleOffset
+        );
         m_window.contextClick(x, y + titleOffset);
       } else if (step == 12) {
-        m_window.motion(m_contextBounds.x + 30, m_contextBounds.y + 58 + 16 + titleOffset);
+        m_window.motion(
+            m_contextBounds.x + (Style::space2Xl - Style::spaceXxs), m_contextBounds.y + 58 + 16 + titleOffset
+        );
         require(m_reactionSubmenu, "Rapid parent menu opens a submenu");
       } else if (step == 13) {
-        m_window.motion(m_reactionSubmenuBounds.x + 24, m_reactionSubmenuBounds.y + 20 + titleOffset);
-        m_window.click(m_reactionSubmenuBounds.x + 24, m_reactionSubmenuBounds.y + 20 + titleOffset, 272);
+        m_window.motion(
+            m_reactionSubmenuBounds.x + Style::spaceXl, m_reactionSubmenuBounds.y + Style::spaceRelaxed + titleOffset
+        );
+        m_window.click(
+            m_reactionSubmenuBounds.x + Style::spaceXl, m_reactionSubmenuBounds.y + Style::spaceRelaxed + titleOffset,
+            272
+        );
         m_window.scroll(30);
       } else if (step == 14) {
         m_window.released();

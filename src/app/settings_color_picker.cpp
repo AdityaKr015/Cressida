@@ -5,6 +5,7 @@
 #include "ui/controls/label.h"
 #include "ui/controls/slider.h"
 #include "ui/palette.h"
+#include "ui/style.h"
 
 #include <algorithm>
 #include <charconv>
@@ -28,7 +29,7 @@ namespace app {
 
     void compact(Input& input) {
       input.setControlHeight(controlHeight);
-      input.setFontSize(12);
+      input.setFontSize(Style::fontSizeDescription);
       input.setHorizontalPadding(8);
       input.setFrameRadius(5);
       input.setMinLayoutWidth(36);
@@ -52,7 +53,7 @@ namespace app {
     for (unsigned channel = 0; channel < 3; ++channel) {
       auto label = std::make_unique<Label>();
       label->setText(names[channel]);
-      label->setFontSize(12);
+      label->setFontSize(Style::fontSizeDescription);
       label->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
       label->setBaselineMode(LabelBaselineMode::TextFixedHeight);
       m_labels[channel] = static_cast<Label*>(addChild(std::move(label)));
@@ -202,7 +203,7 @@ namespace app {
     m_preview->setPosition(0, 0);
     m_preview->setSize(controlHeight, controlHeight);
     m_hexInput->setPosition(40, 0);
-    m_hexInput->setSize(available - 40, controlHeight);
+    m_hexInput->setSize(available - Style::spaceSection, controlHeight);
     for (unsigned channel = 0; channel < 3; ++channel) {
       const auto y = firstRow + rowStep * channel;
       m_labels[channel]->setPosition(0, y + 5);

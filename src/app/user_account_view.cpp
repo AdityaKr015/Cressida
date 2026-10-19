@@ -849,17 +849,23 @@ namespace app {
             color = static_cast<int>(parsed);
         }
       }
-      rectangle(form.node, 0, form.y, cardWidth, 152, theme::panel, 7);
-      rectangle(form.node, 0, form.y, cardWidth, 76, color ? rgbHex(color) : theme::raised, 7);
+      rectangle(form.node, 0, form.y, cardWidth, 152, theme::panel, Style::hoverRadius);
+      rectangle(form.node, 0, form.y, cardWidth, 76, color ? rgbHex(color) : theme::raised, Style::hoverRadius);
       if (!banner.empty())
-        picture(form.node, 0, form.y, cardWidth, 76, banner, 6, true, false, ImageFitMode::Cover);
-      rectangle(form.node, 10, form.y + 48, 56, 56, theme::panel, 28);
-      avatar(form.node, 14, form.y + 52, 48, preview, current("global_name", m_account.name));
+        picture(form.node, 0, form.y, cardWidth, 76, banner, Style::radiusMd, true, false, ImageFitMode::Cover);
+      rectangle(form.node, 10, form.y + Style::spaceGroup, 56, 56, theme::panel, 28);
+      avatar(form.node, 14, form.y + 52, layout::Avatar::rail, preview, current("global_name", m_account.name));
       auto name = current(state.guild.empty() ? "global_name" : "nick", m_account.name);
       if (name.empty())
         name = state.guild.empty() ? m_account.username : m_account.name;
-      label(form.node, 14, form.y + 111, cardWidth - 28, name, 16, theme::foreground, FontWeight::SemiBold);
-      label(form.node, 14, form.y + 133, cardWidth - 28, current("pronouns", m_account.pronouns), 12, theme::muted);
+      label(
+          form.node, 14, form.y + 111, cardWidth - Style::spaceWide, name, Style::fontSizeTitle, theme::foreground,
+          FontWeight::SemiBold
+      );
+      label(
+          form.node, 14, form.y + 133, cardWidth - Style::spaceWide, current("pronouns", m_account.pronouns),
+          Style::fontSizeDescription, theme::muted
+      );
       form.y += 164;
       if (!current("bio").empty())
         form.row("About me", current("bio"));

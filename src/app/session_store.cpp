@@ -184,7 +184,7 @@ namespace app {
         for (const auto& [key, chord] : value["keybinds"].items())
           if (key.size() <= 32 && chord.is_string() && chord.get_ref<const std::string&>().size() <= 80)
             result.keybinds[key] = chord.get<std::string>();
-      const float width = value.value("channel_sidebar_width", 248.0F);
+      const float width = value.value("channel_sidebar_width", layout::Sidebar::preferredWidth);
       result.channelSidebarWidth = std::isfinite(width) ? std::clamp(width, 200.0F, 480.0F) : 248.0F;
     } catch (...) {
       return {};

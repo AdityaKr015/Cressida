@@ -8,8 +8,10 @@
 #include "app/channel_menu.h"
 #include "app/chat_cache.h"
 #include "app/desktop_notifications.h"
+#include "app/discord_link.h"
 #include "app/emoji_catalog.h"
 #include "app/file_picker.h"
+#include "app/layout_metrics.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
 #include "app/message_log.h"
@@ -57,6 +59,7 @@ namespace app {
     int run(bool smokeTest = false);
 
   private:
+    static constexpr int chatLinkReplayFrames = 6;
     enum class Action {
       Settings,
       DmPage,
@@ -317,6 +320,19 @@ namespace app {
     void prepareDmHomeDemo(const std::string& view);
     void demoDmHomeStep();
     void selectChannel(std::string id);
+    MessageOptions::ChannelMention channelMention(std::string_view guild, std::string_view channel) const;
+    bool channelPrivate(const std::string& guild, const api::Channel& channel) const;
+    const char* channelGlyph(const std::string& guild, const api::Channel& channel) const;
+    void
+    channelIcon(Node& parent, float x, float y, float size, const api::Channel& channel, Color color, Color surface);
+    bool openDiscordLink(const std::string& url);
+    void resumeDiscordLink();
+    void prepareChatLinksDemo();
+    void demoChatLinksStep();
+    void drawChannelLink(
+        Node& root, const MessageRun& run, const std::string& message, float x, float y, float absoluteX,
+        float absoluteY
+    );
     void refresh();
     void loadHistory(api::HistoryDirection direction, bool retry = false);
     void applyHistory(api::Event& event);
@@ -824,10 +840,11 @@ namespace app {
     std::optional<MessageEditState> m_messageEdit;
     std::uint64_t m_messageEditGeneration = 0, m_pasteMessageEditGeneration = 0;
     struct CompletionItem {
-      enum Kind { Member, Role, Emoji, Broadcast } kind;
+      enum Kind { Member, Role, Emoji, Broadcast, Channel } kind;
       std::string id, name, detail, insert, image;
       int score = 0;
       std::uint32_t color = 0;
+      std::string glyph;
     };
     std::optional<CompletionQuery> m_completionQuery;
     std::vector<CompletionItem> m_completionItems;
@@ -942,6 +959,7 @@ namespace app {
     std::uint64_t m_channelFeatureSerial = 0;
     std::string m_seekMessage;
     std::optional<std::pair<std::string, std::string>> m_pendingMessageJump;
+    std::optional<DiscordLink> m_pendingDiscordLink;
     struct ComponentState {
       std::string nonce, status;
       bool pending = false;
@@ -999,6 +1017,7 @@ namespace app {
     struct CachedMessageLayout {
       MessageLayout layout;
       MessageLayout reply;
+      std::optional<api::MessageReference> replySource;
       float width = -1, scale = -1;
       std::uint64_t fonts = 0;
     };
@@ -1052,7 +1071,7 @@ namespace app {
     float m_viewZoom = 1, m_viewPanX = 0, m_viewPanY = 0, m_imageDragX = 0, m_imageDragY = 0;
     bool m_dragImage = false;
     bool m_resizingSidebar = false;
-    float m_sidebarDragOffset = 0, m_sidebarDragStart = 248;
+    float m_sidebarDragOffset = 0, m_sidebarDragStart = layout::Sidebar::preferredWidth;
     std::uint32_t m_controlCursor = 1;
     TextEdit m_edit, m_chatEdit;
     bool m_dragDraft = false, m_dragMessage = false;

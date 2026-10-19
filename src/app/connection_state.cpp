@@ -29,6 +29,8 @@ namespace app {
   void ClientApplication::guildListEvent(api::Event& event) {
     if (!event.error.empty())
       return;
+    m_messageLayouts.clear();
+    m_completionDirty = true;
     std::map<std::string, std::size_t> known;
     for (std::size_t i = 0; i < m_guilds.size(); ++i)
       known.emplace(m_guilds[i].id, i);
@@ -41,6 +43,8 @@ namespace app {
       if (!event.live && m_gatewayGuildsReady && old == known.end())
         continue;
       auto guild = incoming;
+      if (old != known.end() && !guild.rulesChannelId)
+        guild.rulesChannelId = m_guilds[old->second].rulesChannelId;
       if (event.live && old != known.end()) {
         // Unavailable guilds and partial READY properties retain known metadata.
         // The live-field journal below still applies explicit clears.
@@ -123,6 +127,8 @@ namespace app {
       }
     }
     m_guildChannels[event.resource] = std::move(event.channels);
+    m_messageLayouts.clear();
+    m_completionDirty = true;
     if (m_dmMode || event.resource != m_guildId)
       return;
     m_loadingChannels = false;

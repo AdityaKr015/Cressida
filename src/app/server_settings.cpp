@@ -1068,8 +1068,10 @@ namespace app {
         }
         applyRoles(api::parseRoleUpdates("GUILD_UPDATE", state.overview));
         const auto updates = api::parseGuildUpdates("GUILD_UPDATE", state.overview);
+        m_messageLayouts.clear();
+        m_completionDirty = true;
         for (const auto& update : updates) {
-          m_guildUpdates[update.id].merge(update);
+          m_guildUpdates.try_emplace(update.id, api::GuildUpdate{.id = update.id}).first->second.merge(update);
           for (auto& guild : m_guilds)
             if (guild.id == update.id)
               update.apply(guild);
@@ -1757,13 +1759,13 @@ namespace app {
     std::erase_if(m_hits, [](const auto& hit) {
       return hit.action != Action::Close && hit.action != Action::Minimize && hit.action != Action::Maximize;
     });
-    rectangle(root, 0, 36, w, h - 36, background);
-    const float frameX = std::max(16.0F, (w - 1100) / 2), navWidth = w < 760 ? 180 : 216;
-    const float contentLeft = frameX + navWidth + 28,
-                contentWidth = std::max(180.0F, std::min(w - contentLeft - 68, 730.0F));
-    const float contentX = contentLeft + 14, width = contentWidth - 28;
-    state.navRight = frameX + navWidth + 4;
-    rectangle(root, 0, 36, state.navRight, h - 36, sidebar);
+    rectangle(root, 0, 36, w, h - layout::Window::titlebarHeight, background);
+    const auto frame = layout::settingsFrame(w);
+    const float frameX = frame.x, navWidth = frame.navigationWidth;
+    const float contentLeft = frame.contentLeft, contentWidth = frame.contentWidth;
+    const float contentX = frame.contentX, width = frame.innerWidth;
+    state.navRight = frameX + navWidth + Style::spaceXs;
+    rectangle(root, 0, 36, state.navRight, h - layout::Window::titlebarHeight, sidebar);
     const auto retained = [&](const std::string& id) {
       std::unique_ptr<Node> saved;
       if (auto at = m_detachedInputs.find(id); at != m_detachedInputs.end()) {
@@ -1798,10 +1800,10 @@ namespace app {
       control->setFontSize(settings::control.size);
       control->setVariant(variant);
       control->setPosition(x, y);
-      control->setControlHeight(26);
-      control->setRadius(5);
-      control->setPadding(0, 10);
-      control->setFrameSize(bw, 26);
+      control->setControlHeight(layout::Settings::actionHeight);
+      control->setRadius(layout::Settings::actionRadius);
+      control->setPadding(0, Style::spaceDense);
+      control->setFrameSize(bw, layout::Settings::actionHeight);
       control->setEnabled(
           enabled && !state.saving && (!state.mfaRequest || action == "mfa-verify" || action == "mfa-cancel")
       );
@@ -1814,7 +1816,7 @@ namespace app {
           return;
         const auto id = "server-settings:picker:" + state.page + ":" + key + ":" + part;
         m_inputs[id] = input;
-        input->setFontSize(12);
+        input->setFontSize(Style::fontSizeDescription);
         input->setOnFocusGain([this, id] { m_focusedInput = id; });
         input->setOnKeyEvent([this, id](std::uint32_t key, std::uint32_t modifiers) {
           if (((modifiers & KeyMod::Ctrl) && (key == XKB_KEY_v || key == XKB_KEY_V))
@@ -1846,14 +1848,15 @@ namespace app {
     const auto guildName =
         string(state.overview, "name", guildAt == m_guilds.end() ? "Server settings" : guildAt->name);
     label(
-        root, frameX + 12, 56, navWidth - 24, guildName, settings::navigationTitle.size, foreground,
-        settings::navigationTitle.weight
+        root, frameX + Style::spaceMd, 56, navWidth - Style::spaceXl, guildName, settings::navigationTitle.size,
+        foreground, settings::navigationTitle.weight
     );
     auto& search = inputControl(
-        root, frameX + 4, 82, navWidth - 8, 32, "server-settings:nav-search", state.filter, "Search settings"
+        root, frameX + Style::spaceXs, 82, navWidth - Style::spaceSm, 32, "server-settings:nav-search", state.filter,
+        "Search settings"
     );
     search.setFrameRadius(6);
-    search.setFontSize(12);
+    search.setFontSize(Style::fontSizeDescription);
     search.setHorizontalPadding(10);
     search.setOnChange([this](const std::string& text) {
       m_serverSettings.filter = text;
@@ -1912,10 +1915,11 @@ namespace app {
       if (group != page.group) {
         group = page.group;
         label(
-            *nav, 12, navY - state.navScroll + 8, navWidth - 24, page.group, settings::navigationHeading.size,
-            std::string_view(page.group) == "DANGER ZONE" ? danger : muted, FontWeight::SemiBold
+            *nav, 12, navY - state.navScroll + Style::spaceSm, navWidth - Style::spaceXl, page.group,
+            settings::navigationHeading.size, std::string_view(page.group) == "DANGER ZONE" ? danger : muted,
+            FontWeight::SemiBold
         );
-        navY += 26;
+        navY += (Style::spaceXl + Style::spaceXxs);
       }
       const auto controlId = "server-nav:" + std::string(page.id);
       auto saved = retained(controlId);
@@ -1927,14 +1931,14 @@ namespace app {
       control->setVariant(state.page == page.id ? ButtonVariant::TabActive : ButtonVariant::Tab);
       control->setContentAlign(ButtonContentAlign::Start);
       control->setPosition(4, navY - state.navScroll);
-      control->setControlHeight(26);
-      control->setRadius(5);
+      control->setControlHeight(layout::Settings::actionHeight);
+      control->setRadius(layout::Settings::actionRadius);
       control->setPadding(0, 8);
-      control->setFrameSize(navWidth - 8, 26);
+      control->setFrameSize(navWidth - Style::spaceSm, 26);
       control->setEnabled(!state.saving);
       control->setOnClick([this, id = std::string(page.id)] { selectServerSettingsPage(id); });
       nav->addChild(std::move(control));
-      navY += 30;
+      navY += (Style::space2Xl - Style::spaceXxs);
     }
     const auto previousNav = state.navScroll;
     m_scrolling.limit(state.navScroll, std::max(0.0F, navY - navH));
@@ -1944,7 +1948,7 @@ namespace app {
         child->setPosition(child->x(), child->y() + previousNav - state.navScroll);
     root.addChild(std::move(nav));
     settingsScrollbar(
-        root, "server-settings-nav-scrollbar", {frameX + navWidth - 4, 124, 8, navH}, navY, state.navScroll
+        root, "server-settings-nav-scrollbar", {frameX + navWidth - Style::spaceXs, 124, 8, navH}, navY, state.navScroll
     );
     iconButton(root, {w - 56, 52, 30, 30, Action::CloseServerSettings, {}}, "x", "Close server settings (Esc)");
     label(
@@ -1955,13 +1959,21 @@ namespace app {
     const bool retryRead = !state.error.empty() && !state.dirty() && !state.saving && !state.mfaRequest;
     const auto feedback = !state.error.empty() && !state.mfaRequest ? state.error : state.status;
     const auto feedbackTextWidth = std::max(40.0F, width - 24 - (retryRead && width >= 420 ? 92 : 0));
-    const float feedbackHeight =
-        feedback.empty() ? 0 : textHeight(feedback, 12, feedbackTextWidth) + 20 + (retryRead && width < 420 ? 34 : 0);
-    const float saveHeight = dirty ? (width < 420 ? 82.0F : 48.0F) : 0;
-    const float viewportY = 108,
+    const float feedbackHeight = feedback.empty() ? 0
+                                                  : textHeight(feedback, Style::fontSizeDescription, feedbackTextWidth)
+            + 20
+            + (retryRead && width < layout::Settings::stackThreshold ? 34 : 0);
+    const float saveHeight = dirty ? (width < layout::Settings::stackThreshold ? layout::Settings::stackedSaveHeight
+                                                                               : layout::Settings::saveHeight)
+                                   : 0;
+    const float viewportY = layout::Settings::viewportTop,
                 viewportH = std::max(
                     40.0F,
-                    h - viewportY - 24 - (saveHeight ? saveHeight + 12 : 0) - (feedbackHeight ? feedbackHeight + 8 : 0)
+                    h
+                        - viewportY
+                        - Style::spaceXl
+                        - (saveHeight ? saveHeight + Style::spaceMd : 0)
+                        - (feedbackHeight ? feedbackHeight + Style::spaceSm : 0)
                 );
     auto pageNode = std::make_unique<Node>();
     pageNode->setPosition(contentLeft, viewportY);
@@ -1980,7 +1992,7 @@ namespace app {
     RectNode* category = nullptr;
     const auto finishCategory = [&] {
       if (category) {
-        cursor += 8;
+        cursor += Style::spaceSm;
         category->setSize(contentWidth, cursor - categoryTop);
         category = nullptr;
       }
@@ -1988,7 +2000,7 @@ namespace app {
     const auto section = [&](const std::string& caption) {
       finishCategory();
       if (cursor)
-        cursor += 16;
+        cursor += Style::spaceLg;
       categoryTop = cursor;
       auto card = std::make_unique<RectNode>();
       card->setPosition(-14, cursor);
@@ -1996,10 +2008,10 @@ namespace app {
       card->setZIndex(-1);
       category = card.get();
       p.addChild(std::move(card));
-      cursor += 12;
+      cursor += Style::spaceMd;
       if (!caption.empty()) {
         cursor += label(p, 0, cursor, width, caption, settings::section.size, muted, settings::section.weight, 0);
-        cursor += 8;
+        cursor += Style::spaceSm;
       }
     };
     const auto ensure = [&] {
@@ -2015,21 +2027,21 @@ namespace app {
     };
     const auto detail = [&](const std::string& title, const std::string& description) {
       ensure();
-      cursor += 8;
+      cursor += Style::spaceSm;
       cursor += label(p, 0, cursor, width, title, settings::rowTitle.size, foreground, settings::rowTitle.weight, 0);
       if (!description.empty()) {
-        cursor += 4;
+        cursor += Style::spaceXs;
         cursor +=
             label(p, 0, cursor, width, description, settings::description.size, muted, settings::description.weight, 0);
       }
-      cursor += 10;
+      cursor += Style::spaceDense;
     };
     const auto row = [&](const std::string& title, const std::string& description, float trailing = 0) {
       ensure();
       const auto top = cursor;
       const auto available = std::max(48.0F, width - trailing);
       const auto th = textHeight(title, settings::rowTitle.size, available, settings::rowTitle.weight);
-      const auto dh = description.empty() ? 0 : textHeight(description, 12, available) + 4;
+      const auto dh = description.empty() ? 0 : textHeight(description, Style::fontSizeDescription, available) + 4;
       const auto height = std::max(46.0F, th + dh + 20);
       label(
           p, 0, top + (height - th - dh) / 2, available, title, settings::rowTitle.size, foreground,
@@ -2037,8 +2049,8 @@ namespace app {
       );
       if (!description.empty())
         label(
-            p, 0, top + (height - th - dh) / 2 + th + 4, available, description, settings::description.size, muted,
-            settings::description.weight, 0
+            p, 0, top + (height - th - dh) / 2 + th + Style::spaceXs, available, description,
+            settings::description.size, muted, settings::description.weight, 0
         );
       cursor += height;
       return std::pair{top, height};
@@ -2152,7 +2164,7 @@ namespace app {
         callback(index);
       });
       p.addChild(std::move(control));
-      cursor += 42;
+      cursor += (Style::spaceSection + Style::spaceXxs);
     };
     const auto choose = [&](const std::string& title, const std::string& key, const std::string& description,
                             const std::vector<std::pair<std::string, Json>>& options) {
@@ -2190,7 +2202,7 @@ namespace app {
       button(p, 0, cursor, 112, exists ? "Replace file" : "Choose file", "upload:" + key);
       if (exists)
         button(p, 122, cursor, 80, "Remove", "clear-upload:" + key);
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
     };
     const auto lineList = [&](const std::string& title, const std::string& key, const std::string& description) {
       auto items = value(key, Json::array());
@@ -2291,7 +2303,7 @@ namespace app {
       time.setEnabled(!state.saving && !state.mfaRequest);
       time.setOnChange([update](const std::string& text) { update("time", text); });
       time.setOnSubmit([](const std::string&) {});
-      cursor += 44;
+      cursor += (Style::spaceSection + Style::spaceXs);
     };
     const auto colorField = [&](const std::string& title, const std::string& key, const std::string& description) {
       const auto colorValue = value(key, "#5865F2");
@@ -2304,9 +2316,9 @@ namespace app {
       } catch (...) {
       }
       detail(title, description);
-      rectangle(p, 0, cursor, 26, 26, current, 5);
+      rectangle(p, 0, cursor, 26, 26, current, Style::controlRadius);
       button(p, 36, cursor, 112, hexValue, "profile-color:" + key);
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
       if (state.profileColorPicker == key) {
         const auto controlId = "server-profile-color:" + key;
         auto saved = retained(controlId);
@@ -2377,7 +2389,7 @@ namespace app {
       detail("Keep editing or discard your changes", "Your draft has not been sent to Discord.");
       button(p, 0, cursor, 116, "Keep editing", "keep-editing");
       button(p, 128, cursor, 112, "Discard", "discard", ButtonVariant::Destructive);
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
     }
     if (state.confirmDelete) {
       section(state.destructiveAction == "transfer" ? "Transfer ownership" : "Confirm action");
@@ -2410,7 +2422,7 @@ namespace app {
           m_window.invalidate();
         });
         input.setOnSubmit([](const std::string&) {});
-        cursor += 44;
+        cursor += (Style::spaceSection + Style::spaceXs);
       }
       button(p, 0, cursor, 90, "Cancel", "keep-editing");
       button(
@@ -2418,7 +2430,7 @@ namespace app {
           state.destructiveAction == "transfer" ? "Transfer ownership" : "Confirm", "confirm-destructive",
           ButtonVariant::Destructive
       );
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
     }
     if (state.mfaRequest) {
       section("Verify your identity");
@@ -2454,12 +2466,12 @@ namespace app {
         m_window.invalidate();
       });
       input.setOnSubmit([](const std::string&) {});
-      cursor += 44;
+      cursor += (Style::spaceSection + Style::spaceXs);
       if (!state.error.empty())
         row("Verification failed", state.error);
       button(p, 0, cursor, 90, "Cancel", "mfa-cancel");
       button(p, 102, cursor, 90, "Verify", "mfa-verify", ButtonVariant::Primary, !state.mfaCode.empty());
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
     }
     ServerSettingsForm form{
         p,
@@ -2552,13 +2564,13 @@ namespace app {
             setServerSettingsValue("traits", traits);
           });
           emoji.setOnSubmit([](const std::string&) {});
-          cursor += 44;
+          cursor += (Style::spaceSection + Style::spaceXs);
           button(p, 0, cursor, 90, "Remove", "remove-trait:" + std::to_string(i));
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
       if (traits.size() < 5) {
         button(p, 0, cursor, 100, "Add trait", "add-trait");
-        cursor += 38;
+        cursor += (Style::spaceSection - Style::spaceXxs);
       }
       section("Games");
       auto games = value("game_application_ids", Json::array());
@@ -2597,7 +2609,7 @@ namespace app {
         m_window.invalidate();
       });
       gameSearch.setOnSubmit([](const std::string&) {});
-      cursor += 44;
+      cursor += (Style::spaceSection + Style::spaceXs);
       for (const auto& game : state.gameResults) {
         const auto id = string(game, "id");
         const auto item = row(string(game, "name"), "", 80);
@@ -2850,7 +2862,10 @@ namespace app {
             for (const auto& sample : series) {
               const auto amount = sample.contains(key) && sample[key].is_number() ? sample[key].get<double>() : 0;
               const auto bar = static_cast<float>(std::clamp(amount / maximum, 0.0, 1.0) * 60);
-              rectangle(p, index * step, cursor + 60 - bar, std::max(1.0F, step - 2), bar, accent, 2);
+              rectangle(
+                  p, index * step, cursor + 60 - bar, std::max(1.0F, step - Style::spaceXxs), bar, accent,
+                  Style::radiusXs
+              );
               ++index;
             }
             cursor += 76;
@@ -2893,7 +2908,7 @@ namespace app {
       );
       detail("Verify ownership transfer", "Request a verification code at the email address on your Discord account.");
       button(p, 0, cursor, 128, "Send email code", "send-ownership-code");
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
       field("Email verification code", "code", "Enter the code sent by Discord before transferring ownership.");
     } else if (state.page == "delete") {
       section("Delete server");
@@ -2902,7 +2917,7 @@ namespace app {
           "Permanently remove this server and all its channels and messages. Only the owner can delete the server."
       );
       button(p, 0, cursor, 128, "Delete Server", "delete-server", ButtonVariant::Destructive);
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
     } else if (state.page == "widget") {
       section("Server widget");
       toggle(
@@ -2951,7 +2966,7 @@ namespace app {
             setServerSettingsValue("prompts", prompts);
           });
           title.setOnSubmit([](const std::string&) {});
-          cursor += 44;
+          cursor += (Style::spaceSection + Style::spaceXs);
           chooseCallback(
               "prompt-type-" + std::to_string(i), "Question format", "Show choices as buttons or as a dropdown.",
               {"Buttons", "Dropdown"}, prompt.value("type", 0), [this, prompts, i](std::size_t selected) mutable {
@@ -2989,7 +3004,7 @@ namespace app {
                 setServerSettingsValue("prompts", prompts);
               });
               input.setOnSubmit([](const std::string&) {});
-              cursor += 42;
+              cursor += (Style::spaceSection + Style::spaceXxs);
               auto& description = inputControl(
                   p, 0, cursor, width, 32,
                   "server-settings:prompt-description:" + std::to_string(i) + ":" + std::to_string(j),
@@ -3001,7 +3016,7 @@ namespace app {
                 setServerSettingsValue("prompts", prompts);
               });
               description.setOnSubmit([](const std::string&) {});
-              cursor += 42;
+              cursor += (Style::spaceSection + Style::spaceXxs);
               auto roleIds = option.value("role_ids", Json::array());
               for (const auto& role : m_roleDirectory.allRoles(state.guild)) {
                 if (role.id == state.guild)
@@ -3045,27 +3060,27 @@ namespace app {
                   p, 94, cursor, 92, "Move down", "option-move:down:" + std::to_string(i) + ":" + std::to_string(j),
                   ButtonVariant::Default, j + 1 < prompt["options"].size()
               );
-              cursor += 38;
+              cursor += (Style::spaceSection - Style::spaceXxs);
               button(
                   p, 0, cursor, 116, "Remove answer", "remove-option:" + std::to_string(i) + ":" + std::to_string(j)
               );
-              cursor += 38;
+              cursor += (Style::spaceSection - Style::spaceXxs);
             }
           button(p, 0, cursor, 82, "Move up", "prompt-move:up:" + std::to_string(i), ButtonVariant::Default, i > 0);
           button(
               p, 94, cursor, 92, "Move down", "prompt-move:down:" + std::to_string(i), ButtonVariant::Default,
               i + 1 < prompts.size()
           );
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
           button(p, 0, cursor, 104, "Add answer", "add-option:" + std::to_string(i));
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
           button(p, 0, cursor, 126, "Remove question", "remove-prompt:" + std::to_string(i));
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
       if (prompts.empty())
         row("No onboarding questions", "Add questions that let members choose roles and channels.");
       button(p, 0, cursor, 128, "Add question", "add-prompt");
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
     } else if (state.page == "welcome") {
       section("Welcome screen");
       toggle(
@@ -3108,13 +3123,13 @@ namespace app {
             setServerSettingsValue("welcome_channels", channels);
           });
           input.setOnSubmit([](const std::string&) {});
-          cursor += 42;
+          cursor += (Style::spaceSection + Style::spaceXxs);
           button(p, 0, cursor, 90, "Remove", "remove-welcome:" + std::to_string(i));
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
       if (channels.size() < 5) {
         button(p, 0, cursor, 128, "Add channel", "add-welcome");
-        cursor += 38;
+        cursor += (Style::spaceSection - Style::spaceXxs);
       }
     } else if (state.page == "screening") {
       section("Rules screening");
@@ -3142,11 +3157,11 @@ namespace app {
             input.setOnSubmit([](const std::string&) {});
             cursor += 76;
             button(p, 0, cursor, 100, "Remove rule", "remove-rule:" + std::to_string(i) + ":" + std::to_string(j));
-            cursor += 38;
+            cursor += (Style::spaceSection - Style::spaceXxs);
           }
         }
       button(p, 0, cursor, 100, "Add rule", "add-rule");
-      cursor += 38;
+      cursor += (Style::spaceSection - Style::spaceXxs);
     } else if (state.page == "audit") {
       finishCategory();
       cursor = drawServerAudit(p, width);
@@ -3163,8 +3178,8 @@ namespace app {
           m_window.invalidate();
         });
         input.setOnSubmit([this](const std::string&) { loadServerSettings(); });
-        button(p, width - 80, cursor + 3, 80, "Search", "search");
-        cursor += 44;
+        button(p, width - 80, cursor + (Style::spaceXxs + Style::borderWidth), 80, "Search", "search");
+        cursor += (Style::spaceSection + Style::spaceXs);
         if (canCreate(selected->section)) {
           button(
               p, 0, cursor, 128,
@@ -3174,11 +3189,11 @@ namespace app {
                                             : "Add " + std::string(selected->name),
               "new", ButtonVariant::Primary
           );
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
         if (state.page == "invites") {
           button(p, 0, cursor, 128, "Create invite", "create-invite", ButtonVariant::Primary);
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
         const auto at = state.lists.find(state.page);
         if (at != state.lists.end() && at->second.is_array()) {
@@ -3255,18 +3270,18 @@ namespace app {
           row("Nothing here yet", "No records were returned for this server.");
         if (state.more) {
           button(p, 0, cursor, 112, "Load more", "more");
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
         if (state.page == "members" && (admin || (access.permissions && (*access.permissions & (1ULL << 1))))) {
           finishCategory();
           section("Inactive members");
           detail("Prune inactive members", "Remove members who have been inactive for seven days and have no roles.");
           button(p, 0, cursor, 128, "Prune members", "prune", ButtonVariant::Destructive);
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
       } else {
         button(p, 0, cursor, 100, "Back to list", "back");
-        cursor += 38;
+        cursor += (Style::spaceSection - Style::spaceXxs);
         section(state.creating ? "Create " + std::string(selected->name) : recordName(state.record));
         if (state.page == "roles") {
           field("Role name", "name", "The name displayed in member profiles and the member list.");
@@ -3321,7 +3336,7 @@ namespace app {
               button(
                   p, 124, cursor, 90, "Default", "default-role-color", ButtonVariant::Default, fieldEditable("color")
               );
-            cursor += 38;
+            cursor += (Style::spaceSection - Style::spaceXxs);
             if (main ? state.colorPicker : state.profileColorPicker == component) {
               const auto controlId =
                   main ? std::string("server-role-color-picker") : "server-role-color-picker:" + component;
@@ -3357,7 +3372,7 @@ namespace app {
             rectangle(p, 0, cursor, width / 3, 26, rgbHex(11127295), 4);
             rectangle(p, width / 3, cursor, width / 3, 26, rgbHex(16759788), 0);
             rectangle(p, 2 * width / 3, cursor, width / 3, 26, rgbHex(16761760), 4);
-            cursor += 38;
+            cursor += (Style::spaceSection - Style::spaceXxs);
           }
           if (!holographic)
             roleColor("Role color", "primary_color", primary);
@@ -3406,7 +3421,7 @@ namespace app {
                 "View the members who hold this role and assign or remove their server roles."
             );
             button(p, 0, cursor, 136, "Manage members", "role-members:" + state.resource);
-            cursor += 38;
+            cursor += (Style::spaceSection - Style::spaceXxs);
           }
           if (!state.creating && state.resource != state.guild && !managed) {
             section("Role position");
@@ -3414,7 +3429,7 @@ namespace app {
                 "Members can only manage roles and members below their highest role.");
             button(p, 0, cursor, 86, "Move up", "role-up:" + state.resource);
             button(p, 98, cursor, 100, "Move down", "role-down:" + state.resource);
-            cursor += 38;
+            cursor += (Style::spaceSection - Style::spaceXxs);
           }
         } else if (state.page == "members") {
           field(
@@ -3491,11 +3506,11 @@ namespace app {
               p, 102, cursor, 90, "Ban", "ban", ButtonVariant::Destructive,
               api::canManageGuildSettings(banRequest, targetAccess)
           );
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         } else if (state.page == "emoji") {
           if (!state.creating) {
             const auto image = api::guildExpressionAsset(Section::Emoji, state.record);
-            picture(p, 0, cursor, 64, 64, image, 5, true);
+            picture(p, 0, cursor, 64, 64, image, Style::controlRadius, true);
             cursor += 76;
           }
           field("Emoji name", "name", "Use 2–32 letters, numbers or underscores.");
@@ -3508,7 +3523,9 @@ namespace app {
         } else if (state.page == "stickers") {
           if (!state.creating) {
             const auto image = api::guildExpressionAsset(Section::Stickers, state.record);
-            picture(p, (width - 160) / 2, cursor, 160, 160, image, 5, true, false, ImageFitMode::Contain);
+            picture(
+                p, (width - 160) / 2, cursor, 160, 160, image, Style::controlRadius, true, false, ImageFitMode::Contain
+            );
             cursor += 172;
           }
           field("Sticker name", "name", "Choose a name between 2 and 30 characters.");
@@ -3562,7 +3579,7 @@ namespace app {
           if (!state.creating) {
             button(p, 0, cursor, 112, "Copy link", "copy-template");
             button(p, 124, cursor, 120, "Sync template", "sync-template");
-            cursor += 38;
+            cursor += (Style::spaceSection - Style::spaceXxs);
           }
         } else if (state.page == "events") {
           field("Event name", "name", "Choose a name for the event.");
@@ -3596,7 +3613,7 @@ namespace app {
               setServerSettingsValue("entity_metadata", {{"location", text}});
             });
             input.setOnSubmit([](const std::string&) {});
-            cursor += 44;
+            cursor += (Style::spaceSection + Style::spaceXs);
           }
           drawServerExtraForms(form, "event-recurrence");
           if (!state.creating) {
@@ -3805,7 +3822,7 @@ namespace app {
               string(state.record, "expires_at").empty() ? "Never" : localTime(string(state.record, "expires_at")));
           row("Temporary membership", state.record.value("temporary", false) ? "Enabled" : "Disabled");
           button(p, 0, cursor, 112, "Copy invite", "copy-invite");
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         } else if (state.page == "bans") {
           row("User", recordName(state.record));
           row("Reason", string(state.record, "reason", "No reason provided"));
@@ -3847,12 +3864,12 @@ namespace app {
                                             : "Delete",
               "delete", ButtonVariant::Destructive
           );
-          cursor += 38;
+          cursor += (Style::spaceSection - Style::spaceXxs);
         }
       }
     }
     finishCategory();
-    const auto fullHeight = cursor + 8;
+    const auto fullHeight = cursor + Style::spaceSm;
     m_scrolling.limit(state.scroll, std::max(0.0F, fullHeight - viewportH));
     pageNode->setTextScrollOffset(-state.scroll);
     const auto hitShift = bodyScrollBefore - state.scroll;
@@ -3893,14 +3910,18 @@ namespace app {
         root, "server-settings-scrollbar", {contentX + width + 4, viewportY, 8, viewportH}, fullHeight, state.scroll
     );
     if (dirty) {
-      const float y = h - 24 - saveHeight - (feedbackHeight ? feedbackHeight + 8 : 0);
-      rectangle(root, contentX, y, width, saveHeight, panel, 7);
-      label(root, contentX + 12, y + 14, width < 420 ? width - 24 : width - 236, "Unsaved changes", 12, foreground);
-      const auto by = y + saveHeight - 34;
+      const float y = h - Style::spaceXl - saveHeight - (feedbackHeight ? feedbackHeight + Style::spaceSm : 0);
+      rectangle(root, contentX, y, width, saveHeight, panel, Style::hoverRadius);
+      label(
+          root, contentX + Style::spaceMd, y + Style::cardPadding,
+          width < layout::Settings::stackThreshold ? width - Style::spaceXl : width - 236, "Unsaved changes",
+          Style::fontSizeDescription, foreground
+      );
+      const auto by = y + saveHeight - (Style::space2Xl + Style::spaceXxs);
       const auto saveWidth = std::min(122.0F, width * .55F), resetWidth = std::min(76.0F, width * .3F);
-      button(root, contentX + width - saveWidth - resetWidth - 24, by, resetWidth, "Reset", "reset");
+      button(root, contentX + width - saveWidth - resetWidth - Style::spaceXl, by, resetWidth, "Reset", "reset");
       button(
-          root, contentX + width - saveWidth - 12, by, saveWidth,
+          root, contentX + width - saveWidth - Style::spaceMd, by, saveWidth,
           state.saving         ? "Saving…"
               : state.creating ? "Create"
                                : "Save Changes",
@@ -3908,15 +3929,18 @@ namespace app {
       );
     }
     if (feedbackHeight) {
-      rectangle(root, contentX, h - 24 - feedbackHeight, width, feedbackHeight, panel, 7);
+      rectangle(root, contentX, h - Style::spaceXl - feedbackHeight, width, feedbackHeight, panel, Style::hoverRadius);
       label(
-          root, contentX + 12, h - 14 - feedbackHeight, feedbackTextWidth, feedback, 12,
-          state.error.empty() ? muted : danger, FontWeight::Normal, 0
+          root, contentX + Style::spaceMd, h - Style::cardPadding - feedbackHeight, feedbackTextWidth, feedback,
+          Style::fontSizeDescription, state.error.empty() ? muted : danger, FontWeight::Normal, 0
       );
       if (retryRead)
         button(
-            root, contentX + width - 92, width < 420 ? h - 56 : h - 24 - feedbackHeight + (feedbackHeight - 26) / 2, 80,
-            "Retry", "retry"
+            root, contentX + width - 92,
+            width < layout::Settings::stackThreshold
+                ? h - 56
+                : h - Style::spaceXl - feedbackHeight + (feedbackHeight - (Style::spaceXl + Style::spaceXxs)) / 2,
+            80, "Retry", "retry"
         );
     }
   }

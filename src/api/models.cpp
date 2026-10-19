@@ -95,6 +95,8 @@ namespace api {
       guild.members = *members;
     if (online)
       guild.online = *online;
+    if (rulesChannelId)
+      guild.rulesChannelId = *rulesChannelId;
   }
   void GuildUpdate::merge(const GuildUpdate& update) {
     if (id != update.id)
@@ -109,6 +111,8 @@ namespace api {
       members = update.members;
     if (update.online)
       online = update.online;
+    if (update.rulesChannelId)
+      rulesChannelId = update.rulesChannelId;
   }
   std::vector<GuildUpdate> parseGuildUpdates(std::string_view event, const nlohmann::json& data) {
     std::vector<GuildUpdate> result;
@@ -120,6 +124,17 @@ namespace api {
         return;
       const auto properties = item.find("properties");
       const auto& source = properties != item.end() && properties->is_object() ? *properties : item;
+      const auto& rulesSource = source.contains("rules_channel_id") ? source : item;
+      const auto rules = rulesSource.find("rules_channel_id");
+      if (rules != rulesSource.end()) {
+        if (rules->is_null())
+          update.rulesChannelId = std::string{};
+        else if (rules->is_string()) {
+          const auto channel = rules->template get<std::string>();
+          if (validSnowflake(channel))
+            update.rulesChannelId = channel;
+        }
+      }
       if (const auto at = source.find("name"); at != source.end() && at->is_string())
         update.name = at->template get<std::string>().substr(0, 400);
       if (const auto at = source.find("icon"); at != source.end() && (at->is_null() || at->is_string())) {
@@ -189,8 +204,19 @@ namespace api {
     std::vector<Channel> result;
     for (const auto& item : value) {
       const int type = item.value("type", 0);
-      if (type != 0 && type != 2 && type != 5 && type != 4 && type != 15 && type != 16)
-        continue; // Threads have their own directory and lifecycle.
+      switch (static_cast<ChannelType>(type)) {
+      case ChannelType::GuildText:
+      case ChannelType::GuildVoice:
+      case ChannelType::GuildCategory:
+      case ChannelType::GuildAnnouncement:
+      case ChannelType::GuildStageVoice:
+      case ChannelType::GuildDirectory:
+      case ChannelType::GuildForum:
+      case ChannelType::GuildMedia:
+        break;
+      default:
+        continue; // Threads and direct messages have their own directories.
+      }
       result.push_back(
           {id(item), text(item, "name", "unnamed"), type, item.value("position", 0), text(item, "parent_id")}
       );
@@ -527,6 +553,7 @@ namespace api {
         if (validSnowflake(reply.message)) {
           if (const auto original = value.find("referenced_message"); original != value.end()) {
             reply.deleted = original->is_null();
+            reply.available = original->is_object() || reply.deleted;
             if (original->is_object()) {
               reply.content = text(*original, "content");
               if (reply.content.empty() && original->contains("sticker_items")) {
@@ -661,8 +688,18 @@ namespace api {
       message.authorTag = *authorTag;
     if (memberRoles)
       message.memberRoles = *memberRoles;
-    if (reply)
-      message.reply = *reply;
+    if (reply) {
+      if (*reply
+          && !(*reply)->available
+          && message.reply
+          && (*reply)->message == message.reply->message
+          && (*reply)->channel == message.reply->channel) {
+        auto retained = *message.reply;
+        retained.mention = (*reply)->mention;
+        message.reply = std::move(retained);
+      } else
+        message.reply = *reply;
+    }
     if (forwarded)
       message.forwarded = *forwarded;
     if (reactions)

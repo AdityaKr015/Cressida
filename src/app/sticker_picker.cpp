@@ -53,7 +53,8 @@ namespace app {
             for (int y = 0; y < 64; ++y)
               for (int x = 0; x < 64; ++x) {
                 const auto at = (y * 64 + x) * 4;
-                if ((x - 32) * (x - 32) + (y - 32) * (y - 32) < 780) {
+                if ((x - Style::space2Xl) * (x - Style::space2Xl) + (y - Style::space2Xl) * (y - Style::space2Xl)
+                    < 780) {
                   const bool face = ((x > 20 && x < 25) || (x > 39 && x < 44)) && y > 20 && y < 29;
                   frame.rgba[at] = face ? 35 : 180 + i % 6 * 10;
                   frame.rgba[at + 1] = face ? 35 : 130 + f * 50;
@@ -260,20 +261,28 @@ namespace app {
       m_controlInput.setFocus(nullptr);
       m_focusedInput = "emoji-search";
     }
-    const float width = std::min(552.0F, w - 32);
-    const float height = std::min(m_stickerInfo ? 430.0F : 520.0F, std::max(240.0F, m_composerTop - 64));
-    const float x =
-        std::clamp(w - (m_showMembers && w >= 1000 ? 240 : 0) - width - 24, 16.0F, std::max(16.0F, w - width - 16));
-    const float y = std::max(44.0F, m_composerTop - height - 8);
+    const auto frame = layout::pickerFrame(
+        w, m_composerTop, m_showMembers, layout::Picker::emojiWidth, layout::Picker::minimumHeight,
+        m_stickerInfo ? layout::Picker::stickerInfoHeight : layout::Picker::maximumHeight
+    );
+    const auto [x, y, width, height] = frame;
     m_emojiBounds = {x, y, width, height, Action::None, {}};
-    m_hits.push_back({0, 36, w, h - 36, Action::CloseEmoji, {}});
-    rectangle(root, x, y, width, height, sidebar, 12);
+    m_hits.push_back(
+        {0, layout::Window::titlebarHeight, w, h - layout::Window::titlebarHeight, Action::CloseEmoji, {}}
+    );
+    rectangle(root, x, y, width, height, sidebar, Style::radiusXl);
     m_hits.push_back(m_emojiBounds);
-    iconButton(root, {x + width - 44, y + 9, 32, 32, Action::CloseEmoji, {}}, "x", "Close stickers");
+    iconButton(
+        root, {x + width - 44, y + (Style::spaceSm + Style::borderWidth), 32, 32, Action::CloseEmoji, {}}, "x",
+        "Close stickers"
+    );
     if (m_stickerInfo && m_inspectedSticker) {
       const auto& sticker = *m_inspectedSticker;
       m_stickerTargets[sticker.id] = sticker;
-      label(root, x + 18, y + 16, width - 70, sticker.name, 16, foreground, FontWeight::SemiBold);
+      label(
+          root, x + (Style::spaceLg + Style::spaceXxs), y + Style::spaceLg, width - 70, sticker.name,
+          Style::fontSizeTitle, foreground, FontWeight::SemiBold
+      );
       const float size = std::min(160.0F, height - 184);
       picture(
           root, x + (width - size) / 2, y + 50, size, size, api::stickerAsset(sticker), 0, false, false,
@@ -284,31 +293,50 @@ namespace app {
           ? (sticker.packName.empty() ? "Discord sticker pack" : sticker.packName)
           : guild != m_guilds.end() ? guild->name
                                     : "Server sticker";
-      label(root, x + 18, y + 60 + size, width - 36, source, 13, foreground, FontWeight::SemiBold);
       label(
-          root, x + 18, y + 84 + size, width - 36, sticker.description.empty() ? sticker.tags : sticker.description, 12,
-          muted, FontWeight::Normal, 2
+          root, x + (Style::spaceLg + Style::spaceXxs), y + 60 + size, width - layout::Picker::railItemSize, source,
+          Style::fontSizeCaption, foreground, FontWeight::SemiBold
+      );
+      label(
+          root, x + (Style::spaceLg + Style::spaceXxs), y + 84 + size, width - layout::Picker::railItemSize,
+          sticker.description.empty() ? sticker.tags : sticker.description, Style::fontSizeDescription, muted,
+          FontWeight::Normal, 2
       );
       const auto reason = stickerRestriction(sticker);
       if (!reason.empty())
-        label(root, x + 18, y + height - 86, width - 36, reason, 12, muted, FontWeight::Normal, 2);
+        label(
+            root, x + (Style::spaceLg + Style::spaceXxs), y + height - 86, width - layout::Picker::railItemSize, reason,
+            Style::fontSizeDescription, muted, FontWeight::Normal, 2
+        );
       if (const auto error = m_stickerErrors.find("details"); error != m_stickerErrors.end()) {
-        label(root, x + 18, y + height - 86, width - 108, error->second, 12, muted, FontWeight::Normal, 2);
+        label(
+            root, x + (Style::spaceLg + Style::spaceXxs), y + height - 86, width - 108, error->second,
+            Style::fontSizeDescription, muted, FontWeight::Normal, 2
+        );
         button(root, {x + width - 82, y + height - 87, 64, 26, Action::StickerRetry, "details"}, "Retry");
       }
       button(
-          root, {x + 18, y + height - 44, 112, 28, reason.empty() ? Action::SendSticker : Action::None, sticker.id},
+          root,
+          {x + (Style::spaceLg + Style::spaceXxs), y + height - 44, 112, 28,
+           reason.empty() ? Action::SendSticker : Action::None, sticker.id},
           "Send Sticker"
       );
       if (guild != m_guilds.end())
         button(root, {x + 142, y + height - 44, 112, 28, Action::Guild, guild->id}, "View Server");
       return;
     }
-    button(root, {x + 12, y + 10, 66, 30, Action::ToggleGif, {}}, "GIFs");
-    button(root, {x + 86, y + 10, 66, 30, Action::ToggleEmoji, {}}, "Emoji");
-    label(root, x + 166, y + 17, width - 220, "Stickers", 16, foreground, FontWeight::SemiBold);
-    inputControl(root, x + 12, y + 52, width - 24, 38, "emoji-search", m_emojiQuery, "Search stickers");
-    const float top = y + 104, available = height - 164, gridX = x + 64, gridWidth = width - 84;
+    button(root, {x + Style::spaceMd, y + Style::spaceDense, 66, 30, Action::ToggleGif, {}}, "GIFs");
+    button(root, {x + 86, y + Style::spaceDense, 66, 30, Action::ToggleEmoji, {}}, "Emoji");
+    label(
+        root, x + 166, y + (Style::spaceLg + Style::borderWidth), width - 220, "Stickers", Style::fontSizeTitle,
+        foreground, FontWeight::SemiBold
+    );
+    inputControl(
+        root, x + Style::spaceMd, y + layout::Picker::searchTop, width - 24, 38, "emoji-search", m_emojiQuery,
+        "Search stickers"
+    );
+    const float top = y + layout::Picker::contentTop, available = height - 164, gridX = x + layout::Picker::railWidth,
+                gridWidth = width - 84;
     std::vector<std::string> sources;
     if (!m_dmMode && !m_guildId.empty())
       sources.push_back(m_guildId);
@@ -329,7 +357,7 @@ namespace app {
       return guild == m_guilds.end() ? "Server stickers" : guild->name;
     };
     auto rail = std::make_unique<Node>();
-    rail->setPosition(x + 8, top);
+    rail->setPosition(x + Style::spaceSm, top);
     rail->setSize(44, available);
     rail->setClipChildren(true);
     const auto railCount = 2 + std::ranges::count_if(sources, [&](const auto& id) {
@@ -340,22 +368,24 @@ namespace app {
     float railHeight = 0;
     auto railItem = [&](const std::string& id, const std::string& icon) {
       const float ry = railHeight - m_emojiRailScroll;
-      railHeight += 44;
-      if (ry + 36 <= 0 || ry >= available)
+      railHeight += layout::Picker::railStep;
+      if (ry + layout::Picker::railItemSize <= 0 || ry >= available)
         return;
       const auto guild = std::ranges::find(m_guilds, id, &api::Guild::id);
-      const float a = std::max(0.0F, ry), b = std::min(available, ry + 36);
-      const bool over = hovered(x + 8, top + a, 36, b - a);
+      const float a = std::max(0.0F, ry), b = std::min(available, ry + layout::Picker::railItemSize);
+      const bool over = hovered(x + Style::spaceSm, top + a, layout::Picker::railItemSize, b - a);
       if (over || m_stickerSection == id)
-        rectangle(*rail, 0, ry, 36, 36, raised, 8);
+        rectangle(
+            *rail, 0, ry, layout::Picker::railItemSize, layout::Picker::railItemSize, raised, Style::surfaceRadius
+        );
       if (guild != m_guilds.end())
-        avatar(*rail, 4, ry + 4, 28, guild->icon, guild->name);
+        avatar(*rail, 4, ry + Style::spaceXs, layout::Avatar::dm, guild->icon, guild->name);
       else
-        glyph(*rail, 8, ry + 8, 20, icon, muted);
-      m_hits.push_back({x + 8, top + a, 36, b - a, Action::StickerSection, id});
+        glyph(*rail, 8, ry + Style::spaceSm, Style::glyphSizeLarge, icon, muted);
+      m_hits.push_back({x + Style::spaceSm, top + a, layout::Picker::railItemSize, b - a, Action::StickerSection, id});
       if (over) {
         m_tooltip = id == "all" ? "All stickers" : title(id);
-        m_tooltipX = x + 26;
+        m_tooltipX = x + (Style::spaceXl + Style::spaceXxs);
         m_tooltipY = top + ry;
       }
     };
@@ -404,7 +434,7 @@ namespace app {
     const float cell = gridWidth / columns, step = cell + 8;
     float contentHeight = 0;
     for (const auto& [_, values] : m_stickerGroups)
-      contentHeight += 28 + std::ceil(static_cast<float>(values.size()) / columns) * step + 8;
+      contentHeight += Style::spaceWide + std::ceil(static_cast<float>(values.size()) / columns) * step + 8;
     m_scrolling.limit(m_emojiScroll, std::max(0.0F, contentHeight - available));
     auto grid = std::make_unique<Node>();
     grid->setPosition(gridX, top);
@@ -414,9 +444,9 @@ namespace app {
     float cursor = -m_emojiScroll;
     std::optional<api::Sticker> hoveredSticker;
     for (const auto& [name, values] : m_stickerGroups) {
-      if (cursor + 24 > 0 && cursor < available)
-        label(*grid, 0, cursor, gridWidth, name, 12, muted, FontWeight::SemiBold);
-      cursor += 28;
+      if (cursor + Style::spaceXl > 0 && cursor < available)
+        label(*grid, 0, cursor, gridWidth, name, Style::fontSizeDescription, muted, FontWeight::SemiBold);
+      cursor += Style::spaceWide;
       for (std::size_t i = 0; i < values.size(); ++i) {
         const float sx = (i % columns) * cell, sy = cursor + (i / columns) * step;
         if (sy + cell <= 0 || sy >= available)
@@ -425,25 +455,28 @@ namespace app {
         const float a = std::max(0.0F, sy), b = std::min(available, sy + cell);
         const bool over = hovered(gridX + sx, top + a, cell, b - a);
         if (over) {
-          rectangle(*grid, sx, sy, cell, cell, raised, 8);
+          rectangle(*grid, sx, sy, cell, cell, raised, Style::surfaceRadius);
           hoveredSticker = sticker;
         }
         const bool loaded = picture(
-            *grid, sx + 6, sy + 6, cell - 12, cell - 12, api::stickerAsset(sticker), 0, false, false,
-            ImageFitMode::Contain
+            *grid, sx + Style::spaceCompact, sy + Style::spaceCompact, cell - Style::spaceMd, cell - Style::spaceMd,
+            api::stickerAsset(sticker), 0, false, false, ImageFitMode::Contain
         );
         if (!loaded)
-          glyph(*grid, sx + (cell - 24) / 2, sy + (cell - 24) / 2, 24, "sticker", muted);
+          glyph(
+              *grid, sx + (cell - Style::spaceXl) / 2, sy + (cell - Style::spaceXl) / 2, Style::glyphSizeFeature,
+              "sticker", muted
+          );
         m_stickerTargets[sticker.id] = sticker;
         const auto reason = stickerRestriction(sticker);
         m_hits.push_back(
             {gridX + sx, top + a, cell, b - a, reason.empty() ? Action::SendSticker : Action::StickerInfo, sticker.id}
         );
         if (!reason.empty())
-          glyph(*grid, sx + 8, sy + cell - 24, 16, "lock", muted);
-        if (over && sy >= 0 && sy + 30 <= available)
+          glyph(*grid, sx + Style::spaceSm, sy + cell - Style::spaceXl, Style::baseGlyphSize, "lock", muted);
+        if (over && sy >= 0 && sy + (Style::space2Xl - Style::spaceXxs) <= available)
           iconButton(
-              *grid, {sx + cell - 28, sy + 2, 26, 26, Action::StickerInfo, sticker.id}, "info-circle",
+              *grid, {sx + cell - 28, sy + Style::spaceXxs, 26, 26, Action::StickerInfo, sticker.id}, "info-circle",
               "About this sticker"
           );
       }
@@ -455,18 +488,21 @@ namespace app {
     );
     if (m_stickerGroups.empty())
       label(
-          root, gridX + 6, top + 18, gridWidth - 12,
-          !m_loadingStickerSources.empty() ? "Loading stickers…" : "No matching stickers", 13, muted
+          root, gridX + Style::spaceCompact, top + (Style::spaceLg + Style::spaceXxs), gridWidth - Style::spaceMd,
+          !m_loadingStickerSources.empty() ? "Loading stickers…" : "No matching stickers", Style::fontSizeCaption, muted
       );
     if (!m_stickerErrors.empty()) {
       label(
-          root, gridX, y + height - 48, gridWidth - 72, m_stickerErrors.begin()->second, 11, muted, FontWeight::Normal,
-          2
+          root, gridX, y + height - Style::spaceGroup, gridWidth - 72, m_stickerErrors.begin()->second,
+          Style::fontSizeMini, muted, FontWeight::Normal, 2
       );
       button(root, {x + width - 82, y + height - 45, 64, 28, Action::StickerRetry, {}}, "Retry");
     } else if (hoveredSticker) {
       const auto& sticker = *hoveredSticker;
-      label(root, gridX, y + height - 48, gridWidth, sticker.name, 13, foreground, FontWeight::SemiBold);
+      label(
+          root, gridX, y + height - Style::spaceGroup, gridWidth, sticker.name, Style::fontSizeCaption, foreground,
+          FontWeight::SemiBold
+      );
       const bool external = m_dmMode || m_demo || (selectedChannelPermissions().value_or(0) & (1ULL << 37));
       const auto native =
           api::stickerUnavailable(sticker, m_dmMode ? "" : m_guildId, m_account.premiumType.value_or(0), external);
@@ -476,7 +512,7 @@ namespace app {
           !reason.empty()       ? reason
               : !native.empty() ? "Sends as an image link"
                                 : title(sticker.type == 1 ? "packs" : sticker.guild),
-          11, muted
+          Style::fontSizeMini, muted
       );
     }
   }
@@ -491,7 +527,7 @@ namespace app {
           std::find_if(m_hits.rbegin(), m_hits.rend(), [&](const auto& hit) { return hit.action == action; });
       require(it != m_hits.rend(), "Sticker replay requires a visible control");
       const auto hit = *it;
-      const auto chrome = m_window.titlebarHeight() - 36;
+      const auto chrome = m_window.titlebarHeight() - layout::Window::titlebarHeight;
       m_window.motion(hit.x + hit.width / 2, hit.y + hit.height / 2 + chrome);
       m_window.click(hit.x + hit.width / 2, hit.y + hit.height / 2 + chrome, 272);
       m_window.released();
@@ -515,7 +551,9 @@ namespace app {
     } else if (step == 2) {
       m_scrolling.stop(m_emojiScroll);
       m_emojiScroll = 73;
-      m_window.motion(m_emojiBounds.x + 110, m_emojiBounds.y + 274 + m_window.titlebarHeight() - 36);
+      m_window.motion(
+          m_emojiBounds.x + 110, m_emojiBounds.y + 274 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
     } else if (step == 3) {
       require(m_emojiScroll == 73, "Sticker scrolling survives scene rebuilds");
       click(Action::StickerInfo);
