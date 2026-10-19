@@ -1,7 +1,10 @@
 #include "api/gateway.h"
 
+#include "api/network_profile.h"
+
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <curl/curl.h>
 #include <curl/websockets.h>
 #include <deque>
@@ -17,6 +20,23 @@ namespace api {
     using Json = nlohmann::json;
     using Clock = std::chrono::steady_clock;
     constexpr std::string_view gatewayQuery = "?v=9&encoding=json";
+
+    enum class IdentifyCapability : std::uint64_t {
+      VersionedReadStates = 1ULL << 2,
+      VersionedGuildSettings = 1ULL << 3,
+      DeduplicatedUsers = 1ULL << 4,
+      PrioritizedReady = 1ULL << 5,
+      SettingsProto = 1ULL << 9,
+      ClientStateV2 = 1ULL << 10
+    };
+    // Advertise only payload variants handled by the backend. Passive guild
+    // updates, debounced reactions and token refresh require other handlers.
+    constexpr auto identifyCapabilities = std::to_underlying(IdentifyCapability::VersionedReadStates)
+        | std::to_underlying(IdentifyCapability::VersionedGuildSettings)
+        | std::to_underlying(IdentifyCapability::DeduplicatedUsers)
+        | std::to_underlying(IdentifyCapability::PrioritizedReady)
+        | std::to_underlying(IdentifyCapability::SettingsProto)
+        | std::to_underlying(IdentifyCapability::ClientStateV2);
 
     std::optional<std::string> loopbackResumeEndpoint(std::string_view endpoint, std::string_view address) {
       // A test peer can use a second route on its explicitly injected origin.
@@ -48,18 +68,23 @@ namespace api {
       std::stop_token stop;
       const std::atomic<std::uint64_t>& generation;
       std::uint64_t session;
+      const process::WakeEvent& wake;
+      std::deque<int> recentOpcodes;
       bool cancelled() const { return stop.stop_requested() || generation != session; }
     };
     int progress(void* data, curl_off_t, curl_off_t, curl_off_t, curl_off_t) noexcept {
       return static_cast<Connection*>(data)->cancelled();
     }
-    void wait(CURL* curl, short events) {
+    void wait(CURL* curl, short events, const Connection& connection, Clock::time_point deadline) {
       curl_socket_t socket = CURL_SOCKET_BAD;
       curl_easy_getinfo(curl, CURLINFO_ACTIVESOCKET, &socket);
-      pollfd fd{socket, events, 0};
-      ::poll(&fd, 1, 50);
+      pollfd descriptors[] = {{socket, events, 0}, {connection.wake.fd(), POLLIN, 0}};
+      const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - Clock::now());
+      ::poll(descriptors, 2, static_cast<int>(std::clamp<std::int64_t>(remaining.count(), 0, 120000)));
+      if (descriptors[1].revents & POLLIN)
+        connection.wake.drain();
     }
-    void send(CURL* curl, const Json& payload, const Connection& connection) {
+    void send(CURL* curl, const Json& payload, Connection& connection) {
       const auto bytes = payload.dump();
       std::size_t offset = 0;
       const auto deadline = Clock::now() + 5s;
@@ -70,10 +95,13 @@ namespace api {
         const auto status = curl_ws_send(curl, bytes.data() + offset, bytes.size() - offset, &sent, 0, CURLWS_TEXT);
         offset += sent;
         if (status == CURLE_AGAIN)
-          wait(curl, POLLOUT);
+          wait(curl, POLLOUT, connection, deadline);
         else if (status != CURLE_OK)
           throw GatewayFailure(std::string("Gateway send failed: ") + curl_easy_strerror(status));
       } while (offset < bytes.size());
+      if (connection.recentOpcodes.size() == 8)
+        connection.recentOpcodes.pop_front();
+      connection.recentOpcodes.push_back(payload.value("op", -1));
     }
   } // namespace
 
@@ -106,6 +134,7 @@ namespace api {
   Gateway::~Gateway() {
     m_worker.request_stop();
     m_ready.notify_all();
+    (void)m_wake.signal();
     m_worker.join();
   }
   void Gateway::authenticate(std::uint64_t session, std::string token, Presence presence) {
@@ -128,9 +157,12 @@ namespace api {
     ++m_presenceVersion;
     ++m_subscriptionVersion;
     m_ready.notify_all();
+    (void)m_wake.signal();
   }
-  void Gateway::reset() {
+  void Gateway::reset(std::uint64_t expectedSession) {
     std::lock_guard lock(m_mutex);
+    if (expectedSession && m_session != expectedSession)
+      return;
     m_token.clear();
     m_memberRequested.clear();
     m_memberPending.clear();
@@ -144,6 +176,7 @@ namespace api {
     m_channel.clear();
     ++m_subscriptionVersion;
     m_ready.notify_all();
+    (void)m_wake.signal();
   }
   void Gateway::subscribe(std::string guild, std::string channel, int first, bool force) {
     std::lock_guard lock(m_mutex);
@@ -154,6 +187,7 @@ namespace api {
     m_channel = std::move(channel);
     m_first = first;
     ++m_subscriptionVersion;
+    (void)m_wake.signal();
   }
 
   void Gateway::requestMembers(std::uint64_t session, const std::string& guild, const std::vector<std::string>& users) {
@@ -169,6 +203,7 @@ namespace api {
       if (validSnowflake(user) && !m_memberRequested.contains({guild, user}))
         m_memberPendingCount += m_memberPending[guild].insert(user).second;
     }
+    (void)m_wake.signal();
   }
 
   bool Gateway::searchMembers(
@@ -185,6 +220,7 @@ namespace api {
     if (session != m_generation || session != m_session || m_token.empty())
       return false;
     m_memberSearch = MemberSearch{guild, query, nonce};
+    (void)m_wake.signal();
     return true;
   }
   bool Gateway::setPresence(std::uint64_t session, std::string status, std::optional<std::string> customText) {
@@ -207,6 +243,7 @@ namespace api {
       m_presence.emojiName.clear();
     }
     ++m_presenceVersion;
+    (void)m_wake.signal();
     return true;
   }
 
@@ -230,6 +267,7 @@ namespace api {
         || m_presence.emojiName != presence.emojiName) {
       m_presence = std::move(presence);
       ++m_presenceVersion;
+      (void)m_wake.signal();
     }
     return true;
   }
@@ -257,7 +295,7 @@ namespace api {
         sequence = -1;
         backoff = 1;
       }
-      Connection connection{stop, m_generation, session};
+      Connection connection{stop, m_generation, session, m_wake};
       bool fatal = false;
       bool authenticationFailed = false;
       bool reconnectImmediately = false;
@@ -287,8 +325,10 @@ namespace api {
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &connection);
         const auto connected = curl_easy_perform(curl.get());
+        network_profile::transferred("gateway-connect", curl.get(), connected);
         if (connected != CURLE_OK)
           throw GatewayFailure(std::string("Gateway connection failed: ") + curl_easy_strerror(connected));
+        const auto connectedAt = Clock::now();
         std::string message, subscribedGuild, subscribedChannel;
         std::uint64_t subscription = 0, presenceVersion = 0;
         std::deque<Clock::time_point> presenceTimes;
@@ -299,6 +339,7 @@ namespace api {
         bool hello = false, ready = false, awaitingAck = false;
         while (!connection.cancelled()) {
           const auto now = Clock::now();
+          auto nextControl = heartbeatAt;
           if (now >= heartbeatAt) {
             if (!hello || awaitingAck)
               throw GatewayFailure("Gateway heartbeat timed out");
@@ -316,6 +357,8 @@ namespace api {
             }
             while (!presenceTimes.empty() && now - presenceTimes.front() >= 20s)
               presenceTimes.pop_front();
+            if (presenceVersion != desiredVersion && presenceTimes.size() >= 5)
+              nextControl = std::min(nextControl, presenceTimes.front() + 20s);
             if (presenceVersion != desiredVersion && presenceTimes.size() < 5) {
               if (validStatus(presence.status)) {
                 Json activities = Json::array();
@@ -359,8 +402,9 @@ namespace api {
               first = m_first;
               version = m_subscriptionVersion;
             }
+            if (version != subscription && channel == subscribedChannel && guild == subscribedGuild)
+              nextControl = std::min(nextControl, subscribedAt + 500ms);
             if (version != subscription
-                && !channel.empty()
                 && (channel != subscribedChannel || guild != subscribedGuild || now - subscribedAt >= 500ms)) {
               Json subscriptions = Json::object();
               if (!subscribedGuild.empty() && subscribedGuild != guild)
@@ -369,9 +413,19 @@ namespace api {
                 };
               Json ranges = Json::array({Json::array({first, first + 99}), Json::array({first + 100, first + 199})});
               Json channels = {{channel, ranges}};
-              if (subscribedGuild == guild && !subscribedChannel.empty() && subscribedChannel != channel)
-                channels[subscribedChannel] = Json::array();
-              if (!guild.empty())
+              if (!guild.empty() && guild != subscribedGuild) {
+                // A new guild subscription must precede its channel ranges in
+                // a separate WebSocket frame; otherwise the ranges may be ignored.
+                const Json initial = {
+                    {"typing", true},
+                    {"activities", true},
+                    {"threads", true},
+                    {"member_updates", true},
+                    {"channels", Json::object()}
+                };
+                send(curl.get(), Json{{"op", 37}, {"d", {{"subscriptions", {{guild, initial}}}}}}, connection);
+              }
+              if (!guild.empty() && !channel.empty())
                 subscriptions[guild] = {
                     {"typing", true},
                     {"activities", true},
@@ -385,6 +439,11 @@ namespace api {
               subscribedGuild = guild;
               subscribedChannel = channel;
               subscribedAt = now;
+            }
+            {
+              std::lock_guard lock(m_mutex);
+              if (m_memberSearch || !m_memberPending.empty())
+                nextControl = std::min(nextControl, memberRequestAt);
             }
             if (now >= memberRequestAt) {
               std::string memberGuild;
@@ -437,7 +496,7 @@ namespace api {
           const curl_ws_frame* frame = nullptr;
           const auto code = curl_ws_recv(curl.get(), buffer, sizeof(buffer), &count, &frame);
           if (code == CURLE_AGAIN) {
-            wait(curl.get(), POLLIN);
+            wait(curl.get(), POLLIN, connection, nextControl);
             continue;
           }
           if (code != CURLE_OK || !frame)
@@ -446,6 +505,21 @@ namespace api {
             const unsigned closeCode = count >= 2
                 ? (static_cast<unsigned char>(buffer[0]) << 8) | static_cast<unsigned char>(buffer[1])
                 : 1000;
+            if (closeCode == 4002) {
+              std::string recent;
+              for (const auto opcode : connection.recentOpcodes) {
+                if (!recent.empty())
+                  recent += ',';
+                recent += std::to_string(opcode);
+              }
+              const auto* phase = !hello ? "hello" : ready ? "ready" : resumeId.empty() ? "identify" : "resume";
+              // Fixed phases and numeric opcodes only: never print a packet,
+              // its IDs, credentials, custom status or server close reason.
+              std::fprintf(
+                  stderr, "[network] gateway close=4002 ready=%d phase=%s recent_opcodes=[%s]\n", ready ? 1 : 0, phase,
+                  recent.c_str()
+              );
+            }
             authenticationFailed = closeCode == 4004;
             if (closeCode == 4004
                 || closeCode == 4010
@@ -495,7 +569,8 @@ namespace api {
                       {"d",
                        {{"token", token},
                         {"compress", false},
-                        {"capabilities", 16381},
+                        {"capabilities", identifyCapabilities},
+                        {"client_state", {{"guild_versions", Json::object()}}},
                         {"properties",
                          {{"os", "Linux"},
                           {"browser", "cressida"},
@@ -525,6 +600,7 @@ namespace api {
           } else if (op == 0) {
             const auto type = packet.value("t", std::string{});
             if (type == "READY" || type == "RESUMED") {
+              network_profile::elapsed("gateway", "ready", connectedAt);
               std::lock_guard lock(m_mutex);
               m_memberRequested.clear();
             }

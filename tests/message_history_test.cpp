@@ -1,3 +1,4 @@
+#include "app/chat_cache.h"
 #include "app/message_history.h"
 #include "app/timeline_anchor.h"
 
@@ -17,6 +18,54 @@ int main() {
     return result;
   };
   try {
+    {
+      const auto rows = page(200, 100);
+      const auto now = app::ChatCacheState::Clock::now();
+      const app::ChatCacheState cached{now, 3, false};
+      require(cached.fresh(true, 3, "299", rows, now), "A complete current live page can open without a request");
+      require(
+          !cached.fresh(false, 3, "299", rows, now) && !cached.fresh(true, 4, "299", rows, now),
+          "Disconnects and new Gateway epochs require catch-up before trusting a cache"
+      );
+      require(!cached.fresh(true, 3, "300", rows, now), "A known newer tail invalidates a cached page");
+      require(
+          !cached.fresh(true, 3, "299", rows, now + std::chrono::minutes(5)),
+          "Old pages are shown immediately but revalidated"
+      );
+      require(
+          cached.fresh(true, 3, {}, {}, now) && !cached.fresh(true, 3, "299", {}, now),
+          "A successful empty page is reusable only without a known nonempty tail"
+      );
+      app::MessageHistory restored;
+      restored.restoreLatest(rows, false);
+      require(
+          restored.initialized() && restored.atLatest() && !restored.busy() && !restored.olderEnd(),
+          "Cached pages restore history boundaries without synthesizing a fetch"
+      );
+      require(restored.begin(Older, rows)->cursor == "200", "Older paging resumes at the cached boundary");
+      restored.restoreLatest({}, true);
+      require(restored.initialized() && restored.olderEnd(), "Loaded empty chats retain their completed state");
+    }
+    {
+      app::MessageHistory preload, visible;
+      const auto source = *preload.begin(Latest, {}, false, true);
+      api::MessagePatch patch;
+      patch.content = "Edited while hovering";
+      preload.changed("200", patch);
+      const auto adopted = visible.adoptPending(preload);
+      std::vector<api::Message> rows;
+      require(
+          adopted && !adopted->preload && !preload.busy() && !visible.accepts(source),
+          "Clicking adopts the pending work using an independent visible request identity"
+      );
+      require(
+          visible.apply(*adopted, rows, page(200, 100), {})
+              && rows.front().content == "Edited while hovering"
+              && !visible.olderEnd(),
+          "Adoption preserves in-flight patches and the raw page boundary"
+      );
+      require(!visible.adoptPending(preload), "A pending preload can be adopted only once");
+    }
     require(
         api::messageHistoryPath("10", {Older, "100"}) == "/channels/10/messages?limit=100&before=100"
             && api::messageHistoryPath("10", {Newer, "200"}) == "/channels/10/messages?limit=100&after=200"
@@ -29,6 +78,28 @@ int main() {
             && api::messageHistoryPath("10", {Latest, "100"}).empty(),
         "Reject invalid history routes locally"
     );
+    {
+      app::MessageHistory preload, visible;
+      const auto background = *preload.begin(Latest, {}, false, true);
+      const auto foreground = *visible.begin(Latest, {});
+      require(
+          background.preload
+              && !foreground.preload
+              && background.request == foreground.request
+              && !visible.accepts(background)
+              && !preload.accepts(foreground),
+          "Speculative replies cannot satisfy a visible history request with the same serial"
+      );
+      require(
+          api::messageHistoryPath("10", background) == api::messageHistoryPath("10", foreground),
+          "Preload scheduling metadata never changes the bounded Discord route"
+      );
+      preload.reset();
+      require(
+          !preload.accepts(background) && !preload.begin(Older, {}, false, true),
+          "Navigation cancels speculative history and preloads cannot page older messages"
+      );
+    }
     app::MessageHistory history;
     std::vector<api::Message> messages;
     auto query = *history.begin(Latest, messages);

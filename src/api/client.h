@@ -2,14 +2,17 @@
 
 #include "api/actions.h"
 #include "api/channel_features.h"
+#include "api/connection_bootstrap.h"
 #include "api/emoji.h"
 #include "api/gateway.h"
 #include "api/gifs.h"
 #include "api/guild_settings.h"
 #include "api/history.h"
+#include "api/member_list_identity.h"
 #include "api/models.h"
 #include "api/profile.h"
 #include "api/read_state.h"
+#include "api/rest_rate_limits.h"
 #include "api/role_styles.h"
 #include "api/threads.h"
 #include "api/user_directory.h"
@@ -17,16 +20,21 @@
 #include "auth/credentials.h"
 #include "core/process/wake_event.h"
 
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <stop_token>
 #include <thread>
 
 namespace api {
+  class RestTransportCache;
+  struct RestReadIntent;
 
   enum class Operation {
     Connect,
@@ -93,6 +101,7 @@ namespace api {
     std::optional<HistoryQuery> history;
     GuildLayout layout;
     std::vector<MemberRow> members;
+    std::optional<MemberListIdentity> memberIdentity;
     RoleUpdates roleUpdates;
     ThreadUpdates threadUpdates;
     std::optional<ThreadQuery> threadQuery;
@@ -141,7 +150,8 @@ namespace api {
     bool userSettingsSessionEnded = false, userSettingsSensitive = false;
   };
 
-  // One cancellable network worker. No rendering or window-system dependency.
+  // An ordered account/mutation owner and three independent, bounded GET lanes.
+  // No rendering or window-system dependency.
   class Client {
   public:
     explicit Client(
@@ -166,6 +176,7 @@ namespace api {
     void clearUserSettingsSecrets();
     bool acknowledge(const std::string& channel, const std::string& message);
     bool messages(const std::string& channelId, HistoryQuery query = {});
+    bool promotePreload(const std::string& channel, const HistoryQuery& query);
     bool send(
         const std::string& channelId, std::string content, std::vector<Upload> uploads = {},
         std::optional<MessageReference> reply = {}
@@ -184,6 +195,9 @@ namespace api {
     bool saveProfile(const Account& profile);
     bool setPresence(std::string status, std::optional<std::string> customText = {});
     void subscribe(const std::string& guild, const std::string& channel, int first = 0);
+    void subscribe(
+        const std::string& guild, const std::string& channel, int first, std::optional<MemberListIdentity> identity
+    );
     void requestMembers(const std::string& guild, const std::vector<std::string>& users);
     bool searchMembers(const std::string& guild, const std::string& query, const std::string& nonce);
     std::vector<Event> drain();
@@ -207,12 +221,25 @@ namespace api {
       std::optional<ChannelPageQuery> channelQuery;
       std::optional<GuildSettingsRequest> guildSettings;
       bool background = false;
+      std::uint64_t readRevision = 0;
       std::size_t guildsLoaded = 0;
       std::optional<UserSettingsRequest> userSettings;
+      std::shared_ptr<RestReadIntent> readIntent;
+      std::chrono::steady_clock::time_point queuedAt = std::chrono::steady_clock::now();
+    };
+    struct PreloadRead {
+      std::uint64_t session;
+      std::string channel;
+      HistoryQuery query;
+      std::weak_ptr<RestReadIntent> intent;
     };
     std::uint64_t beginConnect(std::string credential, std::optional<std::string> handoffKey);
     bool enqueue(Command command);
     void run(std::stop_token stop);
+    void runReads(std::stop_token stop, std::size_t lane);
+    void wakeRequests();
+    bool completeConnect(Event event, BootstrapSource source);
+    void queueBootstrap(std::uint64_t session, bool guilds, bool settings);
     void publish(Event event);
     void saveLogin(std::uint64_t session, const std::string& token);
     void forgetLogin(std::uint64_t session);
@@ -224,16 +251,25 @@ namespace api {
     std::atomic<std::uint64_t> m_authenticatedSession{0};
     std::atomic<std::uint64_t> m_restoringSession{0};
     std::atomic<std::uint64_t> m_presenceRevision{0};
-    std::atomic<std::uint64_t> m_foregroundRevision{0};
-    std::atomic<std::uint64_t> m_guildsReadySession{0};
+    std::atomic<std::uint64_t> m_foregroundRevision{0}, m_historyRevision{0}, m_readCredentialRevision{0};
+    std::array<process::WakeEvent, 3> m_readWake;
+    std::string m_readToken, m_authenticatedUser; // Under m_mutex; readers require the authenticated generation.
+    ConnectionBootstrap m_bootstrap;
+    bool m_readsPaused = false;
+    unsigned m_backgroundReads = 0;
+    RestRateLimits m_rateLimits;
+    std::unique_ptr<RestTransportCache> m_transportCache;
+    std::atomic<std::uint64_t> m_guildsReadySession{0}, m_bootstrapSettingsReadySession{0};
     std::atomic<std::uint64_t> m_userSettingsSecretsEpoch{0};
     std::mutex m_mutex;
     std::condition_variable_any m_ready;
     std::deque<Command> m_commands;
+    std::vector<PreloadRead> m_preloadReads;
     std::vector<Event> m_events;
     std::unique_ptr<Gateway> m_gateway;
     std::unique_ptr<auth::CredentialStore> m_credentials;
     std::string m_selectedGuild, m_selectedChannel;
+    std::optional<MemberListIdentity> m_selectedMemberIdentity;
     // Private Gateway session identity is only read by the REST worker for explicit component actions.
     std::string m_gatewaySessionId;
     std::string m_authSessionIdHash;
@@ -245,7 +281,7 @@ namespace api {
     bool m_channelNotificationFlagsReady = false;
     // These caches belong exclusively to the Gateway worker.
     std::uint64_t m_memberSession = 0;
-    std::string m_memberChannel;
+    MemberListStream m_memberStream;
     MemberList m_memberList;
     api::ReadState m_readState;
     UserDirectory m_userDirectory;
@@ -253,6 +289,7 @@ namespace api {
     std::map<std::string, std::string> m_roleNames;
     std::map<std::string, Account> m_users;
     // Declared last so the worker joins before any state it uses is destroyed.
+    std::vector<std::jthread> m_readWorkers;
     std::jthread m_worker;
   };
 

@@ -1,4 +1,5 @@
 #include "api/rest_transfer.h"
+#include "api/rest_transport_cache.h"
 
 #include <arpa/inet.h>
 #include <array>
@@ -126,7 +127,9 @@ int main() {
   try {
     require(curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK, "Initialize libcurl");
     Server server;
+    api::RestTransportCache transportCache;
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> easy(curl_easy_init(), curl_easy_cleanup);
+    transportCache.attach(easy.get());
     std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> multi(curl_multi_init(), curl_multi_cleanup);
     process::WakeEvent wake;
     std::atomic<std::uint64_t> session{1}, foreground{0};
@@ -153,8 +156,86 @@ int main() {
       );
     }
     require(server.connections() == 1, "Sequential reads reuse the same keep-alive connection across easy resets");
+    {
+      // Seed a fake host without DNS, then use it on a fresh worker handle.
+      // Abort any resolver invocation so this test can never issue DNS traffic.
+      auto url = server.url("/seed");
+      const auto port = url.substr(url.find(':', 7) + 1);
+      const auto mapping = "cressida.test:" + port.substr(0, port.find('/')) + ":127.0.0.1";
+      std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> resolve(
+          curl_slist_append(nullptr, mapping.c_str()), curl_slist_free_all
+      );
+      const auto rejectDns = +[](void*, void*, void*) { return 1; };
+      prepare("/seed");
+      url.replace(url.find("127.0.0.1"), 9, "cressida.test");
+      curl_easy_setopt(easy.get(), CURLOPT_URL, url.c_str());
+      curl_easy_setopt(easy.get(), CURLOPT_RESOLVE, resolve.get());
+      curl_easy_setopt(easy.get(), CURLOPT_RESOLVER_START_FUNCTION, rejectDns);
+      require(
+          api::performRestTransfer(easy.get(), multi.get(), wake, active, interrupted) == CURLE_OK,
+          "Seed a bounded offline host entry"
+      );
+      std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> fresh(curl_easy_init(), curl_easy_cleanup);
+      std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> freshMulti(curl_multi_init(), curl_multi_cleanup);
+      transportCache.attach(fresh.get());
+      curl_easy_setopt(fresh.get(), CURLOPT_URL, url.c_str());
+      curl_easy_setopt(fresh.get(), CURLOPT_PROXY, "");
+      curl_easy_setopt(fresh.get(), CURLOPT_TIMEOUT_MS, 3000L);
+      curl_easy_setopt(fresh.get(), CURLOPT_RESOLVER_START_FUNCTION, rejectDns);
+      curl_easy_setopt(fresh.get(), CURLOPT_WRITEFUNCTION, receive);
+      curl_easy_setopt(fresh.get(), CURLOPT_WRITEDATA, &body);
+      body.clear();
+      require(
+          api::performRestTransfer(fresh.get(), freshMulti.get(), wake, active, interrupted) == CURLE_OK
+              && body == "/seed",
+          "Fresh read lanes reuse DNS answers without resolving the host again"
+      );
+    }
+    {
+      std::atomic<std::uint64_t> navigation{1};
+      api::RestReadIntent intent;
+      process::WakeEvent slowWake;
+      std::atomic<bool> slowDone{false};
+      CURLcode slowResult = CURLE_OK;
+      api::RestCancellation slowInterrupted = api::RestCancellation::None;
+      std::jthread slowRead([&](std::stop_token stop) {
+        std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> slow(curl_easy_init(), curl_easy_cleanup);
+        transportCache.attach(slow.get());
+        std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> slowMulti(curl_multi_init(), curl_multi_cleanup);
+        const auto url = server.url("/slow");
+        curl_easy_setopt(slow.get(), CURLOPT_URL, url.c_str());
+        curl_easy_setopt(slow.get(), CURLOPT_PROXY, "");
+        curl_easy_setopt(slow.get(), CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(slow.get(), CURLOPT_TIMEOUT_MS, 3000L);
+        api::RestRequestScope scope{stop, &session, 1};
+        scope.foregroundRevision = &foreground;
+        scope.expectedRevision = foreground;
+        scope.intent = &intent;
+        scope.promotedNavigation = &navigation;
+        slowResult = api::performRestTransfer(slow.get(), slowMulti.get(), slowWake, scope, slowInterrupted);
+        slowDone = true;
+      });
+      require(server.awaitSlow(), "A read lane reaches an intentionally stalled response");
+      intent.promote(navigation);
+      ++foreground;
+      (void)slowWake.signal();
+      prepare("/independent");
+      require(
+          api::performRestTransfer(easy.get(), multi.get(), wake, active, interrupted) == CURLE_OK
+              && body == "/independent"
+              && !slowDone,
+          "A promoted preload keeps its stalled transfer while independent foreground work completes"
+      );
+      ++navigation;
+      (void)slowWake.signal();
+      slowRead.join();
+      require(
+          slowResult == CURLE_ABORTED_BY_CALLBACK && slowInterrupted == api::RestCancellation::Superseded,
+          "Navigation cancels superseded reads over the wake pipe without waiting for a timeout"
+      );
+    }
     prepare("/slow");
-    api::RestRequestScope background{{}, &session, 1, &foreground, 0};
+    api::RestRequestScope background{{}, &session, 1, &foreground, foreground.load()};
     CURLcode result = CURLE_OK;
     std::jthread transfer([&] {
       result = api::performRestTransfer(easy.get(), multi.get(), wake, background, interrupted);

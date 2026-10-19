@@ -1,7 +1,9 @@
 #include "api/client.h"
 
+#include "api/network_profile.h"
 #include "api/rest_schedule.h"
 #include "api/rest_transfer.h"
+#include "api/rest_transport_cache.h"
 #include "api/uploads.h"
 
 #include <algorithm>
@@ -18,6 +20,60 @@
 namespace api {
   namespace {
     using Json = nlohmann::json;
+    const char* operationLabel(Operation operation) {
+      switch (operation) {
+      case Operation::Connect:
+        return "connect";
+      case Operation::Messages:
+        return "messages";
+      case Operation::Channels:
+        return "channels";
+      case Operation::PrivateChannels:
+        return "direct-messages";
+      case Operation::Guilds:
+        return "servers";
+      case Operation::ChannelDetails:
+        return "channel-details";
+      case Operation::ChannelPage:
+        return "channel-page";
+      case Operation::Threads:
+        return "threads";
+      case Operation::GuildEmojis:
+        return "emojis";
+      case Operation::GifSearch:
+        return "gifs";
+      case Operation::GuildSettings:
+        return "server-settings";
+      case Operation::UserSettings:
+        return "user-settings";
+      case Operation::BootstrapSettings:
+        return "startup-settings";
+      default:
+        return "account";
+      }
+    }
+    bool independentRead(Operation operation) {
+      switch (operation) {
+      case Operation::Messages:
+      case Operation::Channels:
+      case Operation::PrivateChannels:
+      case Operation::ChannelDetails:
+      case Operation::ChannelPage:
+      case Operation::Threads:
+      case Operation::GuildEmojis:
+      case Operation::GifSearch:
+        return true;
+      default:
+        return false;
+      }
+    }
+    struct ScopeExit {
+      std::function<void()> fn;
+      ~ScopeExit() {
+        if (fn)
+          fn();
+      }
+    };
     struct Failure {
       std::string message;
       bool unauthorized = false;
@@ -30,6 +86,7 @@ namespace api {
       CURLM* multi = nullptr;
       const process::WakeEvent* wake = nullptr;
       RestCancellation interrupted = RestCancellation::None;
+      const char* label = "account";
     };
 
     size_t receive(char* bytes, size_t size, size_t count, void* context) noexcept {
@@ -81,9 +138,9 @@ namespace api {
     // All requests are HTTPS to a fixed origin. Never log authorization or response bodies.
     std::expected<Json, Failure> request(
         const std::string& token, const std::string& path, const Json* payload, Transfer& transfer,
-        std::chrono::steady_clock::time_point& cooldown, const std::vector<Upload>& uploads = {},
-        const char* method = nullptr, const GuildSettingsRequest* serverSettings = nullptr,
-        const std::string& mfaAuthorization = {}, bool accountSettings = false
+        RestRateLimits& cooldown, const std::vector<Upload>& uploads = {}, const char* method = nullptr,
+        const GuildSettingsRequest* serverSettings = nullptr, const std::string& mfaAuthorization = {},
+        bool accountSettings = false
     ) {
       const bool stickerUpload = serverSettings
           && serverSettings->section == GuildSettingsSection::Stickers
@@ -92,11 +149,11 @@ namespace api {
       if (transfer.scope.foregroundRevision && (payload || (method && std::string_view(method) != "GET")))
         throw std::runtime_error("Only optional reads may yield to user work");
       for (int attempt = 0; attempt < 3; ++attempt) {
-        while (std::chrono::steady_clock::now() < cooldown) {
+        while (std::chrono::steady_clock::now() < cooldown.deadline(path)) {
           if (progress(&transfer, 0, 0, 0, 0))
             return std::unexpected(Failure{"Request cancelled"});
           const auto remaining =
-              std::chrono::ceil<std::chrono::milliseconds>(cooldown - std::chrono::steady_clock::now());
+              std::chrono::ceil<std::chrono::milliseconds>(cooldown.deadline(path) - std::chrono::steady_clock::now());
           pollfd descriptor{transfer.wake->fd(), POLLIN, 0};
           (void)::poll(&descriptor, 1, static_cast<int>(std::clamp<std::int64_t>(remaining.count(), 0, 86400100)));
           transfer.wake->drain();
@@ -187,6 +244,7 @@ namespace api {
           curl_easy_setopt(curl.get(), CURLOPT_CUSTOMREQUEST, method);
         const auto code =
             performRestTransfer(curl.get(), transfer.multi, *transfer.wake, transfer.scope, transfer.interrupted);
+        network_profile::transferred(transfer.label, curl.get(), code);
         if (code != CURLE_OK)
           return std::unexpected(
               Failure{
@@ -196,6 +254,8 @@ namespace api {
                       : "Could not reach Discord. Try again."
               }
           );
+        if (progress(&transfer, 0, 0, 0, 0))
+          return std::unexpected(Failure{"Request cancelled"});
         long status = 0;
         curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status);
         auto json = decodeRestBody(status, transfer.body);
@@ -207,8 +267,10 @@ namespace api {
           // Respect long limits too; return to the user rather than retrying prematurely.
           if (!std::isfinite(seconds) || seconds < 0)
             seconds = 60;
-          cooldown = std::chrono::steady_clock::now()
-              + std::chrono::milliseconds(static_cast<long long>(std::min(seconds, 86400.0) * 1000) + 100);
+          cooldown.limited(
+              path, std::chrono::milliseconds(static_cast<long long>(std::min(seconds, 86400.0) * 1000) + 100),
+              json.is_object() && json.value("global", false)
+          );
           if (seconds > 30)
             return std::unexpected(Failure{"Discord is rate limiting this connection. Try again later."});
           continue;
@@ -249,23 +311,39 @@ namespace api {
       ~CurlRuntime() { curl_global_cleanup(); }
     };
     static CurlRuntime runtime;
+    m_transportCache = std::make_unique<RestTransportCache>();
     if (!m_wake.valid() || !m_requestWake.valid())
       throw std::runtime_error("Could not create the network event pipe");
     m_gateway = std::make_unique<Gateway>(m_session, [this](auto session, const auto& type, const auto& data) {
       gatewayEvent(session, type, data);
     });
+    for (std::size_t lane = 0; lane < m_readWake.size(); ++lane) {
+      if (!m_readWake[lane].valid())
+        throw std::runtime_error("Could not create a read event pipe");
+      m_readWorkers.emplace_back([this, lane](std::stop_token stop) { runReads(stop, lane); });
+    }
     m_worker = std::jthread([this](std::stop_token stop) { run(stop); });
   }
 
   Client::~Client() {
     ++m_session;
     m_worker.request_stop();
-    (void)m_requestWake.signal();
+    for (auto& worker : m_readWorkers)
+      worker.request_stop();
+    wakeRequests();
     m_credentials->shutdown();
     m_ready.notify_all();
     if (m_worker.joinable())
       m_worker.join();
+    m_readWorkers.clear();
     m_gateway.reset();
+  }
+
+  void Client::wakeRequests() {
+    (void)m_requestWake.signal();
+    for (const auto& wake : m_readWake)
+      (void)wake.signal();
+    m_ready.notify_all();
   }
 
   std::uint64_t Client::connect(std::string token) { return beginConnect(std::move(token), {}); }
@@ -283,11 +361,16 @@ namespace api {
     {
       std::lock_guard lock(m_mutex);
       m_commands.clear();
+      m_preloadReads.clear();
+      m_readToken.clear();
+      m_authenticatedUser.clear();
+      m_bootstrap.cancel();
+      m_selectedMemberIdentity.reset();
       m_events.clear();
       m_commands.push_back({Operation::Connect, session, {}, std::move(credential), std::move(handoffKey)});
     }
     m_ready.notify_all();
-    (void)m_requestWake.signal();
+    wakeRequests();
     return session;
   }
 
@@ -299,10 +382,15 @@ namespace api {
     m_gateway->reset();
     std::lock_guard lock(m_mutex);
     m_commands.clear();
+    m_preloadReads.clear();
+    m_readToken.clear();
+    m_authenticatedUser.clear();
+    m_bootstrap.cancel();
+    m_selectedMemberIdentity.reset();
     m_events.clear();
     // Wake the worker to clear its credential even when no further commands arrive.
     m_ready.notify_all();
-    (void)m_requestWake.signal();
+    wakeRequests();
     return session;
   }
 
@@ -327,7 +415,7 @@ namespace api {
         m_commands.push_back(std::move(command));
       }
       m_ready.notify_all();
-      (void)m_requestWake.signal();
+      wakeRequests();
     });
     return session;
   }
@@ -353,6 +441,79 @@ namespace api {
       publish(std::move(event));
     });
   }
+
+  void Client::queueBootstrap(std::uint64_t session, bool guilds, bool settings) {
+    std::lock_guard lock(m_mutex);
+    if (session != m_session || session != m_authenticatedSession)
+      return;
+    const auto queued = [&](Operation operation) {
+      return std::ranges::any_of(m_commands, [&](const auto& pending) {
+        return pending.session == session && pending.operation == operation;
+      });
+    };
+    if (guilds && m_guildsReadySession != session && !queued(Operation::Guilds)) {
+      Command command{Operation::Guilds, session, {}, {}};
+      command.background = true;
+      m_commands.push_back(std::move(command));
+    }
+    if (settings && m_bootstrapSettingsReadySession != session && !queued(Operation::BootstrapSettings)) {
+      Command command{Operation::BootstrapSettings, session, {}, {}};
+      command.background = true;
+      command.presenceRevision = m_presenceRevision;
+      m_commands.push_back(std::move(command));
+    }
+    wakeRequests();
+  }
+
+  bool Client::completeConnect(Event event, BootstrapSource source) {
+    std::string rememberToken;
+    bool resetGateway = false, forget = false, authenticated = false;
+    const auto session = event.session;
+    {
+      std::lock_guard lock(m_mutex);
+      if (session != m_session)
+        return true;
+      if (!m_bootstrap.pending(session))
+        return source == BootstrapSource::Rest && m_bootstrap.resolved() == session;
+      const auto resolution =
+          event.error.empty() ? m_bootstrap.succeed(session) : m_bootstrap.fail(session, source, event.unauthorized);
+      if (!resolution)
+        return true; // The other authentication path can still succeed.
+      authenticated = resolution->authenticated;
+      event.restoredLogin = resolution->restored;
+      event.unauthorized = resolution->unauthorized;
+      event.live = authenticated && source == BootstrapSource::Gateway;
+      if (authenticated) {
+        m_authenticatedUser = event.account.id;
+        m_authenticatedSession = session;
+        if (!resolution->restored)
+          rememberToken = m_readToken;
+      } else {
+        m_authenticatedSession = 0;
+        m_authenticatedUser.clear();
+        m_readToken.clear();
+        resetGateway = true;
+        forget = event.unauthorized && resolution->restored;
+      }
+      // The same mutex guards Gateway publication: no live account snapshot
+      // can overtake the single authentication completion.
+      if (m_events.size() >= 2048)
+        m_events.erase(m_events.begin());
+      m_events.push_back(std::move(event));
+      (void)m_wake.signal();
+    }
+    wakeRequests(); // Cancel the losing /users/@me transfer immediately.
+    if (resetGateway)
+      m_gateway->reset(session);
+    if (forget)
+      forgetLogin(session);
+    if (!rememberToken.empty())
+      saveLogin(session, rememberToken);
+    if (authenticated && source == BootstrapSource::Rest)
+      queueBootstrap(session, true, true);
+    return true;
+  }
+
   std::uint64_t Client::logout() {
     const auto session = disconnect();
     forgetLogin(session);
@@ -362,16 +523,51 @@ namespace api {
   bool Client::enqueue(Command command) {
     if (command.session == 0 || m_authenticatedSession != command.session)
       return false;
-    command.background =
-        command.operation == Operation::ChannelDetails || command.operation == Operation::PrivateChannels;
+    command.background = command.operation == Operation::ChannelDetails
+        || command.operation == Operation::PrivateChannels
+        || (command.operation == Operation::Messages && command.history && command.history->preload);
     if ((command.operation == Operation::Channels
          || command.operation == Operation::Messages
          || command.operation == Operation::Send)
         && !validSnowflake(command.resource))
       return false;
     std::lock_guard lock(m_mutex);
+    if (!command.background) {
+      bool cancelled = false;
+      std::erase_if(m_commands, [&](const auto& pending) {
+        if (!pending.history
+            || !pending.history->preload
+            || (pending.readIntent && pending.readIntent->foreground.load()))
+          return false;
+        Event event{
+            .operation = Operation::Messages,
+            .session = pending.session,
+            .resource = pending.resource,
+            .error = "Chat preload cancelled for foreground work."
+        };
+        event.history = pending.history;
+        if (m_events.size() >= 2048)
+          m_events.erase(m_events.begin());
+        m_events.push_back(std::move(event));
+        cancelled = true;
+        return true;
+      });
+      if (cancelled)
+        (void)m_wake.signal();
+    }
     if (m_commands.size() >= 32)
       return false;
+    if (command.operation == Operation::Messages && command.history && !command.history->preload) {
+      command.readRevision = ++m_historyRevision;
+      std::erase_if(m_commands, [](const auto& pending) {
+        return pending.operation == Operation::Messages && pending.history && !pending.history->preload;
+      });
+    }
+    if (command.operation == Operation::Messages && command.history && command.history->preload) {
+      command.readIntent = std::make_shared<RestReadIntent>();
+      std::erase_if(m_preloadReads, [](const auto& pending) { return pending.intent.expired(); });
+      m_preloadReads.push_back({command.session, command.resource, *command.history, command.readIntent});
+    }
     if (command.operation == Operation::Acknowledge) {
       // A burst of live messages only needs the newest acknowledgement per channel.
       for (auto& pending : m_commands)
@@ -407,7 +603,7 @@ namespace api {
     m_commands.push_back(std::move(command));
     if (!m_commands.back().background) {
       ++m_foregroundRevision;
-      (void)m_requestWake.signal();
+      wakeRequests();
     }
     m_ready.notify_all();
     return true;
@@ -458,11 +654,44 @@ namespace api {
   }
   bool Client::privateChannels() { return enqueue({Operation::PrivateChannels, m_session, {}, {}}); }
   bool Client::messages(const std::string& id, HistoryQuery query) {
-    if (messageHistoryPath(id, query).empty())
+    if (messageHistoryPath(id, query).empty() || (query.preload && query.direction != HistoryDirection::Latest))
       return false;
     Command command{Operation::Messages, m_session, id, {}};
     command.history = std::move(query);
     return enqueue(std::move(command));
+  }
+  bool Client::promotePreload(const std::string& channel, const HistoryQuery& query) {
+    if (!query.preload || query.direction != HistoryDirection::Latest || !validSnowflake(channel))
+      return false;
+    std::lock_guard lock(m_mutex);
+    const auto session = m_session.load();
+    if (!session || m_authenticatedSession != session || m_selectedChannel != channel)
+      return false;
+    for (const auto& event : m_events)
+      if (event.session == session
+          && event.operation == Operation::Messages
+          && event.resource == channel
+          && event.history == query)
+        return event.error.empty() && !event.unauthorized;
+    std::erase_if(m_preloadReads, [](const auto& pending) { return pending.intent.expired(); });
+    const auto found = std::ranges::find_if(m_preloadReads, [&](const auto& pending) {
+      return pending.session == session && pending.channel == channel && pending.query == query;
+    });
+    if (found == m_preloadReads.end())
+      return false;
+    const auto intent = found->intent.lock();
+    if (!intent || intent->cancelled)
+      return false;
+    const auto navigation = m_historyRevision.load();
+    intent->promote(navigation);
+    for (auto& pending : m_commands)
+      if (pending.readIntent == intent) {
+        pending.background = false;
+        pending.readRevision = navigation;
+      }
+    ++m_foregroundRevision;
+    wakeRequests();
+    return true;
   }
   bool Client::send(
       const std::string& id, std::string content, std::vector<Upload> uploads, std::optional<MessageReference> reply
@@ -545,17 +774,36 @@ namespace api {
   }
 
   void Client::subscribe(const std::string& guild, const std::string& channel, int first) {
+    std::optional<MemberListIdentity> identity;
+    {
+      std::lock_guard lock(m_mutex);
+      if (m_selectedGuild == guild && m_selectedChannel == channel)
+        identity = m_selectedMemberIdentity;
+    }
+    subscribe(guild, channel, first, std::move(identity));
+  }
+
+  void Client::subscribe(
+      const std::string& guild, const std::string& channel, int first, std::optional<MemberListIdentity> identity
+  ) {
     if (m_authenticatedSession != m_session
         || (!guild.empty() && !validSnowflake(guild))
         || (channel.empty() ? !guild.empty() : !validSnowflake(channel)))
       return;
+    bool refreshIdentity = false;
     {
       std::lock_guard lock(m_mutex);
+      const bool changed = m_selectedGuild != guild || m_selectedChannel != channel;
+      refreshIdentity = !changed && identity != m_selectedMemberIdentity;
+      if (changed)
+        ++m_historyRevision;
+      m_selectedMemberIdentity = std::move(identity);
       m_selectedGuild = guild;
       m_selectedChannel = channel;
       m_selectedMemberFirst = first;
     }
-    m_gateway->subscribe(guild, channel, first);
+    wakeRequests();
+    m_gateway->subscribe(guild, channel, first, refreshIdentity);
   }
 
   void Client::requestMembers(const std::string& guild, const std::vector<std::string>& users) {
@@ -569,16 +817,66 @@ namespace api {
   void Client::gatewayEvent(std::uint64_t session, const std::string& type, const Json& data) {
     if (session != m_session)
       return;
+    bool readyBatch = false;
+    ScopeExit finishReady{[this, session, &readyBatch] {
+      if (readyBatch && m_authenticatedSession == session) {
+        queueBootstrap(session, m_guildsReadySession != session, m_bootstrapSettingsReadySession != session);
+        // Also finish a partial batch when optional READY metadata is malformed;
+        // missing snapshots then use the ordinary bounded REST fallbacks.
+        publish(Event{.operation = Operation::Gateway, .session = session, .live = true});
+      }
+    }};
     try {
+      if (type == "READY") {
+        Event connected{.operation = Operation::Connect, .session = session};
+        if (!data.contains("user") || !data["user"].is_object())
+          return;
+        connected.account = parseAccount(data["user"]);
+        if (!validSnowflake(connected.account.id))
+          return;
+        completeConnect(std::move(connected), BootstrapSource::Gateway);
+        if (m_authenticatedSession != session)
+          return;
+        readyBatch = true;
+        m_memberStream.clear();
+        m_memberList = {};
+      } else if (type == "RECONNECTING" || type == "CONNECTION_FAILED") {
+        Event failed{.operation = Operation::Connect, .session = session};
+        failed.unauthorized = type == "CONNECTION_FAILED" && data.value("authentication_failed", false);
+        failed.error = failed.unauthorized ? "The account token was rejected. Reconnect with a valid token."
+                                           : "Could not establish the live connection. Reconnect or try again.";
+        if (completeConnect(std::move(failed), BootstrapSource::Gateway) && m_authenticatedSession != session)
+          return;
+      }
+      if (m_authenticatedSession != session)
+        return;
       if (m_memberSession != session) {
         m_memberSession = session;
-        m_memberChannel.clear();
+        m_memberStream.clear();
         m_memberList = {};
         m_roleNames.clear();
         m_users.clear();
         m_readState = {};
         m_userDirectory = {};
         m_self.clear();
+      }
+      std::string memberGuild, memberChannel;
+      std::optional<MemberListIdentity> memberIdentity;
+      int memberFirst = 0;
+      if (type == "GUILD_MEMBER_LIST_UPDATE") {
+        {
+          std::lock_guard lock(m_mutex);
+          memberGuild = m_selectedGuild;
+          memberChannel = m_selectedChannel;
+          memberIdentity = m_selectedMemberIdentity;
+          memberFirst = m_selectedMemberFirst;
+        }
+        if (memberGuild.empty() || memberChannel.empty())
+          return;
+        if (!m_memberStream.select(memberGuild, memberChannel, memberIdentity))
+          m_memberList = {};
+        if (!m_memberStream.accepts(data, memberFirst))
+          return;
       }
       if (type == "READY" && data.contains("user"))
         m_self = data["user"].value("id", "");
@@ -783,11 +1081,10 @@ namespace api {
             event.guildsComplete = true;
             event.live = true;
             m_guildsReadySession = session;
-            (void)m_requestWake.signal();
+            wakeRequests();
             publish(std::move(event));
           }
         }
-        publish(Event{.operation = Operation::Gateway, .session = session, .live = true});
         if (data.contains("users"))
           for (const auto& user : data["users"]) {
             auto account = parseAccount(user);
@@ -818,15 +1115,25 @@ namespace api {
         }
         if (data.contains("user_settings_proto")) {
           Event event{.operation = Operation::Layout, .session = session, .live = true};
-          event.layout = parseGuildLayout(Json{{"proto", data["user_settings_proto"]}});
-          if (!event.layout.folders.empty() || !event.layout.positions.empty())
-            publish(std::move(event));
+          const Json settings{{"proto", data["user_settings_proto"]}};
+          event.layout = parseGuildLayout(settings);
+          event.presence = parsePresenceSettings(settings);
+          if (event.presence && !m_gateway->restorePresence(session, *event.presence))
+            event.presence.reset();
+          m_bootstrapSettingsReadySession = session;
+          publish(std::move(event));
         } else if (data.contains("user_settings")) {
           Event event{.operation = Operation::Layout, .session = session, .live = true};
           event.layout = parseGuildLayout(data["user_settings"]);
-          if (!event.layout.folders.empty() || !event.layout.positions.empty())
-            publish(std::move(event));
+          event.presence = parsePresenceSettings(data["user_settings"]);
+          if (event.presence && !m_gateway->restorePresence(session, *event.presence))
+            event.presence.reset();
+          m_bootstrapSettingsReadySession = session;
+          publish(std::move(event));
         }
+        // The owning loop uses this as the end of the READY snapshot batch.
+        if (type == "RESUMED")
+          publish(Event{.operation = Operation::Gateway, .session = session, .live = true});
       } else if (type == "READY_SUPPLEMENTAL") {
         if (data.contains("lazy_private_channels") && data["lazy_private_channels"].is_array()) {
           Event event{.operation = Operation::PrivateChannelUpsert, .session = session};
@@ -867,23 +1174,10 @@ namespace api {
                                                   : "Reconnecting… " + data.value("reason", std::string{});
         publish(std::move(event));
       } else if (type == "GUILD_MEMBER_LIST_UPDATE") {
-        std::string guild, channel;
-        int first;
-        {
-          std::lock_guard lock(m_mutex);
-          guild = m_selectedGuild;
-          channel = m_selectedChannel;
-          first = m_selectedMemberFirst;
-        }
-        if (data.value("guild_id", "") != guild || channel.empty())
-          return;
-        if (m_memberChannel != channel) {
-          m_memberChannel = channel;
-          m_memberList = {};
-        }
         m_memberList.apply(data, m_roleNames, m_users);
-        Event event{.operation = Operation::Members, .session = session, .resource = channel};
+        Event event{.operation = Operation::Members, .session = session, .resource = memberChannel};
         event.members = m_memberList.rows();
+        event.memberIdentity = memberIdentity;
         event.memberCount = m_memberList.total;
         publish(std::move(event));
         if (data.contains("ops"))
@@ -892,9 +1186,9 @@ namespace api {
                 && op.contains("range")
                 && op["range"].is_array()
                 && op["range"].size() == 2
-                && op["range"][0].get<int>() <= first + 199
-                && op["range"][1].get<int>() >= first) {
-              m_gateway->subscribe(guild, channel, first, true);
+                && op["range"][0].get<int>() <= memberFirst + 199
+                && op["range"][1].get<int>() >= memberFirst) {
+              m_gateway->subscribe(memberGuild, memberChannel, memberFirst, true);
               break;
             }
           }
@@ -982,6 +1276,223 @@ namespace api {
     return std::exchange(m_events, {});
   }
 
+  void Client::runReads(std::stop_token stop, std::size_t lane) {
+    std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> connection(curl_easy_init(), curl_easy_cleanup);
+    m_transportCache->attach(connection.get());
+    std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> multi(curl_multi_init(), curl_multi_cleanup);
+    const auto read = [](const auto& command) { return independentRead(command.operation); };
+    const auto background = [](const auto& command) { return command.background; };
+    while (!stop.stop_requested()) {
+      Command command;
+      std::string token;
+      std::uint64_t foregroundRevision = 0, credentialRevision = 0;
+      {
+        std::unique_lock lock(m_mutex);
+        m_ready.wait(lock, stop, [&] {
+          return !m_readsPaused
+              && !m_readToken.empty()
+              && m_authenticatedSession == m_session
+              && nextRestRead(m_commands, read, background, m_backgroundReads != 0) != m_commands.end();
+        });
+        if (stop.stop_requested())
+          break;
+        const auto next = nextRestRead(m_commands, read, background, m_backgroundReads != 0);
+        if (next == m_commands.end())
+          continue;
+        command = std::move(*next);
+        m_commands.erase(next);
+        token = m_readToken;
+        foregroundRevision = m_foregroundRevision;
+        credentialRevision = m_readCredentialRevision;
+        if (command.background)
+          ++m_backgroundReads;
+      }
+      const bool optional = command.background;
+      ScopeExit releaseSlot{[this, optional] {
+        if (optional) {
+          std::lock_guard lock(m_mutex);
+          --m_backgroundReads;
+        }
+        m_ready.notify_all();
+      }};
+      if (command.session != m_session
+          || command.session != m_authenticatedSession
+          || (command.readRevision && command.readRevision != m_historyRevision))
+        continue;
+      Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
+      event.history = command.history;
+      event.threadQuery = command.threadQuery;
+      event.channelQuery = command.channelQuery;
+      RestRequestScope scope{
+          stop, &m_session, command.session, optional ? &m_foregroundRevision : nullptr, foregroundRevision
+      };
+      scope.readRevision = command.readRevision ? &m_historyRevision : nullptr;
+      scope.expectedReadRevision = command.readRevision;
+      scope.credentialRevision = &m_readCredentialRevision;
+      scope.expectedCredentialRevision = credentialRevision;
+      scope.intent = command.readIntent.get();
+      scope.promotedNavigation = command.readIntent ? &m_historyRevision : nullptr;
+      Transfer transfer{{}, scope, connection.get(), multi.get(), &m_readWake[lane]};
+      transfer.label = operationLabel(command.operation);
+      network_profile::queued(transfer.label, command.queuedAt);
+      try {
+        std::string path;
+        switch (command.operation) {
+        case Operation::Messages:
+          path = messageHistoryPath(command.resource, command.history.value_or(HistoryQuery{}));
+          break;
+        case Operation::Channels:
+          path = "/guilds/" + command.resource + "/channels";
+          break;
+        case Operation::PrivateChannels:
+          path = "/users/@me/channels";
+          break;
+        case Operation::ChannelDetails:
+          path = "/channels/" + command.resource;
+          break;
+        case Operation::ChannelPage:
+          path = channelPagePath(*command.channelQuery);
+          break;
+        case Operation::Threads:
+          path = threadListPath(*command.threadQuery);
+          break;
+        case Operation::GuildEmojis:
+          path = "/guilds/" + command.resource + "/emojis";
+          break;
+        case Operation::GifSearch:
+          path = gifSearchPath(command.resource);
+          break;
+        default:
+          continue;
+        }
+        if (path.empty())
+          throw std::runtime_error("Invalid read route");
+        const auto response = request(
+            command.operation == Operation::GifSearch ? std::string{} : token, path, nullptr, transfer, m_rateLimits
+        );
+        if (!response) {
+          event.error = response.error().message;
+          event.unauthorized = response.error().unauthorized;
+        } else {
+          switch (command.operation) {
+          case Operation::Messages:
+            event.messages = parseMessages(*response);
+            break;
+          case Operation::Channels:
+            event.channels = parseChannels(*response);
+            break;
+          case Operation::PrivateChannels:
+            event.channels = parsePrivateChannels(*response);
+            break;
+          case Operation::ChannelDetails:
+            event.channels = parseChannels(Json::array({*response}));
+            if (event.channels.size() != 1 || event.channels.front().id != command.resource)
+              throw std::runtime_error("Unexpected channel identity");
+            break;
+          case Operation::ChannelPage:
+            if (response->is_object() && response->value("code", 0) == 110000)
+              event.error = "Search is being indexed. Please try again shortly.";
+            else
+              event.channelPage = parseChannelPage(*response, *command.channelQuery);
+            break;
+          case Operation::Threads:
+            if (response->is_object() && response->value("code", 0) == 110000)
+              event.error = "Search is being indexed. Please try again shortly.";
+            else
+              event.threadPage = parseThreadPage(*response, *command.threadQuery);
+            break;
+          case Operation::GuildEmojis:
+            event.emojis = parseGuildEmojis(*response, command.resource);
+            break;
+          case Operation::GifSearch:
+            event.gifs = parseGifs(*response);
+            break;
+          default:
+            break;
+          }
+        }
+      } catch (const std::exception&) {
+        event.error = "Could not read Discord's response. Reconnect or try again.";
+      }
+      // All retry decisions below run under m_mutex. A credential change may
+      // begin after the cancellation sample and before a 401 is classified.
+      const auto retryRead = [&] {
+        if (command.session != m_session
+            || command.session != m_authenticatedSession
+            || (command.readRevision && command.readRevision != m_historyRevision)
+            || (command.readIntent
+                && command.readIntent->foreground
+                && command.readIntent->navigation != m_historyRevision)
+            || std::ranges::any_of(m_commands, [&](const auto& pending) {
+                 return pending.operation == command.operation
+                     && pending.resource == command.resource
+                     && pending.history == command.history
+                     && pending.threadQuery == command.threadQuery
+                     && pending.channelQuery == command.channelQuery;
+               }))
+          return;
+        if (command.readIntent && command.readIntent->foreground) {
+          command.background = false;
+          command.readRevision = command.readIntent->navigation;
+        }
+        m_commands.push_back(std::move(command));
+      };
+      const auto cancelOrRetryRead = [&] {
+        if (command.session != m_session || command.session != m_authenticatedSession)
+          return;
+        if (command.history && command.history->preload && (!command.readIntent || !command.readIntent->foreground)) {
+          if (command.readIntent)
+            command.readIntent->cancelled = true;
+          event.messages.clear();
+          event.unauthorized = false;
+          event.error = "Chat preload cancelled for foreground work.";
+          if (m_events.size() >= 2048)
+            m_events.erase(m_events.begin());
+          m_events.push_back(std::move(event));
+          (void)m_wake.signal();
+        } else
+          retryRead();
+      };
+      const auto cancellation = scope.cancellation();
+      const bool current = command.session == m_session
+          && command.session == m_authenticatedSession
+          && (!command.readRevision || command.readRevision == m_historyRevision)
+          && (!command.readIntent
+              || !command.readIntent->foreground
+              || command.readIntent->navigation == m_historyRevision);
+      if (!current || stop.stop_requested())
+        continue;
+      if (cancellation != RestCancellation::None || transfer.interrupted != RestCancellation::None) {
+        std::lock_guard lock(m_mutex);
+        // Only GETs enter these lanes. Suspend accepted visible reads through
+        // credential changes; speculative reads still release their UI state.
+        cancelOrRetryRead();
+        continue;
+      }
+      if (event.unauthorized) {
+        bool currentCredential;
+        {
+          std::lock_guard lock(m_mutex);
+          currentCredential = credentialRevision == m_readCredentialRevision
+              && !m_readsPaused
+              && command.session == m_session
+              && command.session == m_authenticatedSession;
+          if (currentCredential) {
+            m_authenticatedSession = 0;
+            m_readToken.clear();
+          } else if (command.session == m_session && command.session == m_authenticatedSession)
+            cancelOrRetryRead();
+        }
+        if (!currentCredential)
+          continue;
+        forgetLogin(command.session);
+        m_gateway->reset(command.session);
+        wakeRequests();
+      }
+      publish(std::move(event));
+    }
+  }
+
   void Client::run(std::stop_token stop) {
     std::string token;
     std::string authenticatedUser;
@@ -1010,8 +1521,9 @@ namespace api {
     std::map<std::string, std::string> deviceSessions;
     UserProof backupView, backupRegenerate, emailProof, phoneProof;
     std::uint64_t userSecretsEpoch = m_userSettingsSecretsEpoch;
-    auto cooldown = std::chrono::steady_clock::now();
+    auto& cooldown = m_rateLimits;
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> connection(curl_easy_init(), curl_easy_cleanup);
+    m_transportCache->attach(connection.get());
     std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> multi(curl_multi_init(), curl_multi_cleanup);
     while (!stop.stop_requested()) {
       Command command;
@@ -1019,7 +1531,14 @@ namespace api {
       {
         std::unique_lock lock(m_mutex);
         m_ready.wait(lock, stop, [&] {
-          return !m_commands.empty() || activeSession != m_session || userSecretsEpoch != m_userSettingsSecretsEpoch;
+          return nextRestOwned(
+                     m_commands, [](const auto& pending) { return independentRead(pending.operation); },
+                     [](const auto& pending) { return pending.background; }
+                 )
+              != m_commands.end()
+              || activeSession != m_session
+              || userSecretsEpoch != m_userSettingsSecretsEpoch
+              || (!token.empty() && m_bootstrap.resolved() == activeSession && m_authenticatedSession != activeSession);
         });
         if (stop.stop_requested())
           break;
@@ -1033,7 +1552,13 @@ namespace api {
           deviceSessions.clear();
           backupView = backupRegenerate = emailProof = phoneProof = {};
           activeSession = m_session;
+          cooldown.clear();
         }
+        if (m_bootstrap.resolved() == activeSession && m_authenticatedSession != activeSession) {
+          token.clear();
+          authenticatedUser.clear();
+        } else if (m_authenticatedSession == activeSession)
+          authenticatedUser = m_authenticatedUser;
         if (userSecretsEpoch != m_userSettingsSecretsEpoch) {
           // Dismissal invalidates proofs and original secret actions without
           // interrupting or automatically retrying an in-flight mutation.
@@ -1043,7 +1568,12 @@ namespace api {
         }
         if (m_commands.empty())
           continue;
-        const auto next = nextRestWork(m_commands, [](const auto& pending) { return pending.background; });
+        const auto next = nextRestOwned(
+            m_commands, [](const auto& pending) { return independentRead(pending.operation); },
+            [](const auto& pending) { return pending.background; }
+        );
+        if (next == m_commands.end())
+          continue;
         command = std::move(*next);
         m_commands.erase(next);
         foregroundRevision = m_foregroundRevision;
@@ -1051,8 +1581,37 @@ namespace api {
       if (command.session != m_session
           || (command.operation != Operation::Connect && command.session != m_authenticatedSession)
           || (command.operation == Operation::Guilds && m_guildsReadySession == command.session)
+          || (command.operation == Operation::BootstrapSettings && m_bootstrapSettingsReadySession == command.session)
           || (command.operation == Operation::SavePresence && command.presenceRevision != m_presenceRevision))
         continue;
+      const bool protectCredentials =
+          command.operation == Operation::SaveProfile || (command.userSettings && [&] {
+            // MFA retries carry a public, secret-cleared action. Use
+            // the retained original to identify credential changes,
+            // just as the verified retry does before sending HTTP.
+            const auto* action = &*command.userSettings;
+            if (action->mfaChallenge) {
+              const auto pending = userMfa.find(action->mfaChallenge);
+              if (pending != userMfa.end() && sameUserSettingsAction(pending->second.request, *action))
+                action = &pending->second.request;
+            }
+            const auto route = userSettingsHttpRequest(*action);
+            return route && (route->mayRotateToken || route->endsSession);
+          }());
+      if (protectCredentials) {
+        std::lock_guard lock(m_mutex);
+        m_readsPaused = true;
+        ++m_readCredentialRevision;
+        wakeRequests();
+      }
+      ScopeExit resumeReads{[this, protectCredentials, &token] {
+        if (protectCredentials) {
+          std::lock_guard lock(m_mutex);
+          m_readToken = m_authenticatedSession == m_session ? token : std::string{};
+          m_readsPaused = false;
+          wakeRequests();
+        }
+      }};
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
       if (command.operation == Operation::BootstrapSettings)
         event.operation = Operation::Layout;
@@ -1069,12 +1628,16 @@ namespace api {
       Transfer transfer{
           {},
           {stop, &m_session, command.session, command.background ? &m_foregroundRevision : nullptr, foregroundRevision,
-           command.operation == Operation::Guilds ? &m_guildsReadySession : nullptr},
+           command.operation == Operation::Guilds                  ? &m_guildsReadySession
+               : command.operation == Operation::BootstrapSettings ? &m_bootstrapSettingsReadySession
+                                                                   : nullptr},
           connection.get(),
           multi.get(),
           &m_requestWake
       };
       event.restoredLogin = command.restoredLogin;
+      transfer.label = operationLabel(command.operation);
+      network_profile::queued(transfer.label, command.queuedAt);
       bool saveCredential = false;
       bool endAccountSession = false;
       std::optional<Command> continuation;
@@ -1099,6 +1662,18 @@ namespace api {
             if (!auth::validCredential(token))
               throw std::runtime_error("Invalid browser session");
           }
+          {
+            std::lock_guard lock(m_mutex);
+            if (command.session != m_session)
+              continue;
+            m_bootstrap.begin(command.session, command.restoredLogin);
+            m_readToken = token;
+            m_authenticatedUser.clear();
+          }
+          // Identity verification and Identify race. READY already contains
+          // the account identity and navigation; it must not wait for HTTP.
+          m_gateway->authenticate(command.session, token);
+          transfer.scope.authoritativeSession = &m_bootstrap.resolved();
         }
         std::string path;
         Json body;
@@ -2055,7 +2630,16 @@ namespace api {
         // Do not expose arbitrary JSON/transport exceptions, which can contain account data.
         event.error = "Could not read Discord's response. Reconnect or try again.";
       }
+      if (command.operation == Operation::Connect && completeConnect(event, BootstrapSource::Rest))
+        continue;
       if (transfer.interrupted == RestCancellation::ForegroundReady) {
+        if (command.history && command.history->preload) {
+          // Speculative reads yield permanently to actual user work. Never
+          // requeue one behind the foreground load of the same conversation.
+          event.error = "Chat preload cancelled for foreground work.";
+          publish(std::move(event));
+          continue;
+        }
         std::lock_guard lock(m_mutex);
         if (command.session == m_session
             && command.session == m_authenticatedSession
@@ -2082,7 +2666,7 @@ namespace api {
         userMfa.clear();
         deviceSessions.clear();
         backupView = backupRegenerate = emailProof = phoneProof = {};
-        m_gateway->reset();
+        m_gateway->reset(command.session);
       }
       if (event.userSettingsSessionEnded && event.error.empty() && command.session == m_session) {
         token.clear();
@@ -2092,44 +2676,21 @@ namespace api {
         userMfa.clear();
         deviceSessions.clear();
         backupView = backupRegenerate = emailProof = phoneProof = {};
-        m_gateway->reset();
+        m_gateway->reset(command.session);
         forgetLogin(command.session);
         saveCredential = false;
       }
-      const bool startGateway =
-          command.operation == Operation::Connect && event.error.empty() && command.session == m_session;
       if (command.operation == Operation::SavePresence
           && command.presenceRevision != m_presenceRevision
           && !event.unauthorized)
         continue;
-      const bool remember = (startGateway && !command.restoredLogin) || (saveCredential && event.error.empty());
+      const bool remember = saveCredential && event.error.empty();
       if (command.operation == Operation::BootstrapSettings && event.presence) {
         if (command.presenceRevision != m_presenceRevision
             || !m_gateway->restorePresence(command.session, *event.presence))
           event.presence.reset();
       }
-      if (startGateway) {
-        std::lock_guard lock(m_mutex);
-        if (command.session != m_session)
-          continue;
-        Command guilds{Operation::Guilds, command.session, {}, {}};
-        guilds.background = true;
-        Command settings{Operation::BootstrapSettings, command.session, {}, {}};
-        settings.background = true;
-        settings.presenceRevision = m_presenceRevision;
-        m_commands.push_back(std::move(guilds));
-        m_commands.push_back(std::move(settings));
-        // Gateway publication takes this same mutex: Connect must be delivered
-        // first, with authentication and socket state ready for immediate UI work.
-        m_gateway->authenticate(command.session, token);
-        m_authenticatedSession = command.session;
-        if (m_events.size() >= 2048)
-          m_events.erase(m_events.begin());
-        m_events.push_back(std::move(event));
-        (void)m_wake.signal();
-      } else {
-        publish(std::move(event));
-      }
+      publish(std::move(event));
       if (continuation && m_guildsReadySession != command.session) {
         std::lock_guard lock(m_mutex);
         if (command.session == m_session && command.session == m_authenticatedSession)

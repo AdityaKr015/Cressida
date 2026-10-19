@@ -1,3 +1,4 @@
+#include "api/member_list_identity.h"
 #include "api/models.h"
 
 #include <iostream>
@@ -74,6 +75,157 @@ int main() {
         "Use Discord default avatars for accounts without custom images"
     );
     require(api::emojiPath("1/../2").empty(), "CDN resources must use validated identifiers");
+    {
+      api::Channel channel{"20", "chat"};
+      require(
+          !api::memberListIdentity("1", "1024", channel),
+          "Missing channel overwrites cannot establish shared visibility"
+      );
+      channel.overwrites.emplace();
+      const auto publicList = api::memberListIdentity("1", "1024", channel);
+      require(publicList && publicList->wireId == "everyone", "Public channels use the shared everyone wire list");
+      require(
+          api::memberListIdentity("1", "0", channel)->wireId == "0",
+          "A guild without default VIEW_CHANNEL hashes the empty overwrite set"
+      );
+      channel.overwrites =
+          std::vector<api::PermissionOverwrite>{{"5", "0", "1024", 0}, {"9", "18446744073709552640", "1024", 1}};
+      const auto restricted = api::memberListIdentity("1", "1024", channel);
+      // Independent Python struct/int MurmurHash3 fixture for "allow:9,deny:5".
+      require(
+          restricted && restricted->wireId == "320206352",
+          "Restricted lists match the unsigned wire hash, including unknown high permission bits and allow priority"
+      );
+      std::ranges::reverse(*channel.overwrites);
+      require(
+          api::memberListIdentity("1", "1024", channel) == restricted,
+          "Overwrite ordering cannot change a member-list identity"
+      );
+      auto other = channel;
+      other.id = "21";
+      require(
+          api::memberListIdentity("1", "1024", other) == restricted,
+          "Equal visibility shares across different ordinary channels in the same guild"
+      );
+      require(
+          api::memberListIdentity("2", "1024", channel)->signature != restricted->signature,
+          "Member-list cache identities never cross guild boundaries"
+      );
+      auto changed = api::memberListIdentity("1", "0", channel);
+      require(
+          changed->wireId == restricted->wireId && changed->signature != restricted->signature,
+          "The full local signature retains base visibility omitted from restricted wire hashes"
+      );
+      channel.overwrites->front().type = 0;
+      changed = api::memberListIdentity("1", "1024", channel);
+      require(
+          changed->wireId == restricted->wireId && changed->signature != restricted->signature,
+          "Role and member targets cannot share cached rows merely because their wire hashes coincide"
+      );
+      channel.overwrites = std::vector<api::PermissionOverwrite>{{"123", "0", "1024", 0}};
+      require(
+          api::memberListIdentity("1", "1024", channel)->wireId == "497997582",
+          "Wire hashing handles exact four-byte blocks"
+      );
+      channel.overwrites = std::vector<api::PermissionOverwrite>{{"123", "1024", "0", 0}};
+      require(
+          api::memberListIdentity("1", "0", channel)->wireId == "3352883465",
+          "Wire hashing handles the remaining final byte"
+      );
+      require(
+          api::memberListIdentity("1", "1024", channel) == publicList,
+          "Grant-only overwrites preserve the public everyone list"
+      );
+      channel.overwrites->push_back(channel.overwrites->front());
+      require(!api::memberListIdentity("1", "1024", channel), "Duplicate overwrite targets reject shared visibility");
+      channel.overwrites = std::vector<api::PermissionOverwrite>{{"123", "invalid", "0", 0}};
+      require(!api::memberListIdentity("1", "1024", channel), "Invalid permission data cannot select a shared list");
+      channel.overwrites = std::vector<api::PermissionOverwrite>(1001, {"123", "0", "1024", 0});
+      require(
+          !api::memberListIdentity("1", "1024", channel), "Member-list identity work is bounded by overwrite limits"
+      );
+      channel.overwrites.emplace();
+      for (const auto type : {1, 3, 4, 10, 11, 12}) {
+        channel.type = type;
+        require(
+            !api::memberListIdentity("1", "1024", channel),
+            "DMs, categories and threads never borrow an ordinary guild member list"
+        );
+      }
+      channel.type = 0;
+      require(!api::memberListIdentity("1", "", channel), "Unknown default role permissions cannot establish sharing");
+    }
+    {
+      const auto sync = [](const std::string& guild, const std::string& list, int first = 0) {
+        return json{
+            {"guild_id", guild},
+            {"id", list},
+            {"ops",
+             json::array(
+                 {{{"op", "SYNC"},
+                   {"range", {first, first + 99}},
+                   {"items", json::array({{{"member", {{"user_id", "7"}}}}})}}}
+             )}
+        };
+      };
+      const auto delta = [](const std::string& list) {
+        return json{{"guild_id", "1"}, {"id", list}, {"ops", json::array({{{"op", "DELETE"}, {"index", 0}}})}};
+      };
+      api::MemberListStream stream;
+      require(!stream.select("1", "20"), "The first member-list subscription starts without borrowed rows");
+      require(
+          !stream.accepts(delta("first"), 0), "An unknown list cannot establish identity from incremental operations"
+      );
+      require(
+          !stream.accepts(sync("2", "first"), 0) && !stream.accepts(sync("1", "first", 300), 0),
+          "Initial synchronization must match the guild and overlap the requested viewport"
+      );
+      auto empty = sync("1", "first");
+      empty["ops"][0]["items"] = json::array();
+      require(!stream.accepts(empty, 0), "An empty synchronization cannot adopt an unrelated list identity");
+      require(stream.accepts(sync("1", "first"), 0), "An initial populated SYNC establishes the service list identity");
+      require(
+          stream.accepts(delta("first"), 0) && !stream.accepts(sync("1", "other"), 0),
+          "Subsequent updates must retain the established service identity"
+      );
+      require(stream.select("1", "20"), "Viewport changes within an unknown channel retain its established list");
+      require(!stream.select("1", "21"), "Unrelated unknown channels cannot borrow member rows");
+      require(
+          !stream.accepts(sync("1", "first"), 0), "A late SYNC from a retired channel cannot populate another channel"
+      );
+      require(stream.accepts(sync("1", "second"), 0), "The new channel can establish its own list identity");
+      require(!stream.select("1", "20"), "Returning to a different unknown channel still resets its rows");
+      require(
+          !stream.accepts(delta("first"), 0)
+              && !stream.accepts(sync("1", "second"), 0)
+              && stream.accepts(sync("1", "first"), 0),
+          "A returning channel may recover its own retired identity through SYNC, while rejecting another channel's "
+          "list"
+      );
+      const api::MemberListIdentity known{"1/full-visibility", "everyone"};
+      require(!stream.select("1", "22", known), "An authoritative visibility change resets member rows");
+      require(
+          !stream.accepts(sync("1", "first"), 0) && stream.accepts(delta("everyone"), 0),
+          "Known visibility accepts only its exact wire identity"
+      );
+      require(stream.select("1", "23", known), "Equal full visibility signatures retain rows across channels");
+      require(
+          !stream.select("1", "24", api::MemberListIdentity{"1/different-visibility", "everyone"}),
+          "Coincident wire hashes alone cannot preserve rows"
+      );
+      stream.clear();
+      for (int at = 0; at != 10; ++at) {
+        stream.select("1", std::to_string(100 + at));
+        require(
+            stream.accepts(sync("1", std::to_string(at)), 0),
+            "Independent subscriptions establish bounded retired history"
+        );
+      }
+      stream.select("1", "200");
+      require(stream.accepts(sync("1", "0"), 0), "Retired identity tracking evicts old entries after eight lists");
+      stream.clear();
+      require(!stream.accepts(sync("1", "0"), 0), "Account reset removes the selected identity and all retired lists");
+    }
     api::MemberList members;
     const json alice = {
         {"member",

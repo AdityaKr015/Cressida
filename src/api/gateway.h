@@ -1,6 +1,7 @@
 #pragma once
 
 #include "api/models.h"
+#include "core/process/wake_event.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -29,7 +30,8 @@ namespace api {
     );
     ~Gateway();
     void authenticate(std::uint64_t session, std::string token, Presence presence = {});
-    void reset();
+    // Late failures may reset only the session that produced them.
+    void reset(std::uint64_t expectedSession = 0);
     void requestMembers(std::uint64_t session, const std::string& guild, const std::vector<std::string>& users);
     bool
     searchMembers(std::uint64_t session, const std::string& guild, const std::string& query, const std::string& nonce);
@@ -44,6 +46,7 @@ namespace api {
     std::string m_endpoint;
     std::mutex m_mutex;
     std::condition_variable_any m_ready;
+    process::WakeEvent m_wake;
     std::uint64_t m_session = 0, m_subscriptionVersion = 0;
     std::string m_token, m_guild, m_channel;
     Presence m_presence;

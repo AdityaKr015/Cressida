@@ -57,6 +57,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::clearChannelFeatures() {
+    clearChatPreload();
     m_channelMuteTimer.stop();
     m_channelListPreferences = {};
     m_channelMenuCommands.clear();
@@ -113,9 +114,12 @@ namespace app {
     for (const auto& id : removed) {
       if (!api::validSnowflake(id))
         continue;
+      if (id == m_chatPreloadChannel || id == m_chatPreloadHover)
+        clearChatPreload();
       m_deletedChannels.insert(id);
       selected |= !m_dmMode && event.resource == m_guildId && (m_channelId == id || (thread && thread->parentId == id));
       m_channelMessages.erase(id);
+      m_channelHistoryState.erase(id);
       m_messageLog.clearChannel(id);
       m_channelMembers.erase(id);
       std::erase(m_channelCacheOrder, id);
@@ -421,6 +425,8 @@ namespace app {
             if (old.id == fresh.id)
               old = fresh;
         }
+        if (!m_demo && !m_dmMode && event.resource == m_channelId)
+          refreshMemberSubscription();
         if (m_contextOpen
             && !m_channelMenuCommands.empty()
             && std::ranges::any_of(event.channels, [&](const auto& channel) { return channel.id == m_contextChannel; }))

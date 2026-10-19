@@ -142,6 +142,8 @@ int main(int argc, char** argv) {
             valid = false;
           if (type == "MESSAGE_CREATE" && data.value("content", "") != "synthetic 🌿")
             valid = false;
+          if (type == "SWITCH_CHANNEL" && active)
+            active->subscribe("1", "3", 0);
           events.insert(type);
           changed.notify_all();
         },
@@ -149,6 +151,7 @@ int main(int argc, char** argv) {
     );
     active = &gateway;
     gateway.authenticate(1, "synthetic-token", {"online", "working", "77", "wave"});
+    gateway.reset(2); // A delayed failure from another session cannot clear this login.
     if (gateway.searchMembers(2, "1", "May", "complete-invalid")
         || gateway.searchMembers(1, "1", "", "complete-invalid")
         || gateway.searchMembers(1, "1", "May", std::string(33, 'x')))
@@ -172,7 +175,8 @@ int main(int argc, char** argv) {
               && events.contains("PRESENCE_UPDATE")
               && events.contains("GUILD_MEMBER_LIST_UPDATE")
               && events.contains("GUILD_MEMBERS_CHUNK")
-              && events.contains("MEMBER_SEARCH");
+              && events.contains("MEMBER_SEARCH")
+              && events.contains("SWITCH_CHANNEL");
         })) {
       std::cerr << "Gateway did not complete identify, fragmented dispatch and resume\n";
       for (const auto& event : events)

@@ -37,8 +37,17 @@ namespace app {
       if (!m_history.busy())
         m_loadingMessages = false;
     }
+    if (channel == m_chatPreloadChannel) {
+      if (patch.reactions)
+        std::erase_if(m_chatPreloadReactions, [&](const auto& change) { return change.message == id; });
+      m_chatPreloadHistory.changed(id, patch);
+      if (!m_chatPreloadHistory.busy())
+        clearChatPreload();
+    }
     if (patch.reactions)
       invalidateReactors(channel, id);
+    if (patch.reactions && m_adoptedChatPreload && m_adoptedChatPreload->channel == channel)
+      std::erase_if(m_adoptedChatPreload->reactions, [&](const auto& change) { return change.message == id; });
     if (auto cached = m_channelMessages.find(channel); cached != m_channelMessages.end())
       for (auto& message : cached->second)
         if (message.id == id)
@@ -71,6 +80,12 @@ namespace app {
         for (const auto& message : cache->second)
           if (deleted(message))
             m_messageLog.capture(channel, message);
+    }
+    if (channel == m_chatPreloadChannel) {
+      for (const auto& id : ids)
+        m_chatPreloadLive[id] = std::nullopt;
+      if (m_chatPreloadLive.size() > 4096)
+        clearChatPreload();
     }
     m_messageLog.removed(channel, ids);
     if (const auto preview = m_forumFirstMessages.find(channel);

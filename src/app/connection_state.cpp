@@ -9,6 +9,7 @@ namespace app {
   void ClientApplication::resetGuildBootstrap() {
     m_guildLayout = {};
     m_gatewayGuildsReady = m_gatewayLayoutReady = false;
+    m_readyBootstrapPending = false;
     m_startupGuild.clear();
   }
 
@@ -124,8 +125,10 @@ namespace app {
       return;
     m_loadingChannels = false;
     rebuildThreadChannels();
-    if (!m_channelId.empty() && std::ranges::find(m_channels, m_channelId, &api::Channel::id) != m_channels.end())
+    if (!m_channelId.empty() && std::ranges::find(m_channels, m_channelId, &api::Channel::id) != m_channels.end()) {
+      refreshMemberSubscription();
       return;
+    }
     const auto restore = std::exchange(m_restoreChannel, {});
     auto selected = std::ranges::find(m_channels, restore, &api::Channel::id);
     if (selected == m_channels.end())

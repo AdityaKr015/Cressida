@@ -13,6 +13,7 @@ namespace api {
     HistoryDirection direction = HistoryDirection::Latest;
     std::string cursor;
     std::uint64_t request = 0;
+    bool preload = false; // Local scheduling metadata; never sent to Discord.
     bool operator==(const HistoryQuery&) const = default;
   };
   inline std::string messageHistoryPath(const std::string& channel, const HistoryQuery& query) {

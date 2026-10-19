@@ -2,9 +2,11 @@
 
 #include "api/assets.h"
 #include "api/client.h"
+#include "api/member_list_identity.h"
 #include "app/autocomplete.h"
 #include "app/channel_invite.h"
 #include "app/channel_menu.h"
+#include "app/chat_cache.h"
 #include "app/desktop_notifications.h"
 #include "app/emoji_catalog.h"
 #include "app/file_picker.h"
@@ -896,14 +898,45 @@ namespace app {
     std::set<std::string> m_dismissedEphemeral;
     std::set<std::string> m_deletedChannels;
     std::map<std::string, std::vector<api::Message>> m_channelMessages;
+    std::map<std::string, ChatCacheState> m_channelHistoryState;
+    std::uint64_t m_chatCacheEpoch = 0;
+    std::uint64_t m_historyEpoch = 0, m_chatPreloadEpoch = 0;
     std::vector<std::string> m_channelCacheOrder;
     struct MemberSnapshot {
       std::vector<api::MemberRow> rows;
       int count = 0;
+      std::string identity;
+      std::uint64_t epoch = 0;
     };
     std::map<std::string, MemberSnapshot> m_channelMembers;
+    std::string m_activeMemberIdentity;
+    std::uint64_t m_memberEpoch = 0;
     std::map<std::string, std::string> m_lastChannels;
     void cacheChannel();
+    void touchChannelCache(const std::string& id);
+    bool restoreCachedHistory(const std::string& id);
+    std::optional<api::MemberListIdentity> channelMemberIdentity(const std::string& id) const;
+    void refreshMemberSubscription();
+    bool adoptChatPreload(const std::string& id);
+    bool canPreloadChat(const std::string& id) const;
+    std::string hoveredPreloadChat() const;
+    void updateChatPreload();
+    void startChatPreload();
+    void clearChatPreload();
+    bool chatPreloadEvent(api::Event& event);
+    void demoChatPreloadStep();
+    Timer m_chatPreloadTimer;
+    std::string m_chatPreloadHover, m_chatPreloadChannel;
+    MessageHistory m_chatPreloadHistory;
+    std::map<std::string, std::optional<api::Message>> m_chatPreloadLive;
+    std::vector<api::ReactionUpdate> m_chatPreloadReactions;
+    std::chrono::steady_clock::time_point m_chatPreloadAfter{};
+    struct AdoptedChatPreload {
+      std::string channel;
+      api::HistoryQuery source, visible;
+      std::vector<api::ReactionUpdate> reactions;
+    };
+    std::optional<AdoptedChatPreload> m_adoptedChatPreload;
     bool readingChannel(const std::string& channel) const;
     bool markChannelRead(bool explicitAction = false);
     std::vector<api::Message> m_messages;
@@ -918,6 +951,7 @@ namespace app {
     std::vector<api::GuildFolder> m_folders;
     api::GuildLayout m_guildLayout;
     bool m_gatewayGuildsReady = false, m_gatewayLayoutReady = false;
+    bool m_readyBootstrapPending = false;
     std::string m_startupGuild;
     std::set<std::string> m_openFolders;
     std::vector<api::MemberRow> m_members;

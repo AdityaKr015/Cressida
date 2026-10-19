@@ -101,6 +101,8 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo && m_demoOverlay == "chat-preload-cycle")
+        demoChatPreloadStep();
       if (m_demo && m_demoOverlay.starts_with("syntax-nix-flat-rail")) {
         const auto& boxes = m_messageLayouts.at(m_messages.front().id).layout.boxes;
         const auto code = std::ranges::find_if(boxes, [](const auto& box) { return !box.code.empty(); });
@@ -687,6 +689,7 @@ namespace app {
       finishSidebarResize();
       m_controlInput.pointerLeave();
       m_pointerX = m_pointerY = -1000;
+      updateChatPreload();
       updateCursor();
       m_window.invalidate();
     };
@@ -1053,6 +1056,7 @@ namespace app {
         m_client.eventFd(), [this] { tick(); },
         smokeTest ? (m_demo && view && std::string_view(view) == "dm-compose-cycle"                        ? 16
                          : m_demo && view && std::string_view(view) == "dm-home-cycle"                     ? 18
+                         : m_demo && view && std::string_view(view) == "chat-preload-cycle"                ? 10
                          : m_demo && view && std::string_view(view) == "join-cycle"                        ? 4
                          : m_demo && view && std::string_view(view) == "deleted-cycle"                     ? 3
                          : m_demo && view && std::string_view(view) == "inline-edit-cycle"                 ? 8
@@ -1108,6 +1112,8 @@ namespace app {
       throw std::runtime_error("Autocomplete replay did not finish");
     if (m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Font settings replay did not finish");
+    if (m_demoOverlay == "chat-preload-cycle" && m_demoInteractionStep != 10)
+      throw std::runtime_error("Chat preload replay did not finish");
     if (m_demoOverlay == "server-hover-cycle" && m_demoInteractionStep != 7)
       throw std::runtime_error("Server hover replay did not finish");
     if (m_demoOverlay == "themes-cycle" && m_demoInteractionStep != 11)
@@ -1639,6 +1645,7 @@ namespace app {
           };
           m_messages.clear();
           m_members.clear();
+          m_activeMemberIdentity.clear();
           for (std::size_t i = 0; i < names.size(); ++i) {
             const auto user = std::to_string(11 + i);
             const auto id = std::to_string(8200 + i);
@@ -1665,6 +1672,7 @@ namespace app {
             m_roleDirectory.apply({false, {headings}});
             const auto people = m_members;
             m_members.clear();
+            m_activeMemberIdentity.clear();
             for (std::size_t i = 0; i < people.size(); ++i) {
               api::MemberRow header;
               header.index = static_cast<int>(i * 2);
@@ -1688,6 +1696,7 @@ namespace app {
           m_messages.clear();
           const std::vector<std::string> names = {"Alex", "⪻𝚂ҟ₳𝘕ↁ✧亗⪼", "⪻𝚂ҟ₳𝘕ↁ✧亗⪼ [KURU]", "𝓢𝓮𝓻𝓮𝓲𝓷", "𓆩Serein𓆪"};
           m_members.clear();
+          m_activeMemberIdentity.clear();
           for (std::size_t i = 0; i < names.size(); ++i) {
             const auto id = std::to_string(8100 + i);
             m_messages.push_back({id, m_channelId, names[i], "what is serein?", "2026-10-17T09:50:00Z", id});
@@ -1992,6 +2001,7 @@ namespace app {
           m_channels.clear();
           m_messages.clear();
           m_members.clear();
+          m_activeMemberIdentity.clear();
           m_memberCount = 0;
           m_loadingChannels = true;
         } else if (view == "history-cycle") {
@@ -2021,6 +2031,14 @@ namespace app {
           m_messageLayouts.clear();
           if (view == "jump-latest" || view == "jump-latest-light")
             m_messageScroll = 140;
+        } else if (view == "chat-preload-cycle") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_live = true;
+          m_channelMessages.clear();
+          m_channelHistoryState.clear();
+          m_channelCacheOrder.clear();
+          m_roleDirectory.apply({.guilds = {{.guild = m_guildId, .owner = m_account.id}}});
         } else if (view.starts_with("chat-spacing")) {
           m_demoOverlay = view;
           m_showMembers = false;
@@ -4051,6 +4069,7 @@ namespace app {
     m_roleMotion.end();
     if (m_roleMotion.active())
       m_window.invalidate();
+    updateChatPreload();
     updateCursor();
     m_window.context().renderScene(m_window.target(), m_scene.get());
     if (!m_videoVisible || settingsVisible() || !m_viewImage.empty()) {
@@ -4095,6 +4114,7 @@ namespace app {
     if (!m_dmMode)
       return;
     m_members.clear();
+    m_activeMemberIdentity.clear();
     const auto channel = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
     if (channel != m_channels.end()) {
       int index = 0;
@@ -4232,22 +4252,80 @@ namespace app {
   void ClientApplication::cacheChannel() {
     if (m_channelId.empty() || m_deletedChannels.contains(m_channelId))
       return;
-    if (m_history.atLatest()) {
+    if (m_history.atLatest() && (m_history.initialized() || !m_messages.empty())) {
       const auto first = m_messages.size() > 200 ? m_messages.size() - 200 : 0;
       m_channelMessages[m_channelId] = {m_messages.begin() + first, m_messages.end()};
-    } else
+      if (first)
+        m_channelHistoryState[m_channelId].olderEnd = false;
+    } else {
       m_channelMessages.erase(m_channelId);
-    if (!m_members.empty())
-      m_channelMembers[m_channelId] = {m_members, m_memberCount};
-    std::erase(m_channelCacheOrder, m_channelId);
-    m_channelCacheOrder.push_back(m_channelId);
+      m_channelHistoryState.erase(m_channelId);
+    }
+    if (!m_dmMode && !m_members.empty())
+      if (const auto identity = channelMemberIdentity(m_channelId))
+        if (identity->signature == m_activeMemberIdentity)
+          m_channelMembers[m_channelId] = {m_members, m_memberCount, identity->signature, m_memberEpoch};
+    touchChannelCache(m_channelId);
+  }
+  void ClientApplication::touchChannelCache(const std::string& id) {
+    std::erase(m_channelCacheOrder, id);
+    m_channelCacheOrder.push_back(id);
     while (m_channelCacheOrder.size() > 24) {
       m_channelMessages.erase(m_channelCacheOrder.front());
+      m_channelHistoryState.erase(m_channelCacheOrder.front());
       m_channelMembers.erase(m_channelCacheOrder.front());
       m_channelCacheOrder.erase(m_channelCacheOrder.begin());
     }
   }
+  bool ClientApplication::restoreCachedHistory(const std::string& id) {
+    const auto cached = m_channelMessages.find(id);
+    if (cached == m_channelMessages.end())
+      return false;
+    m_messages = cached->second;
+    const auto state = m_channelHistoryState.find(id);
+    const auto channel = selectedChannel();
+    if (state == m_channelHistoryState.end() || !channel || m_deletedChannels.contains(id))
+      return false;
+    if (!m_dmMode) {
+      const auto permissions = channelPermissionsFor(channel->isThread() ? channel->parentId : id);
+      if (!permissions || !(*permissions & api::viewChannel) || !(*permissions & (1ULL << 16)))
+        return false;
+    }
+    auto latest = channel->lastMessageId;
+    if (const auto unread = m_unreadTimeline.cursor(id); unread && MessageHistory::less(latest, unread->latest))
+      latest = unread->latest;
+    if (!state->second.fresh(m_live, m_chatCacheEpoch, latest, m_messages))
+      return false;
+    m_history.restoreLatest(m_messages, state->second.olderEnd);
+    m_historyEpoch = state->second.epoch;
+    touchChannelCache(id);
+    return true;
+  }
+  std::optional<api::MemberListIdentity> ClientApplication::channelMemberIdentity(const std::string& id) const {
+    if (m_dmMode || !(channelPermissionsFor(id).value_or(0) & api::viewChannel))
+      return {};
+    const auto channel = std::ranges::find(m_channels, id, &api::Channel::id);
+    if (channel == m_channels.end())
+      return {};
+    for (const auto& role : m_roleDirectory.allRoles(m_guildId))
+      if (role.id == m_guildId && role.permissions)
+        return api::memberListIdentity(m_guildId, *role.permissions, *channel);
+    return {};
+  }
+  void ClientApplication::refreshMemberSubscription() {
+    if (m_demo || m_dmMode || m_channelId.empty())
+      return;
+    const auto identity = channelMemberIdentity(m_channelId);
+    if (!m_activeMemberIdentity.empty() && (!identity || identity->signature != m_activeMemberIdentity)) {
+      m_members.clear();
+      m_memberCount = 0;
+      m_activeMemberIdentity.clear();
+      m_channelMembers.erase(m_channelId);
+    }
+    m_client.subscribe(m_guildId, m_channelId, m_memberPage, identity);
+  }
   void ClientApplication::selectGuild(const std::string& id) {
+    clearChatPreload();
     m_startupGuild.clear();
     closeCompletion();
     cancelMessageEdit(false);
@@ -4275,6 +4353,7 @@ namespace app {
     m_messages.clear();
     m_messageLayouts.clear();
     m_members.clear();
+    m_activeMemberIdentity.clear();
     m_memberCount = 0;
     m_memberScroll = 0;
     m_memberPage = 0;
@@ -4282,6 +4361,7 @@ namespace app {
     m_channelScroll = 0;
     m_messageScroll = 0;
     m_history.reset();
+    m_adoptedChatPreload.reset();
     m_timelineAnchor.reset();
     m_loadingMessages = false;
     m_status.clear();
@@ -4305,7 +4385,7 @@ namespace app {
         m_window.invalidate();
         return;
       }
-      m_loadingChannels = m_client.channels(id);
+      m_loadingChannels = m_readyBootstrapPending || m_client.channels(id);
       if (!m_loadingChannels)
         m_status = "Could not load channels. Try selecting the server again.";
     }
@@ -4313,6 +4393,7 @@ namespace app {
   }
 
   void ClientApplication::showDirectMessages(bool home) {
+    clearChatPreload();
     m_startupGuild.clear();
     closeCompletion();
     cancelMessageEdit(false);
@@ -4346,10 +4427,11 @@ namespace app {
     m_messages.clear();
     m_messageLayouts.clear();
     m_members.clear();
+    m_activeMemberIdentity.clear();
     m_memberCount = 0;
     m_channelScroll = 0;
     m_liveChanges.clear();
-    if (!m_demo && !m_privateReady && m_privateChannels.empty() && !m_loadingPrivate)
+    if (!m_demo && !m_readyBootstrapPending && !m_privateReady && m_privateChannels.empty() && !m_loadingPrivate)
       m_loadingPrivate = m_client.privateChannels();
     if (!home && !m_channels.empty()) {
       auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
@@ -4360,6 +4442,12 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(std::string id) {
+    if (id != m_channelId)
+      m_adoptedChatPreload.reset();
+    if (id != m_chatPreloadChannel)
+      clearChatPreload();
+    else
+      m_chatPreloadTimer.stop();
     if (m_dmMode) {
       const auto request = std::ranges::find(m_privateChannels, id, &api::Channel::id);
       if (request != m_privateChannels.end() && request->isMessageRequest()) {
@@ -4411,12 +4499,14 @@ namespace app {
     m_messages.clear();
     m_messageLayouts.clear();
     m_members.clear();
+    m_activeMemberIdentity.clear();
     m_memberCount = 0;
     m_memberScroll = 0;
     m_memberPage = 0;
     m_liveChanges.clear();
     m_messageScroll = 0;
     m_history.reset();
+    m_adoptedChatPreload.reset();
     m_timelineAnchor.reset();
     m_selectAll = false;
     m_fieldFocused = true;
@@ -4473,7 +4563,13 @@ namespace app {
       m_window.invalidate();
       return;
     }
-    if (m_demo) {
+    const bool cachedHistory = restoreCachedHistory(id);
+    const auto memberIdentity = channelMemberIdentity(id);
+    if (!m_demo)
+      m_client.subscribe(m_guildId, id, 0, memberIdentity);
+    const bool adoptedPreload = !cachedHistory && adoptChatPreload(id);
+    clearChatPreload();
+    if (m_demo && m_demoOverlay != "chat-preload-cycle") {
       m_messages = {
           {"1", id, "Maya", "Made a little space for our ideas. Welcome in! 🌿 ✨", "2026-10-17T09:41:00Z"},
           {"2", id, "Noah", "This already feels like home. What is everyone working on?", "2026-10-17T09:43:00Z"},
@@ -4501,16 +4597,18 @@ namespace app {
           {3, {"1", "Alex"}, "online"}
       };
       m_memberCount = 4;
-    } else {
-      if (auto cached = m_channelMessages.find(id); cached != m_channelMessages.end())
-        m_messages = cached->second;
-      if (!m_dmMode)
-        if (auto cached = m_channelMembers.find(id); cached != m_channelMembers.end()) {
-          m_members = cached->second.rows;
-          m_memberCount = cached->second.count;
-        }
-      m_client.subscribe(m_guildId, id);
-      refresh();
+    } else if (!m_demo) {
+      if (!m_dmMode && m_live && memberIdentity)
+        for (const auto& [channel, cached] : m_channelMembers)
+          if (cached.epoch == m_chatCacheEpoch && cached.identity == memberIdentity->signature) {
+            m_members = cached.rows;
+            m_memberCount = cached.count;
+            m_activeMemberIdentity = cached.identity;
+            m_memberEpoch = cached.epoch;
+            break;
+          }
+      if (!cachedHistory && !adoptedPreload)
+        refresh();
       loadDetails();
       saveSelection();
     }
@@ -4539,6 +4637,7 @@ namespace app {
     if (!query)
       return;
     if (m_demo || m_client.messages(m_channelId, *query)) {
+      m_historyEpoch = m_chatCacheEpoch;
       if (m_demo)
         m_demoHistoryQuery = *query;
       m_liveChanges.clear();
@@ -4559,6 +4658,9 @@ namespace app {
       m_loadingMessages = false;
     if (!event.error.empty()) {
       m_history.fail(*event.history, event.error);
+      m_adoptedChatPreload.reset();
+      if (m_live && m_history.atLatest() && m_historyEpoch != m_chatCacheEpoch)
+        refresh();
       return;
     }
     const auto prior = m_preferences.logEditHistory ? m_messages : std::vector<api::Message>{};
@@ -4571,6 +4673,17 @@ namespace app {
         last = message.id;
     }
     if (m_history.apply(*event.history, m_messages, std::move(event.messages), m_liveChanges)) {
+      if (m_adoptedChatPreload && m_adoptedChatPreload->visible == *event.history) {
+        for (const auto& change : m_adoptedChatPreload->reactions)
+          for (auto& message : m_messages)
+            if (message.id == change.message)
+              api::applyReaction(message, change, m_account.id);
+        m_adoptedChatPreload.reset();
+      }
+      if (m_history.atLatest())
+        m_channelHistoryState[m_channelId] = {
+            ChatCacheState::Clock::now(), m_historyEpoch, m_history.olderEnd() && m_messages.size() <= 200
+        };
       for (auto& message : m_messages) {
         const auto before = std::ranges::find(prior, message.id, &api::Message::id);
         if (before != prior.end()) {
@@ -4588,6 +4701,8 @@ namespace app {
         retained.insert(message.id);
       std::erase_if(m_messageLayouts, [&](const auto& item) { return !retained.contains(item.first); });
     }
+    if (m_live && m_history.atLatest() && m_historyEpoch != m_chatCacheEpoch)
+      refresh();
   }
 
   void ClientApplication::demoHistoryStep() {
@@ -4866,6 +4981,10 @@ namespace app {
         continue;
       }
       filterDeletedChannels(event);
+      if (!event.unauthorized && chatPreloadEvent(event)) {
+        m_window.invalidate();
+        continue;
+      }
       if (!event.unauthorized && dmHomeEvent(event)) {
         m_window.invalidate();
         continue;
@@ -4906,8 +5025,10 @@ namespace app {
         m_sending = false;
         m_guildChannels.clear();
         clearThreads();
+        clearChatPreload();
         m_channelCacheOrder.clear();
         m_channelMessages.clear();
+        m_channelHistoryState.clear();
         m_channelMembers.clear();
         m_lastChannels.clear();
         m_unreadDMs.clear();
@@ -4916,6 +5037,7 @@ namespace app {
         m_localRead.clear();
         m_unreadTimeline.reset();
         m_history.reset();
+        m_adoptedChatPreload.reset();
         m_timelineAnchor.reset();
         m_guilds.clear();
         m_guildUpdates.clear();
@@ -4952,6 +5074,7 @@ namespace app {
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);
           m_presence = event.presence.value_or(api::Presence{});
           resetGuildBootstrap();
+          m_readyBootstrapPending = event.live;
           m_guilds = std::move(event.guilds);
           m_guildLayout = std::move(event.layout);
           for (auto& guild : m_guilds)
@@ -4961,7 +5084,7 @@ namespace app {
           m_connected = true;
           if (!m_live)
             m_gatewayStatus = "Connecting…";
-          m_loadingPrivate = m_privateChannels.empty() && m_client.privateChannels();
+          m_loadingPrivate = m_privateChannels.empty() && (m_readyBootstrapPending || m_client.privateChannels());
           const auto last = m_sessionStore.load(m_account.id);
           m_restoreChannel = last ? last->channel : "";
           if (last)
@@ -5011,6 +5134,23 @@ namespace app {
         if (auto preview = m_forumFirstMessages.find(change.channel);
             preview != m_forumFirstMessages.end() && preview->second.id == change.message)
           api::applyReaction(preview->second, change, m_account.id);
+        if (change.channel == m_chatPreloadChannel) {
+          if (m_chatPreloadReactions.size() < 512)
+            m_chatPreloadReactions.push_back(change);
+          else
+            clearChatPreload();
+        }
+        if (m_adoptedChatPreload
+            && change.channel == m_adoptedChatPreload->channel
+            && std::ranges::none_of(m_messages, [&](const auto& message) { return message.id == change.message; })) {
+          if (m_adoptedChatPreload->reactions.size() < 512)
+            m_adoptedChatPreload->reactions.push_back(change);
+          else {
+            m_history.fail(m_adoptedChatPreload->visible, "Message history changed too much while loading. Try again.");
+            m_loadingMessages = false;
+            m_adoptedChatPreload.reset();
+          }
+        }
         invalidateReactors(change.channel, change.message);
         if (const auto cached = m_channelMessages.find(change.channel); cached != m_channelMessages.end())
           for (auto& message : cached->second)
@@ -5020,12 +5160,14 @@ namespace app {
             if (message.id == change.message) {
               api::applyReaction(message, change, m_account.id);
               m_liveChanges[message.id] = message;
+              m_history.changed(message.id, {.reactions = message.reactions});
             }
       } else if (event.operation == api::Operation::RoleStyles) {
         serverSettingsRoleUpdate(event.roleUpdates);
         m_roleDirectory.apply(event.roleUpdates);
         if (event.roleUpdates.reset)
           m_roleMotion.clear();
+        refreshMemberSubscription();
       } else if (event.operation == api::Operation::UserState) {
         m_userDirectory.apply(event.users);
         if (m_dmMode)
@@ -5177,6 +5319,8 @@ namespace app {
           }
         }
       } else if (event.operation == api::Operation::PrivateChannelDelete) {
+        if (event.resource == m_chatPreloadChannel || event.resource == m_chatPreloadHover)
+          clearChatPreload();
         m_unreadDMs.erase(event.resource);
         m_unreadChannels.erase(event.resource);
         if (m_dmPreviewId == event.resource) {
@@ -5186,6 +5330,7 @@ namespace app {
         }
         m_messageLog.clearChannel(event.resource);
         m_channelMessages.erase(event.resource);
+        m_channelHistoryState.erase(event.resource);
         std::erase_if(m_privateChannels, [&](const auto& channel) { return channel.id == event.resource; });
         if (m_dmMode) {
           m_channels = dmConversations();
@@ -5208,17 +5353,40 @@ namespace app {
       } else if (event.operation == api::Operation::Layout) {
         guildLayoutEvent(event);
       } else if (event.operation == api::Operation::Members && event.resource == m_channelId) {
+        const auto identity = channelMemberIdentity(m_channelId);
+        if (event.memberIdentity && event.memberIdentity != identity)
+          continue;
         m_members = std::move(event.members);
         m_memberCount = event.memberCount;
+        m_memberEpoch = m_chatCacheEpoch;
+        m_activeMemberIdentity.clear();
+        if (identity && event.memberIdentity) {
+          m_activeMemberIdentity = identity->signature;
+          const MemberSnapshot snapshot{m_members, m_memberCount, identity->signature, m_chatCacheEpoch};
+          for (auto& [channel, cached] : m_channelMembers)
+            if (cached.epoch == m_chatCacheEpoch && cached.identity == identity->signature)
+              cached = snapshot;
+        }
         m_messageLayouts.clear();
         m_memberScroll =
             std::clamp(m_memberScroll, 0.0F, std::max(0.0F, m_memberCount * 44.0F - (m_window.height() - 158)));
       } else if (event.operation == api::Operation::Gateway) {
+        if (!event.live) {
+          ++m_chatCacheEpoch;
+          clearChatPreload();
+        }
         m_live = event.live;
         m_gatewayStatus = m_live ? "Connected" : "Reconnecting…";
         if (m_live) {
+          if (std::exchange(m_readyBootstrapPending, false)) {
+            if (!m_privateReady && m_privateChannels.empty())
+              m_loadingPrivate = m_client.privateChannels();
+            if (!m_dmMode && !m_guildId.empty() && !m_guildChannels.contains(m_guildId))
+              m_loadingChannels = m_client.channels(m_guildId);
+          }
           m_status.clear();
-          refresh();
+          if (!m_history.initialized() || m_historyEpoch != m_chatCacheEpoch)
+            refresh();
         }
       } else if (event.operation == api::Operation::MessageCreate) {
         std::erase_if(event.messages, [&](const auto& message) {
@@ -5226,6 +5394,23 @@ namespace app {
         });
         if (event.messages.empty())
           continue;
+        if (m_adoptedChatPreload && event.resource == m_adoptedChatPreload->channel)
+          std::erase_if(m_adoptedChatPreload->reactions, [&](const auto& change) {
+            return std::ranges::any_of(event.messages, [&](const auto& message) {
+              return message.id == change.message;
+            });
+          });
+        if (event.resource == m_chatPreloadChannel) {
+          for (const auto& message : event.messages) {
+            const auto known = m_chatPreloadLive.find(message.id);
+            if ((message.flags & 64) || (known != m_chatPreloadLive.end() && !known->second))
+              continue;
+            m_chatPreloadLive[message.id] = message;
+            std::erase_if(m_chatPreloadReactions, [&](const auto& change) { return change.message == message.id; });
+          }
+          if (m_chatPreloadLive.size() > 4096)
+            clearChatPreload();
+        }
         for (const auto& message : event.messages)
           notifyMessage(message, event.resource);
         const bool ephemeral =
@@ -5253,8 +5438,10 @@ namespace app {
               std::erase_if(cached->second, [&](const auto& old) { return old.id == message.id; });
               cached->second.push_back(message);
             }
-            if (cached->second.size() > 200)
+            if (cached->second.size() > 200) {
               cached->second.erase(cached->second.begin(), cached->second.end() - 200);
+              m_channelHistoryState[event.resource].olderEnd = false;
+            }
           }
         }
         if (event.resource == m_channelId)
@@ -5298,6 +5485,7 @@ namespace app {
             m_timelineAnchor.reset();
             if (!m_history.atLatest()) {
               m_history.reset();
+              m_adoptedChatPreload.reset();
               m_messages.clear();
               m_messageLayouts.clear();
               loadHistory(api::HistoryDirection::Latest);
@@ -5788,6 +5976,7 @@ namespace app {
         }
       } else {
         m_history.reset();
+        m_adoptedChatPreload.reset();
         m_messages.clear();
         m_messageLayouts.clear();
         loadHistory(api::HistoryDirection::Latest);
@@ -6185,11 +6374,14 @@ namespace app {
       m_localRead.clear();
       m_unreadTimeline.reset();
       m_history.reset();
+      m_adoptedChatPreload.reset();
       m_timelineAnchor.reset();
       m_guildChannels.clear();
       clearThreads();
       m_channelCacheOrder.clear();
+      clearChatPreload();
       m_channelMessages.clear();
+      m_channelHistoryState.clear();
       m_channelMembers.clear();
       m_lastChannels.clear();
       m_collapsedCategories.clear();
@@ -6202,6 +6394,7 @@ namespace app {
       m_messages.clear();
       m_messageLayouts.clear();
       m_members.clear();
+      m_activeMemberIdentity.clear();
       m_folders.clear();
       m_openFolders.clear();
       m_liveChanges.clear();

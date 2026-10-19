@@ -26,6 +26,15 @@ namespace app {
     bool atLatest() const { return m_newerEnd; }
     bool busy() const { return m_pending.has_value(); }
     bool initialized() const { return m_initialized; }
+    void restoreLatest(std::span<const api::Message> messages, bool olderEnd) {
+      reset();
+      m_initialized = true;
+      m_olderEnd = olderEnd;
+      if (!messages.empty()) {
+        m_olderCursor = messages.front().id;
+        m_newerCursor = messages.back().id;
+      }
+    }
     bool olderEnd() const { return m_olderEnd; }
     const auto& pending() const { return m_pending; }
     const std::string& error() const { return m_error; }
@@ -34,9 +43,13 @@ namespace app {
       m_pending.reset();
       m_patches.clear();
     }
-    std::optional<api::HistoryQuery>
-    begin(api::HistoryDirection direction, std::span<const api::Message> messages, bool retry = false) {
+    std::optional<api::HistoryQuery> begin(
+        api::HistoryDirection direction, std::span<const api::Message> messages, bool retry = false,
+        bool preload = false
+    ) {
       using enum api::HistoryDirection;
+      if (preload && direction != Latest)
+        return {};
       if (direction == Around)
         return retry ? beginAround(m_failedCursor) : std::nullopt;
       if (direction != Latest
@@ -45,7 +58,7 @@ namespace app {
               || messages.empty()
               || (direction == Older ? m_olderEnd : m_newerEnd)))
         return {};
-      api::HistoryQuery query{direction, {}, ++m_serial};
+      api::HistoryQuery query{direction, {}, ++m_serial, preload};
       if (direction != Latest)
         query.cursor = direction == Older ? (m_olderCursor.empty() ? messages.front().id : m_olderCursor)
                                           : (m_newerCursor.empty() ? messages.back().id : m_newerCursor);
@@ -63,6 +76,16 @@ namespace app {
       return m_pending;
     }
     bool accepts(const api::HistoryQuery& query) const { return m_pending == query; }
+    std::optional<api::HistoryQuery> adoptPending(MessageHistory& preload) {
+      if (!preload.m_pending
+          || !preload.m_pending->preload
+          || preload.m_pending->direction != api::HistoryDirection::Latest)
+        return {};
+      const auto query = begin(api::HistoryDirection::Latest, {});
+      m_patches = std::move(preload.m_patches);
+      preload.cancelPending();
+      return query;
+    }
     void fail(const api::HistoryQuery& query, std::string error) {
       if (!accepts(query))
         return;

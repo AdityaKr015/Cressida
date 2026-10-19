@@ -1,6 +1,7 @@
 #include "api/assets.h"
 
 #include "api/models.h"
+#include "api/network_profile.h"
 
 #include <algorithm>
 #include <cctype>
@@ -100,6 +101,7 @@ namespace api {
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
         curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &data);
         const auto status = curl_easy_perform(curl.get());
+        network_profile::transferred("asset", curl.get(), status);
         long code = 0;
         curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &code);
         if (status != CURLE_OK || code != 200)
