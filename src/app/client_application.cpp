@@ -110,6 +110,27 @@ namespace app {
         demoChatLinksStep();
       if (m_demo && m_demoOverlay == "attachment-cycle" && m_demoInteractionStep < attachmentReplayFrames)
         demoAttachmentsStep();
+      if (m_demo && m_demoOverlay.starts_with("autocomplete-tokens")) {
+        const auto& input = *m_inputs.at("composer");
+        const auto& display = input.displayValue();
+        if (display.find("@Maya") == std::string::npos
+            || display.find("@Moonwarden") == std::string::npos
+            || display.find("<@") != std::string::npos
+            || display.find("800000000") != std::string::npos)
+          throw std::runtime_error("Composer tokens must display resolved names without wire IDs");
+        std::size_t images = 0;
+        const auto countImages = [&](auto&& self, const Node& node) -> void {
+          if (const auto* image = dynamic_cast<const ImageNode*>(&node);
+              image && image->visible() && image->width() > 0 && image->height() > 0)
+            ++images;
+          for (const auto& child : node.children())
+            self(self, *child);
+        };
+        countImages(countImages, input);
+        if (images != 2 || !input.value().contains("<@11>") || !input.value().contains("<a:umbriel:"))
+          throw std::runtime_error("Composer emoji previews must retain original mention and emoji syntax");
+        std::clog << "Offline composer presentation check passed\n";
+      }
       if (m_demo && m_demoOverlay.starts_with("syntax-nix-flat-rail")) {
         const auto& boxes = m_messageLayouts.at(m_messages.front().id).layout.boxes;
         const auto code = std::ranges::find_if(boxes, [](const auto& box) { return !box.code.empty(); });
@@ -1429,6 +1450,12 @@ namespace app {
               : view == "autocomplete-emoji"                                ? ":umb"
               : view == "autocomplete-roles"                                ? "@moon"
                                                                             : "Hello @ma";
+          if (view.starts_with("autocomplete-tokens")) {
+            m_drafts[m_channelId] = "Hello <@11> <@&50> <:project_1:800000000000000001>\n"
+                                    "<a:umbriel:800000000000000000> 🙂";
+            if (view.ends_with("light"))
+              m_preferences.theme = "light";
+          }
           m_focusedInput = "composer";
           m_messageLayouts.clear();
           m_unreadTimeline.snapshot({});
@@ -3317,8 +3344,16 @@ namespace app {
         m_edit.clamp(draft);
         m_draftWidth = std::max(32.0F, bodyWidth - 222);
         m_draftOffsets = TextEdit::stops(draft);
+        const TextPresentation draftPresentation(draft, composerReplacements(draft));
+        std::erase_if(m_draftOffsets, [&](const auto byte) {
+          const auto* replacement = draftPresentation.replacementAt(byte);
+          return replacement && byte != replacement->begin;
+        });
+        auto displayOffsets = m_draftOffsets;
+        for (auto& byte : displayOffsets)
+          byte = draftPresentation.displayOffset(byte);
         m_window.target().renderer().measureTextCursorStopsWrapped(
-            draft, 14, m_draftOffsets, m_draftWidth, m_draftStops
+            draftPresentation.text(), Style::fontSizeBody, displayOffsets, m_draftWidth, m_draftStops
         );
         const float fullDraftHeight =
             m_draftStops.empty() ? 22 : m_draftStops.back().y + std::max(22.0F, m_draftStops.back().height);
@@ -5725,6 +5760,7 @@ namespace app {
         m_selectedText.clear();
         m_selectedMessage.clear();
         m_drafts.clear();
+        m_draftMentionNames.clear();
         m_fieldFocused = true;
       }
       if (event.operation == api::Operation::Connect) {
@@ -7156,6 +7192,7 @@ namespace app {
       m_selectedText.clear();
       m_selectedMessage.clear();
       m_drafts.clear();
+      m_draftMentionNames.clear();
       m_guildId.clear();
       m_channelId.clear();
       m_pendingDraft.clear();

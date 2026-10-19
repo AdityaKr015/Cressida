@@ -47,6 +47,57 @@ int main() {
     auto key = [&](std::uint32_t symbol, std::uint32_t modifiers = 0, std::uint32_t unicode = 0) {
       field.inputArea()->dispatchKey(symbol, unicode, modifiers, true);
     };
+    field.setTextPresenter([](std::string_view text) {
+      std::vector<TextReplacement> result;
+      if (const auto at = text.find("<@123>"); at != std::string_view::npos)
+        result.push_back({at, at + std::string_view("<@123>").size(), "@Maya"});
+      return result;
+    });
+    field.setValue("Hello <@123>!");
+    require(field.displayValue() == "Hello @Maya!", "Inputs present readable text while retaining protocol syntax");
+    field.moveCaretLeft();
+    field.moveCaretLeft();
+    require(field.textInputState().cursor == 6, "Caret navigation treats a presented mention as one editing unit");
+    field.moveCaretRight();
+    key(XKB_KEY_BackSpace);
+    require(field.value() == "Hello !", "Backspace removes a complete mention instead of corrupting its ID");
+    key(XKB_KEY_z, KeyMod::Ctrl);
+    require(
+        field.value() == "Hello <@123>!" && field.displayValue() == "Hello @Maya!",
+        "Undo restores mention source and presentation together"
+    );
+    key(XKB_KEY_a, KeyMod::Ctrl);
+    key(XKB_KEY_c, KeyMod::Ctrl);
+    require(clipboard.text == "Hello <@123>!", "Copy preserves the original mention identity");
+    TextInputEdit preedit;
+    preedit.hasPreedit = true;
+    preedit.preeditText = "日本";
+    field.clearSelection();
+    field.textInputApplyEdit(preedit);
+    require(
+        field.textInputState().surroundingText == "Hello <@123>!", "IME surrounding text retains source byte offsets"
+    );
+    field.textInputResetPreedit();
+    field.setValue("<@123>");
+    TextInputEdit eraseMention;
+    eraseMention.hasDelete = true;
+    eraseMention.deleteBeforeLength = 1;
+    field.textInputApplyEdit(eraseMention);
+    require(field.value().empty(), "IME deletion expands to the complete displayed mention");
+    key(XKB_KEY_z, KeyMod::Ctrl);
+    require(
+        field.value() == "<@123>" && field.displayValue() == "@Maya", "IME deletion remains one undoable source edit"
+    );
+    key(XKB_KEY_Home);
+    TextInputEdit insertBefore;
+    insertBefore.hasDelete = insertBefore.hasCommitText = true;
+    insertBefore.commitText = "前 ";
+    field.textInputApplyEdit(insertBefore);
+    require(
+        field.value() == "前 <@123>" && field.displayValue() == "前 @Maya",
+        "A zero-length IME delete does not remove the following mention"
+    );
+    field.setTextPresenter({});
     field.setValue("one two");
     key(XKB_KEY_a, KeyMod::Ctrl);
     key(XKB_KEY_c, KeyMod::Ctrl);

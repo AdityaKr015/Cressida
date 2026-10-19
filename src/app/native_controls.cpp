@@ -231,6 +231,8 @@ namespace app {
       m_detachedInputs.erase(stored);
     } else {
       auto field = std::make_unique<Input>();
+      if (id == "composer" || id == "message-edit")
+        field->setTextPresenter([this](std::string_view text) { return composerReplacements(text); });
       field->setFontSize(Style::fontSizeBody);
       field->setMultiline(multiline);
       field->setMultilineCenterWhenFits(id == "composer");
@@ -404,6 +406,8 @@ namespace app {
     input.setSubmitOnEnter(id == "composer" || id == "dialog" || id == "message-edit");
     if (input.value() != value)
       input.setValue(value);
+    if (id == "composer" || id == "message-edit")
+      input.refreshTextPresentation();
     input.setPlaceholder(placeholder);
     input.setFrameVisible(id != "composer");
     input.setEnabled(

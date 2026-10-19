@@ -263,6 +263,7 @@ namespace app {
     bool completionKey(const Key& key);
     bool completionClick(float x, float y);
     void chooseCompletion(std::size_t index);
+    std::vector<TextReplacement> composerReplacements(std::string_view value);
     void drawCompletion(Node& root, float width, float height);
     void completionEvent(const api::Event& event);
     void demoCompletionStep();
@@ -1064,6 +1065,7 @@ namespace app {
     std::string m_status;
     std::string m_pendingDraft;
     std::map<std::string, std::string> m_drafts;
+    std::map<std::string, std::map<std::string, std::string>> m_draftMentionNames;
     struct DraftImage {
       api::Upload upload;
       TextureHandle texture;

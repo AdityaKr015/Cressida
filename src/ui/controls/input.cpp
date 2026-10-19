@@ -12,6 +12,7 @@
 #include "render/core/render_styles.h"
 #include "render/core/renderer.h"
 #include "render/scene/glyph_node.h"
+#include "render/scene/image_node.h"
 #include "render/scene/input_area.h"
 #include "render/scene/rect_node.h"
 #include "render/text/glyph_registry.h"
@@ -417,6 +418,28 @@ void Input::setValue(std::string_view value) {
   clearEditHistory();
   updateDisplayText();
   notifyTextInputStateChanged(TextInputChangeCause::Other);
+  markTextContentChanged();
+}
+
+void Input::setTextPresenter(TextPresenter presenter) {
+  m_textPresenter = std::move(presenter);
+  refreshTextPresentation();
+}
+
+bool Input::updateTextPresentation() {
+  auto replacements = m_textPresenter && !m_passwordMode ? m_textPresenter(m_value) : std::vector<TextReplacement>{};
+  if (m_presentation.matches(m_value, replacements))
+    return false;
+  m_presentation = TextPresentation(m_value, std::move(replacements));
+  m_graphemeText.clear();
+  m_graphemeStops.clear();
+  return true;
+}
+
+void Input::refreshTextPresentation() {
+  if (!updateTextPresentation())
+    return;
+  updateDisplayText();
   markTextContentChanged();
 }
 
@@ -856,8 +879,11 @@ void Input::rebuildCursorStopsFull(Renderer& renderer) {
     }
   }
   if (m_multiline) {
+    auto displayStops = m_stopByte;
+    for (auto& byte : displayStops)
+      byte = m_presentation.displayOffset(byte);
     renderer.measureTextCursorStopsWrapped(
-        m_value, m_fontSize, m_stopByte, m_stopsBuiltForWidth, m_stopRect, m_label->fontWeight()
+        m_presentation.text(), m_fontSize, displayStops, m_stopsBuiltForWidth, m_stopRect, m_label->fontWeight()
     );
     if (m_stopRect.size() != m_stopByte.size()) {
       m_stopRect.assign(m_stopByte.size(), TextCursorStop{0.0F, 0.0F, m_fontSize});
@@ -867,7 +893,10 @@ void Input::rebuildCursorStopsFull(Renderer& renderer) {
       m_stopX[i] = m_stopRect[i].x;
     }
   } else if (!showPasswordGlyphs) {
-    renderer.measureTextCursorStops(m_value, m_fontSize, m_stopByte, m_stopX, m_label->fontWeight());
+    auto displayStops = m_stopByte;
+    for (auto& byte : displayStops)
+      byte = m_presentation.displayOffset(byte);
+    renderer.measureTextCursorStops(m_presentation.text(), m_fontSize, displayStops, m_stopX, m_label->fontWeight());
     if (m_stopX.size() != m_stopByte.size()) {
       m_stopX.assign(m_stopByte.size(), 0.0F);
     }
@@ -959,7 +988,9 @@ void Input::updateLabelVisibleSlice(Renderer& renderer) {
     return;
   }
 
-  const std::string slice = m_value.substr(sliceStart, sliceEnd - sliceStart);
+  const auto displayStart = m_presentation.displayOffset(sliceStart);
+  const std::string slice =
+      m_presentation.text().substr(displayStart, m_presentation.displayOffset(sliceEnd) - displayStart);
   m_labelSliceOriginX = Style::rtl() ? 0.0F : stopXForByte(sliceStart);
   m_labelVisibleStartByte = sliceStart;
   if (slice != m_labelVisibleSlice) {
@@ -1499,11 +1530,16 @@ bool Input::deleteSurroundingText(std::uint32_t beforeLength, std::uint32_t afte
   const std::size_t baseEnd = selectionEnd();
   const std::size_t selectionLength = baseEnd - baseStart;
   const std::size_t rawStart = beforeLength > baseStart ? 0 : baseStart - beforeLength;
-  const std::size_t start = clampToUtf8Start(m_value, rawStart);
+  std::size_t start = clampToUtf8Start(m_value, rawStart);
+  if (const auto* replacement = m_presentation.replacementAt(start))
+    start = replacement->begin;
   const std::size_t beforeEnd = clampToUtf8Start(m_value, baseStart);
   const std::size_t afterStart = clampToUtf8End(m_value, baseEnd);
   const std::size_t rawEnd = std::min(m_value.size(), baseEnd + static_cast<std::size_t>(afterLength));
-  const std::size_t end = clampToUtf8End(m_value, rawEnd);
+  std::size_t end = clampToUtf8End(m_value, rawEnd);
+  if (end > afterStart)
+    if (const auto* replacement = m_presentation.replacementAt(end - 1))
+      end = std::max(end, replacement->end);
   if (start >= beforeEnd && afterStart >= end) {
     return false;
   }
@@ -1626,7 +1662,58 @@ void Input::applyVisualState() {
   }
 }
 
+void Input::updateInlineImages() {
+  if (!m_textViewport)
+    return;
+  std::size_t count = 0;
+  for (const auto& replacement : m_presentation.replacements()) {
+    if (!replacement.image.valid() || m_passwordMode)
+      continue;
+    if (count == m_inlineImages.size()) {
+      auto image = std::make_unique<ImageNode>();
+      m_inlineImages.push_back(image.get());
+      m_textViewport->addChild(std::move(image));
+    }
+    auto* image = m_inlineImages[count++];
+    const auto first = std::ranges::lower_bound(m_stopByte, replacement.begin);
+    const auto last = std::ranges::lower_bound(m_stopByte, replacement.end);
+    const bool ready = first != m_stopByte.end()
+        && last != m_stopByte.end()
+        && *first == replacement.begin
+        && *last == replacement.end
+        && !m_stopX.empty();
+    image->setVisible(ready);
+    if (!ready)
+      continue;
+    const auto firstIndex = std::size_t(first - m_stopByte.begin());
+    const auto lastIndex = std::size_t(last - m_stopByte.begin());
+    float x = m_stopX[firstIndex] - m_scrollOffset + m_contentLeadSlack;
+    float y = m_cachedLabelY;
+    if (m_multiline && multilineStopsValid()) {
+      auto start = m_stopRect[firstIndex];
+      const auto end = m_stopRect[lastIndex];
+      if (!sameLineY(start.y, end.y)) {
+        start = end;
+        start.x = std::max(0.0F, start.x - m_fontSize);
+      }
+      x = start.x;
+      y += start.y - m_scrollOffsetY + (start.height - m_fontSize) / 2;
+    } else
+      y += (m_label->height() - m_fontSize) / 2;
+    image->setPosition(x, y);
+    image->setSize(m_fontSize, m_fontSize);
+    image->setTextureId(replacement.image);
+    image->setTextureSize(replacement.imageWidth, replacement.imageHeight);
+    image->setFitMode(ImageFitMode::Contain);
+  }
+  while (m_inlineImages.size() > count) {
+    (void)m_textViewport->removeChild(m_inlineImages.back());
+    m_inlineImages.pop_back();
+  }
+}
+
 void Input::updateDisplayText() {
+  updateTextPresentation();
   if (m_value.empty() && !m_placeholder.empty()) {
     m_labelVisibleSlice.clear();
     m_label->setText(m_placeholder);
@@ -1635,7 +1722,7 @@ void Input::updateDisplayText() {
     m_label->setText(std::string{});
   } else {
     m_labelVisibleSlice.clear();
-    m_label->setText(m_value);
+    m_label->setText(m_presentation.text());
   }
 }
 
@@ -1689,6 +1776,7 @@ void Input::updateInteractiveGeometry() {
     // Vertical scroll is maintained by the callers (ensureCursorVisibleY /
     // wheel / drag); this only places the nodes for the current offset.
     syncLabelScrollPosition();
+    updateInlineImages();
 
     TextCursorStop stop{0.0F, 0.0F, currentLineHeight()};
     if (multilineStopsValid()) {
@@ -1728,6 +1816,7 @@ void Input::updateInteractiveGeometry() {
     }
   }
 
+  updateInlineImages();
   const float controlHeight = height() > 0.0F ? height() : m_controlHeight;
   const float maxCursorHeight = std::max(0.0F, controlHeight - kCursorPadV * 2.0F);
   const float cursorHeight =
@@ -1980,6 +2069,8 @@ void Input::extendPointerSelectionToByteOffset(std::size_t offset) {
 }
 
 std::size_t Input::wordStartForByteOffset(std::size_t offset) const {
+  if (const auto* replacement = m_presentation.replacementAt(offset == m_value.size() && offset ? offset - 1 : offset))
+    return replacement->begin;
   if (m_value.empty()) {
     return 0;
   }
@@ -2008,6 +2099,8 @@ std::size_t Input::wordStartForByteOffset(std::size_t offset) const {
 }
 
 std::size_t Input::wordEndForByteOffset(std::size_t offset) const {
+  if (const auto* replacement = m_presentation.replacementAt(offset))
+    return replacement->end;
   if (m_value.empty()) {
     return 0;
   }
@@ -2033,6 +2126,8 @@ std::size_t Input::wordEndForByteOffset(std::size_t offset) const {
 }
 
 std::size_t Input::previousWordStartForByteOffset(std::size_t offset) const {
+  if (const auto* replacement = offset ? m_presentation.replacementAt(offset - 1) : nullptr)
+    return replacement->begin;
   if (m_value.empty()) {
     return 0;
   }
@@ -2060,6 +2155,8 @@ std::size_t Input::previousWordStartForByteOffset(std::size_t offset) const {
 }
 
 std::size_t Input::nextWordStartForByteOffset(std::size_t offset) const {
+  if (const auto* replacement = m_presentation.replacementAt(offset))
+    return replacement->end;
   if (m_value.empty()) {
     return 0;
   }
@@ -2081,6 +2178,8 @@ std::size_t Input::nextWordStartForByteOffset(std::size_t offset) const {
 }
 
 std::size_t Input::nextWordEndForByteOffset(std::size_t offset) const {
+  if (const auto* replacement = m_presentation.replacementAt(offset))
+    return replacement->end;
   if (m_value.empty()) {
     return 0;
   }
@@ -2529,7 +2628,9 @@ void Input::updateGraphemeStops(const std::string& text) const {
   for (glong i = 1; i <= count; ++i) {
     at = g_utf8_next_char(at);
     if (attrs[i].is_cursor_position)
-      m_graphemeStops.push_back(at - text.data());
+      if (const auto* replacement = &text == &m_value ? m_presentation.replacementAt(at - text.data()) : nullptr;
+          !replacement || replacement->begin == std::size_t(at - text.data()))
+        m_graphemeStops.push_back(at - text.data());
   }
 }
 std::size_t Input::nextCharPos(const std::string& text, std::size_t pos) const {

@@ -127,8 +127,9 @@ namespace app {
   float ClientApplication::messageEditHeight(float width) {
     if (!m_messageEdit)
       return 0;
+    const TextPresentation presentation(m_messageEdit->text, composerReplacements(m_messageEdit->text));
     const auto measured = m_window.target().renderer().measureText(
-        m_messageEdit->text.empty() ? " " : m_messageEdit->text, m_preferences.messageSize, FontWeight::Normal,
+        presentation.text().empty() ? " " : presentation.text(), m_preferences.messageSize, FontWeight::Normal,
         std::max(1.0F, width - 24), 0
     );
     const float field = std::clamp(measured.bottom - measured.top + Style::spaceXl, 44.0F, 180.0F);

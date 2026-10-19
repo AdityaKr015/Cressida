@@ -6,6 +6,7 @@
 #include "ui/signal.h"
 #include "ui/style.h"
 #include "ui/text_input_client.h"
+#include "ui/text_presentation.h"
 
 #include <chrono>
 #include <cstddef>
@@ -21,6 +22,7 @@ class GlyphNode;
 class InputArea;
 class Label;
 class RectNode;
+class ImageNode;
 
 class Input : public Node, public TextInputClient {
 public:
@@ -33,6 +35,10 @@ public:
   ~Input() override;
 
   void setValue(std::string_view value);
+  using TextPresenter = std::function<std::vector<TextReplacement>(std::string_view)>;
+  void setTextPresenter(TextPresenter presenter);
+  void refreshTextPresentation();
+  const std::string& displayValue() const noexcept { return m_presentation.text(); }
   void setPlaceholder(std::string_view placeholder);
   void setFontSize(float size);
   void setControlHeight(float height);
@@ -111,6 +117,8 @@ private:
   bool deleteSurroundingText(std::uint32_t beforeLength, std::uint32_t afterLength);
   void applyVisualState();
   void updateDisplayText();
+  bool updateTextPresentation();
+  void updateInlineImages();
   void requestCaretUpdate();
   void updateInteractiveGeometry();
   void clearFromButton();
@@ -194,6 +202,9 @@ private:
   GlyphNode* m_clearButtonGlyph = nullptr;
 
   std::string m_value;
+  TextPresenter m_textPresenter;
+  TextPresentation m_presentation;
+  std::vector<ImageNode*> m_inlineImages;
   std::string m_placeholder;
   std::size_t m_cursorPos = 0;
   std::size_t m_selectionAnchor = 0;

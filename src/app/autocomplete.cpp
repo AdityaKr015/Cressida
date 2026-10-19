@@ -1,4 +1,5 @@
 #include "app/client_application.h"
+#include "app/composer_tokens.h"
 #include "app/theme.h"
 #include "ui/controls/scrollbar.h"
 
@@ -9,6 +10,64 @@
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace app {
+  std::vector<TextReplacement> ClientApplication::composerReplacements(std::string_view value) {
+    std::vector<TextReplacement> result;
+    const auto tokens = composerTokens(value);
+    std::map<std::string, std::string> names;
+    if (std::ranges::any_of(tokens, [](const auto& token) { return token.kind == ComposerToken::User; })) {
+      if (const auto draft = m_draftMentionNames.find(m_channelId); draft != m_draftMentionNames.end())
+        names = draft->second;
+      for (const auto& user : m_userDirectory.relatedUsers())
+        names[user.id] = user.name;
+      for (const auto& message : m_messages) {
+        names[message.authorId] = message.author;
+        for (const auto& [id, name] : message.mentions)
+          names[id] = name;
+      }
+      for (const auto& member : m_members)
+        names[member.user.id] = member.user.name;
+      names[m_account.id] = m_account.name;
+    }
+    for (const auto& token : tokens) {
+      const std::string id(token.id);
+      std::string label;
+      TextureHandle texture;
+      if (token.kind == ComposerToken::Emoji) {
+        label = ":" + std::string(token.name) + ":";
+        const auto path = api::emojiPath(id);
+        auto& cached = m_images[path];
+        cached.touched = ++m_imageSerial;
+        texture = cached.texture;
+        if (!texture.valid())
+          if (const auto animated = m_images.find(api::emojiPath(id, true)); animated != m_images.end()) {
+            texture = animated->second.texture;
+            animated->second.touched = ++m_imageSerial;
+          }
+        if (!texture.valid()
+            && !m_demo
+            && !m_pendingImages.contains(path)
+            && std::chrono::steady_clock::now() >= cached.retry
+            && m_assets.request(path))
+          m_pendingImages.insert(path);
+        if (texture.valid())
+          label = "\u2060\u2003\u2060";
+      } else if (token.kind == ComposerToken::Channel) {
+        label = "#" + channelMention(m_guildId, id).name;
+      } else if (token.kind == ComposerToken::Role) {
+        label = "@unknown-role";
+        for (const auto& role : m_roleDirectory.allRoles(m_guildId))
+          if (role.id == id) {
+            label = "@" + role.name;
+            break;
+          }
+      } else {
+        const auto known = names.find(id);
+        label = "@" + userName(id, known == names.end() ? "unknown-user" : known->second);
+      }
+      result.push_back({token.begin, token.end, std::move(label), texture.id, texture.width, texture.height});
+    }
+    return result;
+  }
   namespace {
     std::string folded(std::string_view value) {
       auto* text = g_utf8_casefold(value.data(), value.size());
@@ -311,6 +370,8 @@ namespace app {
       return;
     const auto query = *m_completionQuery;
     const auto picked = m_completionItems[index];
+    if (picked.kind == CompletionItem::Member)
+      m_draftMentionNames[m_channelId][picked.id] = picked.name;
     auto text = m_completionItems[index].insert;
     if (query.end == m_completionSnapshot.size() || !g_ascii_isspace(m_completionSnapshot[query.end]))
       text += ' ';
@@ -396,6 +457,9 @@ namespace app {
           m_drafts[m_channelId] == "Hello <@11> " && m_messages.size() == 2 && !m_sending,
           "Enter inserts a real mention without submitting the composer"
       );
+      require(
+          m_inputs.at("composer")->displayValue() == "Hello @Maya ", "Selected mentions display names instead of IDs"
+      );
     } else if (step == 1) {
       setDraft("prefix :umb tail");
       for (int i = 0; i < 5; ++i)
@@ -404,6 +468,10 @@ namespace app {
       require(
           m_drafts[m_channelId].starts_with("prefix <a:umbriel:") && m_drafts[m_channelId].ends_with(" tail"),
           "Tab replaces only the active emoji token and preserves the suffix"
+      );
+      require(
+          m_inputs.at("composer")->displayValue().find("<a:") == std::string::npos,
+          "Selected custom emoji display their preview instead of protocol syntax"
       );
       onKey({.symbol = XKB_KEY_z, .control = true});
       require(m_drafts[m_channelId] == "prefix :umb tail", "Autocomplete insertion is a single undoable native edit");
