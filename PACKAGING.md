@@ -32,6 +32,11 @@ metadata as well as the runtime libraries. Cressida uses neither Qt nor GTK.
   `std::expected`, `std::format` and `std::ranges::contains`. A compiler accepting
   `-std=c++23` with an older standard library is insufficient.
 - Meson 1.1 or newer, Ninja and pkg-config/pkgconf.
+- For LTO builds, a matching compiler-aware archiver: `gcc-ar` with GCC or
+  `llvm-ar` with Clang. `just build release` lets Meson choose it when `AR` is
+  unset or simply `ar`; custom `AR` commands remain explicit overrides. Plain
+  archivers without the compiler's LTO plugin can produce archives whose symbols
+  the linker cannot find. See [GCC's LTO documentation](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html#index-flto).
 - `wayland-scanner` and `wayland-protocols`, including xdg-shell, xdg-decoration,
   viewporter and fractional-scale-v1 XML files.
 - Python 3 and the `ffmpeg` executable for the test fixtures.

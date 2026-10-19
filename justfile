@@ -18,6 +18,11 @@ _configure m=mode install_prefix="":
         asan)    args=(--buildtype=debugoptimized -Doptimization=1 -Db_sanitize=address,undefined -Db_lto=false -Db_ndebug=false -Dstrip=false "-Dc_args=['-fno-omit-frame-pointer','-fno-optimize-sibling-calls','-g3']" "-Dcpp_args=['-fno-omit-frame-pointer','-fno-optimize-sibling-calls','-g3']") ;;
         *) echo "Unknown mode: $1 (expected debug, release, or asan)" >&2; exit 1 ;;
     esac
+    # A generic AR override (as set by Nix) bypasses Meson's compiler-aware
+    # gcc-ar/llvm-ar selection. Plain ar may omit every slim-LTO symbol.
+    if [[ "$1" == release && "${AR:-ar}" == ar ]]; then
+        unset AR
+    fi
     build_path="{{build-prefix}}-$1"
     if [[ -f "$build_path/meson-private/coredata.dat" ]]; then
         args+=(--reconfigure)
