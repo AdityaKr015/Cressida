@@ -80,7 +80,9 @@ namespace app {
     const auto identity = m_channelId + ":" + m_focusedInput + ":" + std::to_string(cursor.cursor) + ":" + value;
     if (identity != m_completionDismissed)
       m_completionDismissed.clear();
-    if (!query || identity == m_completionDismissed) {
+    if (!query
+        || (query->trigger == ':' && g_utf8_strlen(query->text.data(), query->text.size()) < 2)
+        || identity == m_completionDismissed) {
       closeCompletion();
       return;
     }
@@ -428,6 +430,20 @@ namespace app {
       onKey({XKB_KEY_Escape});
       require(!m_messageEdit && !m_completionQuery, "Escape returns from inline editing after completing a token");
     } else if (step == 6) {
+      for (const auto* draft : {":", ":u", ":é"}) {
+        setDraft(draft);
+        updateCompletion();
+        require(
+            !m_completionQuery && m_completionItems.empty() && m_completionBounds.height == 0,
+            "Emoji autocomplete waits for two characters after the colon"
+        );
+      }
+      setDraft(":um");
+      updateCompletion();
+      require(m_completionQuery && !m_completionItems.empty(), "Two emoji-name characters enable suggestions");
+      setDraft(":u");
+      updateCompletion();
+      require(!m_completionQuery && m_completionItems.empty(), "Backspacing below two characters clears suggestions");
       setDraft(":umb");
     } else if (step == 7) {
       const auto row = std::ranges::find(m_hits, Action::CompleteText, &Hit::action);
