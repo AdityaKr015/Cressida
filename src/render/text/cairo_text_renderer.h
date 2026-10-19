@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -86,7 +87,7 @@ public:
       float fontSize, const Color& color, const Mat3& transform, FontWeight fontWeight = FontWeight::Normal,
       float maxWidth = 0.0F, int maxLines = 0, TextAlign align = TextAlign::Start, std::string_view fontFamily = {},
       TextEllipsize ellipsize = TextEllipsize::End, bool useMarkup = false, bool pixelSnap = true,
-      const TextGradient* gradient = nullptr
+      const TextGradient* gradient = nullptr, std::optional<float> smoothScrollY = {}
   );
 
 private:

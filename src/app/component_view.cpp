@@ -230,7 +230,7 @@ namespace app {
     content->setPosition(x + 24, top);
     content->setSize(width - 48, viewport);
     content->setClipChildren(true);
-    content->setTextPixelSnap(false);
+    content->setTextScrollOffset(-m_channelDialogScroll);
     float fieldY = -m_channelDialogScroll;
     for (std::size_t i = 0; i < m_applicationModal->fields.size(); ++i) {
       const auto& field = m_applicationModal->fields[i];

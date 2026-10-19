@@ -976,7 +976,7 @@ void CairoTextRenderer::draw(
     float contentScale, float surfaceWidth, float surfaceHeight, float x, float baselineY, std::string_view text,
     float fontSize, const Color& color, const Mat3& transform, FontWeight fontWeight, float maxWidth, int maxLines,
     TextAlign align, std::string_view fontFamily, TextEllipsize ellipsize, bool useMarkup, bool pixelSnap,
-    const TextGradient* gradient
+    const TextGradient* gradient, std::optional<float> smoothScrollY
 ) {
   maybeSyncFontConfig();
   if (m_pangoContext == nullptr || m_backend == nullptr || text.empty()) {
@@ -1006,10 +1006,10 @@ void CairoTextRenderer::draw(
   // Shift left by inkOffsetX so the logical text origin stays at `x`.
   const float inkOffX = entry->inkOffsetX * invScale;
   const Mat3 localTranslation = Mat3::translation(x - inkOffX, baselineY - baselineLocal);
-  const Mat3 baseWorld = textQuadTransform(transform * localTranslation, contentScale, pixelSnap);
+  const Mat3 baseWorld = textQuadTransform(transform * localTranslation, contentScale, pixelSnap, smoothScrollY);
 
-  // Static quads align to buffer pixels; a moving ancestor opts out so text
-  // advances with image/selection geometry instead of stepping by whole pixels.
+  // Align the static raster independently of a scrolling ancestor's exact
+  // displacement, retaining smooth movement with image/selection geometry.
   // Emit one quad per tile. Tiles share the same X/width and abut on exact
   // buffer-pixel boundaries (pixelYOffset is an integer number of raster
   // pixels), so there is no seam between adjacent tiles even at fractional

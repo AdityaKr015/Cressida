@@ -185,7 +185,7 @@ namespace app {
     viewport->setPosition(x + 12, top);
     viewport->setSize(width - 24, viewportHeight);
     viewport->setClipChildren(true);
-    viewport->setTextPixelSnap(false);
+    viewport->setTextScrollOffset(-m_dmCreateScroll);
     if (matches.empty())
       label(*viewport, 8, 12, inner, "No matching people.", 13, muted);
     for (std::size_t i = 0; i < matches.size(); ++i) {

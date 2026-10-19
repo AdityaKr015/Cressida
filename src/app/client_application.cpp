@@ -2647,7 +2647,10 @@ namespace app {
     m_scene->setPosition(0, m_window.titlebarHeight() - 36);
     auto& root = *m_scene;
     m_hits.clear();
-    rectangle(root, 0, 0, w, h, background);
+    rectangle(
+        root, 0, 0, std::ceil(m_window.target().renderWidth()),
+        std::ceil(m_window.target().renderHeight()) + 36 - m_window.titlebarHeight(), background
+    );
     if (m_window.titlebarHeight() > 0) {
       rectangle(root, 0, 0, w, 36, theme::sidebar);
       label(root, 18, 8, 300, "CRESSIDA", 11, muted, FontWeight::SemiBold);
@@ -3283,9 +3286,9 @@ namespace app {
         }
         m_messageViewportTop = top;
         m_messageViewportBottom = bottom;
-        // Keep the same transform at rest: switching snapping back on can move
-        // glyphs against the scroll direction in the final frame.
-        content->setTextPixelSnap(false);
+        // Align stationary glyphs, then apply the exact scroll displacement in
+        // both moving and settled frames so the final frame cannot recoil.
+        content->setTextScrollOffset(m_messageScroll);
         if (m_traceScroll)
           std::clog
               << "scroll frame surface=chat offset="

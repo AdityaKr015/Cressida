@@ -384,7 +384,6 @@ namespace app {
     content->setPosition(left + 24, top);
     content->setSize(std::max(1.0F, listRight - left - 48), std::max(0.0F, bottom - top));
     content->setClipChildren(true);
-    content->setTextPixelSnap(false);
     const float inner = content->width();
     const bool narrow = inner < (requests ? 400 : 560);
     const float baseHeight = narrow ? 108 : 72;
@@ -415,6 +414,7 @@ namespace app {
     }
     // Keep row painting and controls on the same page after filtering or removal.
     m_scrolling.limit(m_dmHomeScroll, std::max(0.0F, total - (bottom - top)));
+    content->setTextScrollOffset(-m_dmHomeScroll);
     float y = -m_dmHomeScroll;
     std::size_t count = 0;
     const auto actionButton = [&](const std::string& title, const std::string& command, float x, float rowY,

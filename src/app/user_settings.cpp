@@ -302,8 +302,8 @@ namespace app {
     list->setPosition(x + 8, y + 80);
     list->setSize(width - 28, viewport);
     list->setClipChildren(true);
-    list->setTextPixelSnap(false);
     m_scrolling.limit(m_fontPickerScroll, std::max(0.0F, full - viewport));
+    list->setTextScrollOffset(-m_fontPickerScroll);
     // Keep 25 rows prepared around the viewport; font metadata is inexpensive,
     // and the remaining families need no scene nodes or glyphs until approached.
     const std::size_t visible = static_cast<std::size_t>(std::ceil(viewport / 30)) + 1;
@@ -515,7 +515,6 @@ namespace app {
     page->setPosition(contentLeft, viewportY);
     page->setSize(contentWidth, viewportH);
     page->setClipChildren(true);
-    page->setTextPixelSnap(false);
     auto body = std::make_unique<Node>();
     auto* bodyNode = body.get();
     body->setPosition(14, -m_settingsScroll);
@@ -1407,6 +1406,7 @@ namespace app {
     finishCategory();
     const float pageHeight = cursor + 8;
     m_scrolling.limit(m_settingsScroll, std::max(0.0F, pageHeight - viewportH));
+    page->setTextScrollOffset(-m_settingsScroll);
     bodyNode->setPosition(14, -m_settingsScroll);
     const float correction = previousScroll - m_settingsScroll;
     for (auto i = firstHit; i < m_hits.size(); ++i) {

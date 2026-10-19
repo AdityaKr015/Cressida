@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 struct Mat3;
@@ -95,6 +96,7 @@ public:
   [[nodiscard]] bool clipChildren() const noexcept { return m_clipChildren; }
   [[nodiscard]] bool paintContained() const noexcept { return m_paintContained; }
   [[nodiscard]] bool textPixelSnap() const noexcept { return m_textPixelSnap; }
+  [[nodiscard]] std::optional<float> textScrollOffset() const noexcept { return m_textScrollOffset; }
   [[nodiscard]] bool hitTestVisible() const noexcept { return m_hitTestVisible; }
   [[nodiscard]] HitTestOutset hitTestOutset() const noexcept { return m_hitTestOutset; }
   [[nodiscard]] bool sizeAssignedByLayout() const noexcept { return m_sizeAssignedByLayout; }
@@ -127,6 +129,10 @@ public:
   // Descendants inherit false while a scrolling/animated pane moves. Leave
   // glyph rasterization unchanged; only the final text quad translation varies.
   void setTextPixelSnap(bool enabled);
+  // Signed vertical displacement of this pane's contents, in its parent's
+  // coordinates. Align the stationary text raster before applying this exact
+  // displacement, so scrolling stays continuous without softening its base.
+  void setTextScrollOffset(float offset);
   void setHitTestVisible(bool hitTestVisible);
   void setHitTestOutset(const HitTestOutset& outset);
   void setZIndex(std::int32_t zIndex);
@@ -208,6 +214,7 @@ private:
   bool m_clipChildren = false;
   bool m_paintContained = false;
   bool m_textPixelSnap = true;
+  std::optional<float> m_textScrollOffset;
   bool m_excludeSubtreeFromTabOrder = false;
   bool m_hitTestVisible = true;
   HitTestOutset m_hitTestOutset{};

@@ -94,6 +94,10 @@ void RenderTarget::setContentScale(float scale) noexcept {
   m_contentScale = scale > 0.0F && std::isfinite(scale) ? scale : 1.0F;
 }
 
+float RenderTarget::renderWidth() const noexcept { return static_cast<float>(m_bufferWidth) / m_contentScale; }
+
+float RenderTarget::renderHeight() const noexcept { return static_cast<float>(m_bufferHeight) / m_contentScale; }
+
 void RenderTarget::resize(std::uint32_t bufferWidth, std::uint32_t bufferHeight) {
   if (bufferWidth == 0 || bufferHeight == 0) {
     return;

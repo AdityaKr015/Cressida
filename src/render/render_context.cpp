@@ -210,8 +210,8 @@ void RenderContext::renderScene(RenderTarget& target, Node* sceneRoot) {
   {
     UiPhaseScope renderPhase(UiPhase::Render);
     if (sceneRoot != nullptr) {
-      const auto sw = static_cast<float>(target.logicalWidth());
-      const auto sh = static_cast<float>(target.logicalHeight());
+      const float sw = target.renderWidth();
+      const float sh = target.renderHeight();
       const auto bw = static_cast<float>(target.bufferWidth());
       const auto bh = static_cast<float>(target.bufferHeight());
       renderNode(
@@ -324,12 +324,14 @@ void RenderContext::handleGraphicsReset(RenderGraphicsResetStatus status) {
 void RenderContext::renderNode(
     float renderScale, const Node* node, const Mat3& parentTransform, float parentOpacity, float sw, float sh, float bw,
     float bh, float clipLeft, float clipTop, float clipRight, float clipBottom, bool hasClip, bool ignoreNodeOpacity,
-    bool parentPaintContained, bool snapText
+    bool parentPaintContained, bool snapText, std::optional<float> smoothScrollY
 ) {
   if (!node->visible()) {
     return;
   }
   snapText = snapText && node->textPixelSnap();
+  if (const auto offset = node->textScrollOffset())
+    smoothScrollY = smoothScrollY.value_or(0.0F) + *offset * parentTransform.m[4];
 
   const Mat3 worldTransform = parentTransform * nodeLocalTransform(node);
   const float effectiveOpacity = ignoreNodeOpacity ? parentOpacity : parentOpacity * node->opacity();
@@ -381,7 +383,7 @@ void RenderContext::renderNode(
         m_textRenderer.draw(
             renderScale, sw, sh, 0.0F, 0.0F, text->text(), text->fontSize(), shadowColor, shadowTransform,
             text->fontWeight(), text->maxWidth(), text->maxLines(), text->textAlign(), font, text->ellipsize(),
-            text->useMarkup(), snapText
+            text->useMarkup(), snapText, nullptr, smoothScrollY
         );
       }
       auto color = text->color();
@@ -389,7 +391,7 @@ void RenderContext::renderNode(
       m_textRenderer.draw(
           renderScale, sw, sh, 0.0F, 0.0F, text->text(), text->fontSize(), color, worldTransform, text->fontWeight(),
           text->maxWidth(), text->maxLines(), text->textAlign(), font, text->ellipsize(), text->useMarkup(), snapText,
-          text->gradient()
+          text->gradient(), smoothScrollY
       );
     }
     break;
@@ -463,7 +465,7 @@ void RenderContext::renderNode(
       const Mat3 sourceParent = worldTransform * Mat3::translation(-source->x(), -source->y());
       renderNode(
           renderScale, source, sourceParent, effectiveOpacity, sw, sh, bw, bh, clipLeft, clipTop, clipRight, clipBottom,
-          hasClip, true, false, snapText
+          hasClip, true, false, snapText, smoothScrollY
       );
     }
     return;
@@ -517,14 +519,14 @@ void RenderContext::renderNode(
     for (const auto& child : children) {
       renderNode(
           renderScale, child.get(), worldTransform, effectiveOpacity, sw, sh, bw, bh, childClipLeft, childClipTop,
-          childClipRight, childClipBottom, childHasClip, false, paintContained, snapText
+          childClipRight, childClipBottom, childHasClip, false, paintContained, snapText, smoothScrollY
       );
     }
   } else {
     for (const auto* child : orderedChildren) {
       renderNode(
           renderScale, child, worldTransform, effectiveOpacity, sw, sh, bw, bh, childClipLeft, childClipTop,
-          childClipRight, childClipBottom, childHasClip, false, paintContained, snapText
+          childClipRight, childClipBottom, childHasClip, false, paintContained, snapText, smoothScrollY
       );
     }
   }

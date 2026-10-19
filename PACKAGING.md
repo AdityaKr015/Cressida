@@ -32,7 +32,8 @@ metadata as well as the runtime libraries. Cressida uses neither Qt nor GTK.
   `std::expected`, `std::format` and `std::ranges::contains`. A compiler accepting
   `-std=c++23` with an older standard library is insufficient.
 - Meson 1.1 or newer, Ninja and pkg-config/pkgconf.
-- `wayland-scanner` and the Wayland protocol XML files from `wayland-protocols`.
+- `wayland-scanner` and `wayland-protocols`, including xdg-shell, xdg-decoration,
+  viewporter and fractional-scale-v1 XML files.
 - Python 3 and the `ffmpeg` executable for the test fixtures.
 - `dbus-daemon` for private test buses.
 

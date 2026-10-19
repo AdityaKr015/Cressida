@@ -1866,7 +1866,6 @@ namespace app {
     const float navH = std::max(40.0F, h - 154);
     nav->setSize(navWidth, navH);
     nav->setClipChildren(true);
-    nav->setTextPixelSnap(false);
     const auto access = serverSettingsAccess();
     const std::vector<api::Channel> noChannels;
     const auto targetChannels = m_guildChannels.find(state.guild);
@@ -1939,6 +1938,7 @@ namespace app {
     }
     const auto previousNav = state.navScroll;
     m_scrolling.limit(state.navScroll, std::max(0.0F, navY - navH));
+    nav->setTextScrollOffset(-state.navScroll);
     if (previousNav != state.navScroll)
       for (const auto& child : nav->children())
         child->setPosition(child->x(), child->y() + previousNav - state.navScroll);
@@ -1967,7 +1967,6 @@ namespace app {
     pageNode->setPosition(contentLeft, viewportY);
     pageNode->setSize(contentWidth, viewportH);
     pageNode->setClipChildren(true);
-    pageNode->setTextPixelSnap(false);
     auto body = std::make_unique<Node>();
     auto* bodyNode = body.get();
     body->setPosition(14, -state.scroll);
@@ -3855,6 +3854,7 @@ namespace app {
     finishCategory();
     const auto fullHeight = cursor + 8;
     m_scrolling.limit(state.scroll, std::max(0.0F, fullHeight - viewportH));
+    pageNode->setTextScrollOffset(-state.scroll);
     const auto hitShift = bodyScrollBefore - state.scroll;
     const bool bodyTooltip = m_tooltip != tooltipBefore || m_tooltipX != tooltipXBefore || m_tooltipY != tooltipYBefore;
     bool tooltipVisible = false;

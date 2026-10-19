@@ -241,7 +241,7 @@ namespace app {
     content->setPosition(x + 20, top);
     content->setSize(width - 40, viewport);
     content->setClipChildren(true);
-    content->setTextPixelSnap(false);
+    content->setTextScrollOffset(-m_threadScroll);
     for (std::size_t i = 0; i < threads.size(); ++i) {
       const auto& thread = threads[i];
       const float ry = i * 68 - m_threadScroll;

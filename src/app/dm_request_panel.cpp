@@ -136,7 +136,7 @@ namespace app {
     content->setPosition(x + 20, top);
     content->setSize(inner, viewport);
     content->setClipChildren(true);
-    content->setTextPixelSnap(false);
+    content->setTextScrollOffset(-m_dmPreviewScroll);
     float rowY = std::max(0.0F, viewport - total) - m_dmPreviewScroll;
     avatar(*content, 0, rowY, 72, user.avatar, name);
     label(*content, 0, rowY + 88, inner, name, 21, foreground, FontWeight::SemiBold);

@@ -507,7 +507,7 @@ namespace app {
     content->setPosition(x + 12, top);
     content->setSize(width - 24, viewport);
     content->setClipChildren(true);
-    content->setTextPixelSnap(false);
+    content->setTextScrollOffset(-m_channelPanelScroll);
     for (std::size_t i = 0; i < m_channelPage.messages.size(); ++i) {
       const auto& message = m_channelPage.messages[i];
       const float ry = i * rowHeight - m_channelPanelScroll;
@@ -740,7 +740,6 @@ namespace app {
       clipped->setPosition(contentX, top);
       clipped->setSize(width, viewport);
       clipped->setClipChildren(true);
-      clipped->setTextPixelSnap(false);
       auto* clip = root.addChild(std::move(clipped));
       auto contents = std::make_unique<Node>();
       contents->setPosition(0, -m_channelDialogScroll);
@@ -1077,6 +1076,7 @@ namespace app {
       }
       const float previous = m_channelDialogScroll;
       m_scrolling.limit(m_channelDialogScroll, std::max(0.0F, cursor - viewport));
+      clip->setTextScrollOffset(-m_channelDialogScroll);
       body->setPosition(0, -m_channelDialogScroll);
       body->setSize(width, cursor);
       for (std::size_t i = firstHit; i < m_hits.size(); ++i) {

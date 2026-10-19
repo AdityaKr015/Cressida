@@ -56,6 +56,19 @@ xdg_sources += [
     command: [scanner, 'private-code', '@INPUT@', '@OUTPUT@']),
 ]
 
+foreach protocol : [
+  ['viewporter', 'stable/viewporter/viewporter.xml'],
+  ['fractional-scale-v1', 'staging/fractional-scale/fractional-scale-v1.xml'],
+]
+  xml = wayland_protocols.get_variable(pkgconfig: 'pkgdatadir') / protocol[1]
+  xdg_sources += [
+    custom_target(protocol[0] + '-header', input: xml, output: protocol[0] + '-client-protocol.h',
+      command: [scanner, 'client-header', '@INPUT@', '@OUTPUT@']),
+    custom_target(protocol[0] + '-code', input: xml, output: protocol[0] + '-protocol.c',
+      command: [scanner, 'private-code', '@INPUT@', '@OUTPUT@']),
+  ]
+endforeach
+
 subdir('src')
 render_includes = include_directories('src', 'third_party/wuffs')
 render_lib = shared_library('cressida-render', render_sources + control_sources, protocol_sources,
@@ -166,6 +179,10 @@ endforeach
 
 glyph_gradient_test = executable('glyph_gradient_test', 'tests/glyph_gradient_test.cpp', dependencies: render_dep)
 test('glyph_gradient', glyph_gradient_test)
+text_sharpness_test = executable('text_sharpness_test', 'tests/text_sharpness_test.cpp', dependencies: render_dep)
+test('text_sharpness', text_sharpness_test)
+surface_scale_test = executable('surface_scale_test', 'tests/surface_scale_test.cpp', include_directories: include_directories('src'))
+test('surface_scale', surface_scale_test)
 
 model_test = executable('discord_models_test', 'tests/discord_models_test.cpp', dependencies: backend_dep)
 test('discord_models', model_test)

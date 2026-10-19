@@ -82,13 +82,57 @@ int main() {
         fast == 112 && !fastFrames.tick(start + 3s) && !fastFrames.active(fast),
         "Repeated wheel input eventually stops scheduling frames"
     );
-    for (const float scale : {1.0F, 1.25F, 2.0F}) {
+    for (const float scale : {0.67F, 1.0F, 1.25F, 1.33F, 2.0F}) {
       const auto beforeStop = textQuadTransform(Mat3::translation(0, 100.39F), scale, false);
       const auto stopped = textQuadTransform(Mat3::translation(0, 100.4F), scale, false);
       require(
           stopped.m[7] >= beforeStop.m[7],
           "The final text quad must not recoil when wheel animation stops at a fractional position"
       );
+      // A whole-pixel label top still produces a fractional raster origin when
+      // Pango's measured baseline differs from its integer raster baseline.
+      // Snap that stationary phase, then add scrolling independently.
+      const auto baseline = Mat3::translation(10.37F, 20.43F);
+      const auto staticText = textQuadTransform(baseline, scale, true);
+      const auto unscrolled = textQuadTransform(baseline, scale, false, 0.0F);
+      require(
+          staticText.m == unscrolled.m
+              && std::abs(unscrolled.m[6] * scale - std::round(unscrolled.m[6] * scale)) < 0.0001F
+              && std::abs(unscrolled.m[7] * scale - std::round(unscrolled.m[7] * scale)) < 0.0001F,
+          "An unscrolled pane must retain the same sharp raster origin as static text, including zoom below 100%"
+      );
+      for (const float direction : {-1.0F, 1.0F}) {
+        float previous = unscrolled.m[7];
+        for (const float distance : {0.02F, 0.17F, 0.39F, 0.4F}) {
+          const float offset = direction * distance;
+          auto moved = baseline;
+          moved.m[7] += offset;
+          const auto rendered = textQuadTransform(moved, scale, false, offset);
+          require(
+              std::abs(rendered.m[6] - unscrolled.m[6]) < 0.0001F
+                  && std::abs(rendered.m[7] - unscrolled.m[7] - offset) < 0.0001F
+                  && direction * (rendered.m[7] - previous) >= 0,
+              "Scroll-origin snapping must preserve fractional travel in both directions without a settling recoil"
+          );
+          previous = rendered.m[7];
+        }
+      }
+      const auto rotated = baseline * Mat3::rotation(0.2F);
+      require(
+          textQuadTransform(rotated, scale, false, 0.0F).m == rotated.m,
+          "Scrolling text must preserve rotated transforms instead of snapping either axis"
+      );
+      for (const float sign : {-1.0F, 1.0F}) {
+        const float halfPixel = sign * 20.5F / scale;
+        const auto stationary = textQuadTransform(Mat3::translation(0, halfPixel), scale, false, 0.0F);
+        for (const float offset : {0.02F, 0.39F, 2.1F, 100.23F, 1000.25F}) {
+          const auto scrolled = textQuadTransform(Mat3::translation(0, halfPixel + offset), scale, false, offset);
+          require(
+              std::abs(scrolled.m[7] - stationary.m[7] - offset) < 0.0002F,
+              "Subtracting scroll offsets must not flip a stationary half-pixel tie and jump a whole pixel"
+          );
+        }
+      }
     }
     app::ScrollMotion betweenFrames;
     float displayed = 500;

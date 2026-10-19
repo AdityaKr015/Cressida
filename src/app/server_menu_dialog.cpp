@@ -381,9 +381,9 @@ namespace app {
     clip->setPosition(x + 20, bodyTop);
     clip->setSize(inner, viewport);
     clip->setClipChildren(true);
-    clip->setTextPixelSnap(false);
     auto body = std::make_unique<Node>();
     m_scrolling.limit(m_serverDialogScroll, std::max(0.0F, contentHeight - viewport));
+    clip->setTextScrollOffset(-m_serverDialogScroll);
     body->setPosition(0, -m_serverDialogScroll);
     auto& page = *body;
     const auto firstHit = m_hits.size();

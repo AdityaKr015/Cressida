@@ -240,6 +240,7 @@ namespace app {
     rail->setPosition(x + 8, top);
     rail->setSize(44, available);
     rail->setClipChildren(true);
+    const float paintedRailScroll = m_emojiRailScroll;
     float railY = 0;
     auto railItem = [&](const std::string& id, const std::string& icon, const std::string& title,
                         const api::Guild* guild = nullptr) {
@@ -291,7 +292,7 @@ namespace app {
     for (const auto& [category, icon] : categories)
       railItem("unicode:" + category, icon, category);
     m_scrolling.limit(m_emojiRailScroll, std::max(0.0F, railY - available));
-    rail->setTextPixelSnap(false);
+    rail->setTextScrollOffset(-paintedRailScroll);
     root.addChild(std::move(rail));
     struct Group {
       std::string id, title;
@@ -357,7 +358,7 @@ namespace app {
     grid->setPosition(gridX, top);
     grid->setSize(gridWidth, available);
     grid->setClipChildren(true);
-    grid->setTextPixelSnap(false);
+    grid->setTextScrollOffset(-m_emojiScroll);
     std::map<std::string, std::string> favorites;
     for (const auto& key : m_emojiPreferences.favorites)
       if (const auto* emoji = m_emojiCatalog.find(key))

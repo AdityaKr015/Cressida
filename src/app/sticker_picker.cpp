@@ -332,11 +332,11 @@ namespace app {
     rail->setPosition(x + 8, top);
     rail->setSize(44, available);
     rail->setClipChildren(true);
-    rail->setTextPixelSnap(false);
     const auto railCount = 2 + std::ranges::count_if(sources, [&](const auto& id) {
                              return !m_stickers[id].empty() || id == "packs" || id == m_guildId;
                            });
     m_scrolling.limit(m_emojiRailScroll, std::max(0.0F, railCount * 44.0F - available));
+    rail->setTextScrollOffset(-m_emojiRailScroll);
     float railHeight = 0;
     auto railItem = [&](const std::string& id, const std::string& icon) {
       const float ry = railHeight - m_emojiRailScroll;
@@ -410,7 +410,7 @@ namespace app {
     grid->setPosition(gridX, top);
     grid->setSize(gridWidth, available);
     grid->setClipChildren(true);
-    grid->setTextPixelSnap(false);
+    grid->setTextScrollOffset(-m_emojiScroll);
     float cursor = -m_emojiScroll;
     std::optional<api::Sticker> hoveredSticker;
     for (const auto& [name, values] : m_stickerGroups) {

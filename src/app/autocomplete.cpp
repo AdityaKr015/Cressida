@@ -523,8 +523,8 @@ namespace app {
     list->setPosition(x + 6, y + 32);
     list->setSize(width - 18, m_completionViewport);
     list->setClipChildren(true);
-    list->setTextPixelSnap(false);
     m_scrolling.limit(m_completionScroll, std::max(0.0F, full - m_completionViewport));
+    list->setTextScrollOffset(-m_completionScroll);
     for (std::size_t i = 0; i < m_completionItems.size(); ++i) {
       const float rowY = i * 36 - m_completionScroll;
       if (rowY + 36 <= 0 || rowY >= m_completionViewport)

@@ -96,6 +96,13 @@ public:
   void setContentScale(float scale) noexcept;
   [[nodiscard]] float contentScale() const noexcept { return m_contentScale; }
 
+  // Projection extents use the raster scale exactly. Whole logical dimensions
+  // are layout bounds and can have been rounded by UI zoom or fractional output
+  // scaling; stretching their rectangle across the buffer would resample every
+  // glyph texture, even after its origin was aligned to a physical pixel.
+  [[nodiscard]] float renderWidth() const noexcept;
+  [[nodiscard]] float renderHeight() const noexcept;
+
   void setLogicalSize(std::uint32_t w, std::uint32_t h) noexcept {
     m_logicalWidth = w;
     m_logicalHeight = h;

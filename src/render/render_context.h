@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -81,7 +82,7 @@ private:
   void renderNode(
       float renderScale, const Node* node, const Mat3& parentTransform, float parentOpacity, float sw, float sh,
       float bw, float bh, float clipLeft, float clipTop, float clipRight, float clipBottom, bool hasClip,
-      bool ignoreNodeOpacity, bool parentPaintContained, bool snapText = true
+      bool ignoreNodeOpacity, bool parentPaintContained, bool snapText = true, std::optional<float> smoothScrollY = {}
   );
 
   std::unique_ptr<RenderBackend> m_backend;

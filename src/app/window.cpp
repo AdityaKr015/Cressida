@@ -1,12 +1,15 @@
 #include "app/window.h"
 
+#include "app/surface_scale.h"
 #include "core/deferred_call.h"
 #include "core/environment.h"
 #include "core/timer_manager.h"
 #include "cursor-shape-v1-client-protocol.h"
+#include "fractional-scale-v1-client-protocol.h"
 #include "render/gl_shared_context.h"
 #include "render/scene/input_area.h"
 #include "ui/style.h"
+#include "viewporter-client-protocol.h"
 #include "xdg-decoration-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -14,12 +17,14 @@
 #include <cerrno>
 #include <chrono>
 #include <clocale>
+#include <cmath>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <fontconfig/fontconfig.h>
+#include <map>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/mman.h>
@@ -40,6 +45,18 @@ namespace app {
     wl_compositor* compositor = nullptr;
     xdg_wm_base* shell = nullptr;
     wl_surface* surface = nullptr;
+    wp_viewporter* viewporter = nullptr;
+    wp_viewport* viewport = nullptr;
+    wp_fractional_scale_manager_v1* fractionalManager = nullptr;
+    wp_fractional_scale_v1* fractionalScale = nullptr;
+    SurfaceScale surfaceScale;
+    struct Output {
+      Impl* owner;
+      std::uint32_t name;
+      wl_output* handle = nullptr;
+      int pendingScale = 1;
+    };
+    std::map<std::uint32_t, std::unique_ptr<Output>> outputs;
     wl_callback* frameCallback = nullptr;
     xdg_surface* role = nullptr;
     xdg_toplevel* toplevel = nullptr;
@@ -100,7 +117,6 @@ namespace app {
     bool traceScroll = false;
     int width = 1120;
     int height = 760;
-    int scale = 1;
     float uiScale = 1;
     bool configured = false;
     bool running = true;
@@ -156,12 +172,22 @@ namespace app {
         zxdg_toplevel_decoration_v1_destroy(decoration);
       if (decorationManager)
         zxdg_decoration_manager_v1_destroy(decorationManager);
+      if (fractionalScale)
+        wp_fractional_scale_v1_destroy(fractionalScale);
+      if (viewport)
+        wp_viewport_destroy(viewport);
       if (toplevel)
         xdg_toplevel_destroy(toplevel);
       if (role)
         xdg_surface_destroy(role);
       if (surface)
         wl_surface_destroy(surface);
+      for (const auto& [name, output] : outputs)
+        releaseOutput(output->handle);
+      if (fractionalManager)
+        wp_fractional_scale_manager_v1_destroy(fractionalManager);
+      if (viewporter)
+        wp_viewporter_destroy(viewporter);
       if (shell)
         xdg_wm_base_destroy(shell);
       if (compositor)
@@ -175,13 +201,36 @@ namespace app {
     void resize() {
       if (!target.surfaceTarget())
         return;
-      wl_surface_set_buffer_scale(surface, scale);
-      target.setContentScale(scale * uiScale);
-      target.setLogicalSize(
-          std::max(1, static_cast<int>(width / uiScale)), std::max(1, static_cast<int>(height / uiScale))
-      );
-      target.resize(width * scale, height * scale);
+      const auto geometry = wl_surface_get_version(surface) >= 3 || surfaceScale.usesViewport()
+          ? surfaceScale.geometry(width, height, uiScale)
+          : SurfaceScale{}.geometry(width, height, uiScale);
+      if (wl_surface_get_version(surface) >= 3)
+        wl_surface_set_buffer_scale(surface, geometry.bufferScale);
+      if (viewport)
+        wp_viewport_set_destination(viewport, width, height);
+      target.setContentScale(geometry.contentScale);
+      target.setLogicalSize(geometry.logicalWidth, geometry.logicalHeight);
+      target.resize(geometry.bufferWidth, geometry.bufferHeight);
       dirty = true;
+    }
+
+    static void releaseOutput(wl_output* output) {
+      if (wl_output_get_version(output) >= WL_OUTPUT_RELEASE_SINCE_VERSION)
+        wl_output_release(output);
+      else
+        wl_output_destroy(output);
+    }
+
+    void outputEntered(wl_output* handle, bool entered) {
+      for (const auto& [name, output] : outputs)
+        if (output->handle == handle) {
+          if (entered)
+            surfaceScale.enter(name);
+          else
+            surfaceScale.leave(name);
+          resize();
+          return;
+        }
     }
 
     void dispatchAxis() {
@@ -541,6 +590,40 @@ namespace app {
                   xdg_wm_base_pong(shell, serial);
                 }};
                 xdg_wm_base_add_listener(self.shell, &listener, nullptr);
+              } else if (std::strcmp(interface, wp_viewporter_interface.name) == 0 && !self.viewporter) {
+                self.viewporter =
+                    static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
+              } else if (
+                  std::strcmp(interface, wp_fractional_scale_manager_v1_interface.name) == 0 && !self.fractionalManager
+              ) {
+                self.fractionalManager = static_cast<wp_fractional_scale_manager_v1*>(
+                    wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, 1)
+                );
+              } else if (std::strcmp(interface, wl_output_interface.name) == 0) {
+                auto output = std::make_unique<Impl::Output>();
+                output->owner = &self;
+                output->name = name;
+                output->handle = static_cast<wl_output*>(
+                    wl_registry_bind(registry, name, &wl_output_interface, std::min(version, 4U))
+                );
+                self.surfaceScale.output(name, 1);
+                static const wl_output_listener listener{
+                    .geometry = [](void*, wl_output*, std::int32_t, std::int32_t, std::int32_t, std::int32_t,
+                                   std::int32_t, const char*, const char*, std::int32_t) {},
+                    .mode = [](void*, wl_output*, std::uint32_t, std::int32_t, std::int32_t, std::int32_t) {},
+                    .done =
+                        [](void* data, wl_output*) {
+                          auto& output = *static_cast<Impl::Output*>(data);
+                          output.owner->surfaceScale.output(output.name, output.pendingScale);
+                          output.owner->resize();
+                        },
+                    .scale = [](void* data, wl_output*,
+                                std::int32_t scale) { static_cast<Impl::Output*>(data)->pendingScale = scale; },
+                    .name = [](void*, wl_output*, const char*) {},
+                    .description = [](void*, wl_output*, const char*) {},
+                };
+                wl_output_add_listener(output->handle, &listener, output.get());
+                self.outputs.emplace(name, std::move(output));
               } else if (std::strcmp(interface, wl_seat_interface.name) == 0 && !self.seat) {
                 self.seat =
                     static_cast<wl_seat*>(wl_registry_bind(registry, name, &wl_seat_interface, std::min(version, 8U)));
@@ -589,24 +672,48 @@ namespace app {
                 self.bindDataDevice();
               }
             },
-        .global_remove = [](void*, wl_registry*, std::uint32_t) {},
+        .global_remove =
+            [](void* data, wl_registry*, std::uint32_t name) {
+              auto& self = *static_cast<Impl*>(data);
+              if (const auto output = self.outputs.find(name); output != self.outputs.end()) {
+                self.surfaceScale.remove(name);
+                Impl::releaseOutput(output->second->handle);
+                self.outputs.erase(output);
+                self.resize();
+              }
+            },
     };
     wl_registry_add_listener(m->registry, &registryListener, m.get());
     if (wl_display_roundtrip(m->display) < 0 || !m->compositor || !m->shell)
       throw std::runtime_error("The desktop does not provide xdg-shell");
     m->surface = wl_compositor_create_surface(m->compositor);
     static const wl_surface_listener surfaceListener{
-        .enter = [](void*, wl_surface*, wl_output*) {},
-        .leave = [](void*, wl_surface*, wl_output*) {},
+        .enter = [](void* data, wl_surface*,
+                    wl_output* output) { static_cast<Impl*>(data)->outputEntered(output, true); },
+        .leave = [](void* data, wl_surface*,
+                    wl_output* output) { static_cast<Impl*>(data)->outputEntered(output, false); },
         .preferred_buffer_scale =
             [](void* data, wl_surface*, std::int32_t scale) {
               auto& self = *static_cast<Impl*>(data);
-              self.scale = std::clamp(scale, 1, 8);
+              self.surfaceScale.preferredInteger(scale);
               self.resize();
             },
         .preferred_buffer_transform = [](void*, wl_surface*, std::uint32_t) {},
     };
     wl_surface_add_listener(m->surface, &surfaceListener, m.get());
+    if (m->viewporter && m->fractionalManager) {
+      m->viewport = wp_viewporter_get_viewport(m->viewporter, m->surface);
+      m->fractionalScale = wp_fractional_scale_manager_v1_get_fractional_scale(m->fractionalManager, m->surface);
+      m->surfaceScale.setFractionalAvailable(true);
+      static const wp_fractional_scale_v1_listener listener{
+          .preferred_scale = [](void* data, wp_fractional_scale_v1*, std::uint32_t numerator) {
+            auto& self = *static_cast<Impl*>(data);
+            self.surfaceScale.preferredFractional(numerator);
+            self.resize();
+          },
+      };
+      wp_fractional_scale_v1_add_listener(m->fractionalScale, &listener, m.get());
+    }
     m->role = xdg_wm_base_get_xdg_surface(m->shell, m->surface);
     m->toplevel = xdg_surface_get_toplevel(m->role);
     xdg_toplevel_set_title(m->toplevel, "Cressida");
@@ -860,7 +967,7 @@ namespace app {
   void Window::close() { m->running = false; }
   void Window::invalidate() { m->dirty = true; }
   void Window::setUiScale(float scale) {
-    m->uiScale = std::clamp(scale, 0.67F, 1.5F);
+    m->uiScale = std::isfinite(scale) ? std::clamp(scale, 0.67F, 1.5F) : 1.0F;
     m->resize();
   }
   float Window::uiScale() const { return m->uiScale; }

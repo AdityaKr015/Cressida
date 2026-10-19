@@ -5,6 +5,7 @@
 #include "render/core/mat3.h"
 
 #include <algorithm>
+#include <cmath>
 #include <ranges>
 #include <utility>
 
@@ -295,9 +296,20 @@ void Node::setClipChildren(bool clipChildren) {
 void Node::setPaintContained(bool paintContained) { m_paintContained = paintContained; }
 
 void Node::setTextPixelSnap(bool enabled) {
-  if (m_textPixelSnap == enabled)
+  if (m_textPixelSnap == enabled && !m_textScrollOffset)
     return;
   m_textPixelSnap = enabled;
+  m_textScrollOffset.reset();
+  markPaintDirty();
+}
+
+void Node::setTextScrollOffset(float offset) {
+  if (!std::isfinite(offset))
+    offset = 0;
+  if (!m_textPixelSnap && m_textScrollOffset == offset)
+    return;
+  m_textPixelSnap = false;
+  m_textScrollOffset = offset;
   markPaintDirty();
 }
 

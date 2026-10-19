@@ -135,7 +135,6 @@ namespace app {
     clip->setPosition(x + 24, contentY);
     clip->setSize(width - 48, viewport);
     clip->setClipChildren(true);
-    clip->setTextPixelSnap(false);
     auto body = std::make_unique<Node>();
     const float previousScroll = m_channelCreateScroll;
     body->setPosition(0, -previousScroll);
@@ -306,6 +305,7 @@ namespace app {
       cursor += 12;
     }
     m_scrolling.limit(m_channelCreateScroll, std::max(0.0F, cursor - viewport));
+    clip->setTextScrollOffset(-m_channelCreateScroll);
     body->setPosition(0, -m_channelCreateScroll);
     const float correction = previousScroll - m_channelCreateScroll;
     const float bottom = contentY + viewport;

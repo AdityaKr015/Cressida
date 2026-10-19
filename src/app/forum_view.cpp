@@ -134,7 +134,7 @@ namespace app {
     content->setPosition(x + inset, top);
     content->setSize(inner, viewport);
     content->setClipChildren(true);
-    content->setTextPixelSnap(false);
+    content->setTextScrollOffset(-m_forumScroll);
     const auto measure = [&](std::string_view text, const MessageStyle& style) {
       return m_window.target()
           .renderer()
