@@ -1,5 +1,6 @@
 #include "app/client_application.h"
 #include "app/theme.h"
+#include "render/scene/image_node.h"
 
 #include <algorithm>
 #include <cmath>
@@ -123,6 +124,31 @@ namespace app {
       m_window.motion(at->x + 24, at->y + 24 + m_window.titlebarHeight() - 36);
     };
     const auto step = m_demoInteractionStep++;
+    for (std::size_t i = 0; i < 3; ++i) {
+      const auto& guild = m_guilds[i];
+      const auto path = "/icons/" + guild.id + "/a_hover.gif?size=64";
+      const auto& moving = m_images.at(path);
+      const bool playing = (step < 3 && i == step) || (step == 5 && i == 0);
+      require(
+          (moving.playingDraw == m_animationDraw) == playing,
+          "Only the hovered server icon may schedule animation, including the selected server"
+      );
+      if (step != 3) {
+        const auto texture = playing ? moving.texture.id : m_images.at(guild.icon).texture.id;
+        require(
+            std::ranges::any_of(
+                m_scene->children(),
+                [&](const auto& node) {
+                  return node->type() == NodeType::Image
+                      && node->x() == 14
+                      && node->y() == 113 + i * 60
+                      && static_cast<const ImageNode&>(*node).textureId() == texture;
+                }
+            ),
+            "Idle server icons use their still image and switch back immediately when the pointer leaves"
+        );
+      }
+    }
     if (step < 3) {
       require(
           m_guildTooltipBounds.width > 0 && m_guildTooltipBounds.id == std::to_string(step + 1),

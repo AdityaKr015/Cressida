@@ -1255,6 +1255,34 @@ namespace app {
           m_guilds[2].features = {"COMMUNITY", "VERIFIED"};
           m_guilds[2].members = 431;
           m_guilds[2].online = 123;
+          if (view == "server-hover-cycle") {
+            for (int i = 0; i < 3; ++i) {
+              auto animation = std::make_shared<media::Animation>();
+              animation->width = animation->height = 32;
+              animation->duration = std::chrono::milliseconds(200);
+              for (int n = 0; n < 2; ++n) {
+                media::Frame frame;
+                frame.duration = std::chrono::milliseconds(100);
+                frame.rgba.resize(32 * 32 * 4);
+                for (std::size_t pixel = 0; pixel < frame.rgba.size(); pixel += 4) {
+                  frame.rgba[pixel] = 80 + i * 40;
+                  frame.rgba[pixel + 1] = 110 + n * 70;
+                  frame.rgba[pixel + 2] = 160;
+                  frame.rgba[pixel + 3] = 255;
+                }
+                animation->frames.push_back(std::move(frame));
+              }
+              const auto stem = "/icons/" + m_guilds[i].id + "/a_hover";
+              m_guilds[i].icon = stem + ".png?size=64";
+              auto& still = m_images[m_guilds[i].icon];
+              still.texture =
+                  m_window.context().textureManager().loadFromRgba(animation->frames.front().rgba.data(), 32, 32);
+              auto& moving = m_images[stem + ".gif?size=64"];
+              moving.animation = animation;
+              moving.texture =
+                  m_window.context().textureManager().loadFromRgba(animation->frames.front().rgba.data(), 32, 32);
+            }
+          }
           m_guildChannels[m_guildId] = m_channels;
           m_unreadGuilds[m_channels.front().id] = m_guildId;
           m_unreadChannels.insert(m_channels.front().id);
@@ -2421,6 +2449,26 @@ namespace app {
       }
     if (gx + width <= clipLeft || gx >= clipRight || gy + height <= clipTop || gy >= clipBottom)
       return false;
+    std::string stillIcon;
+    if (path.find("/icons/") != std::string::npos) {
+      if (const auto gif = path.find(".gif", path.rfind('/')); gif != std::string::npos) {
+        stillIcon = path;
+        stillIcon.replace(gif, 4, ".png");
+        const float left = std::max(gx, clipLeft), top = std::max(gy, clipTop);
+        const bool over =
+            hovered(left, top, std::min(gx + width, clipRight) - left, std::min(gy + height, clipBottom) - top);
+        const bool play = over
+            && (m_demo || m_window.active())
+            && m_preferences.animateAvatars
+            && !m_preferences.reducedMotion
+            && !m_contextOpen
+            && (gx >= 78 || (sidebarResizeAvailable() && !m_resizingSidebar));
+        // A separate still URL keeps duplicate icons (for example in a folder)
+        // independent of the shared animated texture, and avoids idle GIF loads.
+        if (!play)
+          return picture(parent, x, y, width, height, stillIcon, radius, placeholder, videoPoster, fit);
+      }
+    }
     auto& cached = m_images[path];
     cached.touched = ++m_imageSerial;
     if (!cached.texture.valid()) {
@@ -2429,6 +2477,8 @@ namespace app {
           && std::chrono::steady_clock::now() >= cached.retry
           && m_assets.request(path, videoPoster))
         m_pendingImages.insert(path);
+      if (!stillIcon.empty())
+        return picture(parent, x, y, width, height, stillIcon, radius, placeholder, videoPoster, fit);
       if (placeholder) {
         const bool failed = cached.retry != std::chrono::steady_clock::time_point{} && !m_pendingImages.contains(path);
         rectangle(parent, x, y, width, height, lerpColor(background, muted, 0.13F), radius);
