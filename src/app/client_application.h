@@ -17,6 +17,7 @@
 #include "app/scroll_motion.h"
 #include "app/server_audit.h"
 #include "app/server_commands.h"
+#include "app/server_menu.h"
 #include "app/server_settings.h"
 #include "app/server_settings_form.h"
 #include "app/session_store.h"
@@ -66,6 +67,7 @@ namespace app {
       ServerSettings,
       CloseServerSettings,
       ServerSettingsAction,
+      ServerMenuDialogAction,
       CloseSettings,
       SettingsPage,
       AccountPreference,
@@ -350,6 +352,7 @@ namespace app {
     std::optional<std::uint64_t> channelPermissionsFor(const std::string& channel) const;
     std::optional<std::uint64_t> guildPermissions() const;
     bool openChannelContext(const Hit& target, float x, float y);
+    void openChannelCreate(api::Interaction action);
     bool channelMenuEntry(int id);
     void openChannelSubmenu(int id, float center);
     bool channelMenuAction(const Hit& hit);
@@ -554,6 +557,23 @@ namespace app {
     void stageServerEmojiUploads(std::vector<PickedFile> files);
     std::string serverSettingsScope() const;
     bool openServerContext(const Hit& target, float x, float y);
+    std::optional<std::uint64_t> serverGuildPermissions(const std::string& guild) const;
+    const std::vector<api::Channel>& serverChannels(const std::string& guild) const;
+    const api::Channel* serverChannel(const std::string& guild, const std::string& channel) const;
+    std::optional<std::uint64_t> serverChannelPermissions(const std::string& guild, const std::string& channel) const;
+    std::vector<std::pair<std::string, std::string>> serverSettingsPages(const std::string& guild) const;
+    bool serverMenuEntry(int id);
+    void openServerSubmenu(int id, float center);
+    bool serverMenuInteractionResult(const api::Event& event);
+    void resumeServerInvite(const api::Event& event);
+    void openServerMenuDialog(const std::string& kind, const std::string& guild);
+    void drawServerMenuDialog(Node& root, float width, float height);
+    void submitServerMenuDialog();
+    void serverMenuDialogAction(const std::string& id);
+    bool serverMenuDialogResult(const api::Event& event);
+    void openServerProfile(const std::string& guild);
+    bool serverChannelVisible(const api::Channel& channel) const;
+    void demoServerMenuStep();
     Input& inputControl(
         Node& parent, float x, float y, float width, float height, const std::string& id, const std::string& value,
         const std::string& placeholder = {}, bool multiline = false, bool password = false
@@ -670,6 +690,16 @@ namespace app {
     ThemeSnapshot m_themeSnapshot;
     ChannelListPreferences m_channelListPreferences;
     std::vector<ChannelMenuCommand> m_channelMenuCommands;
+    std::vector<ServerMenuCommand> m_serverMenuCommands;
+    api::GuildNotification m_serverNotificationDraft;
+    api::GuildNotification m_serverNotificationOriginal;
+    api::GuildPrivacy m_serverPrivacyOriginal;
+    api::GuildPrivacy m_serverPrivacyDraft;
+    bool m_serverPrivacyLoaded = false;
+    std::string m_serverDialogGuild;
+    std::string m_serverInvitePending;
+    std::uint64_t m_guildLayoutRevision = 0;
+    float m_serverDialogScroll = 0;
     std::vector<ContextMenuControlEntry> m_channelSubmenuEntries;
     bool m_channelSubmenu = false;
     std::string m_sidebarInviteUrl;

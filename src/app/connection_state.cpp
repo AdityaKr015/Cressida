@@ -7,6 +7,7 @@
 
 namespace app {
   void ClientApplication::resetGuildBootstrap() {
+    ++m_guildLayoutRevision;
     m_guildLayout = {};
     m_gatewayGuildsReady = m_gatewayLayoutReady = false;
     m_readyBootstrapPending = false;
@@ -87,6 +88,7 @@ namespace app {
     if (!event.error.empty())
       return;
     if (event.live || !m_gatewayLayoutReady) {
+      ++m_guildLayoutRevision;
       m_guildLayout = std::move(event.layout);
       m_gatewayLayoutReady |= event.live;
       arrangeGuildFolders();

@@ -54,8 +54,11 @@ namespace app {
     const auto& guild = *found;
     std::string activity, latest;
     bool unread = false;
+    const bool guildMuted = m_userDirectory.muted(guild.id);
     for (const auto& [channel, server] : m_unreadGuilds) {
-      if (server != guild.id || !m_unreadChannels.contains(channel) || m_userDirectory.muted(channel))
+      if (server != guild.id || !m_unreadChannels.contains(channel))
+        continue;
+      if ((guildMuted || channelMuted(channel)) && m_unreadTimeline.mentions(channel) == 0)
         continue;
       unread = true;
       const auto cache = m_guildChannels.find(guild.id);

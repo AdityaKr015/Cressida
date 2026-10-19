@@ -36,6 +36,20 @@ int main() {
     );
     require(!client.send("123", "hello"), "Sending requires an authenticated session");
     require(
+        !client.interact({.kind = api::InteractionKind::LeaveGuild, .guild = "123"})
+            && !client.interact({.kind = api::InteractionKind::GuildPrivacy, .guild = "123"})
+            && !client.interact({.kind = api::InteractionKind::MoveGuild, .text = "7", .guild = "123"})
+            && !client.interact(
+                {.kind = api::InteractionKind::MarkGuildRead, .guild = "123", .readStates = {{"10", "20"}}}
+            )
+            && !client.interact(
+                {.kind = api::InteractionKind::GuildNotifications,
+                 .guild = "123",
+                 .guildNotification = api::GuildNotification{.muted = true}}
+            ),
+        "Disconnected personal server actions never perform account requests"
+    );
+    require(
         !client.interact({.kind = api::InteractionKind::Block, .user = "7"})
             && !client.interact({.kind = api::InteractionKind::DeleteMessage, .channel = "10", .message = "20"})
             && !client.send("10", "reply", {}, api::MessageReference{"20", "99"}),

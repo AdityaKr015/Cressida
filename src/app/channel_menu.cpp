@@ -289,6 +289,12 @@ namespace app {
     else if (command.kind == Kind::CopyLink)
       m_window.copy("https://discord.com/channels/" + command.guild + "/" + command.channel);
     else if (command.kind == Kind::HideMuted || command.kind == Kind::Pin) {
+      if (command.kind == Kind::HideMuted && !m_demo) {
+        api::Interaction action{.kind = api::InteractionKind::GuildNotifications, .guild = command.guild};
+        action.guildNotification = api::GuildNotification{.hideMutedChannels = !m_channelListPreferences.hideMuted};
+        startInteraction(action);
+        return true;
+      }
       if (command.kind == Kind::HideMuted)
         m_channelListPreferences.hideMuted = !m_channelListPreferences.hideMuted;
       else if (
@@ -441,6 +447,10 @@ namespace app {
         m_window.invalidate();
         return true;
       }
+      if (action.kind == api::InteractionKind::CreateChannel) {
+        openChannelCreate(std::move(action));
+        return true;
+      }
       m_sidebarInviteUrl.clear();
       m_dialogAction = action;
       m_dialogKind = action.kind == api::InteractionKind::DeleteChannel ? "sidebar-delete"
@@ -463,15 +473,19 @@ namespace app {
     if (!m_dialogAction || m_dialogPending || !m_dialogKind.starts_with("sidebar-"))
       return;
     auto action = *m_dialogAction;
-    if (action.guild != m_guildId)
+    if (std::ranges::find(m_guilds, action.guild, &api::Guild::id) == m_guilds.end()) {
+      m_dialogError = "This server is no longer available.";
+      m_window.invalidate();
       return;
-    const auto permissions = channelPermissionsFor(action.channel).value_or(0);
-    const auto guild = guildPermissions().value_or(0);
+    }
+    const auto permissions = serverChannelPermissions(action.guild, action.channel).value_or(0);
+    const auto guild = serverGuildPermissions(action.guild).value_or(0);
     bool allowed = false;
     using Kind = api::InteractionKind;
     if (action.kind == Kind::CreateChannel)
-      allowed =
-          (action.parentId && !action.parentId->empty() ? channelPermissionsFor(*action.parentId).value_or(0) : guild)
+      allowed = (action.parentId && !action.parentId->empty()
+                     ? serverChannelPermissions(action.guild, *action.parentId).value_or(0)
+                     : guild)
           & api::manageChannel;
     else if (action.kind == Kind::DuplicateChannel)
       allowed = (permissions & api::manageChannel) && (guild & api::manageChannel);
@@ -487,7 +501,7 @@ namespace app {
     action.text = m_dialogText;
     if (action.kind == Kind::CreateChannel) {
       if (action.channelType == 15) {
-        const auto server = std::ranges::find(m_guilds, m_guildId, &api::Guild::id);
+        const auto server = std::ranges::find(m_guilds, action.guild, &api::Guild::id);
         if (server == m_guilds.end() || std::ranges::find(server->features, "COMMUNITY") == server->features.end()) {
           m_dialogError = "Forum channels require a Community server.";
           m_window.invalidate();
@@ -496,8 +510,9 @@ namespace app {
       }
       action.user = m_account.id;
       if (action.privateChannel) {
-        const auto accessPermissions =
-            action.parentId && !action.parentId->empty() ? channelPermissionsFor(*action.parentId).value_or(0) : guild;
+        const auto accessPermissions = action.parentId && !action.parentId->empty()
+            ? serverChannelPermissions(action.guild, *action.parentId).value_or(0)
+            : guild;
         if (!(accessPermissions & api::managePermissions)) {
           m_dialogError = "You need Manage Permissions to create a private channel.";
           return;
@@ -1088,11 +1103,73 @@ namespace app {
     } else if (step == 29) {
       require(m_dialogKind == "sidebar-error" && !m_dialogPending, "A stale menu cannot bypass revoked permissions");
       open("");
-    } else if (step == 30)
+    } else if (step == 30) {
       require(
           command(Kind::CreateText) < 0 && command(Kind::CreateCategory) < 0 && command(Kind::HideMuted) >= 0,
           "Empty-space management options also follow current permissions"
       );
+      const auto selectedGuild = m_guildId, selectedChannel = m_channelId;
+      const std::string background = "109";
+      m_guilds.push_back({.id = background, .name = "Background server"});
+      api::GuildRoleUpdate roles{.guild = background};
+      roles.owner = m_account.id;
+      roles.roles = {{.id = "1091", .name = "Background role", .permissions = "0"}};
+      m_roleDirectory.apply({false, {roles}});
+      api::Channel backgroundChannel{"1092", "background-chat", 0};
+      backgroundChannel.overwrites.emplace();
+      m_guildChannels[background] = {backgroundChannel};
+      openChannelInvite(
+          {.kind = api::InteractionKind::CreateInvite, .channel = backgroundChannel.id, .guild = background}
+      );
+      require(
+          m_dialogPending
+              && m_dialogError.empty()
+              && m_dialogAction->guild == background
+              && m_dialogAction->channel == backgroundChannel.id
+              && m_guildId == selectedGuild
+              && m_channelId == selectedChannel,
+          "Inviting to a background server uses its own channel and permissions without changing navigation"
+      );
+      openChannelCreate({.kind = api::InteractionKind::CreateChannel, .guild = background});
+      channelCreateAction({0, 0, 0, 0, Action::ChannelCreateType, "15"});
+      require(
+          m_dialogAction->channelType == 0, "Background channel types follow the target server's Community feature"
+      );
+      channelCreateAction({0, 0, 0, 0, Action::ChannelCreatePrivate, {}});
+      m_dialogText = "background-room";
+      submitSidebarDialog();
+      require(
+          m_channelCreateAccessStep
+              && m_dialogError.empty()
+              && !m_dialogPending
+              && m_dialogAction->guild == background
+              && m_guildId == selectedGuild
+              && m_channelId == selectedChannel,
+          "Creating a private channel in a background server uses its permissions without selecting it"
+      );
+      channelCreateAction({0, 0, 0, 0, Action::ChannelCreateAccess, "0:50"});
+      require(m_dialogAction->channelAccess.empty(), "A previous server's role cannot enter the creation draft");
+      channelCreateAction({0, 0, 0, 0, Action::ChannelCreateAccess, "0:1091"});
+      require(
+          m_dialogAction->channelAccess.size() == 1 && m_dialogAction->channelAccess.front().id == "1091",
+          "Private channel role selection follows the target server"
+      );
+      openChannelCreate({.kind = api::InteractionKind::CreateChannel, .guild = background, .channelType = 4});
+      require(
+          m_dialogAction->channelType == 4 && !m_channelCreateAccessStep && m_dialogText.empty(),
+          "Background category creation starts a fresh draft"
+      );
+      closeDialog();
+      m_guildChannels.erase(background);
+      openChannelInvite(
+          {.kind = api::InteractionKind::CreateInvite, .channel = backgroundChannel.id, .guild = background}
+      );
+      require(
+          !m_dialogPending && !m_dialogError.empty(),
+          "Missing background channel data produces an explicit invite error"
+      );
+      closeDialog();
+    }
     std::clog << "Offline channel menu replay step " << step + 1 << " passed\n";
     m_window.invalidate();
   }

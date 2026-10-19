@@ -4,6 +4,7 @@
 #include "api/rest_schedule.h"
 #include "api/rest_transfer.h"
 #include "api/rest_transport_cache.h"
+#include "api/server_organization.h"
 #include "api/uploads.h"
 
 #include <algorithm>
@@ -1034,6 +1035,28 @@ namespace api {
         event.roleUpdates = std::move(styles);
         publish(std::move(event));
       }
+      UserUpdates acknowledgedPreferences;
+      {
+        std::lock_guard lock(m_mutex);
+        if (session == m_session) {
+          if (type == "READY")
+            m_guildPreferenceAcks.clear();
+          else
+            acknowledgedPreferences.guildNotifications.swap(m_guildPreferenceAcks);
+        }
+      }
+      // Gateway-owned projections only change on this worker. REST successes
+      // enter before the next dispatch, so suppression is current before a new
+      // message is counted even when Discord delays its settings dispatch.
+      m_userDirectory.apply(acknowledgedPreferences);
+      for (const auto& [guild, preferences] : acknowledgedPreferences.guildNotifications) {
+        Json settings{{"guild_id", guild}};
+        if (preferences.suppressEveryone)
+          settings["suppress_everyone"] = *preferences.suppressEveryone;
+        if (preferences.suppressRoles)
+          settings["suppress_roles"] = *preferences.suppressRoles;
+        m_readState.context("USER_GUILD_SETTINGS_UPDATE", settings, m_self);
+      }
       auto users = m_userDirectory.consume(type, data);
       if (type != "READY")
         m_readState.context(type, data, m_self);
@@ -1042,17 +1065,30 @@ namespace api {
         if (session == m_session) {
           if (users.reset) {
             m_channelNotificationFlags.clear();
+            m_guildNotificationFlags.clear();
+            m_guildPreferenceRevisions.clear();
             const auto settings = data.find("user_guild_settings");
             m_channelNotificationFlagsReady = settings != data.end()
                 && (settings->is_array()
                     || (settings->is_object() && settings->contains("entries") && (*settings)["entries"].is_array()));
+            m_guildNotificationFlagsReady = m_channelNotificationFlagsReady;
           }
           for (const auto& [id, patch] : users.notifications)
             if (patch.flags && (m_channelNotificationFlags.contains(id) || m_channelNotificationFlags.size() < 100000))
               m_channelNotificationFlags[id] = *patch.flags;
+          for (const auto& [id, patch] : users.guildNotifications) {
+            if (m_guildPreferenceRevisions.contains(id) || m_guildPreferenceRevisions.size() < 1000)
+              ++m_guildPreferenceRevisions[id];
+            if (patch.flags && (m_guildNotificationFlags.contains(id) || m_guildNotificationFlags.size() < 1000))
+              m_guildNotificationFlags[id] = *patch.flags;
+          }
         }
       }
-      if (users.reset || !users.users.empty() || !users.mutedChannels.empty() || !users.notifications.empty()) {
+      if (users.reset
+          || !users.users.empty()
+          || !users.mutedChannels.empty()
+          || !users.notifications.empty()
+          || !users.guildNotifications.empty()) {
         Event event{.operation = Operation::UserState, .session = session};
         event.users = std::move(users);
         publish(std::move(event));
@@ -1603,6 +1639,10 @@ namespace api {
           token.clear();
           m_channelNotificationFlags.clear();
           m_channelNotificationFlagsReady = false;
+          m_guildNotificationFlags.clear();
+          m_guildNotificationFlagsReady = false;
+          m_guildPreferenceRevisions.clear();
+          m_guildPreferenceAcks.clear();
           authenticatedUser.clear();
           guildMfa.clear();
           userMfa.clear();
@@ -1698,6 +1738,7 @@ namespace api {
       bool saveCredential = false;
       bool endAccountSession = false;
       std::optional<Command> continuation;
+      std::uint64_t guildPreferenceRevision = 0;
       try {
         if (command.operation == Operation::Connect) {
           token = std::move(command.content);
@@ -1734,6 +1775,7 @@ namespace api {
         }
         std::string path;
         Json body;
+        Json pendingReadStates;
         const char* method = nullptr;
         std::optional<InteractionRequest> interaction;
         std::optional<UserSettingsHttpRequest> accountRequest;
@@ -2083,6 +2125,56 @@ namespace api {
           path = interaction->path;
           body = interaction->body;
           method = interaction->method.c_str();
+          if (command.interaction->kind == InteractionKind::GuildNotifications) {
+            {
+              std::lock_guard lock(m_mutex);
+              const auto& guild = command.interaction->guild;
+              if (command.session != m_session
+                  || (command.interaction->notificationFlagsMask && !m_guildNotificationFlagsReady)) {
+                event.error = "Wait for your server preferences to finish loading, then try again.";
+                break;
+              }
+              const auto revision = m_guildPreferenceRevisions.find(guild);
+              guildPreferenceRevision = revision == m_guildPreferenceRevisions.end() ? 0 : revision->second;
+              if (command.interaction->notificationFlagsMask) {
+                const auto at = m_guildNotificationFlags.find(guild);
+                const auto previous = at == m_guildNotificationFlags.end() ? 0 : at->second;
+                command.interaction->notificationFlags = previous;
+                event.interaction = command.interaction;
+                body["flags"] = (previous & ~command.interaction->notificationFlagsMask)
+                    | *command.interaction->guildNotification->flags;
+              }
+            }
+            auto acknowledged = body;
+            acknowledged["guild_id"] = command.interaction->guild;
+            event.users.guildNotifications = guildNotifications(acknowledged);
+          } else if (command.interaction->kind == InteractionKind::MarkGuildRead) {
+            pendingReadStates = std::move(body["read_states"]);
+            body["read_states"] = Json::array();
+            const auto count = std::min<std::size_t>(100, pendingReadStates.size());
+            for (std::size_t i = 0; i < count; ++i)
+              body["read_states"].push_back(pendingReadStates[i]);
+            pendingReadStates.erase(pendingReadStates.begin(), pendingReadStates.begin() + count);
+          } else if (
+              command.interaction->kind == InteractionKind::MoveGuild
+              || (command.interaction->kind == InteractionKind::GuildPrivacy
+                  && command.interaction->guildPrivacy
+                  && !command.interaction->guildPrivacy->empty())
+          ) {
+            auto snapshot = request(token, path, nullptr, transfer, cooldown);
+            if (!snapshot) {
+              event.error = snapshot.error().message;
+              event.unauthorized = snapshot.error().unauthorized;
+              break;
+            }
+            if (command.interaction->kind == InteractionKind::MoveGuild)
+              body = guildMovePatch(
+                  *snapshot, command.interaction->guild, command.interaction->text,
+                  command.interaction->content.empty() ? std::nullopt : std::make_optional(command.interaction->content)
+              );
+            else
+              body = guildPrivacyPatch(*snapshot, command.interaction->guild, *command.interaction->guildPrivacy);
+          }
           if (command.interaction->kind == InteractionKind::Mute
               || command.interaction->kind == InteractionKind::Unmute
               || command.interaction->kind == InteractionKind::ChannelNotifications) {
@@ -2291,6 +2383,15 @@ namespace api {
                   command.operation == Operation::UserSettings
               )
             : std::expected<Json, Failure>(std::unexpected(Failure{event.error, event.unauthorized}));
+        while (response && pendingReadStates.is_array() && !pendingReadStates.empty()) {
+          auto reads = Json::array();
+          const auto count = std::min<std::size_t>(100, pendingReadStates.size());
+          for (std::size_t i = 0; i < count; ++i)
+            reads.push_back(pendingReadStates[i]);
+          pendingReadStates.erase(pendingReadStates.begin(), pendingReadStates.begin() + count);
+          const Json next{{"read_states", std::move(reads)}};
+          response = request(token, path, &next, transfer, cooldown, {}, "POST");
+        }
         if (response && accessFeatureMutation) {
           response = request(
               token, "/guilds/" + command.guildSettings->guildId + "/member-verification",
@@ -2542,7 +2643,58 @@ namespace api {
               event.presence = parsePresenceSettings(*response);
             break;
           case Operation::Interaction:
-            if (command.interaction->kind == InteractionKind::CreateInvite) {
+            if (command.interaction->kind == InteractionKind::GuildNotifications) {
+              if (response->is_object()) {
+                if (const auto id = response->find("guild_id");
+                    id != response->end() && !id->is_null() && *id != command.interaction->guild)
+                  throw std::runtime_error("Unexpected server preference identity");
+                auto confirmed = *response;
+                confirmed["guild_id"] = command.interaction->guild;
+                const auto authoritative = guildNotifications(confirmed);
+                if (const auto at = authoritative.find(command.interaction->guild); at != authoritative.end()) {
+                  UserDirectory projection;
+                  projection.apply(event.users);
+                  UserUpdates patch;
+                  patch.guildNotifications = authoritative;
+                  projection.apply(patch);
+                  event.users.guildNotifications[command.interaction->guild] =
+                      projection.guildPreferences(command.interaction->guild);
+                }
+              }
+              {
+                std::lock_guard lock(m_mutex);
+                const auto& guild = command.interaction->guild;
+                const auto revision = m_guildPreferenceRevisions.find(guild);
+                const auto current = revision == m_guildPreferenceRevisions.end() ? 0 : revision->second;
+                if (command.session == m_session
+                    && current == guildPreferenceRevision
+                    && (revision != m_guildPreferenceRevisions.end() || m_guildPreferenceRevisions.size() < 1000)) {
+                  const auto& confirmed = event.users.guildNotifications.at(guild);
+                  if (confirmed.flags)
+                    m_guildNotificationFlags[guild] = *confirmed.flags;
+                  UserDirectory projection;
+                  UserUpdates pending;
+                  pending.guildNotifications = m_guildPreferenceAcks;
+                  projection.apply(pending);
+                  projection.apply(event.users);
+                  m_guildPreferenceAcks[guild] = projection.guildPreferences(guild);
+                  ++m_guildPreferenceRevisions[guild];
+                }
+              }
+            } else if (
+                command.interaction->kind == InteractionKind::MoveGuild
+                || command.interaction->kind == InteractionKind::GuildPrivacy
+            ) {
+              if (response->value("out_of_date", false)) {
+                event.error = "Settings changed on another device. Reopen this menu and try again.";
+                break;
+              }
+              const auto& saved = response->contains("settings") || response->contains("proto") ? *response : body;
+              if (command.interaction->kind == InteractionKind::MoveGuild)
+                event.layout = parseGuildLayout(saved);
+              else
+                event.guildPrivacy = parseGuildPrivacy(saved, command.interaction->guild);
+            } else if (command.interaction->kind == InteractionKind::CreateInvite) {
               const auto code = response->value("code", std::string{});
               if (code.empty() || code.size() > 128 || !std::ranges::all_of(code, [](unsigned char c) {
                     return std::isalnum(c) || c == '-' || c == '_';

@@ -37,10 +37,10 @@ namespace app {
       const api::Channel* channel;
       float top, height, advance;
     };
-    template <class Muted, class MentionCount>
+    template <class Muted, class MentionCount, class Visible>
     std::vector<ChannelListRow> channelListRows(
         const std::vector<api::Channel>& channels, const std::set<std::string>& collapsed, const std::string& selected,
-        const ChannelListPreferences& preferences, Muted muted, MentionCount mentions
+        const ChannelListPreferences& preferences, Muted muted, MentionCount mentions, Visible visible
     ) {
       std::vector<ChannelListRow> rows;
       float top = 0;
@@ -53,6 +53,8 @@ namespace app {
           order.push_back(&channel);
       for (const auto* value : order) {
         const auto& channel = *value;
+        if (!visible(channel))
+          continue;
         const bool pinned = std::ranges::find(preferences.pinned, channel.id) != preferences.pinned.end();
         const auto parent = std::ranges::find(channels, channel.parentId, &api::Channel::id);
         const auto category = channel.isThread() && parent != channels.end() ? parent->parentId : channel.parentId;
@@ -227,6 +229,8 @@ namespace app {
         demoChannelInviteStep();
       if (m_demo && (m_demoOverlay == "channel-menu-cycle" || m_demoOverlay == "channel-menu-scroll-cycle"))
         demoChannelMenuStep();
+      if (m_demo && m_demoOverlay == "server-menu-cycle")
+        demoServerMenuStep();
       if (m_demo && m_demoOverlay == "server-hover-cycle")
         demoGuildHoverStep();
       if (m_demo && m_demoOverlay == "themes-cycle" && m_demoInteractionStep < 11)
@@ -935,6 +939,12 @@ namespace app {
         m_window.invalidate();
         return;
       }
+      if (m_dialogKind.starts_with("server-")) {
+        if (m_dialogBounds.contains(m_pointerX, m_pointerY))
+          scroll(m_serverDialogScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (m_dialogKind == "threads") {
         if (m_dialogBounds.contains(m_pointerX, m_pointerY))
           scroll(m_threadScroll, delta);
@@ -1083,6 +1093,7 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
                          : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
                          : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
+                         : m_demo && view && std::string_view(view) == "server-menu-cycle"                 ? 20
                          : m_demo && view && std::string_view(view) == "channel-menu-cycle"                ? 31
                          : m_demo && view && std::string_view(view) == "channel-cycle"                     ? 18
                          : m_demo && view && std::string_view(view) == "forum-cycle"                       ? 12
@@ -1154,6 +1165,8 @@ namespace app {
       throw std::runtime_error("Channel creation replay did not finish");
     if (m_demoOverlay == "channel-invite-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Channel invite replay did not finish");
+    if (m_demoOverlay == "server-menu-cycle" && m_demoInteractionStep != 20)
+      throw std::runtime_error("Server menu replay did not finish");
     if (m_demoOverlay == "channel-menu-cycle" && m_demoInteractionStep != 31)
       throw std::runtime_error("Channel menu replay did not finish");
     if (m_demoOverlay == "channel-cycle" && m_demoInteractionStep != 18)
@@ -1597,6 +1610,11 @@ namespace app {
             || view == "channel-delete"
             || view == "channel-move-confirm")
           prepareChannelMenuDemo(view);
+        if (view.starts_with("server-menu")) {
+          prepareChannelMenuDemo("channel-menu");
+          m_demoOverlay = view;
+          closeContext();
+        }
         if (view.starts_with("channel-invite"))
           prepareChannelInviteDemo(view);
         if (view.starts_with("server-settings")) {
@@ -2836,9 +2854,10 @@ namespace app {
           rectangle(root, 14, y, 48, 48, over ? panel : raised, over ? 16 : 23);
         if (!image(root, 14, y, 48, guild.icon, selected || over ? 16 : 23))
           label(root, 30, y + 12, 24, initial(guild.name), 19, selected ? accent : foreground, FontWeight::SemiBold);
-        const bool unread = std::ranges::any_of(m_unreadGuilds, [&](const auto& state) {
-          return state.second == guild.id && m_unreadChannels.contains(state.first) && !channelMuted(state.first);
-        });
+        const bool unread =
+            !m_userDirectory.muted(guild.id) && std::ranges::any_of(m_unreadGuilds, [&](const auto& state) {
+              return state.second == guild.id && m_unreadChannels.contains(state.first) && !channelMuted(state.first);
+            });
         if (selected || over || unread)
           rectangle(
               root, 0, y + (selected ? 14 : 19), 4, selected ? 20 : 10, selected || over ? accent : foreground, 2
@@ -2853,7 +2872,8 @@ namespace app {
       const auto visibleChannels = channelListRows(
           listedChannels, m_collapsedCategories, m_channelId, m_channelListPreferences,
           [&](const auto& id) { return channelMuted(id); },
-          [&](const auto& id) { return m_unreadTimeline.mentions(id); }
+          [&](const auto& id) { return m_unreadTimeline.mentions(id); },
+          [&](const auto& channel) { return m_dmMode || serverChannelVisible(channel); }
       );
       if (m_dmMode)
         iconButton(
@@ -2892,7 +2912,7 @@ namespace app {
         const bool selected = channel.id == m_channelId;
         const int mentions = m_unreadTimeline.mentions(channel.id);
         const bool unread = (m_unreadChannels.contains(channel.id) || m_unreadDMs.contains(channel.id))
-            && (!channelMuted(channel.id) || mentions > 0);
+            && (((m_dmMode || !m_userDirectory.muted(m_guildId)) && !channelMuted(channel.id)) || mentions > 0);
         const bool over = hovered(90, y, sidebarWidth - 24, 34);
         if (selected || over)
           rectangle(root, 90, y, sidebarWidth - 24, 34, selected ? raised : panel, 8);
@@ -4464,6 +4484,8 @@ namespace app {
     m_dmMode = false;
     m_guildId = id;
     m_channelListPreferences = m_demo ? ChannelListPreferences{} : m_sessionStore.channelList(m_account.id, id);
+    if (const auto hidden = m_userDirectory.guildPreferences(id).hideMutedChannels)
+      m_channelListPreferences.hideMuted = *hidden;
     m_forumSearchTimer.stop();
     m_threadParent.clear();
     m_openThreadQuery.reset();
@@ -4640,7 +4662,8 @@ namespace app {
     for (const auto& row : channelListRows(
              m_channels, m_collapsedCategories, m_channelId, m_channelListPreferences,
              [&](const auto& id) { return channelMuted(id); },
-             [&](const auto& channel) { return m_unreadTimeline.mentions(channel); }
+             [&](const auto& channel) { return m_unreadTimeline.mentions(channel); },
+             [&](const auto& channel) { return m_dmMode || serverChannelVisible(channel); }
          )) {
       if (row.channel->id == id) {
         const auto view = std::max(38.0F, m_window.height() - (m_dmMode ? 314.0F : 228.0F));
@@ -5140,8 +5163,9 @@ namespace app {
           && m_deletedChannels.contains(event.resource))
         continue;
       if (!event.unauthorized && event.operation == api::Operation::Channels && event.resource != m_guildId) {
-        if (event.error.empty())
+        if (event.error.empty() && std::ranges::find(m_guilds, event.resource, &api::Guild::id) != m_guilds.end())
           m_guildChannels[event.resource] = std::move(event.channels);
+        resumeServerInvite(event);
         continue;
       }
       if (!event.unauthorized && event.operation == api::Operation::Messages && event.resource != m_channelId)
@@ -5323,6 +5347,9 @@ namespace app {
         refreshMemberSubscription();
       } else if (event.operation == api::Operation::UserState) {
         m_userDirectory.apply(event.users);
+        if (!m_dmMode)
+          if (const auto hidden = m_userDirectory.guildPreferences(m_guildId).hideMutedChannels)
+            m_channelListPreferences.hideMuted = *hidden;
         if (m_dmMode)
           m_channels = dmConversations();
         scheduleMuteExpiry();
@@ -5429,6 +5456,7 @@ namespace app {
       } else if (event.operation == api::Operation::Channels && event.resource == m_guildId) {
         m_loadingChannels = false;
         channelSnapshotEvent(event);
+        resumeServerInvite(event);
       } else if (event.operation == api::Operation::Messages && event.resource == m_channelId) {
         applyHistory(event);
       } else if (
@@ -6009,6 +6037,9 @@ namespace app {
     if (interactionAction(hit))
       return;
     switch (hit.action) {
+    case Action::ServerMenuDialogAction:
+      serverMenuDialogAction(hit.id);
+      break;
     case Action::GuildMenu:
       openServerContext(hit, m_pointerX, m_pointerY);
       break;
@@ -6305,7 +6336,8 @@ namespace app {
       for (const auto& row : channelListRows(
                m_channels, m_collapsedCategories, m_channelId, m_channelListPreferences,
                [&](const auto& id) { return channelMuted(id); },
-               [&](const auto& channel) { return m_unreadTimeline.mentions(channel); }
+               [&](const auto& channel) { return m_unreadTimeline.mentions(channel); },
+               [&](const auto& channel) { return m_dmMode || serverChannelVisible(channel); }
            )) {
         if (row.channel->id == hit.id) {
           m_scrolling.stop(m_channelScroll);

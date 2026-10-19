@@ -296,11 +296,13 @@ namespace app {
       control->setMaxVisible(64);
       control->setRedrawCallback([this] { m_window.invalidate(); });
       control->setOnActivate([this](const ContextMenuControlEntry& entry) {
-        if (!channelMenuEntry(entry.id))
+        if (!serverMenuEntry(entry.id) && !channelMenuEntry(entry.id))
           contextAction(static_cast<Action>(entry.id));
       });
       control->setOnSubmenuOpen([this](const ContextMenuControlEntry& entry, float center) {
-        if (entry.id >= channelMenuBase)
+        if (entry.id >= serverMenuBase)
+          openServerSubmenu(entry.id, center);
+        else if (entry.id >= channelMenuBase)
           openChannelSubmenu(entry.id, center);
         else if (static_cast<Action>(entry.id) == Action::AddReaction)
           openReactionSubmenu(center);
@@ -376,9 +378,11 @@ namespace app {
         control->setRedrawCallback([this] { m_window.invalidate(); });
         control->setOnActivate([this](const ContextMenuControlEntry& entry) {
           const auto index = static_cast<std::size_t>(entry.id);
-          if (m_channelSubmenu && index < m_channelSubmenuEntries.size())
-            channelMenuEntry(m_channelSubmenuEntries[index].id);
-          else if (index < m_reactionChoices.size())
+          if (m_channelSubmenu && index < m_channelSubmenuEntries.size()) {
+            const auto id = m_channelSubmenuEntries[index].id;
+            if (!serverMenuEntry(id))
+              channelMenuEntry(id);
+          } else if (index < m_reactionChoices.size())
             chooseReaction(m_reactionChoices[index].first);
         });
         child = std::move(control);
@@ -700,6 +704,10 @@ namespace app {
     }
     if (action.kind == Kind::Mute || action.kind == Kind::Unmute || action.kind == Kind::ChannelNotifications)
       action.stateRevision = m_userDirectory.notificationRevision(action.channel);
+    if (action.kind == Kind::GuildNotifications)
+      action.stateRevision = m_userDirectory.guildNotificationRevision(action.guild);
+    if (action.kind == Kind::MoveGuild)
+      action.stateRevision = m_guildLayoutRevision;
     const auto key = interactionKey(action);
     if (m_pendingInteractions.contains(key))
       return false;
@@ -901,6 +909,11 @@ namespace app {
       m_dialogError = m_status;
   }
   void ClientApplication::closeDialog() {
+    m_serverInvitePending.clear();
+    m_serverDialogGuild.clear();
+    m_serverPrivacyLoaded = false;
+    m_scrolling.stop(m_serverDialogScroll);
+    m_serverDialogScroll = 0;
     m_scrolling.stop(m_dmCreateScroll);
     m_dmCreateScroll = 0;
     m_dmCreateBounds = {};
@@ -983,6 +996,10 @@ namespace app {
     m_revealedBlocked.clear();
   }
   void ClientApplication::drawDialog(Node& root, float w, float h) {
+    if (m_dialogKind.starts_with("server-")) {
+      drawServerMenuDialog(root, w, h);
+      return;
+    }
     if (m_dialogKind == "dm-create") {
       drawDmCreate(root, w, h);
       return;
@@ -1069,6 +1086,10 @@ namespace app {
     m_tooltip.clear();
   }
   void ClientApplication::submitDialog() {
+    if (m_dialogKind.starts_with("server-")) {
+      submitServerMenuDialog();
+      return;
+    }
     if (m_dialogKind.starts_with("sidebar-")) {
       submitSidebarDialog();
       return;
@@ -1120,6 +1141,8 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
+    if (serverMenuInteractionResult(event))
+      return;
     if (dmInteractionResult(event))
       return;
     if (channelInviteResult(event))

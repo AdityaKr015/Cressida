@@ -2,6 +2,8 @@
 
 #include "api/channel_features.h"
 #include "api/models.h"
+#include "api/server_preferences.h"
+#include "api/server_privacy.h"
 
 #include <nlohmann/json.hpp>
 
@@ -44,7 +46,12 @@ namespace api {
     SendInvite,
     EditChannelPermission,
     AcceptMessageRequest,
-    IgnoreMessageRequest
+    IgnoreMessageRequest,
+    GuildNotifications,
+    MarkGuildRead,
+    LeaveGuild,
+    MoveGuild,
+    GuildPrivacy
   };
   struct Interaction {
     InteractionKind kind = InteractionKind::AddReaction;
@@ -73,6 +80,10 @@ namespace api {
     std::optional<bool> channelNsfw;
     std::optional<int> channelRateLimit;
     bool syncPermissions = false;
+    std::optional<GuildNotification> guildNotification;
+    std::vector<std::pair<std::string, std::string>> readStates;
+    std::uint64_t notificationFlagsMask = 0;
+    std::optional<api::GuildPrivacy> guildPrivacy;
   };
   struct InteractionRequest {
     std::string path, method;

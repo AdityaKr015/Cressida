@@ -152,6 +152,7 @@ namespace api {
     std::uint64_t userSettingsMfaChallenge = 0;
     std::vector<std::string> userSettingsMfaMethods;
     bool userSettingsSessionEnded = false, userSettingsSensitive = false;
+    std::optional<api::GuildPrivacy> guildPrivacy;
   };
 
   // An ordered account/mutation owner and three independent, bounded GET lanes.
@@ -287,6 +288,10 @@ namespace api {
     // Shared only under m_mutex: latest Gateway/acknowledged override flags.
     std::map<std::string, std::uint64_t> m_channelNotificationFlags;
     bool m_channelNotificationFlagsReady = false;
+    std::map<std::string, std::uint64_t> m_guildNotificationFlags;
+    bool m_guildNotificationFlagsReady = false;
+    std::map<std::string, std::uint64_t> m_guildPreferenceRevisions;
+    std::map<std::string, GuildNotification> m_guildPreferenceAcks;
     // These caches belong exclusively to the Gateway worker.
     std::uint64_t m_memberSession = 0;
     MemberListStream m_memberStream;

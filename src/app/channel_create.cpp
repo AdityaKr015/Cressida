@@ -20,6 +20,29 @@ namespace app {
       return found;
     }
   } // namespace
+  void ClientApplication::openChannelCreate(api::Interaction action) {
+    closeDialog();
+    m_dialogKind = "sidebar-create";
+    m_dialogTitle = action.channelType == 4 ? "Create Category" : "Create Channel";
+    m_dialogAction = std::move(action);
+    m_dialogText.clear();
+    m_dialogError.clear();
+    m_sidebarInviteUrl.clear();
+    m_channelCreateFilter.clear();
+    m_channelCreateAccessStep = false;
+    m_scrolling.stop(m_channelCreateScroll);
+    m_channelCreateScroll = 0;
+    m_focusedInput = "dialog";
+    const auto permissions = m_dialogAction->parentId && !m_dialogAction->parentId->empty()
+        ? serverChannelPermissions(m_dialogAction->guild, *m_dialogAction->parentId)
+        : serverGuildPermissions(m_dialogAction->guild);
+    if (!permissions)
+      m_dialogError = "Server permissions are not available yet. Reopen this action after the server finishes loading.";
+    else if (!(*permissions & api::manageChannel))
+      m_dialogError = "You no longer have permission to create channels in this server.";
+    m_window.invalidate();
+  }
+
   bool ClientApplication::channelCreateAction(const Hit& hit) {
     if (hit.action != Action::ChannelCreateType
         && hit.action != Action::ChannelCreatePrivate
@@ -34,14 +57,15 @@ namespace app {
     if (hit.action == Action::ChannelCreateType) {
       int type = -1;
       const auto parsed = std::from_chars(hit.id.data(), hit.id.data() + hit.id.size(), type);
-      const auto guild = std::ranges::find(m_guilds, m_guildId, &api::Guild::id);
+      const auto guild = std::ranges::find(m_guilds, m_dialogAction->guild, &api::Guild::id);
       const bool community =
           guild != m_guilds.end() && std::ranges::find(guild->features, "COMMUNITY") != guild->features.end();
       if (parsed.ec == std::errc{} && (type == 0 || type == 2 || (type == 15 && community)))
         m_dialogAction->channelType = type;
     } else if (hit.action == Action::ChannelCreatePrivate) {
-      const auto permissions = m_dialogAction->parentId ? channelPermissionsFor(*m_dialogAction->parentId).value_or(0)
-                                                        : guildPermissions().value_or(0);
+      const auto permissions = m_dialogAction->parentId && !m_dialogAction->parentId->empty()
+          ? serverChannelPermissions(m_dialogAction->guild, *m_dialogAction->parentId).value_or(0)
+          : serverGuildPermissions(m_dialogAction->guild).value_or(0);
       if (permissions & api::managePermissions) {
         m_dialogAction->privateChannel = !m_dialogAction->privateChannel;
         m_dialogAction->channelAccess.clear();
@@ -52,7 +76,9 @@ namespace app {
     } else if (hit.id.size() > 2 && (hit.id.starts_with("0:") || hit.id.starts_with("1:"))) {
       const auto id = hit.id.substr(2);
       const auto type = hit.id[0] - '0';
-      if (api::validSnowflake(id) && id != m_guildId && id != m_account.id) {
+      const auto roles = m_roleDirectory.allRoles(m_dialogAction->guild);
+      const bool target = type == 1 || std::ranges::find(roles, id, &api::ColoredRole::id) != roles.end();
+      if (target && api::validSnowflake(id) && id != m_dialogAction->guild && id != m_account.id) {
         auto& access = m_dialogAction->channelAccess;
         const auto found =
             std::ranges::find_if(access, [&](const auto& entry) { return entry.id == id && entry.type == type; });
@@ -72,7 +98,7 @@ namespace app {
       return;
     auto& action = *m_dialogAction;
     const bool category = action.channelType == 4;
-    const auto guild = std::ranges::find(m_guilds, m_guildId, &api::Guild::id);
+    const auto guild = std::ranges::find(m_guilds, action.guild, &api::Guild::id);
     const bool community =
         guild != m_guilds.end() && std::ranges::find(guild->features, "COMMUNITY") != guild->features.end();
     const float width = std::min(448.0F, w - 32);
@@ -100,8 +126,8 @@ namespace app {
         root, {x + width - 42, y + 14, 28, 28, m_dialogPending ? Action::None : Action::CloseDialog, {}}, "x", "Close"
     );
     if (action.parentId && !m_channelCreateAccessStep) {
-      const auto parent = std::ranges::find(m_channels, *action.parentId, &api::Channel::id);
-      if (parent != m_channels.end())
+      const auto* parent = serverChannel(action.guild, *action.parentId);
+      if (parent)
         label(root, x + 24, y + 49, width - 48, "in " + parent->name, 11, muted);
     }
     const float contentY = y + 72, viewport = height - 142 - errorHeight;
@@ -141,14 +167,23 @@ namespace app {
         std::uint32_t color = 0;
       };
       std::vector<Target> targets;
-      for (const auto& role : m_roleDirectory.allRoles(m_guildId))
-        if (role.id != m_guildId && (m_channelCreateFilter.empty() || createMatches(role.name, m_channelCreateFilter)))
+      for (const auto& role : m_roleDirectory.allRoles(action.guild))
+        if (role.id != action.guild
+            && (m_channelCreateFilter.empty() || createMatches(role.name, m_channelCreateFilter)))
           targets.push_back({role.id, role.name, {}, 0, role.colors.primary});
-      for (const auto& member : m_members)
-        if (!member.user.id.empty()
-            && member.user.id != m_account.id
-            && (m_channelCreateFilter.empty() || createMatches(member.user.name, m_channelCreateFilter)))
-          targets.push_back({member.user.id, userName(member.user.id, member.user.name), member.user.avatar, 1});
+      const auto addMembers = [&](const auto& members) {
+        for (const auto& member : members)
+          if (!member.user.id.empty()
+              && member.user.id != m_account.id
+              && (m_channelCreateFilter.empty() || createMatches(member.user.name, m_channelCreateFilter)))
+            targets.push_back({member.user.id, userName(member.user.id, member.user.name), member.user.avatar, 1});
+      };
+      if (!m_dmMode && action.guild == m_guildId)
+        addMembers(m_members);
+      else
+        for (const auto& channel : serverChannels(action.guild))
+          if (const auto cached = m_channelMembers.find(channel.id); cached != m_channelMembers.end())
+            addMembers(cached->second.rows);
       if (api::validSnowflake(m_channelCreateFilter) && m_channelCreateFilter != m_account.id)
         targets.push_back({m_channelCreateFilter, userName(m_channelCreateFilter, m_channelCreateFilter), {}, 1});
       std::set<std::pair<int, std::string>> seen;
@@ -243,8 +278,9 @@ namespace app {
           page, 20, cursor, inner - 76, category ? "Private Category" : "Private Channel", 13, foreground,
           FontWeight::Medium
       );
-      const auto permissions =
-          action.parentId ? channelPermissionsFor(*action.parentId).value_or(0) : guildPermissions().value_or(0);
+      const auto permissions = action.parentId && !action.parentId->empty()
+          ? serverChannelPermissions(action.guild, *action.parentId).value_or(0)
+          : serverGuildPermissions(action.guild).value_or(0);
       const bool canPrivate = permissions & api::managePermissions;
       const std::string key = "toggle:channel-create-private";
       std::unique_ptr<Node> saved;
@@ -304,7 +340,10 @@ namespace app {
     auto validated = action;
     validated.text = m_dialogText;
     validated.user = m_account.id;
-    const bool valid = api::interactionRequest(validated).has_value();
+    const auto createPermissions = action.parentId && !action.parentId->empty()
+        ? serverChannelPermissions(action.guild, *action.parentId).value_or(0)
+        : serverGuildPermissions(action.guild).value_or(0);
+    const bool valid = (createPermissions & api::manageChannel) && api::interactionRequest(validated).has_value();
     const std::string caption = m_dialogPending               ? "Creating…"
         : action.privateChannel && !m_channelCreateAccessStep ? "Next"
         : category                                            ? "Create Category"

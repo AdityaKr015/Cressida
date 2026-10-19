@@ -1,16 +1,21 @@
 #include "api/emoji.h"
 #include "api/gifs.h"
 #include "api/models.h"
+#include "api/server_organization.h"
+#include "api/server_privacy.h"
 
 #include <algorithm>
+#include <charconv>
+#include <limits>
 #include <nlohmann/json.hpp>
+#include <set>
 #include <stdexcept>
 #include <string_view>
 
 namespace api {
   namespace {
-    // Read bounded wire fields without a generated schema. Organization remains
-    // read-only; explicit presence edits preserve raw unknown status fields.
+    // Read bounded wire fields without a generated schema. Explicit edits retain
+    // unknown fields in each complete group sent back to Discord.
     class Wire {
     public:
       explicit Wire(std::string_view input) : bytes(input) {}
@@ -616,6 +621,260 @@ namespace api {
       edited += field(id, mergeSettings(original, edit.children));
     }
     return {{"settings", encode64(edited)}, {"required_data_version", *version}};
+  }
+
+  namespace {
+    std::uint64_t settingsId(const std::string& text, bool allowZero = false) {
+      std::uint64_t value = 0;
+      const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+      if (text.empty()
+          || parsed.ec != std::errc{}
+          || parsed.ptr != text.data() + text.size()
+          || (!allowZero && !value)
+          || std::to_string(value) != text)
+        throw std::runtime_error("Invalid server organization identifier");
+      return value;
+    }
+    std::string organizationSnapshot(const nlohmann::json& snapshot) {
+      if (!snapshot.is_object())
+        throw std::runtime_error("Unreadable account organization settings");
+      const auto at = snapshot.find(snapshot.contains("settings") ? "settings" : "proto");
+      if (at == snapshot.end() || !at->is_string())
+        throw std::runtime_error("Unreadable account organization settings");
+      return base64(at->get_ref<const std::string&>());
+    }
+    std::uint64_t organizationVersion(std::string_view bytes) {
+      std::optional<std::uint64_t> version;
+      if (const auto versions = nestedField(bytes, 1)) {
+        Wire input(*versions);
+        while (input.next())
+          if (input.field == 3) {
+            if (input.type != 0 || input.number > UINT32_MAX)
+              throw std::runtime_error("Invalid account settings data version");
+            version = input.number;
+          }
+      }
+      if (!version)
+        throw std::runtime_error("Cannot save organization settings without an account data version");
+      return *version;
+    }
+    std::string fixedId(unsigned id, std::uint64_t value) {
+      std::string output;
+      integer(output, (id << 3) | 1);
+      for (int byte = 0; byte < 8; ++byte)
+        output += static_cast<char>((value >> (byte * 8)) & 255);
+      return output;
+    }
+    std::vector<std::string> organizationIds(std::string_view bytes, unsigned id, std::size_t maximum = 10000) {
+      Wire input(bytes);
+      std::vector<std::string> result;
+      while (input.next()) {
+        if (input.field != id)
+          continue;
+        if ((input.type != 1 && input.type != 2) || (input.type == 2 && input.data.size() % 8))
+          throw std::runtime_error("Invalid server list in account settings");
+        const auto count = input.type == 1 ? 1 : input.data.size() / 8;
+        if (count > maximum - result.size())
+          throw std::runtime_error("Too many servers in account settings");
+        ids(input, result);
+      }
+      for (const auto& value : result)
+        settingsId(value);
+      return result;
+    }
+    // Keep untouched wire fields byte for byte. Filtering a packed list changes
+    // only its length and selected IDs, including for future/unknown guilds.
+    std::string removeOrganizationId(std::string_view bytes, unsigned id, std::uint64_t guild) {
+      Wire input(bytes);
+      std::string output;
+      while (!input.bytes.empty()) {
+        const auto before = input.bytes;
+        input.next();
+        const auto raw = before.substr(0, before.size() - input.bytes.size());
+        if (input.field != id || (input.type == 1 && input.number != guild)) {
+          output.append(raw);
+          continue;
+        }
+        if (input.type == 1)
+          continue;
+        if (input.type != 2 || input.data.size() % 8)
+          throw std::runtime_error("Invalid server list in account settings");
+        Wire packed(input.data);
+        std::string retained;
+        bool removed = false;
+        while (!packed.bytes.empty()) {
+          const auto value = packed.take(8);
+          std::uint64_t number = 0;
+          for (int byte = 0; byte < 8; ++byte)
+            number |= std::uint64_t(static_cast<unsigned char>(value[byte])) << (byte * 8);
+          if (number == guild)
+            removed = true;
+          else
+            retained.append(value);
+        }
+        if (!removed)
+          output.append(raw);
+        else if (!retained.empty())
+          output += field(id, retained);
+      }
+      return output;
+    }
+  } // namespace
+
+  GuildPrivacy parseGuildPrivacy(const nlohmann::json& snapshot, const std::string& guild) {
+    settingsId(guild);
+    const auto bytes = organizationSnapshot(snapshot);
+    const auto privacy = nestedField(bytes, 8).value_or("");
+    const auto allowed = [&](unsigned id) {
+      const auto restricted = organizationIds(privacy, id);
+      return std::ranges::find(restricted, guild) == restricted.end();
+    };
+    return {allowed(3), allowed(13), allowed(15), allowed(16)};
+  }
+  nlohmann::json
+  guildPrivacyPatch(const nlohmann::json& snapshot, const std::string& guild, const GuildPrivacy& changes) {
+    const auto number = settingsId(guild);
+    if (changes.empty())
+      throw std::runtime_error("No server privacy settings were changed");
+    const auto bytes = organizationSnapshot(snapshot);
+    const auto version = organizationVersion(bytes);
+    auto privacy = nestedField(bytes, 8).value_or("");
+    for (const auto& [id, allow] : std::vector<std::pair<unsigned, std::optional<bool>>>{
+             {3, changes.directMessages},
+             {13, changes.activity},
+             {15, changes.activityJoining},
+             {16, changes.messageRequests}
+         }) {
+      if (!allow)
+        continue;
+      const auto restricted = organizationIds(privacy, id);
+      const bool contains = std::ranges::find(restricted, guild) != restricted.end();
+      if (*allow && contains)
+        privacy = removeOrganizationId(privacy, id, number);
+      else if (!*allow && !contains) {
+        if (restricted.size() >= 10000)
+          throw std::runtime_error("Too many server privacy restrictions");
+        privacy += fixedId(id, number);
+      }
+    }
+    return {{"settings", encode64(field(8, privacy))}, {"required_data_version", version}};
+  }
+
+  nlohmann::json guildMovePatch(
+      const nlohmann::json& snapshot, const std::string& guild, const std::string& folderId,
+      const std::optional<std::string>& newFolderName
+  ) {
+    const auto guildNumber = settingsId(guild);
+    if (!folderId.empty() && settingsId(folderId, true) > std::numeric_limits<std::int64_t>::max())
+      throw std::runtime_error("Invalid destination folder identifier");
+    if (newFolderName) {
+      if (!folderId.empty()
+          || newFolderName->empty()
+          || newFolderName->size() > 400
+          || utf8Length(*newFolderName) > 100
+          || std::ranges::all_of(*newFolderName, [](char c) { return c == ' '; })
+          || std::ranges::any_of(*newFolderName, [](unsigned char c) { return c < 32 || c == 127; }))
+        throw std::runtime_error("A new server folder needs a name of at most 100 characters");
+      // nlohmann validates UTF-8 before any encoded request can be produced.
+      (void)nlohmann::json(*newFolderName).dump();
+    }
+    const auto bytes = organizationSnapshot(snapshot);
+    const auto version = organizationVersion(bytes);
+    const auto group = nestedField(bytes, 14).value_or("");
+    struct Folder {
+      std::string bytes, id;
+      std::vector<std::string> members;
+    };
+    struct Part {
+      std::string raw;
+      std::optional<Folder> folder;
+    };
+    std::vector<Part> parts;
+    std::set<std::string> folderIds, membership;
+    std::optional<std::size_t> source, target;
+    std::size_t folderCount = 0;
+    Wire input(group);
+    while (!input.bytes.empty()) {
+      const auto before = input.bytes;
+      input.next();
+      if (parts.size() >= 50000)
+        throw std::runtime_error("Too many organization settings fields");
+      Part part{.raw = std::string(before.substr(0, before.size() - input.bytes.size())), .folder = {}};
+      if (input.field == 1) {
+        if (input.type != 2 || ++folderCount > 1000)
+          throw std::runtime_error("Invalid server folder list");
+        Folder folder{.bytes = std::string(input.data), .id = {}, .members = {}};
+        folder.members = organizationIds(folder.bytes, 1, 100);
+        Wire folderFields(folder.bytes);
+        while (folderFields.next())
+          if (folderFields.field == 2 && folderFields.type != 2)
+            throw std::runtime_error("Invalid existing server folder identifier");
+        if (const auto wrappedId = nestedField(folder.bytes, 2)) {
+          std::uint64_t id = 0;
+          Wire wrapper(*wrappedId);
+          while (wrapper.next())
+            if (wrapper.field == 1) {
+              if (wrapper.type != 0 || wrapper.number > std::numeric_limits<std::int64_t>::max())
+                throw std::runtime_error("Invalid existing server folder identifier");
+              id = wrapper.number;
+            }
+          folder.id = std::to_string(id);
+          if (!folderIds.insert(folder.id).second)
+            throw std::runtime_error("Duplicate server folder identifier");
+        }
+        if (!folderId.empty() && folder.id == folderId)
+          target = parts.size();
+        for (const auto& member : folder.members) {
+          if (!membership.insert(member).second || membership.size() > 10000)
+            throw std::runtime_error("A server occurs in more than one folder");
+          if (member == guild)
+            source = parts.size();
+        }
+        part.folder = std::move(folder);
+      }
+      parts.push_back(std::move(part));
+    }
+    const auto positions = organizationIds(group, 2);
+    if (!source && std::ranges::find(positions, guild) == positions.end())
+      throw std::runtime_error("The server is absent from the current account organization");
+    if (!folderId.empty() && !target)
+      throw std::runtime_error("The destination server folder no longer exists");
+    if (source && !newFolderName && parts[*source].folder->id == folderId)
+      return {{"settings", encode64(field(14, group))}, {"required_data_version", version}};
+    if (target && parts[*target].folder->members.size() >= 100)
+      throw std::runtime_error("The destination folder already holds 100 servers");
+
+    std::string newFolder;
+    if (!target) {
+      newFolder = fixedId(1, guildNumber);
+      if (newFolderName) {
+        if (folderCount >= 1000)
+          throw std::runtime_error("Too many server folders");
+        std::uint64_t next = 1;
+        while (folderIds.contains(std::to_string(next)))
+          ++next;
+        newFolder += field(2, numericField(1, next)) + field(3, field(1, *newFolderName));
+      }
+    }
+    std::string updated;
+    for (std::size_t index = 0; index < parts.size(); ++index) {
+      auto& part = parts[index];
+      if (source == index) {
+        const auto remaining = removeOrganizationId(part.folder->bytes, 1, guildNumber);
+        if (part.folder->members.size() > 1)
+          updated += field(1, remaining);
+        if (!target)
+          updated += field(1, newFolder);
+      } else if (target == index)
+        updated += field(1, part.folder->bytes + fixedId(1, guildNumber));
+      else
+        updated += part.raw;
+    }
+    if (!source && !target)
+      updated += field(1, newFolder);
+    // guild_positions remains byte-identical: the folder sequence controls the
+    // rail while positions retain the ordering of ungrouped/unloaded servers.
+    return {{"settings", encode64(field(14, updated))}, {"required_data_version", version}};
   }
 
   GuildLayout parseGuildLayout(const nlohmann::json& value) {

@@ -365,6 +365,56 @@ namespace api {
     using Kind = InteractionKind;
     InteractionRequest request;
     switch (action.kind) {
+    case Kind::GuildNotifications: {
+      constexpr auto visibility = guildOptInChannelsOn | guildOptInChannelsOff;
+      if (!validSnowflake(action.guild)
+          || !action.guildNotification
+          || (action.notificationFlagsMask & ~visibility)
+          || (action.guildNotification->flags
+              && (!action.notificationFlagsMask || (*action.guildNotification->flags & ~action.notificationFlagsMask)))
+          || (!action.guildNotification->flags && action.notificationFlagsMask))
+        return {};
+      const auto body = guildNotificationPatch(*action.guildNotification, action.muteDuration);
+      if (!body)
+        return {};
+      request.path = "/users/@me/guilds/" + action.guild + "/settings";
+      request.method = "PATCH";
+      request.body = *body;
+      break;
+    }
+    case Kind::MarkGuildRead:
+      if (!validSnowflake(action.guild))
+        return {};
+      if (const auto body = guildReadBody(action.readStates))
+        request.body = *body;
+      else
+        return {};
+      request.path = "/read-states/ack-bulk";
+      request.method = "POST";
+      break;
+    case Kind::LeaveGuild:
+      if (!validSnowflake(action.guild))
+        return {};
+      request.path = "/users/@me/guilds/" + action.guild;
+      request.method = "DELETE";
+      request.body = {{"lurking", false}};
+      break;
+    case Kind::MoveGuild:
+      if (!validSnowflake(action.guild)
+          || (!action.text.empty() && !validSnowflake(action.text))
+          || action.content.size() > 400
+          || utf8Length(action.content) > 100
+          || (!action.text.empty() && !action.content.empty()))
+        return {};
+      request.path = "/users/@me/settings-proto/1";
+      request.method = "PATCH";
+      break;
+    case Kind::GuildPrivacy:
+      if (!validSnowflake(action.guild))
+        return {};
+      request.path = "/users/@me/settings-proto/1";
+      request.method = action.guildPrivacy && !action.guildPrivacy->empty() ? "PATCH" : "GET";
+      break;
     case Kind::AcceptMessageRequest:
     case Kind::IgnoreMessageRequest:
       if (!validSnowflake(action.channel))

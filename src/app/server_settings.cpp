@@ -436,6 +436,26 @@ namespace app {
     return access;
   }
 
+  std::vector<std::pair<std::string, std::string>>
+  ClientApplication::serverSettingsPages(const std::string& guild) const {
+    std::vector<std::pair<std::string, std::string>> result;
+    const auto found = std::ranges::find(m_guilds, guild, &api::Guild::id);
+    if (found == m_guilds.end())
+      return result;
+    const auto permissions = serverGuildPermissions(guild).value_or(0);
+    const bool owner = m_roleDirectory.owner(guild) == m_account.id;
+    const bool admin = owner || (permissions & administrator);
+    for (const auto& page : pages) {
+      const bool all = std::string_view(page.id) == "prune" || std::string_view(page.id) == "commands";
+      const bool allowed = page.permission
+          ? admin || (all ? (permissions & page.permission) == page.permission : (permissions & page.permission) != 0)
+          : owner;
+      if (allowed && (!*page.feature || std::ranges::find(found->features, page.feature) != found->features.end()))
+        result.emplace_back(page.id, page.name);
+    }
+    return result;
+  }
+
   void ClientApplication::openServerSettings(const std::string& guild) {
     const auto id = guild.empty() ? m_guildId : guild;
     if (!api::validSnowflake(id))

@@ -42,9 +42,14 @@ namespace app {
       return;
     const auto roles =
         guild.empty() ? std::optional<std::vector<std::string>>{} : m_roleDirectory.memberships(guild, m_account.id);
-    const bool mentioned = messageMentions(
-        message, m_account.id, roles ? std::span<const std::string>(*roles) : std::span<const std::string>{}
-    );
+    const auto preferences = m_userDirectory.guildPreferences(guild);
+    const bool mentioned = message.mentions.contains(m_account.id)
+        || (message.mentionEveryone && !preferences.suppressEveryone.value_or(false))
+        || (roles
+            && !preferences.suppressRoles.value_or(false)
+            && std::ranges::any_of(message.mentionRoles, [&](const auto& role) {
+                 return std::ranges::find(*roles, role) != roles->end();
+               }));
     int level = m_userDirectory.notificationLevel(channel);
     if (level == 3 && !guild.empty())
       level = m_userDirectory.notificationLevel(guild);

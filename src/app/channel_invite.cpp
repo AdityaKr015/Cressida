@@ -107,8 +107,14 @@ namespace app {
   void ClientApplication::generateChannelInvite() {
     if (m_dialogKind != "sidebar-invite" || !m_dialogAction || m_dialogPending)
       return;
-    if (m_dialogAction->guild != m_guildId || !(channelPermissionsFor(m_dialogAction->channel).value_or(0) & 1)) {
-      m_dialogError = "You no longer have permission to invite people to this channel.";
+    const auto* channel = serverChannel(m_dialogAction->guild, m_dialogAction->channel);
+    const auto permissions = serverChannelPermissions(m_dialogAction->guild, m_dialogAction->channel);
+    if (!channel || !permissions || !(*permissions & 1)) {
+      m_dialogError = !channel
+          ? "This server's channels are not available yet. Reopen the invite after they finish loading."
+          : !permissions
+          ? "Server permissions are not available yet. Reopen the invite after the server finishes loading."
+          : "You no longer have permission to invite people to this channel.";
       m_window.invalidate();
       return;
     }
@@ -350,8 +356,7 @@ namespace app {
       if (const auto guild = std::ranges::find(m_guilds, m_dialogAction->guild, &api::Guild::id);
           guild != m_guilds.end())
         guildName = guild->name;
-      if (const auto channel = std::ranges::find(m_channels, m_dialogAction->channel, &api::Channel::id);
-          channel != m_channels.end())
+      if (const auto* channel = serverChannel(m_dialogAction->guild, m_dialogAction->channel))
         channelName = channel->name;
     }
     label(

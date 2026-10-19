@@ -95,6 +95,8 @@ namespace api {
       m_mutedChannels.clear();
       m_notifications.clear();
       m_notificationRevisions.clear();
+      m_guildNotifications.clear();
+      m_guildNotificationRevisions.clear();
       m_tags.clear();
     }
     for (const auto& [id, user] : update.users) {
@@ -142,6 +144,26 @@ namespace api {
         target.muteUntil = patch.muteUntil;
       m_notificationRevisions[id] = ++m_notificationSerial;
     }
+    for (const auto& [id, patch] : update.guildNotifications) {
+      if (!validSnowflake(id) || (!m_guildNotifications.contains(id) && m_guildNotifications.size() >= 1000))
+        continue;
+      auto& target = m_guildNotifications[id];
+      const auto merge = [](auto& value, const auto& change) {
+        if (change)
+          value = change;
+      };
+      merge(target.muted, patch.muted);
+      merge(target.suppressEveryone, patch.suppressEveryone);
+      merge(target.suppressRoles, patch.suppressRoles);
+      merge(target.mobilePush, patch.mobilePush);
+      merge(target.hideMutedChannels, patch.hideMutedChannels);
+      merge(target.muteScheduledEvents, patch.muteScheduledEvents);
+      merge(target.muteUntil, patch.muteUntil);
+      merge(target.level, patch.level);
+      merge(target.notifyHighlights, patch.notifyHighlights);
+      merge(target.flags, patch.flags);
+      m_guildNotificationRevisions[id] = ++m_notificationSerial;
+    }
   }
 
   std::string UserDirectory::name(const std::string& user, const std::string& fallback) const {
@@ -161,6 +183,14 @@ namespace api {
     return found != m_ignored.end() && found->second;
   }
   bool UserDirectory::muted(const std::string& channel) const {
+    if (const auto guild = m_guildNotifications.find(channel); guild != m_guildNotifications.end()) {
+      if (!guild->second.muted.value_or(false))
+        return false;
+      if (guild->second.muteUntil)
+        if (const auto end = muteDeadline(*guild->second.muteUntil); end && *end <= std::chrono::system_clock::now())
+          return false;
+      return true;
+    }
     const auto found = m_mutedChannels.find(channel);
     if (found == m_mutedChannels.end() || !found->second)
       return false;
@@ -175,6 +205,8 @@ namespace api {
     return at == m_notifications.end() ? 0 : at->second.flags.value_or(0);
   }
   int UserDirectory::notificationLevel(const std::string& channel) const {
+    if (const auto guild = m_guildNotifications.find(channel); guild != m_guildNotifications.end())
+      return guild->second.level.value_or(3);
     const auto at = m_notifications.find(channel);
     return at == m_notifications.end() ? 3 : at->second.level.value_or(3);
   }
@@ -182,10 +214,22 @@ namespace api {
     const auto at = m_notificationRevisions.find(channel);
     return at == m_notificationRevisions.end() ? 0 : at->second;
   }
+  GuildNotification UserDirectory::guildPreferences(const std::string& guild) const {
+    const auto at = m_guildNotifications.find(guild);
+    return at == m_guildNotifications.end() ? GuildNotification{} : at->second;
+  }
+  std::uint64_t UserDirectory::guildNotificationRevision(const std::string& guild) const {
+    const auto at = m_guildNotificationRevisions.find(guild);
+    return at == m_guildNotificationRevisions.end() ? 0 : at->second;
+  }
   std::optional<std::chrono::system_clock::time_point> UserDirectory::nextMuteExpiry() const {
     std::optional<std::chrono::system_clock::time_point> result;
     const auto now = std::chrono::system_clock::now();
     for (const auto& [id, value] : m_notifications)
+      if (muted(id) && value.muteUntil)
+        if (const auto end = muteDeadline(*value.muteUntil); end && *end > now && (!result || *end < *result))
+          result = end;
+    for (const auto& [id, value] : m_guildNotifications)
       if (muted(id) && value.muteUntil)
         if (const auto end = muteDeadline(*value.muteUntil); end && *end > now && (!result || *end < *result))
           result = end;
@@ -301,6 +345,9 @@ namespace api {
         changes.users[id].status = status;
     };
     auto notificationSettings = [&](const nlohmann::json& settings) {
+      for (const auto& [id, patch] : guildNotifications(settings))
+        if (changes.guildNotifications.contains(id) || changes.guildNotifications.size() < 1000)
+          changes.guildNotifications[id] = patch;
       for (const auto& [id, patch] : channelNotifications(settings)) {
         changes.notifications[id] = patch;
         if (patch.muted)

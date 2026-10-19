@@ -1,6 +1,7 @@
 #pragma once
 
 #include "api/models.h"
+#include "api/server_preferences.h"
 
 #include <chrono>
 
@@ -26,6 +27,7 @@ namespace api {
     std::map<std::string, bool> mutedChannels;
     std::map<std::string, ChannelNotification> notifications;
     bool relationshipsReset = false;
+    std::map<std::string, GuildNotification> guildNotifications;
   };
 
   // Gateway-owned protocol tracking, or an event-loop-owned view of typed updates.
@@ -46,6 +48,8 @@ namespace api {
     bool pinnedDm(const std::string& channel) const { return (notificationFlags(channel) & 2048) != 0; }
     int notificationLevel(const std::string& channel) const;
     std::uint64_t notificationRevision(const std::string& channel) const;
+    GuildNotification guildPreferences(const std::string& guild) const;
+    std::uint64_t guildNotificationRevision(const std::string& guild) const;
     std::optional<std::chrono::system_clock::time_point> nextMuteExpiry() const;
     std::optional<GuildTag> guildTag(const std::string& user, const std::optional<GuildTag>& fallback = {}) const;
 
@@ -61,5 +65,7 @@ namespace api {
     std::map<std::string, ChannelNotification> m_notifications;
     std::map<std::string, std::uint64_t> m_notificationRevisions;
     std::uint64_t m_notificationSerial = 0;
+    std::map<std::string, GuildNotification> m_guildNotifications;
+    std::map<std::string, std::uint64_t> m_guildNotificationRevisions;
   };
 } // namespace api

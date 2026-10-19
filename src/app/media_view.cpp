@@ -74,6 +74,8 @@ namespace app {
                   && m_channelInvite.dropdownBounds.contains(m_pointerX, m_pointerY))
               || (m_dialogBounds.contains(m_pointerX, m_pointerY)
                   && (id == "dialog"
+                      || id.starts_with("server-menu:")
+                      || id.starts_with("toggle:server-menu:")
                       || id == "channel-name"
                       || id == "channel-topic"
                       || id == "channel-access-filter"
