@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="assets/cressida-logo.svg" alt="Cressida logo" width="180">
+</p>
+
+> [!WARNING]
+> Cressida is an unofficial third-party Discord client. It is not affiliated with or
+> endorsed by Discord.
+
 # Cressida
 
 A native Discord desktop client for Linux and Wayland.
