@@ -19,6 +19,43 @@ int main(int argc, char** argv) {
     const app::MessageMeasure editMeasure = [](std::string_view text, const app::MessageStyle& style) {
       return static_cast<float>(text.size()) * style.size * .5F;
     };
+    const auto singleBreak = app::layoutMessage("first\nsecond", 500, editMeasure);
+    const float lineStep = singleBreak.runs.back().y - singleBreak.runs.front().y;
+    for (const auto& [input, expected] :
+         {std::pair{"first\n\nsecond", "first\n\nsecond\n"}, std::pair{"first\n\n\n\nsecond", "first\n\n\n\nsecond\n"},
+          std::pair{"first\r\n\r\nsecond", "first\n\nsecond\n"}, std::pair{"first\r\rsecond", "first\n\nsecond\n"},
+          std::pair{"first\n \t\nsecond", "first\n\nsecond\n"}}) {
+      const auto paragraphs = app::layoutMessage(input, 500, editMeasure);
+      const auto breaks = std::ranges::count(std::string_view(expected), '\n') - 1;
+      require(paragraphs.plainText == expected, "Copy and selection retain explicit blank paragraph lines");
+      require(
+          paragraphs.runs.back().y - paragraphs.runs.front().y == lineStep * breaks,
+          "Blank paragraph lines occupy their actual text line height"
+      );
+      require(
+          paragraphs.runs.back().offset == paragraphs.plainText.find("second"),
+          "Run selection offsets include preserved blank lines"
+      );
+    }
+    for (const auto input : {"first\n\n**second**", "first\n\n<@1>", "first\n\nhttps://example.com"}) {
+      const auto paragraphs = app::layoutMessage(input, 500, editMeasure);
+      require(
+          paragraphs.plainText.starts_with("first\n\n") && paragraphs.runs.back().y == lineStep * 2,
+          "Formatting, mentions and links keep their preceding blank line"
+      );
+    }
+    const auto looseList = app::layoutMessage("- first\n\n- second", 500, editMeasure);
+    require(
+        looseList.plainText == "• first\n\n• second\n", "Loose list copy retains the blank line before the next marker"
+    );
+    const auto secondItem = std::ranges::find_if(looseList.runs, [](const auto& run) { return run.text == "second"; });
+    require(
+        secondItem != looseList.runs.end()
+            && secondItem != looseList.runs.begin()
+            && (secondItem - 1)->text == "• "
+            && (secondItem - 1)->y == secondItem->y,
+        "A blank list line moves the marker with its text"
+    );
     api::Message forwardedMessage;
     forwardedMessage.id = "900";
     forwardedMessage.forwarded = api::ForwardedMessage{"800", "20", "1", "2026-10-18T18:50:00Z", "", {}, {}, {}, true};

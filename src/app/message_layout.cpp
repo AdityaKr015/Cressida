@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <md4c.h>
 #include <pango/pango.h>
 
@@ -128,6 +129,46 @@ namespace app {
       const MessageOptions* options = nullptr;
       const std::map<std::string, std::string>* mentions = nullptr;
       std::string pending;
+      std::string_view source;
+      std::optional<std::size_t> sourceEnd;
+      std::size_t semanticBreaks = 0, lastSourceBreaks = 0;
+      std::optional<std::size_t> sourceOffset(const char* text, std::size_t size) const {
+        const auto begin = reinterpret_cast<std::uintptr_t>(source.data());
+        const auto at = reinterpret_cast<std::uintptr_t>(text);
+        if (at < begin || at - begin > source.size() || size > source.size() - (at - begin))
+          return {};
+        return at - begin;
+      }
+      void preserveBlankLines(std::size_t at) {
+        if (!sourceEnd || at < *sourceEnd)
+          return;
+        std::size_t breaks = 0;
+        for (auto i = *sourceEnd; i < at; ++i)
+          if (source[i] == '\r') {
+            ++breaks;
+            if (i + 1 < at && source[i + 1] == '\n')
+              ++i;
+          } else if (source[i] == '\n')
+            ++breaks;
+        const auto rendered = semanticBreaks - lastSourceBreaks;
+        if (breaks < 2 || breaks <= rendered)
+          return;
+        flush();
+        const auto missing = breaks - rendered;
+        const float extraHeight = missing * (fontSize + Style::spaceSm);
+        // MD4C drops empty paragraph lines. Insert them before the current
+        // line, including any list marker already emitted for that line.
+        const auto offset = lineStart < output.runs.size() ? output.runs[lineStart].offset : output.plainText.size();
+        output.plainText.insert(offset, missing, '\n');
+        for (auto i = lineStart; i < output.runs.size(); ++i) {
+          output.runs[i].offset += missing;
+          output.runs[i].y += extraHeight;
+        }
+        for (auto i = lineBoxStart; i < output.boxes.size(); ++i)
+          output.boxes[i].y += extraHeight;
+        y += extraHeight;
+        semanticBreaks += missing;
+      }
       void flush() {
         auto value = std::move(pending);
         pending.clear();
@@ -160,8 +201,10 @@ namespace app {
         x = indent + (style.code && !codeBlock ? 3 : 0);
         y += lineHeight;
         lineHeight = fontSize + 8;
-        if (semantic)
+        if (semantic) {
           output.plainText += "\n";
+          ++semanticBreaks;
+        }
       }
       void boundary() {
         if (x > indent)
@@ -459,6 +502,7 @@ namespace app {
         l.x = l.indent;
         break;
       case MD_BLOCK_CODE: {
+        l.sourceEnd.reset();
         l.boundary();
         if (l.y > 0)
           l.y += 4;
@@ -478,6 +522,7 @@ namespace app {
         break;
       }
       case MD_BLOCK_HR:
+        l.sourceEnd.reset();
         l.boundary();
         l.output.boxes.push_back({l.indent, l.y + 7, l.width - l.indent, 1, true, {}});
         l.y += 18;
@@ -531,6 +576,7 @@ namespace app {
         l.y += 6;
         l.style.code = false;
         l.codeBlock = false;
+        l.sourceEnd.reset();
         break;
       }
       default:
@@ -581,6 +627,9 @@ namespace app {
     }
     int textCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* context) {
       auto& l = *static_cast<Layout*>(context);
+      const auto offset = l.codeBlock ? std::nullopt : l.sourceOffset(text, size);
+      if (offset)
+        l.preserveBlankLines(*offset);
       if (type == MD_TEXT_BR || type == MD_TEXT_SOFTBR) {
         l.flush();
         l.newline(true);
@@ -595,6 +644,10 @@ namespace app {
           l.text(raw, true);
       } else
         l.pending.append(text, size);
+      if (offset) {
+        l.sourceEnd = *offset + size;
+        l.lastSourceBreaks = l.semanticBreaks;
+      }
       return 0;
     }
   } // namespace
@@ -623,6 +676,7 @@ namespace app {
           .text = textCallback
       };
       const auto input = discordSyntax(content, options.discordTimestamps);
+      layout.source = input;
       md_parse(input.data(), input.size(), &parser, &layout);
       layout.alignLine();
       layout.output.height = layout.y + (layout.x > layout.indent ? layout.lineHeight : 0);
