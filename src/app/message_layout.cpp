@@ -504,8 +504,7 @@ namespace app {
       case MD_BLOCK_CODE: {
         l.sourceEnd.reset();
         l.boundary();
-        if (l.y > 0)
-          l.y += 4;
+        l.y += Style::spaceSm;
         l.codeBox = l.output.boxes.size();
         l.output.boxes.push_back({l.indent, l.y, l.width - l.indent, 0, false, {}});
         l.indent += 10;
