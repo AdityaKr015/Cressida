@@ -61,11 +61,36 @@ int main() {
     first.authorId.clear();
     require(!app::continuesMessageGroup(first, next), "Unknown authors cannot be grouped by display name alone");
     first.authorId = "11";
+    auto reply = first;
+    reply.reply = api::MessageReference{.message = "99", .channel = first.channelId};
+    reply.type = 19;
+    next = first;
+    require(
+        app::continuesMessageGroup(reply, next), "An ordinary follow-up continues the author group started by a reply"
+    );
+    require(
+        !app::continuesMessageGroup(next, reply) && !app::continuesMessageGroup(reply, reply),
+        "Each new reply starts its own author group and retains its reference preview"
+    );
+    reply.type = 0;
+    require(
+        app::continuesMessageGroup(reply, next),
+        "Reference-only cached replies also allow an ordinary follow-up to continue"
+    );
+    reply.type = 19;
+    for (const auto type : {7, 24}) {
+      auto system = reply;
+      system.type = type;
+      require(
+          !app::continuesMessageGroup(system, next),
+          "References on system messages cannot make ordinary follow-ups continue their group"
+      );
+    }
     for (int reason = 0; reason < 8; ++reason) {
       next = first;
       switch (reason) {
       case 0:
-        next.reply = api::MessageReference{};
+        next.forwarded = api::ForwardedMessage{};
         break;
       case 1:
         next.flags = 64;
@@ -91,7 +116,7 @@ int main() {
       }
       require(
           !app::continuesMessageGroup(first, next) && !app::continuesMessageGroup(next, first),
-          "Replies, ephemeral/system messages and changed identities delimit groups in both directions"
+          "Forwards, ephemeral/system messages and changed identities delimit groups in both directions"
       );
     }
     auto parsed = api::parseMessages(nlohmann::json::parse(R"JSON([

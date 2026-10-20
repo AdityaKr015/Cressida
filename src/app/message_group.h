@@ -93,9 +93,8 @@ namespace app {
         || previous.avatar != current.avatar
         || previous.webhookId != current.webhookId
         || previous.applicationId != current.applicationId
-        || previous.type != 0
-        || current.type != 0
-        || previous.reply
+        || (previous.type != api::defaultMessageType && previous.type != api::replyMessageType)
+        || current.type != api::defaultMessageType
         || current.reply
         || previous.forwarded
         || current.forwarded

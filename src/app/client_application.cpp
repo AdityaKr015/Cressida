@@ -257,6 +257,49 @@ namespace app {
           );
         std::clog << "Offline final-message composer spacing check passed\n";
       }
+      if (m_demo && m_demoOverlay.starts_with("reply-grouping")) {
+        const auto require = [](bool value, const char* reason) {
+          if (!value)
+            throw std::runtime_error(reason);
+        };
+        const auto avatars = std::ranges::count_if(m_hits, [&](const auto& hit) {
+          return hit.action == Action::UserProfile
+              && hit.id == "11"
+              && hit.x == chatLeft() + layout::Chat::inset
+              && hit.width == layout::Chat::avatarSize;
+        });
+        require(avatars == 2, "Only the two reply-started groups paint an avatar and author header");
+        require(
+            std::ranges::count_if(m_hits, [](const auto& hit) { return hit.action == Action::JumpReply; }) == 2,
+            "Both replies retain their independent reference previews and jump targets"
+        );
+        for (const auto index : {std::size_t{0}, std::size_t{3}}) {
+          const auto& reply = m_messages[index];
+          const auto& next = m_messages[index + 1];
+          const float expected =
+              layout::Reply::step + layout::Chat::headerHeight + m_messageLayouts.at(reply.id).layout.height;
+          require(
+              std::abs(m_messageTops.at(next.id) - m_messageTops.at(reply.id) - expected) < Style::borderWidth,
+              "An ordinary follow-up uses continuation spacing directly beneath its reply"
+          );
+        }
+        require(
+            std::abs(
+                m_messageTops.at(m_messages[2].id)
+                - m_messageTops.at(m_messages[1].id)
+                - m_messageLayouts.at(m_messages[1].id).layout.height
+            ) < Style::borderWidth,
+            "Later follow-ups keep normal intra-group spacing"
+        );
+        for (const auto& message : m_messages)
+          require(
+              std::ranges::any_of(
+                  m_hits, [&](const auto& hit) { return hit.action == Action::SelectMessage && hit.id == message.id; }
+              ),
+              "Grouped replies and follow-ups retain separate message selection targets"
+          );
+        std::clog << "Offline reply grouping, author headers, previews and selection check passed\n";
+      }
       if (m_demo && m_demoOverlay.starts_with("autocomplete-frequent")) {
         if (m_completionItems.size() < 3
             || m_completionItems[0].id != "800000000000000005"
@@ -2368,6 +2411,33 @@ namespace app {
           m_messages[0].reactions = {{"", "👍", 1, true}};
           for (int i = 0; i < 30; ++i)
             m_messages[1].reactions.push_back({"", "👍", i + 1});
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
+          m_messageLayouts.clear();
+        } else if (view.starts_with("reply-grouping")) {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.compact = view.find("compact") != std::string::npos;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9300","channel_id":"101","type":19,"author":{"id":"11","username":"Maya"},
+             "content":"w","timestamp":"2026-10-20T12:35:00Z",
+             "message_reference":{"message_id":"800","channel_id":"101"},
+             "referenced_message":{"id":"800","channel_id":"101","author":{"id":"12","username":"Noah"},
+               "content":"","attachments":[{"id":"801","filename":"gd6jv78.png","url":"https://example.com/gd6jv78.png"}]}},
+            {"id":"9301","channel_id":"101","author":{"id":"11","username":"Maya"},
+             "content":"a","timestamp":"2026-10-20T12:35:01Z"},
+            {"id":"9302","channel_id":"101","author":{"id":"11","username":"Maya"},
+             "content":"Another follow-up","timestamp":"2026-10-20T12:35:02Z"},
+            {"id":"9303","channel_id":"101","type":19,"author":{"id":"11","username":"Maya"},
+             "content":"A new reply starts a group","timestamp":"2026-10-20T12:35:03Z",
+             "message_reference":{"message_id":"800","channel_id":"101"},
+             "referenced_message":{"id":"800","channel_id":"101","author":{"id":"12","username":"Noah"},
+               "content":"Original text"}},
+            {"id":"9304","channel_id":"101","author":{"id":"11","username":"Maya"},
+             "content":"This continues the new reply","timestamp":"2026-10-20T12:35:04Z"}
+          ])JSON"));
           m_unreadTimeline.snapshot({});
           m_unreadTimeline.positioned();
           m_messageLayouts.clear();

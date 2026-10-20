@@ -246,6 +246,8 @@ namespace api {
     bool burst = false;
   };
   std::optional<ReactionUpdate> parseReactionUpdate(std::string_view type, const nlohmann::json& data);
+  inline constexpr int defaultMessageType = 0;
+  inline constexpr int replyMessageType = 19;
   struct Message {
     std::string id;
     std::string channelId;
@@ -271,7 +273,7 @@ namespace api {
     std::vector<std::vector<Button>> buttons;
     std::string applicationId;
     std::uint64_t flags = 0;
-    int type = 0;
+    int type = defaultMessageType;
     std::string webhookId;
     std::vector<std::string> mentionRoles;
     bool mentionEveryone = false;
