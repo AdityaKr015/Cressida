@@ -529,6 +529,15 @@ namespace app::layout {
         settingsX - x
     };
   }
+  struct CountBadge {
+    static constexpr float height = Style::glyphSizeMedium;
+    static constexpr float fontSize = Style::fontSizeDescription;
+    static constexpr float padding = Style::spaceDense;
+    static constexpr float railHeight = Style::spaceMd + Style::spaceXxs;
+    static constexpr float railFontSize = Style::fontSizeDetail;
+    static constexpr float railPadding = Style::spaceCompact;
+    static constexpr float ring = Style::spaceXxs;
+  };
   struct ServerRail {
     static constexpr float iconX = (Sidebar::railWidth - Avatar::rail) / 2;
     static constexpr float homeTop = Window::titlebarHeight + Style::spaceLg;
@@ -557,7 +566,8 @@ namespace app::layout {
       return {header, reveal, header + reveal};
     }
     static constexpr float markerX = Style::spaceSm + Style::spaceXxs;
-    static constexpr float badgeRight = iconX + Avatar::rail + Style::spaceXs;
+    static constexpr float badgeRight = iconX + Avatar::rail + CountBadge::ring;
+    static constexpr float badgeTop(float height) { return height - CountBadge::railHeight - CountBadge::ring; }
     static constexpr float visibleTop = Window::titlebarHeight + ChannelHeader::height + Style::spaceSm;
     static constexpr float top =
         Window::titlebarHeight + ChannelHeader::height + Style::spaceDense + Style::borderWidth;

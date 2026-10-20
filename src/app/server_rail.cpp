@@ -160,7 +160,7 @@ namespace app {
       if (row.dm) {
         const auto& dm = *row.dm;
         avatar(*node, R::iconX, py, layout::Avatar::rail, dm.icon, channelName(dm));
-        if (dm.type == 1 && !dm.recipients.empty())
+        if (dm.type == 1 && !dm.recipients.empty() && m_unreadTimeline.mentions(dm.id) == 0)
           statusBadge(
               *node, R::iconX + layout::Avatar::rail - Style::spaceMd - Style::spaceXxs,
               py + layout::Avatar::rail - Style::spaceMd - Style::spaceXxs, userStatus(dm.recipients.front().id),
@@ -179,7 +179,7 @@ namespace app {
               py + (layout::Avatar::rail - Style::spaceRelaxed) / 2, Style::spaceXs, Style::spaceRelaxed, theme::accent,
               Style::radiusXs
           );
-        countBadge(*node, R::badgeRight, py - Style::spaceXxs, m_unreadTimeline.mentions(dm.id), true);
+        countBadge(*node, R::badgeRight, py + R::badgeTop(R::rowHeight), m_unreadTimeline.mentions(dm.id), true);
         addHit({R::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::DirectMessage, dm.id});
         if (index + 1 == unreadDMRows)
           rectangle(
@@ -213,7 +213,7 @@ namespace app {
         int count = 0;
         for (const auto& guild : folder.guildIds)
           count = std::min(1000000, count + mentions[guild]);
-        countBadge(*node, R::badgeRight, py + row.height - Style::spaceRelaxed, count, true);
+        countBadge(*node, R::badgeRight, py + R::badgeTop(row.height), count, true);
         addHit({R::folderX, y, R::folderSize, row.height, Action::Folder, folder.id});
         addHit({R::folderX, y, R::folderSize, row.height, Action::Folder, folder.id}, true);
         continue;
@@ -255,7 +255,7 @@ namespace app {
             Style::spaceXs, selected ? Style::spaceRelaxed : Style::spaceDense,
             selected || over ? theme::accent : theme::foreground, Style::radiusXs
         );
-      countBadge(*node, R::badgeRight, py + layout::Avatar::rail - Style::spaceLg, mentions[guild.id], true);
+      countBadge(*node, R::badgeRight, py + R::badgeTop(R::rowHeight), mentions[guild.id], true);
       addHit({R::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::Guild, guild.id});
       addHit({R::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::GuildMenu, guild.id}, true);
     }

@@ -2901,18 +2901,23 @@ namespace app {
   float ClientApplication::countBadge(Node& parent, float right, float y, int count, bool rail, std::string_view noun) {
     if (count <= 0)
       return 0;
+    using B = layout::CountBadge;
     const auto text = count > 99 ? "99+" : std::to_string(count);
-    const auto metrics = m_window.target().renderer().measureText(text, Style::fontSizeDescription, FontWeight::Bold);
-    const float width = std::max(18.0F, std::ceil(metrics.width) + 10);
+    const float height = rail ? B::railHeight : B::height;
+    const float size = rail ? B::railFontSize : B::fontSize;
+    const auto weight = rail ? FontWeight::Medium : FontWeight::Bold;
+    const auto metrics = m_window.target().renderer().measureText(text, size, weight);
+    const float width = std::max(height, std::ceil(metrics.width) + (rail ? B::railPadding : B::padding));
     const float x = right - width;
     if (rail)
       rectangle(
-          parent, x - Style::spaceXxs, y - Style::spaceXxs, width + Style::spaceXs, 22, theme::railBackground, 11
+          parent, x - B::ring, y - B::ring, width + B::ring * 2, height + B::ring * 2, theme::railBackground,
+          (height + B::ring * 2) / 2
       );
-    rectangle(parent, x, y, width, 18, destructive, Style::radiusLg);
+    rectangle(parent, x, y, width, height, destructive, height / 2);
     label(
-        parent, x + (width - metrics.width) / 2, y + (18 - (metrics.bottom - metrics.top)) / 2, width, text,
-        Style::fontSizeDescription, rgbHex(0xFFFFFF), FontWeight::Bold
+        parent, x + (width - metrics.width) / 2, y + (height - (metrics.bottom - metrics.top)) / 2, width, text, size,
+        rail ? readableTextColorForBackground(destructive) : rgbHex(0xFFFFFF), weight
     );
     float ox = 0, oy = 0;
     for (auto* node = &parent; node && node != m_scene.get(); node = node->parent()) {
@@ -2928,7 +2933,7 @@ namespace app {
       nx -= node->x();
       ny -= node->y();
     }
-    if (inside && hovered(x + ox, y + oy, width, 18))
+    if (inside && hovered(x + ox, y + oy, width, height))
       m_tooltip = std::to_string(count) + ' ' + std::string(noun) + (count == 1 ? "" : "s");
     return width;
   }
@@ -3334,7 +3339,8 @@ namespace app {
       );
       drawDirectMessagesButton(root);
       countBadge(
-          root, layout::ServerRail::badgeRight, layout::ServerRail::homeTop + layout::Avatar::rail - Style::spaceMd,
+          root, layout::ServerRail::badgeRight,
+          layout::ServerRail::homeTop + layout::ServerRail::badgeTop(layout::ServerRail::rowHeight),
           messageRequestCount(), true, "pending message request"
       );
 
