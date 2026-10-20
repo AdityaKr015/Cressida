@@ -14,10 +14,10 @@ int main(int argc, char** argv) {
     const std::vector<api::Upload> uploads{
         {"plant.png", "image/png", {0x89, 'P', 'N', 'G', 0, 10, 255}}, {"second.jpg", "image/jpeg", {255, 216, 255}}
     };
-    auto body = api::messageBody("first\nsecond 🌿", api::MessageReference{"20", "10"});
+    auto body = api::messageBody("first\nsecond 🌿 <@7> <@&8> @everyone @here", api::MessageReference{"20", "10"});
     body.update(
         json{
-            {"content", "first\nsecond 🌿"},
+            {"content", "first\nsecond 🌿 <@7> <@&8> @everyone @here"},
             {"attachments",
              json::array({{{"id", 0}, {"filename", "plant.png"}}, {{"id", 1}, {"filename", "second.jpg"}}})}
         }

@@ -91,12 +91,14 @@ int main() {
             && !api::stickerFromImageLink("https://cdn.discordapp.com/stickers/101.png?name=%00bad"),
         "Sticker link interpretation rejects untrusted origins, paths and malformed metadata"
     );
-    const auto body = api::messageBody("", api::MessageReference{"20", "10"}, {"101", "102", "103"});
+    const auto body = api::messageBody("<@7> sticker", api::MessageReference{"20", "10"}, {"101", "102", "103"});
     require(
         body["sticker_ids"] == Json::array({"101", "102", "103"})
             && body["message_reference"]["message_id"] == "20"
-            && body["allowed_mentions"]["parse"].empty(),
-        "Native sends carry sticker IDs with normal safe reply metadata"
+            && body["content"] == "<@7> sticker"
+            && body["allowed_mentions"]["parse"] == Json::array({"users", "roles", "everyone"})
+            && body["allowed_mentions"]["replied_user"] == false,
+        "Sticker captions allow explicit mentions independently of the reply-author ping"
     );
     require(
         !api::validStickerIds({"101", "101"})

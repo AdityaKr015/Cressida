@@ -351,7 +351,8 @@ namespace api {
       throw std::invalid_argument("Invalid sticker IDs");
     nlohmann::json result{
         {"content", content},
-        {"allowed_mentions", {{"parse", nlohmann::json::array()}, {"replied_user", reply && reply->mention}}}
+        {"allowed_mentions",
+         {{"parse", nlohmann::json::array({"users", "roles", "everyone"})}, {"replied_user", reply && reply->mention}}}
     };
     if (!stickers.empty())
       result["sticker_ids"] = stickers;
@@ -672,6 +673,8 @@ namespace api {
           return {};
         request.method = "PATCH";
         request.body = messageBody(action.text);
+        // Editing existing content must not send fresh mention notifications.
+        request.body["allowed_mentions"]["parse"] = nlohmann::json::array();
       } else
         request.method = "DELETE";
       break;

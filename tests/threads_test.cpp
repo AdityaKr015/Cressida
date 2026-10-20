@@ -284,16 +284,16 @@ int main() {
         {.kind = InteractionKind::CreateForumPost,
          .channel = "10",
          .text = "My setup",
-         .content = "Description",
+         .content = "Description <@7> <@&8> @here",
          .tags = {"70"}}
     );
     require(
         post
             && post->method == "POST"
-            && post->body["message"]["content"] == "Description"
-            && post->body["message"]["allowed_mentions"]["parse"].empty()
+            && post->body["message"]["content"] == "Description <@7> <@&8> @here"
+            && post->body["message"]["allowed_mentions"]["parse"] == json::array({"users", "roles", "everyone"})
             && post->body["applied_tags"] == json::array({"70"}),
-        "Explicit forum posts carry a name, message, safe mention defaults and tags"
+        "Explicit forum posts carry a name, message, normal mention parsing and tags"
     );
     require(
         !interactionRequest({.kind = InteractionKind::CreateForumPost, .channel = "10", .text = "Empty"}),

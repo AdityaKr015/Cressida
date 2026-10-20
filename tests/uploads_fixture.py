@@ -25,9 +25,11 @@ class Handler(BaseHTTPRequestHandler):
             parts = {part.get_param("name", header="content-disposition"): part for part in message.iter_parts()}
             assert set(parts) == {"payload_json", "files[0]", "files[1]"}
             payload = json.loads(parts["payload_json"].get_payload(decode=True))
-            assert payload["content"] == "first\nsecond 🌿"
+            assert payload["content"] == "first\nsecond 🌿 <@7> <@&8> @everyone @here"
             assert payload["message_reference"] == {"message_id": "20", "channel_id": "10", "fail_if_not_exists": True}
             assert payload["allowed_mentions"]["replied_user"] is False
+            assert payload["allowed_mentions"]["parse"] == ["users", "roles", "everyone"]
+            assert "flags" not in payload
             assert payload["attachments"] == [{"id": 0, "filename": "plant.png"}, {"id": 1, "filename": "second.jpg"}]
             assert parts["files[0]"].get_filename() == "plant.png"
             assert parts["files[0]"].get_content_type() == "image/png"

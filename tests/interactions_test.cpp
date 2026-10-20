@@ -174,19 +174,30 @@ int main() {
             && unmute->body["channel_overrides"]["10"]["muted"] == false,
         "Unmute retains the proper guild scope"
     );
+    const auto normalMentions = json::array({"users", "roles", "everyone"});
+    const std::string mentions = "<@7> <@!8> <@&9> @everyone @here";
+    auto normal = messageBody(mentions);
+    require(
+        normal["content"] == mentions
+            && normal["allowed_mentions"]["parse"] == normalMentions
+            && !normal.contains("flags")
+            && !normal.contains("message_reference"),
+        "New messages allow normal user, role and everyone mentions without silent-message flags"
+    );
     MessageReference reply{"20", "10", "7", "Friend", "Original"};
-    auto body = messageBody("reply", reply);
+    auto body = messageBody(mentions, reply);
     require(
         body["message_reference"]["message_id"] == "20"
             && body["message_reference"]["channel_id"] == "10"
             && body["message_reference"]["fail_if_not_exists"] == true
-            && body["allowed_mentions"]["replied_user"] == false,
-        "Replies target the correct message and channel without an implicit ping"
+            && body["allowed_mentions"]["replied_user"] == false
+            && body["allowed_mentions"]["parse"] == normalMentions,
+        "Disabling the reply-author ping still allows explicit mentions in the reply body"
     );
     reply.mention = true;
     require(
-        messageBody("reply", reply)["allowed_mentions"]["replied_user"] == true,
-        "Reply mentions require explicit opt-in"
+        messageBody(mentions, reply)["allowed_mentions"] == json{{"parse", normalMentions}, {"replied_user", true}},
+        "Enabling the reply-author ping preserves ordinary mention parsing"
     );
     require(!messageBody("normal").contains("message_reference"), "Ordinary messages have no reference");
     require(
