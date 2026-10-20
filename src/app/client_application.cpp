@@ -450,6 +450,14 @@ namespace app {
         demoJoinStep();
       if (m_demo && m_demoOverlay.starts_with("embed-cycle") && m_demoInteractionStep < embedReplayFrames)
         demoEmbedStep();
+      if (m_demo
+          && m_demoOverlay.starts_with("media-gallery-cycle")
+          && m_demoInteractionStep < mediaGalleryReplayFrames)
+        demoMediaGalleryStep();
+      if (m_demo
+          && m_demoOverlay.starts_with("image-menu")
+          && m_demoInteractionStep < (m_demoOverlay.starts_with("image-menu-cycle") ? imageMenuReplayFrames : 2))
+        demoImageMenuStep();
       if (m_demo && m_demoOverlay == "sidebar-cycle")
         sidebarDemoFrame();
       if (m_demo && m_demoOverlay == "mentions-cycle") {
@@ -1215,26 +1223,29 @@ namespace app {
                    : m_demo && view && std::string_view(view).starts_with("dm-home-cycle") ? dmHomeReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("reply-cycle")   ? composerReplyReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("embed-cycle")   ? embedReplayFrames
-                   : m_demo && view && std::string_view(view) == "chat-preload-cycle"      ? 10
-                   : m_demo && view && std::string_view(view) == "join-cycle"              ? 4
-                   : m_demo && view && std::string_view(view) == "deleted-cycle"           ? 3
-                   : m_demo && view && std::string_view(view) == "inline-edit-cycle"       ? 8
-                   : m_demo && view && std::string_view(view) == "autocomplete-cycle"      ? 9
-                   : m_demo && view && std::string_view(view).starts_with("decorations-cycle")       ? 4
-                   : m_demo && view && std::string_view(view) == "user-preferences-cycle"            ? 12
-                   : m_demo && view && std::string_view(view) == "user-account-cycle"                ? 16
-                   : m_demo && view && std::string_view(view) == "user-settings-lists-cycle"         ? 30
-                   : m_demo && view && std::string_view(view) == "settings-font-cycle"               ? 12
-                   : m_demo && view && std::string_view(view) == "server-hover-cycle"                ? 7
-                   : m_demo && view && std::string_view(view) == "themes-cycle"                      ? 11
-                   : m_demo && view && std::string_view(view).starts_with("message-hover-cycle")     ? 10
-                   : m_demo && view && std::string_view(view) == "sidebar-cycle"                     ? 10
-                   : m_demo && view && std::string_view(view) == "role-emoji-cycle"                  ? 3
-                   : m_demo && view && std::string_view(view) == "role-members-cycle"                ? 2
-                   : m_demo && view && std::string_view(view) == "mentions-cycle"                    ? 4
-                   : m_demo && view && std::string_view(view) == "channel-menu-scroll-cycle"         ? 3
-                   : m_demo && view && std::string_view(view) == "channel-create-cycle"              ? 12
-                   : m_demo && view && std::string_view(view) == "channel-invite-cycle"              ? 18
+                   : m_demo && view && std::string_view(view).starts_with("media-gallery-cycle")
+                   ? mediaGalleryReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("image-menu-cycle")    ? imageMenuReplayFrames
+                   : m_demo && view && std::string_view(view) == "chat-preload-cycle"            ? 10
+                   : m_demo && view && std::string_view(view) == "join-cycle"                    ? 4
+                   : m_demo && view && std::string_view(view) == "deleted-cycle"                 ? 3
+                   : m_demo && view && std::string_view(view) == "inline-edit-cycle"             ? 8
+                   : m_demo && view && std::string_view(view) == "autocomplete-cycle"            ? 9
+                   : m_demo && view && std::string_view(view).starts_with("decorations-cycle")   ? 4
+                   : m_demo && view && std::string_view(view) == "user-preferences-cycle"        ? 12
+                   : m_demo && view && std::string_view(view) == "user-account-cycle"            ? 16
+                   : m_demo && view && std::string_view(view) == "user-settings-lists-cycle"     ? 30
+                   : m_demo && view && std::string_view(view) == "settings-font-cycle"           ? 12
+                   : m_demo && view && std::string_view(view) == "server-hover-cycle"            ? 7
+                   : m_demo && view && std::string_view(view) == "themes-cycle"                  ? 11
+                   : m_demo && view && std::string_view(view).starts_with("message-hover-cycle") ? 10
+                   : m_demo && view && std::string_view(view) == "sidebar-cycle"                 ? 10
+                   : m_demo && view && std::string_view(view) == "role-emoji-cycle"              ? 3
+                   : m_demo && view && std::string_view(view) == "role-members-cycle"            ? 2
+                   : m_demo && view && std::string_view(view) == "mentions-cycle"                ? 4
+                   : m_demo && view && std::string_view(view) == "channel-menu-scroll-cycle"     ? 3
+                   : m_demo && view && std::string_view(view) == "channel-create-cycle"          ? 12
+                   : m_demo && view && std::string_view(view) == "channel-invite-cycle"          ? 18
                    : m_demo && view && std::string_view(view) == "server-settings-commands-cycle"    ? 12
                    : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
                    : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
@@ -1326,6 +1337,10 @@ namespace app {
       throw std::runtime_error("Floating layout and radius replay did not complete");
     if (m_demoOverlay.starts_with("embed-cycle") && m_demoInteractionStep != embedReplayFrames)
       throw std::runtime_error("AutoMod and embed link replay did not complete");
+    if (m_demoOverlay.starts_with("media-gallery-cycle") && m_demoInteractionStep != mediaGalleryReplayFrames)
+      throw std::runtime_error("Media gallery replay did not complete");
+    if (m_demoOverlay.starts_with("image-menu-cycle") && m_demoInteractionStep != imageMenuReplayFrames)
+      throw std::runtime_error("Image viewer menu replay did not complete");
     if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
       throw std::runtime_error("Typing indicator replay did not finish");
     if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
@@ -1378,7 +1393,21 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
-        if (view.starts_with("forwarded")) {
+        if (view.starts_with("image-menu")) {
+          m_demoOverlay = view;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          prepareMediaGalleryDemo(2);
+        } else if (view.starts_with("media-gallery")) {
+          m_demoOverlay = view;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          const int count = view.find("cycle") != std::string::npos || view.find("pair") != std::string::npos ? 2
+              : view.find("ten") != std::string::npos                                                         ? 10
+              : view.find("three") != std::string::npos || view.find("portrait") != std::string::npos         ? 3
+                                                                                                              : 5;
+          prepareMediaGalleryDemo(count, view.find("portrait") != std::string::npos);
+        } else if (view.starts_with("forwarded")) {
           m_demoOverlay = view;
           m_showMembers = false;
           m_preferences.compact = view.find("compact") != std::string::npos;
@@ -6077,6 +6106,15 @@ namespace app {
       }
       cached.bytes = std::move(asset.bytes);
       cached.retry = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+      if (asset.path == m_imageActionSource) {
+        const auto action = std::exchange(m_pendingImageAction, Action::None);
+        m_imageActionSource.clear();
+        const bool current = std::exchange(m_imageActionViewer, {}) == m_viewImage && !m_viewImage.empty();
+        if (current && !cached.bytes.empty())
+          imageViewerAction(action);
+        else if (current)
+          m_imageStatus = "Could not load the original image. Try again.";
+      }
       imagesChanged = true;
     }
     std::size_t animationBytes = 0;
@@ -6184,7 +6222,7 @@ namespace app {
         m_desiredPresence.clear();
         m_settingsFields.clear();
         m_settingsStatus.clear();
-        m_viewImage.clear();
+        closeImageViewer();
         m_client.disconnect();
         m_live = false;
         m_connected = false;
@@ -6916,30 +6954,13 @@ namespace app {
         return;
       }
       if (key.control && (key.symbol == XKB_KEY_c || key.symbol == XKB_KEY_C)) {
-        if (const auto* image = draftImage(m_viewImage)) {
-          const auto& upload = image->upload;
-          m_window.copy({upload.bytes.begin(), upload.bytes.end()}, upload.mime);
-          return;
-        }
-        const auto found = m_images.find(m_viewImage);
-        if (found != m_images.end() && !found->second.bytes.empty()) {
-          const auto& bytes = found->second.bytes;
-          std::string mime;
-          if (bytes.size() >= 8 && bytes[0] == 0x89 && bytes[1] == 'P')
-            mime = "image/png";
-          else if (bytes.size() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8)
-            mime = "image/jpeg";
-          else if (bytes.size() >= 12 && std::string_view(reinterpret_cast<const char*>(bytes.data() + 8), 4) == "WEBP")
-            mime = "image/webp";
-          if (!mime.empty())
-            m_window.copy({bytes.begin(), bytes.end()}, mime);
-        }
+        imageViewerAction(Action::CopyImage);
       } else if (key.symbol == XKB_KEY_plus || key.symbol == XKB_KEY_equal || key.symbol == XKB_KEY_KP_Add)
         m_viewZoom = std::min(4.0F, m_viewZoom * 1.2F);
       else if (key.symbol == XKB_KEY_minus || key.symbol == XKB_KEY_KP_Subtract)
         m_viewZoom = std::max(0.25F, m_viewZoom / 1.2F);
       else if (key.symbol == XKB_KEY_Escape)
-        m_viewImage.clear();
+        closeImageViewer();
       else if (key.symbol == XKB_KEY_Left)
         changeImage(-1);
       else if (key.symbol == XKB_KEY_Right)
@@ -7313,6 +7334,7 @@ namespace app {
       break;
     case Action::ViewImage:
       m_scrolling.stopAll();
+      closeImageViewer();
       m_viewImage = hit.id;
       m_viewUrl.clear();
       m_viewZoom = 1;
@@ -7324,7 +7346,7 @@ namespace app {
       m_dragDraft = m_dragMessage = false;
       break;
     case Action::CloseImage:
-      m_viewImage.clear();
+      closeImageViewer();
       break;
     case Action::ImageNext:
       changeImage(1);
@@ -7620,7 +7642,7 @@ namespace app {
       m_settingsStatus.clear();
       m_settingsField.clear();
       m_settingsFields.clear();
-      m_viewImage.clear();
+      closeImageViewer();
       m_presence = {};
       m_login.cancel();
       m_session = m_demo ? m_client.disconnect() : m_client.logout();

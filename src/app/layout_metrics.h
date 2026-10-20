@@ -7,6 +7,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <span>
+#include <vector>
 
 // Application geometry extends the shared control style. Measurements and hit
 // regions must use these same values; changing density must not move them apart.
@@ -14,6 +16,112 @@ namespace app::layout {
   struct Frame {
     float x, y, width, height;
   };
+  struct MediaGallery {
+    static constexpr float maximumWidth = Style::mediaGalleryMaximumWidth;
+    static constexpr float maximumHeight = Style::mediaGalleryMaximumHeight;
+    static constexpr float preferredCellWidth = Style::mediaGalleryPreferredCellWidth;
+    static constexpr float gap = Style::spaceXs;
+    static constexpr float contentGap = Style::spaceSm;
+    static float aspect(float value) {
+      return std::isfinite(value) && value > 0
+          ? std::clamp(value, 1 / Style::mediaGalleryAspectLimit, Style::mediaGalleryAspectLimit)
+          : 1;
+    }
+  };
+  struct MediaGalleryFrame {
+    std::vector<Frame> cells;
+    float width = 0, height = 0;
+  };
+  inline MediaGalleryFrame mediaGalleryFrame(float available, std::span<const float> aspects) {
+    MediaGalleryFrame result;
+    if (aspects.empty() || !std::isfinite(available) || available <= 0)
+      return result;
+    const float width = std::min(available, MediaGallery::maximumWidth), gap = MediaGallery::gap;
+    result.width = width;
+    result.cells.resize(aspects.size());
+    const auto row = [&](std::size_t start, std::size_t count, float y, float height) {
+      const float usable = width - gap * (count - 1);
+      const float minimum = std::min(MediaGallery::preferredCellWidth, usable / count);
+      float sum = 0;
+      for (auto i = start; i < start + count; ++i)
+        sum += MediaGallery::aspect(aspects[i]);
+      float x = 0;
+      for (std::size_t i = 0; i < count; ++i) {
+        const float cellWidth = i + 1 == count
+            ? width - x
+            : minimum + (usable - minimum * count) * MediaGallery::aspect(aspects[start + i]) / sum;
+        result.cells[start + i] = {x, y, cellWidth, height};
+        x += cellWidth + gap;
+      }
+    };
+    auto columns = std::max<std::size_t>(
+        1,
+        std::min<std::size_t>(
+            Style::mediaGalleryMaximumColumns,
+            static_cast<std::size_t>((width + gap) / (MediaGallery::preferredCellWidth + gap))
+        )
+    );
+    if (aspects.size() == 3 && columns >= 2) {
+      const float first = MediaGallery::aspect(aspects[0]), second = MediaGallery::aspect(aspects[1]),
+                  third = MediaGallery::aspect(aspects[2]);
+      if (first <= 1) {
+        const float stackAspect = 1 / (1 / second + 1 / third);
+        const float height =
+            std::min(MediaGallery::maximumHeight, (width - gap + gap * stackAspect) / (first + stackAspect));
+        const float minimum = std::min(MediaGallery::preferredCellWidth, (width - gap) / 2);
+        const float left = std::clamp(height * first, minimum, width - gap - minimum);
+        const float minimumHeight = std::min(MediaGallery::preferredCellWidth / 2, (height - gap) / 2);
+        const float upper = std::clamp(
+            (height - gap) * (1 / second) / (1 / second + 1 / third), minimumHeight, height - gap - minimumHeight
+        );
+        result.cells = {
+            {0, 0, left, height},
+            {left + gap, 0, width - left - gap, upper},
+            {left + gap, upper + gap, width - left - gap, height - upper - gap}
+        };
+        result.height = height;
+      } else {
+        const float lead = width / first, lower = (width - gap) / (second + third);
+        const float height = std::min(MediaGallery::maximumHeight, lead + gap + lower);
+        const float leadHeight = (height - gap) * lead / (lead + lower);
+        result.cells[0] = {0, 0, width, leadHeight};
+        row(1, 2, leadHeight + gap, height - leadHeight - gap);
+        result.height = height;
+      }
+      return result;
+    }
+    if (aspects.size() == 4)
+      columns = std::min<std::size_t>(columns, 2);
+    const auto rows = (aspects.size() + columns - 1) / columns;
+    const auto base = aspects.size() / rows, extra = aspects.size() % rows;
+    std::vector<float> heights;
+    std::vector<std::size_t> counts;
+    float total = 0;
+    std::size_t start = 0;
+    for (std::size_t r = 0; r < rows; ++r) {
+      const auto count = base + (r >= rows - extra ? 1 : 0);
+      float sum = 0;
+      for (auto i = start; i < start + count; ++i)
+        sum += MediaGallery::aspect(aspects[i]);
+      const float height = (width - gap * (count - 1)) / sum;
+      heights.push_back(height);
+      counts.push_back(count);
+      total += height;
+      start += count;
+    }
+    const float heightBudget = std::max(0.0F, MediaGallery::maximumHeight - gap * (rows - 1));
+    const float scale = total > heightBudget ? heightBudget / total : 1;
+    float y = 0;
+    start = 0;
+    for (std::size_t r = 0; r < rows; ++r) {
+      const float height = heights[r] * scale;
+      row(start, counts[r], y, height);
+      start += counts[r];
+      y += height + gap;
+    }
+    result.height = y - gap;
+    return result;
+  }
   inline Frame floatingFrame(float x, float y, float width, float height) {
     return {
         x + Style::spaceSm, y + Style::spaceSm, std::max(0.0F, width - Style::spaceSm * 2),

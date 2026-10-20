@@ -80,7 +80,8 @@ namespace app {
     using SelectionRef = std::shared_ptr<Selection>;
     PickedFile selectFile(
         GMainContext* context, GCancellable* cancellation, std::uint64_t id, const std::string& title,
-        const std::vector<std::string>& types, std::size_t maximum, bool multiple
+        const std::vector<std::string>& types, std::size_t maximum, bool multiple, bool saving, const std::string& name,
+        std::span<const std::uint8_t> bytes
     ) {
       PickedFile result{.request = id};
       GError* error = nullptr;
@@ -118,7 +119,8 @@ namespace app {
               if (g_variant_lookup(values, "uris", "^as", &uris) && uris && uris[0]) {
                 for (std::size_t i = 0; uris[i]; ++i) {
                   if (i >= 50 || (!selection->multiple && i > 0)) {
-                    selection->error = "Select no more than 50 local files.";
+                    selection->error =
+                        selection->multiple ? "Select no more than 50 local files." : "Select exactly one local file.";
                     break;
                   }
                   selection->uris.emplace_back(uris[i]);
@@ -154,9 +156,17 @@ namespace app {
       g_variant_builder_init(&options, G_VARIANT_TYPE_VARDICT);
       g_variant_builder_add(&options, "{sv}", "handle_token", g_variant_new_string(token.c_str()));
       g_variant_builder_add(&options, "{sv}", "modal", g_variant_new_boolean(true));
-      g_variant_builder_add(&options, "{sv}", "multiple", g_variant_new_boolean(multiple));
+      if (saving)
+        g_variant_builder_add(&options, "{sv}", "current_name", g_variant_new_string(name.c_str()));
+      else
+        g_variant_builder_add(&options, "{sv}", "multiple", g_variant_new_boolean(multiple));
       g_variant_builder_add(
-          &options, "{sv}", "accept_label", g_variant_new_string(multiple ? "Choose Files" : "Choose File")
+          &options, "{sv}", "accept_label",
+          g_variant_new_string(
+              saving         ? "Save Image"
+                  : multiple ? "Choose Files"
+                             : "Choose File"
+          )
       );
       g_variant_builder_init(&filters, G_VARIANT_TYPE("a(sa(us))"));
       g_variant_builder_init(&choices, G_VARIANT_TYPE("a(us)"));
@@ -166,7 +176,7 @@ namespace app {
       g_variant_builder_add(&options, "{sv}", "filters", g_variant_builder_end(&filters));
       auto* reply = g_dbus_connection_call_sync(
           connection, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
-          "org.freedesktop.portal.FileChooser", "OpenFile",
+          "org.freedesktop.portal.FileChooser", saving ? "SaveFile" : "OpenFile",
           g_variant_new("(ss@a{sv})", "", title.c_str(), g_variant_builder_end(&options)), G_VARIANT_TYPE("(o)"),
           G_DBUS_CALL_FLAGS_NONE, 5000, cancellation, &error
       );
@@ -211,7 +221,9 @@ namespace app {
       result.cancelled = state->cancelled || g_cancellable_is_cancelled(cancellation);
       result.error = state->error;
       if (!result.cancelled && result.error.empty() && !state->uri.empty()) {
-        if (multiple) {
+        if (saving)
+          result = FilePicker::writeSelection(state->uri, bytes, cancellation);
+        else if (multiple) {
           std::size_t total = 0;
           for (const auto& uri : state->uris) {
             if (g_cancellable_is_cancelled(cancellation)) {
@@ -249,7 +261,13 @@ namespace app {
     cancel();
     {
       std::lock_guard lock(m_mutex);
-      m_pending = Request{id, std::move(title), std::move(types), std::min(maximumFile, maximum), multiple};
+      m_pending = Request{
+          .id = id,
+          .title = std::move(title),
+          .types = std::move(types),
+          .maximum = std::min(maximumFile, maximum),
+          .multiple = multiple
+      };
     }
     m_condition.notify_all();
   }
@@ -258,6 +276,25 @@ namespace app {
     m_pending.reset();
     if (m_active)
       g_cancellable_cancel(m_active);
+  }
+  void FilePicker::save(std::uint64_t id, std::string name, std::string mime, std::vector<std::uint8_t> bytes) {
+    auto* validName = g_utf8_make_valid(name.data(), name.size());
+    name = validName;
+    g_free(validName);
+    cancel();
+    {
+      std::lock_guard lock(m_mutex);
+      m_pending = Request{
+          .id = id,
+          .title = "Save Image",
+          .types = {std::move(mime)},
+          .maximum = maximumSavedBytes,
+          .saving = true,
+          .name = std::move(name),
+          .bytes = std::move(bytes)
+      };
+    }
+    m_condition.notify_all();
   }
   std::optional<PickedFile> FilePicker::poll() {
     m_wake.drain();
@@ -285,9 +322,16 @@ namespace app {
         m_pending.reset();
         m_active = cancellation;
       }
-      auto result = selectFile(
-          context, cancellation, request.id, request.title, request.types, request.maximum, request.multiple
-      );
+      PickedFile result;
+      if (request.saving && (request.bytes.empty() || request.bytes.size() > maximumSavedBytes))
+        result.error = "This image is empty or too large to save.";
+      else
+        result = selectFile(
+            context, cancellation, request.id, request.title, request.types, request.maximum, request.multiple,
+            request.saving, request.name, request.bytes
+        );
+      result.request = request.id;
+      result.saving = request.saving;
       const auto raster = [&](PickedFile& file, bool thumbnail) {
         if (g_cancellable_is_cancelled(cancellation)
             || !file.error.empty()
@@ -315,11 +359,13 @@ namespace app {
         } else
           file.raster = std::move(*decoded);
       };
-      if (result.files.empty())
-        raster(result, false);
-      else
-        for (auto& file : result.files)
-          raster(file, true);
+      if (!result.saving) {
+        if (result.files.empty())
+          raster(result, false);
+        else
+          for (auto& file : result.files)
+            raster(file, true);
+      }
       if (g_cancellable_is_cancelled(cancellation)) {
         result.cancelled = true;
         result.bytes.clear();
@@ -412,6 +458,95 @@ namespace app {
       result.bytes.clear();
       result.error = "This file type is not supported for this upload.";
     }
+    return result;
+  }
+  PickedFile
+  FilePicker::writeSelection(const std::string& uri, std::span<const std::uint8_t> bytes, GCancellable* cancellation) {
+    PickedFile result{.saving = true};
+    const auto cancelled = [&] { return cancellation && g_cancellable_is_cancelled(cancellation); };
+    if (cancelled()) {
+      result.cancelled = true;
+      return result;
+    }
+    if (bytes.empty() || bytes.size() > maximumSavedBytes) {
+      result.error = "This image is empty or too large to save.";
+      return result;
+    }
+    if (!uri.starts_with("file://") || uri.size() > 16384 || uri.find('\0') != std::string::npos) {
+      result.error = "Choose a local file destination.";
+      return result;
+    }
+    gchar* host = nullptr;
+    auto* path = g_filename_from_uri(uri.c_str(), &host, nullptr);
+    const bool local = path && path[0] == '/' && (!host || !*host || std::string_view(host) == "localhost");
+    g_free(host);
+    if (!local) {
+      g_free(path);
+      result.error = "Choose a local file destination.";
+      return result;
+    }
+    auto* parent = g_path_get_dirname(path);
+    auto* basename = g_path_get_basename(path);
+    result.name = basename;
+    g_free(basename);
+    g_free(path);
+    const int directory = ::open(parent, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    g_free(parent);
+    struct Directory {
+      int fd;
+      ~Directory() {
+        if (fd >= 0)
+          ::close(fd);
+      }
+    } directoryGuard{directory};
+    struct stat target{};
+    const int status = directory < 0 ? -1 : ::fstatat(directory, result.name.c_str(), &target, AT_SYMLINK_NOFOLLOW);
+    if (directory < 0 || (status == 0 && !S_ISREG(target.st_mode)) || (status < 0 && errno != ENOENT)) {
+      result.error = "Could not save to the selected file.";
+      return result;
+    }
+    auto* random = g_uuid_string_random();
+    const std::string temporary = ".cressida-image-" + std::string(random);
+    g_free(random);
+    const int descriptor =
+        ::openat(directory, temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    struct Temporary {
+      int directory, fd;
+      const std::string& name;
+      ~Temporary() {
+        if (fd >= 0) {
+          ::close(fd);
+          ::unlinkat(directory, name.c_str(), 0);
+        }
+      }
+    } temporaryGuard{directory, descriptor, temporary};
+    if (descriptor < 0) {
+      result.error = "Could not save to the selected file.";
+      return result;
+    }
+    constexpr std::size_t writeChunkSize = 64 * 1024;
+    for (std::size_t at = 0; at < bytes.size();) {
+      if (cancelled()) {
+        result.cancelled = true;
+        return result;
+      }
+      const auto written = ::write(descriptor, bytes.data() + at, std::min(writeChunkSize, bytes.size() - at));
+      if (written < 0 && errno == EINTR)
+        continue;
+      if (written <= 0) {
+        result.error = "Could not write the selected image.";
+        return result;
+      }
+      at += static_cast<std::size_t>(written);
+    }
+    if (::fsync(descriptor) != 0) {
+      result.error = "Could not finish writing the selected image.";
+      return result;
+    }
+    if (cancelled())
+      result.cancelled = true;
+    else if (::renameat(directory, temporary.c_str(), directory, result.name.c_str()) != 0)
+      result.error = "Could not finish saving the selected image.";
     return result;
   }
 } // namespace app

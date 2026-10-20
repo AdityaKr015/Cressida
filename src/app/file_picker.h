@@ -23,6 +23,7 @@ namespace app {
     std::optional<DecodedRasterImage> raster;
     std::vector<PickedFile> files;
     bool cancelled = false;
+    bool saving = false;
   };
   // Portal and bounded file reads run on a private worker, never in the UI loop.
   class FilePicker {
@@ -37,8 +38,12 @@ namespace app {
         bool multiple = false
     );
     void cancel();
+    void save(std::uint64_t request, std::string name, std::string mime, std::vector<std::uint8_t> bytes);
     std::optional<PickedFile> poll();
     static PickedFile readSelection(const std::string& uri, std::span<const std::string> types, std::size_t maximum);
+    static PickedFile
+    writeSelection(const std::string& uri, std::span<const std::uint8_t> bytes, GCancellable* cancellation = nullptr);
+    static constexpr std::size_t maximumSavedBytes = 20 * 1024 * 1024;
 
   private:
     struct Request {
@@ -47,6 +52,9 @@ namespace app {
       std::vector<std::string> types;
       std::size_t maximum;
       bool multiple = false;
+      bool saving = false;
+      std::string name;
+      std::vector<std::uint8_t> bytes;
     };
     void run(std::stop_token stop);
     process::WakeEvent m_wake;

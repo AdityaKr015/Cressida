@@ -89,7 +89,6 @@ namespace app {
     std::function<bool(std::string_view)> unicodeEmoji;
     bool discordTimestamps = false;
     bool mentionPrefix = true;
-    bool attachmentGallery = false;
     struct ChannelMention {
       std::string name, link;
       std::string guildName, guildIcon, channelName, parentName;

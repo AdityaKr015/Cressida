@@ -36,6 +36,11 @@ namespace Style {
   inline constexpr float embedMaximumWidth = 480.0F;
   inline constexpr float embedThumbnailSize = 72.0F;
   inline constexpr float embedImageMaximumHeight = 280.0F;
+  inline constexpr float mediaGalleryMaximumWidth = 550.0F;
+  inline constexpr float mediaGalleryMaximumHeight = 400.0F;
+  inline constexpr float mediaGalleryPreferredCellWidth = 100.0F;
+  inline constexpr float mediaGalleryAspectLimit = 2.0F;
+  inline constexpr unsigned mediaGalleryMaximumColumns = 3;
 
   inline constexpr float cardPadding = 14.0F;
   inline constexpr float panelPadding = 14.0F;

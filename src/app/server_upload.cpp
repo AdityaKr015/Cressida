@@ -47,6 +47,8 @@ namespace app {
   }
   void ClientApplication::drainServerSettingsUploads() {
     while (auto result = m_filePicker.poll()) {
+      if (imageSaved(*result))
+        continue;
       if (userAccountPickedFile(*result))
         continue;
       if (result->request != m_serverUploadSerial

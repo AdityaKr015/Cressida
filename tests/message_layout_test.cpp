@@ -8,6 +8,8 @@
 #include "app/text_edit.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <ranges>
@@ -178,6 +180,126 @@ int main(int argc, char** argv) {
            {"demo-image", 800, 600}}
       );
     auto gallery = app::layoutRichMessage(forwardedMessage, 700, editMeasure);
+    api::Message ordinaryImages;
+    ordinaryImages.attachments = forwardedMessage.forwarded->attachments;
+    const auto ordinaryGallery = app::layoutRichMessage(ordinaryImages, 700, editMeasure);
+    require(
+        ordinaryGallery.pictures.size() == 4
+            && ordinaryGallery.pictures[0].y == ordinaryGallery.pictures[1].y
+            && ordinaryGallery.pictures[2].y == ordinaryGallery.pictures[3].y,
+        "Ordinary multi-image messages use a mosaic instead of stacking each image vertically"
+    );
+    const std::array<std::pair<int, int>, 5> mediaSizes{{{240, 400}, {400, 240}, {320, 320}, {600, 200}, {200, 600}}};
+    for (std::size_t count = 1; count <= 10; ++count) {
+      api::Message images;
+      for (std::size_t i = 0; i < count; ++i) {
+        const auto [width, height] = mediaSizes[i % mediaSizes.size()];
+        const auto url =
+            "https://cdn.discordapp.com/attachments/10/" + std::to_string(100 + i) + "/image.png?ex=signature";
+        images.attachments.push_back({std::to_string(i + 1), "image.png", url, "image/png", {url, width, height}});
+      }
+      for (const auto width : {120.0F, 220.0F, 400.0F, 900.0F}) {
+        const auto mosaic = app::layoutRichMessage(images, width, editMeasure);
+        require(mosaic.pictures.size() == count, "Mosaics retain every attachment from one through ten images");
+        require(
+            mosaic.height <= app::layout::MediaGallery::maximumHeight
+                    + app::layout::MediaGallery::contentGap
+                    + Style::borderWidth,
+            "A multi-image message stays bounded instead of growing into a full-size vertical stack"
+        );
+        for (std::size_t i = 0; i < count; ++i) {
+          const auto& cell = mosaic.pictures[i];
+          require(
+              std::isfinite(cell.x)
+                  && std::isfinite(cell.y)
+                  && cell.width > 0
+                  && cell.height > 0
+                  && cell.x >= 0
+                  && cell.x + cell.width <= width + Style::borderWidth
+                  && cell.y + cell.height <= mosaic.height + Style::borderWidth,
+              "Every gallery cell remains usable and inside the measured message at narrow widths"
+          );
+          require(
+              cell.media == images.attachments[i].image && cell.link == images.attachments[i].url,
+              "Mosaics preserve source order, original dimensions and signed attachment URLs for the viewer"
+          );
+          for (std::size_t j = 0; j < i; ++j) {
+            const auto& other = mosaic.pictures[j];
+            require(
+                cell.x + cell.width <= other.x + Style::borderWidth
+                    || other.x + other.width <= cell.x + Style::borderWidth
+                    || cell.y + cell.height <= other.y + Style::borderWidth
+                    || other.y + other.height <= cell.y + Style::borderWidth,
+                "Mosaic tiles never overlap each other"
+            );
+          }
+        }
+        if (count == 1)
+          require(
+              std::abs(
+                  mosaic.pictures[0].width / mosaic.pictures[0].height
+                  - static_cast<float>(images.attachments[0].image.width) / images.attachments[0].image.height
+              ) < .001F,
+              "Single images retain their original aspect ratio"
+          );
+      }
+    }
+    api::Message threeImages;
+    threeImages.attachments = {
+        ordinaryImages.attachments[0], ordinaryImages.attachments[1], ordinaryImages.attachments[2]
+    };
+    threeImages.attachments[0].image.width = 200;
+    threeImages.attachments[0].image.height = 400;
+    const auto portraitGallery = app::layoutRichMessage(threeImages, 550, editMeasure);
+    require(
+        portraitGallery.pictures[0].height > portraitGallery.pictures[1].height
+            && portraitGallery.pictures[0].y == portraitGallery.pictures[1].y
+            && portraitGallery.pictures[1].x == portraitGallery.pictures[2].x,
+        "Three-image galleries give a portrait lead a tall tile alongside two stacked images"
+    );
+    threeImages.attachments[0].image.width = 400;
+    threeImages.attachments[0].image.height = 200;
+    const auto landscapeGallery = app::layoutRichMessage(threeImages, 550, editMeasure);
+    require(
+        landscapeGallery.pictures[0].width > landscapeGallery.pictures[1].width
+            && landscapeGallery.pictures[1].y == landscapeGallery.pictures[2].y
+            && landscapeGallery.pictures[1].y > landscapeGallery.pictures[0].y,
+        "Three-image galleries give a landscape lead a wide tile above two images"
+    );
+    auto mixedMedia = threeImages;
+    mixedMedia.attachments[1].filename = "clip.mp4";
+    mixedMedia.attachments[1].contentType = "video/mp4";
+    mixedMedia.attachments[1].url = "https://cdn.discordapp.com/attachments/10/101/clip.mp4";
+    mixedMedia.attachments[2].filename = "SPOILER_motion.gif";
+    mixedMedia.attachments[2].contentType = "image/gif";
+    const auto mixedGallery = app::layoutRichMessage(mixedMedia, 550, editMeasure);
+    require(
+        mixedGallery.pictures.size() == 3
+            && !mixedGallery.pictures[1].videoSource.empty()
+            && mixedGallery.pictures[2].animated
+            && mixedGallery.pictures[2].spoiler,
+        "Mixed image/video/GIF mosaics retain native playback and spoiler metadata"
+    );
+    auto mixedFiles = ordinaryImages;
+    mixedFiles.attachments.insert(
+        mixedFiles.attachments.begin() + 2, {"77", "notes.txt", "https://example.com/notes.txt", "text/plain"}
+    );
+    const auto fileGallery = app::layoutRichMessage(mixedFiles, 550, editMeasure);
+    require(
+        fileGallery.pictures.size() == 4
+            && fileGallery.boxes.size() == 1
+            && fileGallery.pictures[1].y + fileGallery.pictures[1].height <= fileGallery.boxes[0].y
+            && fileGallery.boxes[0].y + fileGallery.boxes[0].height <= fileGallery.pictures[2].y,
+        "Ordinary files remain in attachment order between consecutive visual galleries"
+    );
+    auto unknownSizes = ordinaryImages;
+    for (auto& item : unknownSizes.attachments)
+      item.image.width = item.image.height = 0;
+    const auto unknownGallery = app::layoutRichMessage(unknownSizes, 400, editMeasure);
+    require(
+        unknownGallery.pictures.size() == 4 && std::isfinite(unknownGallery.height),
+        "Unknown image dimensions use a stable gallery fallback"
+    );
     require(
         gallery.forwards.size() == 1
             && gallery.pictures.size() == 4

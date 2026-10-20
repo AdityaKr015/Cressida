@@ -65,6 +65,7 @@ namespace app {
   }
   void ClientApplication::closeContext() {
     m_contextOpen = false;
+    m_imageContext.clear();
     m_scrolling.stop(m_contextScroll);
     if (m_channelSubmenu)
       m_reactionChoices.clear();
@@ -78,6 +79,10 @@ namespace app {
       return;
     m_scrolling.stopAll();
     closeGifPicker();
+    if (!m_viewImage.empty()) {
+      openImageContext(x, y);
+      return;
+    }
     if (!m_connected || settingsVisible() || m_serverSettings.open || !m_viewImage.empty() || !m_dialogKind.empty())
       return;
     const auto target = std::find_if(m_contextTargets.rbegin(), m_contextTargets.rend(), [&](const auto& hit) {
@@ -775,6 +780,16 @@ namespace app {
     return true;
   }
   void ClientApplication::contextAction(Action action) {
+    if (action == Action::CopyImage
+        || action == Action::SaveImage
+        || action == Action::CopyMediaLink
+        || action == Action::OpenMediaLink) {
+      const bool current = !m_viewImage.empty() && m_imageContext == m_viewImage;
+      closeContext();
+      if (current)
+        imageViewerAction(action);
+      return;
+    }
     if (action == Action::ServerSettings || action == Action::CopyServerId || action == Action::ServerInvitePeople) {
       const auto guild = m_contextGuild;
       closeContext();

@@ -67,6 +67,8 @@ namespace app {
     static constexpr int dmHomeReplayFrames = 24;
     static constexpr int composerReplyReplayFrames = 10;
     static constexpr int embedReplayFrames = 12;
+    static constexpr int mediaGalleryReplayFrames = 13;
+    static constexpr int imageMenuReplayFrames = 13;
     enum class Action {
       Settings,
       DmPage,
@@ -260,7 +262,11 @@ namespace app {
       DismissEphemeral,
       SubmitApplicationModal,
       RemoveFromLog,
-      ClearEditHistory
+      ClearEditHistory,
+      CopyImage,
+      SaveImage,
+      CopyMediaLink,
+      OpenMediaLink
     };
     struct Hit {
       float x, y, width, height;
@@ -664,6 +670,14 @@ namespace app {
     void openDraftAttachment(const std::string& key);
     void prepareAttachmentsDemo();
     void demoAttachmentsStep();
+    void prepareMediaGalleryDemo(int count, bool portrait = false);
+    void demoMediaGalleryStep();
+    void openImageContext(float x, float y);
+    void imageViewerAction(Action action);
+    std::string viewerMediaLink() const;
+    void closeImageViewer();
+    bool imageSaved(const PickedFile& result);
+    void demoImageMenuStep();
     bool hovered(float x, float y, float width, float height) const;
     void updateCursor();
     float channelSidebarWidth() const;
@@ -1127,6 +1141,9 @@ namespace app {
     std::vector<ViewerImage> m_viewerImages;
     std::string m_viewImage;
     std::string m_viewUrl;
+    std::string m_imageContext, m_imageActionSource, m_imageActionViewer, m_imageStatus;
+    Action m_pendingImageAction = Action::None;
+    std::uint64_t m_imageSaveSerial = 0, m_imageSaveRequest = 0;
     float m_viewZoom = 1, m_viewPanX = 0, m_viewPanY = 0, m_imageDragX = 0, m_imageDragY = 0;
     bool m_dragImage = false;
     bool m_resizingSidebar = false;

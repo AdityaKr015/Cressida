@@ -1,5 +1,6 @@
 #include "app/file_picker.h"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -115,6 +116,8 @@ namespace {
   app::PickedFile waitForResult(app::FilePicker& picker) {
     const auto deadline = std::chrono::steady_clock::now() + 5s;
     do {
+      while (g_main_context_iteration(nullptr, false)) {
+      }
       if (auto result = picker.poll())
         return std::move(*result);
       const auto remaining =
@@ -122,13 +125,105 @@ namespace {
       if (remaining <= 0ms)
         break;
       pollfd wake{picker.eventFd(), POLLIN, 0};
-      const auto status = ::poll(&wake, 1, static_cast<int>(remaining.count()));
+      const auto status = ::poll(&wake, 1, static_cast<int>(std::min(remaining, 10ms).count()));
       if (status < 0 && errno == EINTR)
         continue;
-      require(status > 0 && (wake.revents & POLLIN), "The file picker signals a result within five seconds");
+      require(status >= 0, "Wait for the file picker wake descriptor");
     } while (std::chrono::steady_clock::now() < deadline);
     throw std::runtime_error("The file picker did not publish its result");
   }
+  class SavePortal {
+  public:
+    GTestDBus* bus = g_test_dbus_new(G_TEST_DBUS_NONE);
+    GDBusConnection* connection = nullptr;
+    GDBusNodeInfo* info = nullptr;
+    guint object = 0;
+    guint response = 0;
+    bool valid = false;
+    std::string destination;
+    SavePortal() {
+      g_test_dbus_up(bus);
+      connection = g_dbus_connection_new_for_address_sync(
+          g_test_dbus_get_bus_address(bus),
+          GDBusConnectionFlags(
+              G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION
+          ),
+          nullptr, nullptr, nullptr
+      );
+      require(connection, "Connect the private save portal");
+      info = g_dbus_node_info_new_for_xml(
+          R"XML(<node><interface name="org.freedesktop.portal.FileChooser">
+        <method name="SaveFile"><arg type="s" direction="in"/><arg type="s" direction="in"/>
+          <arg type="a{sv}" direction="in"/><arg type="o" direction="out"/></method>
+        </interface></node>)XML",
+          nullptr
+      );
+      static const GDBusInterfaceVTable handlers{
+          .method_call = [](GDBusConnection* connection, const gchar* sender, const gchar*, const gchar*,
+                            const gchar* method, GVariant* parameters, GDBusMethodInvocation* invocation,
+                            gpointer data) {
+            auto& portal = *static_cast<SavePortal*>(data);
+            const gchar *parent, *title, *token = nullptr, *name = nullptr, *accept = nullptr;
+            gboolean modal = false;
+            GVariant* options;
+            g_variant_get(parameters, "(&s&s@a{sv})", &parent, &title, &options);
+            g_variant_lookup(options, "handle_token", "&s", &token);
+            g_variant_lookup(options, "current_name", "&s", &name);
+            g_variant_lookup(options, "accept_label", "&s", &accept);
+            g_variant_lookup(options, "modal", "b", &modal);
+            auto* filters = g_variant_lookup_value(options, "filters", G_VARIANT_TYPE("a(sa(us))"));
+            portal.valid = std::string_view(method) == "SaveFile"
+                && std::string_view(title) == "Save Image"
+                && parent
+                && !*parent
+                && token
+                && name
+                && std::string_view(name) == "original.png"
+                && accept
+                && std::string_view(accept) == "Save Image"
+                && modal
+                && filters
+                && g_variant_n_children(filters) == 1;
+            if (filters)
+              g_variant_unref(filters);
+            std::string owner(sender);
+            if (owner.starts_with(':'))
+              owner.erase(0, 1);
+            std::ranges::replace(owner, '.', '_');
+            const auto path = "/org/freedesktop/portal/desktop/request/" + owner + "/" + (token ? token : "invalid");
+            g_dbus_method_invocation_return_value(invocation, g_variant_new("(o)", path.c_str()));
+            GVariantBuilder results;
+            g_variant_builder_init(&results, G_VARIANT_TYPE_VARDICT);
+            const gchar* uris[] = {portal.destination.c_str(), nullptr};
+            g_variant_builder_add(&results, "{sv}", "uris", g_variant_new_strv(uris, -1));
+            g_dbus_connection_emit_signal(
+                connection, sender, path.c_str(), "org.freedesktop.portal.Request", "Response",
+                g_variant_new("(u@a{sv})", portal.response, g_variant_builder_end(&results)), nullptr
+            );
+            g_variant_unref(options);
+          }
+      };
+      object = g_dbus_connection_register_object(
+          connection, "/org/freedesktop/portal/desktop", info->interfaces[0], &handlers, this, nullptr, nullptr
+      );
+      require(object != 0, "Register the private save chooser");
+      auto* reply = g_dbus_connection_call_sync(
+          connection, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "RequestName",
+          g_variant_new("(su)", "org.freedesktop.portal.Desktop", 0U), nullptr, G_DBUS_CALL_FLAGS_NONE, 1000, nullptr,
+          nullptr
+      );
+      require(reply, "Own the private portal service");
+      g_variant_unref(reply);
+    }
+    ~SavePortal() {
+      g_dbus_connection_unregister_object(connection, object);
+      g_dbus_node_info_unref(info);
+      g_dbus_connection_close_sync(connection, nullptr, nullptr);
+      g_object_unref(connection);
+      g_test_dbus_down(bus);
+      g_object_unref(bus);
+    }
+  };
 } // namespace
 
 int main() {
@@ -232,7 +327,62 @@ int main() {
           !result.error.empty() && result.bytes.empty(),
           "Reject remote, malformed, embedded-NUL and overlong selection URIs"
       );
+      require(
+          !app::FilePicker::writeSelection(rejected, png).error.empty(),
+          "Saving also rejects remote, malformed, embedded-NUL and overlong destinations"
+      );
     }
+
+    const auto saved = directory.file("saved image #1.png");
+    result = app::FilePicker::writeSelection(uri(saved), png);
+    require(
+        result.saving
+            && result.error.empty()
+            && !result.cancelled
+            && result.bytes.empty()
+            && app::FilePicker::readSelection(uri(saved), images, png.size()).bytes == png,
+        "Saving writes exact original bytes and returns completion metadata without upload content"
+    );
+    auto replacement = png;
+    replacement.back() = 42;
+    result = app::FilePicker::writeSelection(uri(saved), replacement);
+    require(
+        result.error.empty() && app::FilePicker::readSelection(uri(saved), images, png.size()).bytes == replacement,
+        "Confirmed overwrites replace the complete destination atomically"
+    );
+    auto* cancellation = g_cancellable_new();
+    g_cancellable_cancel(cancellation);
+    result = app::FilePicker::writeSelection(uri(saved), png, cancellation);
+    g_object_unref(cancellation);
+    require(
+        result.cancelled && app::FilePicker::readSelection(uri(saved), images, png.size()).bytes == replacement,
+        "Cancellation preserves the previous complete destination"
+    );
+    require(
+        !app::FilePicker::writeSelection(uri(fifo), png).error.empty()
+            && !app::FilePicker::writeSelection(uri(directory.file(".")), png).error.empty(),
+        "Save destinations cannot be named pipes or directories"
+    );
+    const auto link = directory.file("symlink.png");
+    std::filesystem::create_symlink(saved, link);
+    require(
+        !app::FilePicker::writeSelection(uri(link), png).error.empty()
+            && app::FilePicker::readSelection(uri(saved), images, png.size()).bytes == replacement,
+        "Saving never follows a destination symlink or modifies its target"
+    );
+    require(
+        !app::FilePicker::writeSelection(uri(saved), {}).error.empty(), "Empty images cannot erase an existing file"
+    );
+    const std::vector<std::uint8_t> tooLarge(app::FilePicker::maximumSavedBytes + 1);
+    require(
+        !app::FilePicker::writeSelection(uri(saved), tooLarge).error.empty()
+            && app::FilePicker::readSelection(uri(saved), images, png.size()).bytes == replacement,
+        "Oversized images fail without truncating existing content"
+    );
+    for (const auto& file : std::filesystem::directory_iterator(directory.file(".")))
+      require(
+          !file.path().filename().string().starts_with(".cressida-image-"), "Saves do not leave partial temporary files"
+      );
 
     const auto busPath = directory.file("private-bus");
     PrivateBusAddress isolated(busPath);
@@ -243,6 +393,12 @@ int main() {
       require(
           result.request == 11 && !result.cancelled && !result.error.empty() && result.bytes.empty() && !picker.poll(),
           "A missing portal publishes one request-scoped error through the owning event-loop wake descriptor"
+      );
+      picker.save(14, "original.png", "image/png", png);
+      result = waitForResult(picker);
+      require(
+          result.request == 14 && result.saving && !result.error.empty() && result.bytes.empty(),
+          "Unavailable save portals publish scoped errors without writing files"
       );
     }
     UnresponsiveBus bus(busPath);
@@ -267,6 +423,31 @@ int main() {
         std::chrono::steady_clock::now() - destructionStart < 2s,
         "Destroying a picker cancels an unresponsive chooser connection promptly"
     );
+    {
+      SavePortal portal;
+      const auto target = directory.file("portal-saved.png");
+      portal.destination = uri(target);
+      app::FilePicker picker;
+      picker.save(15, "original.png", "image/png", png);
+      result = waitForResult(picker);
+      require(
+          portal.valid
+              && result.request == 15
+              && result.saving
+              && result.error.empty()
+              && !result.cancelled
+              && app::FilePicker::readSelection(uri(target), images, png.size()).bytes == png,
+          "A private SaveFile portal receives the suggested filename/filter and writes the selected destination"
+      );
+      std::filesystem::remove(target);
+      portal.response = 1;
+      picker.save(16, "original.png", "image/png", png);
+      result = waitForResult(picker);
+      require(
+          result.request == 16 && result.saving && result.cancelled && !std::filesystem::exists(target),
+          "Cancelling the native save chooser never creates the destination"
+      );
+    }
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

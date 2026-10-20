@@ -1125,34 +1125,63 @@ namespace app {
       result.pictures.push_back({media, x, atY, w, h, std::move(link)});
       return h;
     };
-    const auto galleryCount = options.attachmentGallery
-        ? std::ranges::count_if(
-              message.attachments,
-              [](const auto& attachment) {
-                return !attachment.image.url.empty() && !attachment.contentType.starts_with("video/");
-              }
-          )
-        : 0;
-    if (galleryCount > 1) {
-      const int columns = width >= 240 ? 2 : 1;
-      const float galleryWidth = std::min(width, 600.0F), gap = 4;
-      const float cellWidth = (galleryWidth - gap * (columns - 1)) / columns;
-      const float cellHeight = std::min(190.0F, cellWidth * .75F);
-      int index = 0;
-      y += y > 0 ? 8 : 0;
-      for (const auto& attachment : message.attachments)
-        if (!attachment.image.url.empty() && !attachment.contentType.starts_with("video/")) {
-          result.pictures.push_back(
-              {attachment.image, (index % columns) * (cellWidth + gap), y + (index / columns) * (cellHeight + gap),
-               cellWidth, cellHeight, attachment.url}
-          );
-          ++index;
+    struct AttachmentVisual {
+      api::Media media;
+      std::string video;
+    };
+    const auto visual = [](const api::Attachment& attachment) -> std::optional<AttachmentVisual> {
+      const bool video = attachment.contentType.starts_with("video/")
+          || (attachment.contentType.empty()
+              && (attachment.filename.ends_with(".mp4") || attachment.filename.ends_with(".webm")));
+      if (video) {
+        auto source = api::mediaUrl(attachment.url);
+        if (source.empty())
+          source = attachment.image.url;
+        if (!source.empty()) {
+          auto poster = attachment.image;
+          if (poster.url.empty())
+            poster.url = source;
+          return AttachmentVisual{std::move(poster), std::move(source)};
         }
-      y += ((index + columns - 1) / columns) * (cellHeight + gap) - gap;
-    }
-    for (const auto& attachment : message.attachments) {
-      if (galleryCount > 1 && !attachment.image.url.empty() && !attachment.contentType.starts_with("video/"))
+      }
+      if (!attachment.image.url.empty())
+        return AttachmentVisual{attachment.image, {}};
+      return {};
+    };
+    for (std::size_t attachmentIndex = 0; attachmentIndex < message.attachments.size();) {
+      const auto& attachment = message.attachments[attachmentIndex];
+      std::vector<AttachmentVisual> media;
+      std::vector<float> aspects;
+      auto end = attachmentIndex;
+      for (; end < message.attachments.size(); ++end) {
+        auto item = visual(message.attachments[end]);
+        if (!item)
+          break;
+        aspects.push_back(
+            item->media.width > 0 && item->media.height > 0 ? static_cast<float>(item->media.width) / item->media.height
+                                                            : 1
+        );
+        media.push_back(std::move(*item));
+      }
+      if (media.size() > 1 && std::isfinite(width) && width > 0) {
+        const auto gallery = layout::mediaGalleryFrame(width, aspects);
+        y += layout::MediaGallery::contentGap;
+        for (std::size_t index = 0; index < media.size(); ++index) {
+          const auto& frame = gallery.cells[index];
+          const auto& original = message.attachments[attachmentIndex + index];
+          result.pictures.push_back(
+              {media[index].media, frame.x, y + frame.y, frame.width, frame.height, original.url}
+          );
+          auto& image = result.pictures.back();
+          image.videoSource = std::move(media[index].video);
+          image.animated = original.contentType == "image/gif";
+          image.spoiler = original.filename.starts_with("SPOILER_");
+        }
+        y += gallery.height;
+        attachmentIndex = end;
         continue;
+      }
+      ++attachmentIndex;
       y += 8;
       const bool videoAttachment = attachment.contentType.starts_with("video/")
           || (attachment.contentType.empty()
@@ -1176,6 +1205,10 @@ namespace app {
         result.boxes.push_back({0, y, width, 42, false, {}, true, 0x5865F2});
         append(attachment.filename, 14, y + 12, width - 28, {.link = attachment.url});
         y += 42;
+      }
+      if (!media.empty()) {
+        result.pictures.back().spoiler = attachment.filename.starts_with("SPOILER_");
+        result.pictures.back().animated = attachment.contentType == "image/gif";
       }
     }
     const auto componentButton = [&](const api::EmbedComponentLink& link, float x, float atY, float available,
@@ -1434,7 +1467,6 @@ namespace app {
           && captured.stickers.empty())
         captured.content = "Forwarded message";
       auto settings = options;
-      settings.attachmentGallery = true;
       auto part = layoutRichMessage(captured, std::max(32.0F, width - 12), measure, fontSize, settings);
       if (y > 0)
         y += 8;
