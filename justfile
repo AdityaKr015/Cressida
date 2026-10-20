@@ -92,11 +92,19 @@ test m=mode *args: (_ensure-configured m)
     set -euo pipefail
     exec just _with-sanitizers "$1" meson test -C "{{build-prefix}}-$1" --print-errorlogs "${@:2}"
 
-install m=mode: (build m)
+# Install a release build; an optional prefix overrides the configured destination.
+install m="release" install_prefix="": (_configure m install_prefix)
+    meson compile -C {{build-prefix}}-{{m}} cressida
     meson install --no-rebuild -C {{build-prefix}}-{{m}}
 
-uninstall m=mode: (_ensure-configured m)
-    ninja -C {{build-prefix}}-{{m}} uninstall
+# Use the existing install manifest without reconfiguring or rebuilding.
+uninstall m="release":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$1" in debug|release|asan) ;; *) echo "Unknown mode: $1 (expected debug, release, or asan)" >&2; exit 1 ;; esac
+    # Run the same manifest handler as Meson's Ninja target without regenerating it.
+    cd "{{build-prefix}}-$1"
+    exec meson --internal uninstall
 
 # Format project C++ and Nix files; external decoder code is excluded.
 format:

@@ -23,6 +23,8 @@ A few highlights:
 ## Run
 A Wayland desktop and working graphics drivers are required.
 For builds without Nix or Guix and distribution packages, see [PACKAGING.md](PACKAGING.md).
+With the build dependencies installed, `just install` builds and installs a
+release under `/usr/local`. Use `just install release "$HOME/.local"` for a user-local install.
 
 With a desktop tray available, closing the window keeps Cressida running. Use
 the tray's **Open**, **Restart** or **Close** menu; **Close** exits the application.

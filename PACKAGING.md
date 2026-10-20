@@ -42,7 +42,7 @@ client.
   the linker cannot find. See [GCC's LTO documentation](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html#index-flto).
 - `wayland-scanner` and `wayland-protocols`, including xdg-shell, xdg-decoration,
   viewporter, fractional-scale-v1 and xdg-activation-v1 XML files.
-- Python 3 and the `ffmpeg` executable for the test fixtures.
+- Python 3, `readelf` (binutils) and the `ffmpeg` executable for the test fixtures.
 - `dbus-daemon` for private test buses.
 
 `just`, clang-format 22, nixfmt, actionlint, ShellCheck and Weston are
@@ -109,6 +109,42 @@ Ship the complete assets tree, preserving these notices:
 
 ## Build and install
 
+### Using just
+
+With the build dependencies and `just` installed, run from the checkout:
+
+```sh
+just install
+```
+
+This builds the release client and its runtime libraries, then installs the
+executable, renderer, complete assets, headers, desktop launcher, application
+icon and license notices. It does not build test-only targets. A fresh build
+uses `/usr/local`; an already configured release build keeps its prefix.
+Build as your normal user. Meson can request administrator privileges for the
+installation step when needed; see [Meson's installation guide](https://mesonbuild.com/Installing.html#installing-as-the-superuser).
+
+For a user-local install without administrator privileges:
+
+```sh
+just install release "$HOME/.local"
+```
+
+Ensure `$HOME/.local/bin` is on your session's `PATH`. Your desktop must also
+search the prefix's `share` directory for application entries and icons; the
+usual user data directory is `$HOME/.local/share`.
+
+The optional first argument selects `debug`, `release` or `asan`; the optional
+second argument explicitly sets the prefix. Omitting that second argument
+preserves the build directory's configured prefix. For example,
+`just configure release /opt/cressida` followed by `just install` keeps
+`/opt/cressida`. `just uninstall` removes files recorded by that release build's
+install manifest; `just uninstall debug` selects a debug installation. It does
+not reconfigure or rebuild. Keep the build directory if you want that uninstall
+manifest available. Removing shared directories is left to the user/package manager.
+
+### Using Meson directly
+
 From an extracted release archive or source checkout with dependencies installed:
 
 ```sh
@@ -117,6 +153,11 @@ meson compile -C build-release -j 4
 meson test -C build-release --print-errorlogs
 DESTDIR="$PWD/pkg" meson install -C build-release --no-rebuild
 ```
+
+For a direct installation instead of package staging, omit `DESTDIR` and run
+`meson install -C build-release`. To build only runtime targets first, use
+`meson compile -C build-release cressida`, then
+`meson install -C build-release --no-rebuild`.
 
 `DESTDIR` stages files beneath `pkg` without changing their final `/usr` paths;
 see [Meson's installation reference](https://mesonbuild.com/Installing.html#destdir-support).
@@ -160,6 +201,7 @@ With prefix `/usr` and the usual `lib`/`share` directories:
 /usr/include/cressida/...
 /usr/share/cressida/assets/...
 /usr/share/applications/dev.lysec.Cressida.desktop
+/usr/share/icons/hicolor/scalable/apps/dev.lysec.Cressida.svg
 /usr/share/licenses/cressida/...
 ```
 
@@ -172,8 +214,22 @@ emoji catalogs, themes and demo media are used by the application and previews.
 The compiled prefix/datadir locate the installed bundle. Development builds also
 look beside the executable and its parent directory. `CRESSIDA_ASSETS_DIR` can
 select an alternative complete assets root; an installed package should work
-without this override. Cressida does not currently ship a dedicated application
-icon, AppStream metadata, man pages or systemd units.
+without this override. Cressida does not currently ship AppStream metadata,
+man pages or systemd units. The installed application icon
+uses the original Cressida logo; the tray uses its separate small-size artwork.
+
+The executable's installed runpath locates the renderer relative to its own
+directory, including custom libdirs, without `LD_LIBRARY_PATH` or an `ldconfig`
+step. External runtime dependencies must still be provided by the system/package
+manager. Meson refreshes the desktop-entry and icon caches when the corresponding
+optional tools are available. It skips those refreshes for `DESTDIR` staging;
+distribution packages should use their normal cache triggers.
+
+The native `installation` regression stages an actual install in a temporary
+directory, checks all assets/headers and integration files, and runs the installed
+executable away from the checkout with library-path overrides removed. It never
+writes into the system prefix or changes desktop caches, and preserves any
+existing uninstall manifest.
 
 ## Runtime integration
 

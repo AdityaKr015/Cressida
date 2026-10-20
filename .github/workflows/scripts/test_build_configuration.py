@@ -24,7 +24,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         (self.root / "meson.build").write_text(
             "project('release-archive-check', 'cpp', default_options: ['cpp_std=c++23'])\n"
             "archive = static_library('archive-probe', 'probe.cpp', cpp_args: ['-fno-fat-lto-objects'])\n"
-            "executable('cressida', 'main.cpp', link_with: archive)\n"
+            "executable('cressida', 'main.cpp', link_with: archive, install: true)\n"
         )
         (self.root / "probe.cpp").write_text('extern "C" int archive_answer() { return 42; }\n')
         (self.root / "main.cpp").write_text(
@@ -75,6 +75,52 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.build_release()
         self.run_command(str(self.build / "cressida"))
         self.assertIn("libarchive-probe.a", trace.read_text())
+
+    def install(self, *arguments):
+        return self.run_command(
+            "just", "--justfile", str(ROOT / "justfile"), "--working-directory", str(self.root),
+            "--set", "build-prefix", "build-check", "install", *arguments,
+        )
+
+    def test_install_defaults_to_release_and_stages_without_building_tests(self):
+        with (self.root / "meson.build").open("a") as output:
+            output.write("executable('test-only', 'broken.cpp')\n")
+        (self.root / "broken.cpp").write_text("#error Installation must not build test-only targets\n")
+        stage = self.root / "staging with spaces"
+        self.environment["DESTDIR"] = str(stage)
+        self.install()
+        self.assertTrue((self.build / "cressida").is_file())
+        self.assertTrue((stage / "usr/local/bin/cressida").is_file())
+        self.assertFalse((self.root / "build-check-debug").exists())
+        self.assertFalse((self.build / "test-only").exists())
+
+    def test_install_accepts_explicit_prefix_with_spaces(self):
+        prefix = self.root / "user prefix"
+        self.install("release", str(prefix))
+        self.run_command(str(prefix / "bin/cressida"))
+
+    def test_install_preserves_an_existing_custom_prefix(self):
+        prefix = self.root / "configured prefix"
+        self.run_command(
+            "just", "--justfile", str(ROOT / "justfile"), "--working-directory", str(self.root),
+            "--set", "build-prefix", "build-check", "configure", "release", str(prefix),
+        )
+        self.install()
+        self.run_command(str(prefix / "bin/cressida"))
+
+    def test_uninstall_uses_the_existing_manifest_without_reconfiguring(self):
+        prefix = self.root / "uninstall prefix"
+        self.install("release", str(prefix))
+        configured = self.build / "meson-private/coredata.dat"
+        timestamp = configured.stat().st_mtime_ns
+        with (self.root / "meson.build").open("a") as output:
+            output.write("error('Uninstall must not reconfigure changed sources')\n")
+        self.run_command(
+            "just", "--justfile", str(ROOT / "justfile"), "--working-directory", str(self.root),
+            "--set", "build-prefix", "build-check", "uninstall",
+        )
+        self.assertFalse((prefix / "bin/cressida").exists())
+        self.assertEqual(configured.stat().st_mtime_ns, timestamp)
 
 
 if __name__ == "__main__":

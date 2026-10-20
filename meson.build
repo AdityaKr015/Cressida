@@ -140,6 +140,14 @@ browser_dep = declare_dependency(link_with: browser_login,
   include_directories: include_directories('src'), dependencies: dependency('threads'))
 
 client_args = []
+# Keep local-prefix and staged installs runnable without LD_LIBRARY_PATH or ldconfig.
+# Python's relpath also handles custom absolute bindir/libdir values on Meson 1.1.
+python = import('python').find_installation('python3')
+renderer_relative_dir = run_command(python, '-c',
+  'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))',
+  get_option('prefix') / get_option('libdir'), get_option('prefix') / get_option('bindir'),
+  check: true,
+).stdout().strip()
 if get_option('emoji_font') != ''
   client_args += '-DCRESSIDA_EMOJI_FONT="' + get_option('emoji_font') + '"'
 endif
@@ -156,13 +164,14 @@ client = executable('cressida',
   dependencies: [render_dep, backend_dep, browser_dep, markdown_dep, video_dep, theme_dep],
   link_with: [message_layout, emoji_catalog],
   cpp_args: client_args,
+  install_rpath: '$ORIGIN' / renderer_relative_dir,
   install: true,
 )
 
 install_subdir('src',
   install_dir: get_option('includedir') / 'cressida',
   strip_directory: true,
-  exclude_files: ['app/typing_view.cpp', 'app/chat_navigation.cpp', 'api/embed_components.cpp', 'api/server_preferences.cpp', 'app/server_menu_dialog.cpp', 'app/server_menu_demo.cpp', 'app/chat_preload.cpp', 'app/dm_home.cpp', 'app/dm_create.cpp', 'app/dm_request_panel.cpp', 'app/dm_home_demo.cpp', 'app/user_preferences_demo.cpp', 'app/user_account_demo.cpp', 'app/desktop_notifications.cpp', 'app/desktop_tray.cpp', 'app/tray_view.cpp', 'app/user_notifications.cpp', 'api/user_settings.cpp', 'app/user_preferences.cpp', 'app/user_account_view.cpp', 'app/user_account_dialog.cpp', 'app/user_account_profile.cpp', 'app/user_settings_lists.cpp', 'app/connection_state.cpp', 'app/server_commands_demo.cpp', 'app/server_commands.cpp', 'app/server_commands_model.cpp', 'app/server_image_crop.cpp', 'media/lottie.cpp', 'app/server_extra_forms.cpp', 'app/server_expressions.cpp', 'app/server_audit_model.cpp', 'app/server_audit.cpp', 'app/server_audio.cpp', 'app/server_management.cpp', 'app/settings_color_picker.cpp', 'api/guild_settings.cpp', 'app/server_settings.cpp', 'app/server_settings_demo.cpp', 'app/server_menu.cpp', 'app/server_upload.cpp', 'app/file_picker.cpp', 'app/select_popup.cpp', 'app/channel_demo.cpp', 'app/channel_menu.cpp', 'app/channel_create.cpp', 'app/channel_create_demo.cpp', 'app/channel_invite.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'api/channel_features.cpp', 'api/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/sticker_picker.cpp', 'api/stickers.cpp', 'app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'api/emoji.cpp', 'api/role_styles.cpp', 'api/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/server_view.cpp', 'app/role_view.cpp', 'app/system_message_view.cpp', 'app/message_log_view.cpp', 'app/message_dialog.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'api/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/theme_catalog.cpp', 'app/theme_runtime.cpp', 'app/font_catalog.cpp', 'app/window.cpp', 'app/window_activation.cpp', 'app/window_icons.cpp', 'app/window_control_view.cpp', 'app/window_controls_demo.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'api/client.cpp', 'api/models.cpp', 'api/settings.cpp', 'api/gifs.cpp', 'api/read_state.cpp', 'api/user_directory.cpp', 'api/actions.cpp', 'api/assets.cpp', 'api/gateway.cpp', 'api/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
+  exclude_files: ['app/autocomplete.cpp', 'app/syntax_highlight.cpp', 'ui/scroll_into_view.cpp', 'app/typing_view.cpp', 'app/chat_navigation.cpp', 'api/embed_components.cpp', 'api/server_preferences.cpp', 'app/server_menu_dialog.cpp', 'app/server_menu_demo.cpp', 'app/chat_preload.cpp', 'app/dm_home.cpp', 'app/dm_create.cpp', 'app/dm_request_panel.cpp', 'app/dm_home_demo.cpp', 'app/user_preferences_demo.cpp', 'app/user_account_demo.cpp', 'app/desktop_notifications.cpp', 'app/desktop_tray.cpp', 'app/tray_view.cpp', 'app/user_notifications.cpp', 'api/user_settings.cpp', 'app/user_preferences.cpp', 'app/user_account_view.cpp', 'app/user_account_dialog.cpp', 'app/user_account_profile.cpp', 'app/user_settings_lists.cpp', 'app/connection_state.cpp', 'app/server_commands_demo.cpp', 'app/server_commands.cpp', 'app/server_commands_model.cpp', 'app/server_image_crop.cpp', 'media/lottie.cpp', 'app/server_extra_forms.cpp', 'app/server_expressions.cpp', 'app/server_audit_model.cpp', 'app/server_audit.cpp', 'app/server_audio.cpp', 'app/server_management.cpp', 'app/settings_color_picker.cpp', 'api/guild_settings.cpp', 'app/server_settings.cpp', 'app/server_settings_demo.cpp', 'app/server_menu.cpp', 'app/server_upload.cpp', 'app/file_picker.cpp', 'app/select_popup.cpp', 'app/channel_demo.cpp', 'app/channel_menu.cpp', 'app/channel_create.cpp', 'app/channel_create_demo.cpp', 'app/channel_invite.cpp', 'app/channel_view.cpp', 'app/component_view.cpp', 'api/channel_features.cpp', 'api/threads.cpp', 'app/thread_view.cpp', 'app/forum_view.cpp'] + render_source_paths + control_source_paths + ['app/sticker_picker.cpp', 'api/stickers.cpp', 'app/emoji_picker.cpp', 'app/emoji_catalog.cpp', 'api/emoji.cpp', 'api/role_styles.cpp', 'api/profile.cpp', 'app/profile_view.cpp', 'app/name_badges.cpp', 'app/guild_profile_view.cpp', 'app/server_view.cpp', 'app/role_view.cpp', 'app/system_message_view.cpp', 'app/message_log_view.cpp', 'app/message_dialog.cpp', 'app/video_view.cpp', 'media/video_player.cpp', 'api/video_source.cpp'] + ['meson.build', 'main.cpp', 'app/theme_catalog.cpp', 'app/theme_runtime.cpp', 'app/font_catalog.cpp', 'app/window.cpp', 'app/window_activation.cpp', 'app/window_icons.cpp', 'app/window_control_view.cpp', 'app/window_controls_demo.cpp', 'app/media_view.cpp', 'app/sidebar_view.cpp', 'app/gif_picker.cpp', 'app/user_settings.cpp', 'app/native_controls.cpp', 'app/context_actions.cpp', 'app/client_application.cpp', 'app/session_store.cpp', 'app/message_layout.cpp', 'api/client.cpp', 'api/models.cpp', 'api/settings.cpp', 'api/gifs.cpp', 'api/read_state.cpp', 'api/user_directory.cpp', 'api/actions.cpp', 'api/assets.cpp', 'api/gateway.cpp', 'api/uploads.cpp', 'auth/browser_login.cpp', 'auth/credentials.cpp', 'auth/secret_service.cpp', 'media/animation.cpp'],
 )
 install_subdir('assets',
   install_dir: get_option('datadir') / 'cressida',
@@ -198,6 +207,11 @@ test('client_version', client, args: ['--version'])
 test('client_start_minimized_help', client, args: ['--start-minimized', '--help'])
 test('client_start_minimized_version', client, args: ['--start-minimized', '--start-minimized', '--version'])
 test('client_start_minimized_invalid', client, args: ['--start-minimized=true'], should_fail: true)
+test('installation', python,
+  args: [files('tests/installation_test.py'), meson.project_build_root(), meson.project_source_root(),
+    find_program('meson').full_path(), find_program('readelf').full_path()],
+  depends: client, timeout: 30,
+)
 browser_test = executable('browser_login_test', 'tests/browser_login_test.cpp', dependencies: browser_dep)
 test('browser_login', browser_test)
 state_test = executable('discord_state_test', 'tests/discord_state_test.cpp', dependencies: backend_dep)
@@ -231,6 +245,12 @@ test('theme_runtime', theme_runtime_test, args: [meson.current_source_dir() / 'a
 install_data('assets/dev.lysec.Cressida.desktop', install_dir: get_option('datadir') / 'applications')
 install_data('assets/cressida-logo.svg', rename: 'dev.lysec.Cressida.svg',
   install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps')
+# These tools are optional; importing this module adds no GTK/GNOME UI dependency.
+# Meson skips the cache refreshes for DESTDIR/package staging.
+import('gnome').post_install(
+  gtk_update_icon_cache: find_program('gtk-update-icon-cache', required: false).found(),
+  update_desktop_database: find_program('update-desktop-database', required: false).found(),
+)
 editor_test = executable('text_edit_test', 'tests/text_edit_test.cpp', dependencies: render_dep)
 test('text_edit', editor_test)
 
