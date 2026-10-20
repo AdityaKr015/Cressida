@@ -44,6 +44,7 @@ namespace Style {
 
   inline constexpr float cardPadding = 14.0F;
   inline constexpr float panelPadding = 14.0F;
+  inline constexpr float serverFolderTintMix = 0.12F;
 
   inline constexpr float baseGlyphSize = 16.0F;
   inline constexpr float windowTitlebarHeight = 36.0F;

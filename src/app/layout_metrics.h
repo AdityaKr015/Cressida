@@ -536,8 +536,19 @@ namespace app::layout {
     static constexpr float folderAvatarSize = Style::baseGlyphSize;
     static constexpr float folderAvatarStep = folderAvatarSize + Style::spaceXxs;
     static constexpr float folderInset = (folderSize - folderAvatarSize - folderAvatarStep) / 2;
-    static constexpr float expandedSize = folderSize + Style::spaceXs;
-    static constexpr float expandedX = (Sidebar::railWidth - expandedSize) / 2;
+    static constexpr float folderHeaderHeight = Style::space2Xl;
+    static constexpr float folderGlyphSize = Style::glyphSizeMedium;
+    static constexpr float folderChildStep = Avatar::rail + Style::spaceCompact;
+    static constexpr float folderGap = Style::spaceSm;
+    struct FolderFrame {
+      float headerHeight, childrenHeight, height;
+    };
+    static FolderFrame folderFrame(std::size_t children, float progress) {
+      const float p = std::clamp(progress, 0.0F, 1.0F);
+      const float header = std::lerp(folderSize, folderHeaderHeight, p);
+      const float reveal = children * folderChildStep * p;
+      return {header, reveal, header + reveal};
+    }
     static constexpr float markerX = Style::spaceSm + Style::spaceXxs;
     static constexpr float badgeRight = iconX + Avatar::rail + Style::spaceXs;
     static constexpr float visibleTop = Window::titlebarHeight + ChannelHeader::height + Style::spaceSm;

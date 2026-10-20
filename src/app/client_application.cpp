@@ -79,17 +79,6 @@ namespace app {
       }
       return rows;
     }
-    std::string initial(const std::string& name) {
-      if (name.empty())
-        return "?";
-      std::size_t end = 1;
-      while (end < name.size() && (static_cast<unsigned char>(name[end]) & 0xC0) == 0x80)
-        ++end;
-      auto value = name.substr(0, end);
-      if (end == 1)
-        value[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(value[0])));
-      return value;
-    }
 
   } // namespace
 
@@ -363,6 +352,8 @@ namespace app {
         demoChannelMenuStep();
       if (m_demo && m_demoOverlay.starts_with("typing-cycle"))
         demoTypingStep();
+      if (m_demo && m_demoOverlay.starts_with("folder-animation") && m_demoInteractionStep < 9)
+        demoFolderAnimationStep();
       if (m_demo && m_demoOverlay == "folder-menu-cycle")
         demoFolderMenuStep();
       if (m_demo && m_demoOverlay == "server-menu-cycle")
@@ -933,6 +924,9 @@ namespace app {
     m_window.focusChanged = [this](bool focused) { windowFocusChanged(focused); };
     m_window.animate = [this] {
       const bool active = m_scrolling.tick();
+      if (m_preferences.reducedMotion || settingsVisible() || (!m_demo && !m_window.active()))
+        m_folderMotion.finish();
+      const bool folders = m_folderMotion.tick(folderMotionTime());
       if (m_showMembers && !forumView() && !m_dmMode && !m_demo && !m_guildId.empty() && !m_channelId.empty()) {
         const int page = layout::MemberListLayout(m_members, m_memberCount).indexAt(m_memberScroll) / 100 * 100;
         if (page != m_memberPage) {
@@ -941,6 +935,7 @@ namespace app {
         }
       }
       return active
+          || folders
           || (m_window.active() && (m_roleMotion.active() || (m_typingVisible && !m_preferences.reducedMotion)));
     };
     m_window.zoom = [this](float delta) {
@@ -1275,21 +1270,22 @@ namespace app {
                    : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
                    : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
                    : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
-                   : m_demo && view && std::string_view(view).starts_with("floating-cycle") ? floatingReplayFrames
-                   : m_demo && view && std::string_view(view).starts_with("typing-cycle")   ? typingReplayFrames
-                   : m_demo && view && std::string_view(view) == "folder-menu-cycle"        ? 13
-                   : m_demo && view && std::string_view(view) == "server-menu-cycle"        ? 20
-                   : m_demo && view && std::string_view(view) == "channel-menu-cycle"       ? 31
-                   : m_demo && view && std::string_view(view) == "channel-cycle"            ? 18
-                   : m_demo && view && std::string_view(view) == "forum-cycle"              ? 12
-                   : m_demo && view && std::string_view(view) == "thread-cycle"             ? 10
-                   : m_demo && view && std::string_view(view) == "guild-tag-cycle"          ? 10
-                   : m_demo && view && std::string_view(view) == "profile-card-cycle"       ? 8
-                   : m_demo && view && std::string_view(view) == "role-style-cycle"         ? 7
-                   : m_demo && view && std::string_view(view) == "unread-badge-cycle"       ? 4
-                   : m_demo && view && std::string_view(view) == "unread-cycle"             ? 10
-                   : m_demo && view && std::string_view(view) == "jump-latest-cycle"        ? 8
-                   : m_demo && view && std::string_view(view) == "connection-cycle"         ? 8
+                   : m_demo && view && std::string_view(view).starts_with("floating-cycle")   ? floatingReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("typing-cycle")     ? typingReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("folder-animation") ? 9
+                   : m_demo && view && std::string_view(view) == "folder-menu-cycle"          ? 13
+                   : m_demo && view && std::string_view(view) == "server-menu-cycle"          ? 20
+                   : m_demo && view && std::string_view(view) == "channel-menu-cycle"         ? 31
+                   : m_demo && view && std::string_view(view) == "channel-cycle"              ? 18
+                   : m_demo && view && std::string_view(view) == "forum-cycle"                ? 12
+                   : m_demo && view && std::string_view(view) == "thread-cycle"               ? 10
+                   : m_demo && view && std::string_view(view) == "guild-tag-cycle"            ? 10
+                   : m_demo && view && std::string_view(view) == "profile-card-cycle"         ? 8
+                   : m_demo && view && std::string_view(view) == "role-style-cycle"           ? 7
+                   : m_demo && view && std::string_view(view) == "unread-badge-cycle"         ? 4
+                   : m_demo && view && std::string_view(view) == "unread-cycle"               ? 10
+                   : m_demo && view && std::string_view(view) == "jump-latest-cycle"          ? 8
+                   : m_demo && view && std::string_view(view) == "connection-cycle"           ? 8
                    : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                       : 1)
             : 0,
@@ -1374,6 +1370,8 @@ namespace app {
       throw std::runtime_error("Image viewer menu replay did not complete");
     if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
       throw std::runtime_error("Typing indicator replay did not finish");
+    if (m_demoOverlay.starts_with("folder-animation") && m_demoInteractionStep != 9)
+      throw std::runtime_error("Folder animation replay did not finish");
     if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
       throw std::runtime_error("Folder menu replay did not finish");
     if (m_demoOverlay == "server-menu-cycle" && m_demoInteractionStep != 20)
@@ -1857,6 +1855,19 @@ namespace app {
             || view == "channel-delete"
             || view == "channel-move-confirm")
           prepareChannelMenuDemo(view);
+        if (view.starts_with("folder-animation") || view == "folders-open" || view == "folders-closed") {
+          m_folderMotion.clear();
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          if (view == "folders-closed")
+            m_openFolders.clear();
+          else
+            m_openFolders = {"10"};
+          if (view.starts_with("folder-animation")) {
+            m_demoOverlay = view;
+            m_demoInteractionStep = 0;
+          }
+        }
         if (view.starts_with("floating-cycle")) {
           prepareChannelMenuDemo("channel-menu");
           closeContext();
@@ -2882,7 +2893,21 @@ namespace app {
         parent, x + (width - metrics.width) / 2, y + (18 - (metrics.bottom - metrics.top)) / 2, width, text,
         Style::fontSizeDescription, rgbHex(0xFFFFFF), FontWeight::Bold
     );
-    if (hovered(x, y, width, 18))
+    float ox = 0, oy = 0;
+    for (auto* node = &parent; node && node != m_scene.get(); node = node->parent()) {
+      ox += node->x();
+      oy += node->y();
+    }
+    bool inside = true;
+    float nx = ox, ny = oy;
+    for (auto* node = &parent; node && node != m_scene.get(); node = node->parent()) {
+      if (node->clipChildren())
+        inside &=
+            m_pointerX >= nx && m_pointerX < nx + node->width() && m_pointerY >= ny && m_pointerY < ny + node->height();
+      nx -= node->x();
+      ny -= node->y();
+    }
+    if (inside && hovered(x + ox, y + oy, width, 18))
       m_tooltip = std::to_string(count) + ' ' + std::string(noun) + (count == 1 ? "" : "s");
     return width;
   }
@@ -3292,178 +3317,7 @@ namespace app {
           messageRequestCount(), true, "pending message request"
       );
 
-      // Derive rail totals from the same filtered cursors as the channel badges,
-      // so an in-flight local ACK cannot leave a stale server/folder count.
-      std::map<std::string, int> guildMentions;
-      for (const auto& [channel, guild] : m_unreadGuilds) {
-        if (!guild.empty()) {
-          auto& total = guildMentions[guild];
-          total = std::min(1000000, total + m_unreadTimeline.mentions(channel));
-        }
-      }
-
-      struct RailRow {
-        const api::Guild* guild;
-        const api::GuildFolder* folder;
-        const api::Channel* dm = nullptr;
-      };
-      std::vector<RailRow> rail;
-      for (const auto& dm : m_privateChannels)
-        if (!dm.isMessageRequest()
-            && m_unreadDMs.contains(dm.id)
-            && (!m_userDirectory.muted(dm.id) || m_unreadTimeline.mentions(dm.id) > 0))
-          rail.push_back({nullptr, nullptr, &dm});
-      const auto unreadDMRows = rail.size();
-      for (const auto& folder : m_folders) {
-        if (!folder.id.empty())
-          rail.push_back({nullptr, &folder});
-        if (folder.id.empty() || m_openFolders.contains(folder.id)) {
-          for (const auto& guildId : folder.guildIds) {
-            auto it = std::ranges::find(m_guilds, guildId, &api::Guild::id);
-            if (it != m_guilds.end())
-              rail.push_back({&*it, &folder});
-          }
-        }
-      }
-      if (m_revealGuild) {
-        m_revealGuild = false;
-        for (std::size_t i = 0; i < rail.size(); ++i) {
-          if (rail[i].guild && rail[i].guild->id == m_guildId) {
-            const float top = layout::ServerRail::top + i * layout::ServerRail::step;
-            if (top - m_guildScroll < layout::ServerRail::visibleTop)
-              m_guildScroll = top - layout::ServerRail::visibleTop;
-            if (top + layout::ServerRail::rowHeight - m_guildScroll > sidebarBottom)
-              m_guildScroll = top + layout::ServerRail::rowHeight - sidebarBottom;
-            break;
-          }
-        }
-      }
-      m_scrolling.limit(
-          m_guildScroll,
-          std::max(0.0F, rail.size() * layout::ServerRail::step - (sidebarBottom - layout::ServerRail::top))
-      );
-      for (std::size_t i = 0; i < rail.size(); ++i) {
-        const float y = layout::ServerRail::top + i * layout::ServerRail::step - m_guildScroll;
-        if (y < layout::ServerRail::visibleTop || y + layout::ServerRail::rowHeight > sidebarBottom)
-          continue;
-        const auto& row = rail[i];
-        if (row.dm) {
-          const auto& channel = *row.dm;
-          const bool over = hovered(layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail);
-          avatar(root, layout::ServerRail::iconX, y, layout::Avatar::rail, channel.icon, channelName(channel));
-          if (channel.type == 1 && !channel.recipients.empty())
-            statusBadge(
-                root, layout::ServerRail::iconX + layout::Avatar::rail - Style::spaceMd - Style::spaceXxs,
-                y + layout::Avatar::rail - Style::spaceMd - Style::spaceXxs, userStatus(channel.recipients.front().id),
-                theme::railBackground, channel.recipients.front().id, channel.id
-            );
-          rectangle(
-              root, layout::ServerRail::markerX, y + (layout::Avatar::rail - Style::spaceLg) / 2, Style::spaceXs,
-              Style::spaceLg, foreground, Style::radiusXs
-          );
-          countBadge(
-              root, layout::ServerRail::badgeRight, y - Style::spaceXxs, m_unreadTimeline.mentions(channel.id), true
-          );
-          if (over)
-            rectangle(
-                root, layout::Sidebar::railWidth - layout::ServerRail::markerX - Style::spaceXs,
-                y + (layout::Avatar::rail - Style::spaceRelaxed) / 2, Style::spaceXs, Style::spaceRelaxed, accent,
-                Style::radiusXs
-            );
-          m_hits.push_back(
-              {layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::DirectMessage,
-               channel.id}
-          );
-          if (i + 1 == unreadDMRows)
-            rectangle(
-                root, (layout::Sidebar::railWidth - Style::space2Xl) / 2,
-                y + layout::Avatar::rail + Style::spaceCompact, Style::space2Xl, Style::borderWidth, raised
-            );
-          continue;
-        }
-        if (!row.guild) {
-          auto color = rgbHex(row.folder->color);
-          color.a =
-              hovered(layout::ServerRail::folderX, y, layout::ServerRail::folderSize, layout::ServerRail::folderSize)
-              ? 0.65F
-              : 0.35F;
-          rectangle(
-              root, layout::ServerRail::folderX, y, layout::ServerRail::folderSize, layout::ServerRail::folderSize,
-              color, Style::radiusXl
-          );
-          for (std::size_t j = 0; j < std::min<std::size_t>(4, row.folder->guildIds.size()); ++j) {
-            auto guild = std::ranges::find(m_guilds, row.folder->guildIds[j], &api::Guild::id);
-            if (guild != m_guilds.end())
-              avatar(
-                  root,
-                  layout::ServerRail::folderX
-                      + layout::ServerRail::folderInset
-                      + (j % 2) * layout::ServerRail::folderAvatarStep,
-                  y + layout::ServerRail::folderInset + (j / 2) * layout::ServerRail::folderAvatarStep,
-                  layout::ServerRail::folderAvatarSize, guild->icon, guild->name
-              );
-          }
-          int count = 0;
-          for (const auto& guild : row.folder->guildIds)
-            count = std::min(1000000, count + guildMentions[guild]);
-          countBadge(
-              root, layout::ServerRail::badgeRight, y + layout::ServerRail::folderSize - Style::spaceLg, count, true
-          );
-          m_hits.push_back(
-              {layout::ServerRail::folderX, y, layout::ServerRail::folderSize, layout::ServerRail::folderSize,
-               Action::Folder, row.folder->id}
-          );
-          m_contextTargets.push_back(m_hits.back());
-          continue;
-        }
-        const auto& guild = *row.guild;
-        if (!row.folder->id.empty())
-          rectangle(
-              root, layout::ServerRail::expandedX, y - (layout::ServerRail::expandedSize - layout::Avatar::rail) / 2,
-              layout::ServerRail::expandedSize, layout::ServerRail::expandedSize, panel, Style::radiusXl
-          );
-        const bool selected = guild.id == m_guildId;
-        const bool over = hovered(layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail);
-        if (!selected)
-          rectangle(
-              root, layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, over ? panel : raised,
-              over ? Style::radiusXl : layout::Avatar::rail / 2
-          );
-        if (!image(
-                root, layout::ServerRail::iconX, y, layout::Avatar::rail, guild.icon,
-                selected || over ? Style::radiusXl : layout::Avatar::rail / 2
-            )) {
-          const auto text = initial(guild.name);
-          const auto metrics =
-              m_window.target().renderer().measureText(text, Style::fontSizeDialog, FontWeight::SemiBold);
-          label(
-              root, layout::ServerRail::iconX + (layout::Avatar::rail - metrics.width) / 2,
-              y + (layout::Avatar::rail - (metrics.bottom - metrics.top)) / 2, metrics.width + Style::borderWidth, text,
-              Style::fontSizeDialog, selected ? accent : foreground, FontWeight::SemiBold
-          );
-        }
-        const bool unread =
-            !m_userDirectory.muted(guild.id) && std::ranges::any_of(m_unreadGuilds, [&](const auto& state) {
-              return state.second == guild.id && m_unreadChannels.contains(state.first) && !channelMuted(state.first);
-            });
-        if (selected || over || unread)
-          rectangle(
-              root, layout::ServerRail::markerX,
-              y + (layout::Avatar::rail - (selected ? Style::spaceRelaxed : Style::spaceDense)) / 2, Style::spaceXs,
-              selected ? Style::spaceRelaxed : Style::spaceDense, selected || over ? accent : foreground,
-              Style::radiusXs
-          );
-        countBadge(
-            root, layout::ServerRail::badgeRight, y + layout::Avatar::rail - Style::spaceLg, guildMentions[guild.id],
-            true
-        );
-        m_hits.push_back(
-            {layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::Guild, guild.id}
-        );
-        m_contextTargets.push_back(
-            {layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::GuildMenu, guild.id}
-        );
-      }
+      drawServerRail(root, sidebarBottom);
       auto listedChannels = m_channels;
       if (m_dmMode && !m_dmSearch.empty())
         std::erase_if(listedChannels, [&](const auto& channel) { return !dmMatches(channelName(channel)); });
@@ -5383,6 +5237,7 @@ namespace app {
     m_messageLog.reset();
     m_roleMotion.clear();
     m_preferences = {};
+    m_folderMotion.clear();
     m_demoPrepared = false;
     m_demoOverlay.clear();
     m_demoOverlayApplied = false;
@@ -7753,6 +7608,7 @@ namespace app {
       m_members.clear();
       m_activeMemberIdentity.clear();
       m_folders.clear();
+      m_folderMotion.clear();
       m_openFolders.clear();
       m_liveChanges.clear();
       for (auto& [_, images] : m_attachments)

@@ -12,6 +12,7 @@
 #include "app/discord_link.h"
 #include "app/emoji_catalog.h"
 #include "app/file_picker.h"
+#include "app/folder_motion.h"
 #include "app/layout_metrics.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
@@ -328,6 +329,10 @@ namespace app {
     void resetGuildBootstrap();
     void arrangeGuildFolders();
     void saveExpandedFolders();
+    void drawServerRail(Node& root, float bottom);
+    static std::string initial(const std::string& name);
+    FolderMotion::Clock::time_point folderMotionTime() const;
+    void demoFolderAnimationStep();
     void guildListEvent(api::Event& event);
     void guildLayoutEvent(api::Event& event);
     void channelSnapshotEvent(api::Event& event);
@@ -1127,6 +1132,7 @@ namespace app {
     bool m_readyBootstrapPending = false;
     std::string m_startupGuild;
     std::set<std::string> m_openFolders;
+    FolderMotion m_folderMotion;
     bool m_foldersRestored = false;
     std::vector<api::MemberRow> m_members;
     int m_memberCount = 0;

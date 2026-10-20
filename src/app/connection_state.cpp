@@ -7,6 +7,7 @@
 
 namespace app {
   void ClientApplication::resetGuildBootstrap() {
+    m_folderMotion.clear();
     ++m_guildLayoutRevision;
     m_guildLayout = {};
     m_gatewayGuildsReady = m_gatewayLayoutReady = false;
@@ -16,6 +17,11 @@ namespace app {
 
   void ClientApplication::saveExpandedFolders() {
     m_foldersRestored = true;
+    for (const auto& folder : m_folders)
+      if (!folder.id.empty())
+        m_folderMotion.set(
+            folder.id, m_openFolders.contains(folder.id), !m_preferences.reducedMotion, folderMotionTime()
+        );
     if (!m_demo)
       m_sessionStore.saveExpandedFolders(m_account.id, m_openFolders);
   }
