@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui/style.h"
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -22,8 +24,9 @@ namespace app {
         && (path.empty() || path.front() == '/');
   }
   struct WindowControlPreferences {
-    bool minimize = true, maximize = true, close = true, left = false;
+    bool minimize = true, maximize = true, close = true, left = false, hoverHighlight = true;
     int order = 0, style = 0;
+    int buttonWidth = static_cast<int>(Style::windowButtonWidth);
     std::array<std::string, windowIconNames.size()> icons;
     bool operator==(const WindowControlPreferences&) const = default;
   };

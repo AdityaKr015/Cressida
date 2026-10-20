@@ -234,6 +234,18 @@ namespace app {
         controls.maximize = flag("maximize", true);
         controls.close = flag("close", true);
         controls.left = flag("left", false);
+        controls.hoverHighlight = flag("hover_highlight", true);
+        if (const auto size = at->find("button_width"); size != at->end() && size->is_number_integer()) {
+          const auto bounded = size->is_number_unsigned()
+              ? static_cast<std::int64_t>(
+                    std::min(size->get<std::uint64_t>(), static_cast<std::uint64_t>(Style::windowButtonMaximumWidth))
+                )
+              : size->get<std::int64_t>();
+          controls.buttonWidth = static_cast<int>(std::clamp(
+              bounded, static_cast<std::int64_t>(Style::windowButtonMinimumWidth),
+              static_cast<std::int64_t>(Style::windowButtonMaximumWidth)
+          ));
+        }
         controls.order = number("order", windowButtonOrderCount);
         controls.style = number("style", windowIconStyleCount);
         if (const auto paths = at->find("icons"); paths != at->end() && paths->is_array())
@@ -337,6 +349,12 @@ namespace app {
             {"maximize", preferences.windowControls.maximize},
             {"close", preferences.windowControls.close},
             {"left", preferences.windowControls.left},
+            {"hover_highlight", preferences.windowControls.hoverHighlight},
+            {"button_width",
+             std::clamp(
+                 preferences.windowControls.buttonWidth, static_cast<int>(Style::windowButtonMinimumWidth),
+                 static_cast<int>(Style::windowButtonMaximumWidth)
+             )},
             {"order", std::clamp(preferences.windowControls.order, 0, windowButtonOrderCount - 1)},
             {"style", std::clamp(preferences.windowControls.style, 0, windowIconStyleCount - 1)},
             {"icons", icons}}},

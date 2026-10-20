@@ -2,6 +2,7 @@
 #include "app/window_controls.h"
 
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 int main() {
@@ -37,34 +38,47 @@ int main() {
         preference.maximize = !(hidden & 2);
         preference.close = !(hidden & 4);
         const auto buttons = app::visibleWindowButtons(preference, capabilities);
-        for (const bool left : {false, true}) {
-          const auto width = float(Style::windowMinimumWidth);
-          const auto area = app::layout::Titlebar::buttons(width, buttons.size(), left);
-          require(area.x >= 0 && area.x + area.width <= width, "Button group stays within the titlebar");
-          for (std::size_t i = 0; i < buttons.size(); ++i) {
-            const auto frame = app::layout::Titlebar::button(width, buttons.size(), left, i);
+        for (const auto spacing :
+             {Style::windowButtonMinimumWidth, Style::windowButtonWidth, Style::windowButtonMaximumWidth})
+          for (const bool left : {false, true}) {
+            const auto width = float(Style::windowMinimumWidth);
+            const auto area = app::layout::Titlebar::buttons(width, buttons.size(), left, spacing);
+            require(area.x >= 0 && area.x + area.width <= width, "Button group stays within the titlebar");
+            for (std::size_t i = 0; i < buttons.size(); ++i) {
+              const auto frame = app::layout::Titlebar::button(width, buttons.size(), left, i, spacing);
+              require(
+                  frame.width == spacing && frame.x == area.x + i * spacing,
+                  "Each button uses the selected cell width without gaps or overlapping hit regions"
+              );
+              require(
+                  !app::layout::Titlebar::dragContains(
+                      frame.x + frame.width / 2, frame.height / 2, width, buttons.size(), left, spacing
+                  ),
+                  "Every visible button is excluded from window dragging on both sides"
+              );
+            }
             require(
-                !app::layout::Titlebar::dragContains(
-                    frame.x + frame.width / 2, frame.height / 2, width, buttons.size(), left
+                app::layout::Titlebar::dragContains(
+                    width / 2, app::layout::Titlebar::height / 2, width, buttons.size(), left, spacing
                 ),
-                "Every visible button is excluded from window dragging on both sides"
+                "Titlebar body remains draggable for every visibility/order combination"
             );
+            if (buttons.empty())
+              require(
+                  app::layout::Titlebar::dragContains(0, 0, width, 0, left, spacing)
+                      && app::layout::Titlebar::dragContains(width - 1, 0, width, 0, left, spacing),
+                  "Hiding every button releases the entire titlebar to dragging"
+              );
           }
-          require(
-              app::layout::Titlebar::dragContains(
-                  width / 2, app::layout::Titlebar::height / 2, width, buttons.size(), left
-              ),
-              "Titlebar body remains draggable for every visibility/order combination"
-          );
-          if (buttons.empty())
-            require(
-                app::layout::Titlebar::dragContains(0, 0, width, 0, left)
-                    && app::layout::Titlebar::dragContains(width - 1, 0, width, 0, left),
-                "Hiding every button releases the entire titlebar to dragging"
-            );
-        }
       }
     }
+    require(
+        app::layout::Titlebar::buttonWidth(0) == Style::windowButtonMinimumWidth
+            && app::layout::Titlebar::buttonWidth(Style::windowButtonMaximumWidth * 2)
+                == Style::windowButtonMaximumWidth
+            && app::layout::Titlebar::buttonWidth(std::numeric_limits<float>::quiet_NaN()) == Style::windowButtonWidth,
+        "Invalid cell widths cannot escape the shared style bounds"
+    );
     preference = {};
     preference.order = 2;
     require(

@@ -2671,12 +2671,21 @@ namespace app {
           selectSettingsPage("account");
           prepareUserAccountDemo();
           userAccountAction(view.substr(view.find(':') + 1));
-        } else if (view == "window-controls" || view == "window-controls-custom" || view == "window-controls-left") {
+        } else if (
+            view == "window-controls"
+            || view == "window-controls-custom"
+            || view == "window-controls-left"
+            || view == "window-controls-compact"
+        ) {
           m_preferences.desktopDecorations = false;
           if (view == "window-controls-left") {
             m_preferences.windowControls.left = true;
             m_preferences.windowControls.order = 2;
             m_preferences.windowControls.style = static_cast<int>(WindowIconStyle::Circular);
+          }
+          if (view == "window-controls-compact") {
+            m_preferences.windowControls.buttonWidth = static_cast<int>(Style::windowButtonMinimumWidth);
+            m_preferences.windowControls.hoverHighlight = false;
           }
           if (view == "window-controls-custom")
             m_preferences.windowControls.style = static_cast<int>(WindowIconStyle::Custom);

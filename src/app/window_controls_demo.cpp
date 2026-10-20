@@ -3,6 +3,7 @@
 #include "cursor-shape-v1-client-protocol.h"
 #include "render/core/texture_manager.h"
 #include "ui/controls/select.h"
+#include "ui/controls/slider.h"
 #include "ui/controls/toggle.h"
 
 #include <iostream>
@@ -38,6 +39,34 @@ namespace app {
         if (hit.action == Action::Minimize || hit.action == Action::Maximize || hit.action == Action::Close)
           result.push_back(hit);
       return result;
+    };
+    const auto closeHit = [&] {
+      const auto hits = titleHits();
+      const auto at = std::ranges::find(hits, Action::Close, &Hit::action);
+      require(at != hits.end(), "Close remains visible during hover and spacing checks");
+      return *at;
+    };
+    const auto hoverClose = [&] {
+      const auto hit = closeHit();
+      m_window.motion(hit.x + hit.width / 2, hit.height / 2);
+    };
+    const auto closeBackground = [&] {
+      const auto hit = closeHit();
+      return std::ranges::any_of(m_scene->children(), [&](const auto& node) {
+        return node->type() == NodeType::Rect
+            && node->x() == hit.x
+            && node->y() == hit.y
+            && node->width() == hit.width
+            && node->height() == hit.height;
+      });
+    };
+    const auto dragSpacing = [&](bool increase) {
+      auto& slider = static_cast<Slider&>(widget("user-account-slider:window-spacing"));
+      float x = 0, y = 0;
+      Node::mapToScene(&slider, slider.width() / 2, slider.height() / 2, x, y);
+      m_window.motion(x, y);
+      m_window.click(x, y, BTN_LEFT);
+      m_window.motion(x + (increase ? slider.width() : -slider.width()), y);
     };
     const auto step = m_demoInteractionStep++;
     std::clog << "Offline window controls frame " << step << '\n';
@@ -187,7 +216,83 @@ namespace app {
           !m_profileDirty && m_preferences.windowControls == WindowControlPreferences{},
           "Titlebar settings preserve profile state across native controls, custom icons and scaling"
       );
-      std::clog << "Offline window controls, icon previews, native settings and drag geometry checks passed\n";
+      break;
+    case 16: {
+      auto& toggle = widget("user-account-toggle:window-hover");
+      float x = 0, y = 0;
+      Node::mapToScene(&toggle, 0, 0, x, y);
+      m_settingsScroll += y - layout::Settings::viewportTop - Style::spaceLg;
+      windowControlPreference("window-left");
+      choose("window-order", 2);
+      break;
+    }
+    case 17:
+      click("user-account-toggle:window-hover");
+      require(!m_preferences.windowControls.hoverHighlight, "Native hover toggle disables background highlighting");
+      dragSpacing(false);
+      break;
+    case 18:
+      require(
+          m_preferences.windowControls.buttonWidth == Style::windowButtonMinimumWidth
+              && closeHit().width == Style::windowButtonMinimumWidth
+              && m_controlInput.pointerCaptured(),
+          "Native spacing drag reaches the minimum and retains capture across rebuilding"
+      );
+      m_window.released();
+      hoverClose();
+      break;
+    case 19:
+      require(!closeBackground(), "Disabling hover highlighting removes the actual close background");
+      require(
+          m_window.cursorShape() == WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER && m_tooltip == "Close",
+          "Disabled highlighting preserves the pointer cursor and close tooltip"
+      );
+      click("user-account-toggle:window-hover");
+      hoverClose();
+      break;
+    case 20:
+      require(closeBackground(), "Re-enabling hover highlighting restores the close background");
+      dragSpacing(true);
+      break;
+    case 21:
+      require(
+          m_preferences.windowControls.buttonWidth == Style::windowButtonMaximumWidth
+              && closeHit().width == Style::windowButtonMaximumWidth
+              && m_controlInput.pointerCaptured(),
+          "Native spacing drag reaches the maximum and updates painted hit regions"
+      );
+      m_window.released();
+      windowControlPreference("window-left");
+      choose("window-order", 0);
+      m_window.setUiScale(1.5F);
+      break;
+    case 22: {
+      const auto hits = titleHits();
+      require(
+          hits.back().x + hits.back().width == m_window.width()
+              && std::ranges::all_of(
+                  hits,
+                  [&](const auto& hit) {
+                    return hit.width == Style::windowButtonMaximumWidth
+                        && !m_window.titlebarDragContains(hit.x + hit.width / 2, hit.height / 2);
+                  }
+              )
+              && m_window.titlebarDragContains(m_window.width() / 2, layout::Titlebar::height / 2),
+          "Maximum spacing stays aligned on the right and shares zoomed window drag exclusions"
+      );
+      windowControlPreference("window-reset");
+      break;
+    }
+    case 23:
+      require(
+          m_preferences.windowControls == WindowControlPreferences{}
+              && !m_profileDirty
+              && closeHit().width == Style::windowButtonWidth
+              && m_settingsStatus == "Titlebar settings reset.",
+          "Reset restores hover and spacing without a stale slider callback clearing its feedback"
+      );
+      m_window.setUiScale(1);
+      std::clog << "Offline window controls, icons, native hover/spacing controls and drag geometry checks passed\n";
       break;
     }
     m_window.invalidate();

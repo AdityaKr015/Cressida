@@ -1024,7 +1024,8 @@ namespace app {
   bool Window::titlebarDragContains(float x, float y) const {
     return titlebarHeight() > 0
         && layout::Titlebar::dragContains(
-               x, y, width(), visibleWindowButtons(m->windowControls, m->capabilities).size(), m->windowControls.left
+               x, y, width(), visibleWindowButtons(m->windowControls, m->capabilities).size(), m->windowControls.left,
+               m->windowControls.buttonWidth
         );
   }
   void Window::setCursorShape(std::uint32_t shape) {

@@ -550,7 +550,7 @@ namespace app {
     void updateWindowIcons();
     void drainWindowIcons();
     void demoWindowControlsStep();
-    static constexpr unsigned windowControlsReplayFrames = 16;
+    static constexpr unsigned windowControlsReplayFrames = 24;
     bool spoilersVisible(const std::string& message) const;
     void resetUserAccountSettings();
     void loadUserAccountSettings(const std::string& page, bool force = false);

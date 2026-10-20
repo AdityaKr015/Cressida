@@ -71,7 +71,7 @@ namespace app {
   void ClientApplication::drawTitlebar(Node& root, float width) {
     const auto& controls = m_preferences.windowControls;
     const auto buttons = visibleWindowButtons(controls, m_window.capabilities());
-    const auto area = layout::Titlebar::buttons(width, buttons.size(), controls.left);
+    const auto area = layout::Titlebar::buttons(width, buttons.size(), controls.left, controls.buttonWidth);
     rectangle(root, 0, 0, width, layout::Titlebar::height, theme::sidebar);
     const auto labelLeft = controls.left ? area.width + layout::Titlebar::labelInset : layout::Titlebar::labelInset;
     const auto labelWidth = std::max(0.0F, width - area.width - layout::Titlebar::labelInset * 2);
@@ -81,10 +81,10 @@ namespace app {
         Style::fontSizeMini, theme::muted, FontWeight::SemiBold
     );
     for (std::size_t i = 0; i < buttons.size(); ++i) {
-      const auto frame = layout::Titlebar::button(width, buttons.size(), controls.left, i);
+      const auto frame = layout::Titlebar::button(width, buttons.size(), controls.left, i, controls.buttonWidth);
       const auto button = buttons[i];
       const bool over = hovered(frame.x, frame.y, frame.width, frame.height);
-      if (over)
+      if (over && controls.hoverHighlight)
         rectangle(
             root, frame.x, frame.y, frame.width, frame.height,
             button == WindowButton::Close ? theme::destructive : theme::raised
@@ -129,6 +129,8 @@ namespace app {
       controls.maximize = !controls.maximize;
     else if (action == "window-close")
       controls.close = !controls.close;
+    else if (action == "window-hover")
+      controls.hoverHighlight = !controls.hoverHighlight;
     else if (action == "window-left")
       controls.left = !controls.left;
     else {
@@ -145,6 +147,12 @@ namespace app {
         controls.order = value;
       else if (name == "window-style" && value < windowIconStyleCount)
         controls.style = value;
+      else if (
+          name == "window-spacing"
+          && value >= Style::windowButtonMinimumWidth
+          && value <= Style::windowButtonMaximumWidth
+      )
+        controls.buttonWidth = value;
       else if (
           (name == "window-icon-apply" || name == "window-icon-reset") && std::size_t(value) < controls.icons.size()
       ) {
@@ -192,6 +200,19 @@ namespace app {
     toggle(
         "window-left", "Buttons on the left", "Place window buttons at the left end of the titlebar.", controls.left
     );
+    toggle(
+        "window-hover", "Hover highlighting",
+        "Highlight button backgrounds on hover, including the close button's red highlight.", controls.hoverHighlight
+    );
+    form.slider(
+        "window-spacing", "Button spacing",
+        "Choose the width of each titlebar button. Smaller widths bring icons closer together without resizing them.",
+        controls.buttonWidth, Style::windowButtonMinimumWidth, Style::windowButtonMaximumWidth, 1,
+        [this](double value) {
+          windowControlPreference("window-spacing:" + std::to_string(static_cast<int>(std::lround(value))));
+        },
+        " px"
+    );
     const auto choose = [&](const std::string& key, const std::string& title, const std::string& description, int value,
                             std::vector<std::string> choices) {
       form.choose(key, title, description, std::move(choices), value, [this, key](std::size_t index) {
@@ -212,8 +233,8 @@ namespace app {
     form.row("Icon preview", "Minimize, maximize, restore and close.");
     for (std::size_t i = 0; i < windowIconNames.size(); ++i)
       drawWindowIcon(
-          form.node, static_cast<float>(i) * layout::Titlebar::buttonWidth, form.y + Style::spaceXs,
-          static_cast<WindowIcon>(i), false
+          form.node, static_cast<float>(i) * layout::Titlebar::buttonWidth(controls.buttonWidth),
+          form.y + Style::spaceXs, static_cast<WindowIcon>(i), false
       );
     form.y += layout::Titlebar::height + Style::spaceSm;
     if (controls.style == windowIconStyleCount - 1) {
@@ -228,7 +249,7 @@ namespace app {
             key, std::string(windowIconNames[i]) + " icon", description, m_settingsFields[key],
             [this, key](const std::string& path) { m_settingsFields[key] = path; }, layout::Titlebar::pathFieldHeight
         );
-        const auto buttonWidth = std::min(form.width / 2 - Style::spaceXs, layout::Titlebar::buttonWidth * 2);
+        const auto buttonWidth = std::min(form.width / 2 - Style::spaceXs, layout::Titlebar::defaultButtonWidth * 2);
         form.buttonControl(
             form.node, 0, form.y, buttonWidth, "Apply", "window-icon-apply:" + std::to_string(i),
             ButtonVariant::Default, true
@@ -241,7 +262,7 @@ namespace app {
       }
     }
     form.buttonControl(
-        form.node, 0, form.y, std::min(form.width, layout::Titlebar::buttonWidth * 3), "Restore defaults",
+        form.node, 0, form.y, std::min(form.width, layout::Titlebar::defaultButtonWidth * 3), "Restore defaults",
         "window-reset", ButtonVariant::Default, true
     );
     form.y += layout::Settings::actionHeight + Style::spaceSm;

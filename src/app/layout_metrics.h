@@ -283,21 +283,29 @@ namespace app::layout {
   };
   struct Titlebar {
     static constexpr float height = Window::titlebarHeight;
-    static constexpr float buttonWidth = Style::windowButtonWidth;
+    static constexpr float defaultButtonWidth = Style::windowButtonWidth;
+    static float buttonWidth(float preferred) {
+      return std::isfinite(preferred)
+          ? std::clamp(preferred, Style::windowButtonMinimumWidth, Style::windowButtonMaximumWidth)
+          : defaultButtonWidth;
+    }
     static constexpr float iconSize = Style::glyphSizeMedium;
     static constexpr float dotSize = Style::glyphSizeTiny;
     static constexpr float labelInset = Style::spaceLg + Style::spaceXxs;
     static constexpr float pathFieldHeight = Style::controlHeightSm;
-    static Frame buttons(float width, std::size_t count, bool left) {
-      const float size = static_cast<float>(count) * buttonWidth;
+    static Frame buttons(float width, std::size_t count, bool left, float preferred = defaultButtonWidth) {
+      const float size = static_cast<float>(count) * buttonWidth(preferred);
       return {left ? 0 : width - size, 0, size, height};
     }
-    static Frame button(float width, std::size_t count, bool left, std::size_t index) {
-      const auto area = buttons(width, count, left);
-      return {area.x + static_cast<float>(index) * buttonWidth, 0, buttonWidth, height};
+    static Frame
+    button(float width, std::size_t count, bool left, std::size_t index, float preferred = defaultButtonWidth) {
+      const auto area = buttons(width, count, left, preferred);
+      const auto cell = buttonWidth(preferred);
+      return {area.x + static_cast<float>(index) * cell, 0, cell, height};
     }
-    static bool dragContains(float x, float y, float width, std::size_t count, bool left) {
-      const auto area = buttons(width, count, left);
+    static bool
+    dragContains(float x, float y, float width, std::size_t count, bool left, float preferred = defaultButtonWidth) {
+      const auto area = buttons(width, count, left, preferred);
       return y >= 0 && y < height && x >= 0 && x < width && (x < area.x || x >= area.x + area.width);
     }
   };

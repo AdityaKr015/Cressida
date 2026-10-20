@@ -809,6 +809,7 @@ namespace app {
       control->setControlHeight(layout::Settings::actionHeight);
       control->setTrackHeight(3);
       control->setThumbSize(12);
+      control->setOnValueChanged({});
       control->setRange(minimum, maximum);
       control->setStep(step);
       control->setValue(current);

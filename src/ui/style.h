@@ -48,6 +48,8 @@ namespace Style {
   inline constexpr float baseGlyphSize = 16.0F;
   inline constexpr float windowTitlebarHeight = 36.0F;
   inline constexpr float windowButtonWidth = spaceGroup;
+  inline constexpr float windowButtonMinimumWidth = spaceXl;
+  inline constexpr float windowButtonMaximumWidth = windowButtonWidth + spaceXl;
   inline constexpr int windowMinimumWidth = 760;
   inline constexpr int windowMinimumHeight = 520;
 

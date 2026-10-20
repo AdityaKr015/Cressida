@@ -156,8 +156,10 @@ int main() {
           .maximize = true,
           .close = false,
           .left = true,
+          .hoverHighlight = false,
           .order = 2,
           .style = 3,
+          .buttonWidth = static_cast<int>(Style::windowButtonMinimumWidth),
           .icons = {"/tmp/minimize.svg", "", "/tmp/restore.png", ""}
       };
       selected.cornerRadius = 0;
@@ -222,6 +224,7 @@ int main() {
       );
       bounded.windowControls.order = app::windowButtonOrderCount;
       bounded.windowControls.style = app::windowIconStyleCount;
+      bounded.windowControls.buttonWidth = static_cast<int>(Style::windowButtonMaximumWidth) + 1;
       bounded.windowControls.icons = {
           "relative.svg", "https://example.com/icon.png", std::string("/tmp/a\0.svg", 11), ""
       };
@@ -230,6 +233,7 @@ int main() {
       require(
           sanitized.order == app::windowButtonOrderCount - 1
               && sanitized.style == app::windowIconStyleCount - 1
+              && sanitized.buttonWidth == Style::windowButtonMaximumWidth
               && std::ranges::all_of(sanitized.icons, [](const auto& path) { return path.empty(); }),
           "Persisted titlebar indices and custom paths are bounded and local"
       );
@@ -243,6 +247,8 @@ int main() {
                 {"maximize", false},
                 {"order", "invalid"},
                 {"style", 2},
+                {"hover_highlight", "invalid"},
+                {"button_width", "invalid"},
                 {"icons", {"/tmp/icon.svg", 12, nullptr, "relative.png"}}}}}}}}
       };
       const auto malformed = app::SessionStore(malformedPath).preferences("123");
@@ -252,9 +258,24 @@ int main() {
               && !malformed.windowControls.maximize
               && malformed.windowControls.order == 0
               && malformed.windowControls.style == 2
+              && malformed.windowControls.hoverHighlight
+              && malformed.windowControls.buttonWidth == Style::windowButtonWidth
               && malformed.windowControls.icons[0] == "/tmp/icon.svg"
               && malformed.windowControls.icons[3].empty(),
           "Malformed titlebar fields cannot reset unrelated account preferences"
+      );
+      bounded.windowControls.buttonWidth = 0;
+      restarted.savePreferences("456", bounded);
+      require(
+          restarted.preferences("456").windowControls.buttonWidth == Style::windowButtonMinimumWidth,
+          "Persisted spacing cannot create undersized or overlapping native button cells"
+      );
+      const auto legacyPath = std::filesystem::path(directory) / "legacy-titlebar.json";
+      std::ofstream(legacyPath) << nlohmann::json{{"123", {{"preferences", {{"window_controls", {{"left", true}}}}}}}};
+      const auto legacy = app::SessionStore(legacyPath).preferences("123").windowControls;
+      require(
+          legacy.left && legacy.hoverHighlight && legacy.buttonWidth == Style::windowButtonWidth,
+          "Existing titlebar settings retain their appearance when new fields are absent"
       );
       require(
           app::notificationMessagePreview("hello ||private\nmessage|| and `a || b` \\||literal")
