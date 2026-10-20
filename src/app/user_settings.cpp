@@ -511,7 +511,7 @@ namespace app {
     m_scrolling.limit(m_settingsNavScroll, std::max(0.0F, navHeight - navH));
     auto nav = std::make_unique<Node>();
     nav->setPosition(frameX, navTop);
-    nav->setSize(navWidth, navH);
+    nav->setSize(frame.navigationContentWidth, navH);
     nav->setClipChildren(true);
     for (const auto& row : navRows) {
       const auto y = row.y - m_settingsNavScroll;
@@ -519,8 +519,8 @@ namespace app {
         continue;
       if (row.heading)
         label(
-            *nav, 12, y + Style::spaceSm, navWidth - Style::spaceXl, row.page->group, settings::navigationHeading.size,
-            muted, settings::navigationHeading.weight
+            *nav, 12, y + Style::spaceSm, frame.navigationContentWidth - Style::spaceXl, row.page->group,
+            settings::navigationHeading.size, muted, settings::navigationHeading.weight
         );
       else {
         const auto controlId = "nav:" + std::string(row.page->id);
@@ -539,7 +539,7 @@ namespace app {
         item->setControlHeight(layout::Settings::actionHeight);
         item->setRadius(Style::scaledRadius(layout::Settings::actionRadius));
         item->setPadding(0, 8);
-        item->setFrameSize(navWidth - Style::spaceSm, 26);
+        item->setFrameSize(frame.navigationContentWidth - Style::spaceSm, layout::Settings::actionHeight);
         item->setOnClick([this, id = std::string(row.page->id)] {
           selectSettingsPage(id);
           m_window.invalidate();
@@ -548,11 +548,14 @@ namespace app {
       }
     }
     if (navRows.empty())
-      label(*nav, 12, 12, navWidth - Style::spaceXl, "No matching settings", Style::fontSizeDescription, muted);
+      label(
+          *nav, 12, 12, frame.navigationContentWidth - Style::spaceXl, "No matching settings",
+          Style::fontSizeDescription, muted
+      );
     root.addChild(std::move(nav));
     settingsScrollbar(
-        root, "settings-nav-scrollbar", {frameX + navWidth - Style::spaceXs, navTop, 8, navH}, navHeight,
-        m_settingsNavScroll
+        root, "settings-nav-scrollbar", {frame.navigationScrollbarX, navTop, layout::Settings::scrollbarWidth, navH},
+        navHeight, m_settingsNavScroll
     );
     settingsButton(
         root, {frameX + Style::spaceXs, h - 62, navWidth - Style::spaceSm, 32, Action::SignOut, {}}, "Log Out"
@@ -584,7 +587,7 @@ namespace app {
     page->setClipChildren(true);
     auto body = std::make_unique<Node>();
     auto* bodyNode = body.get();
-    body->setPosition(14, -m_settingsScroll);
+    body->setPosition(layout::Settings::contentInset, -m_settingsScroll);
     page->addChild(std::move(body));
     auto& p = *bodyNode;
     const auto firstHit = m_hits.size();
@@ -603,7 +606,7 @@ namespace app {
         cursor += Style::spaceLg;
       categoryTop = cursor;
       auto card = std::make_unique<RectNode>();
-      card->setPosition(-14, cursor);
+      card->setPosition(-layout::Settings::contentInset, cursor);
       card->setStyle({.fill = sidebar, .radius = Style::scaledRadius(Style::surfaceRadius)});
       card->setZIndex(-1);
       category = card.get();
@@ -1515,10 +1518,13 @@ namespace app {
     const float pageHeight = cursor + Style::spaceSm;
     m_scrolling.limit(m_settingsScroll, std::max(0.0F, pageHeight - viewportH));
     page->setTextScrollOffset(-m_settingsScroll);
-    bodyNode->setPosition(14, -m_settingsScroll);
+    bodyNode->setPosition(layout::Settings::contentInset, -m_settingsScroll);
     const float correction = previousScroll - m_settingsScroll;
     for (auto i = firstHit; i < m_hits.size(); ++i) {
       auto& hit = m_hits[i];
+      const auto left = std::max(hit.x, contentLeft), right = std::min(hit.x + hit.width, contentLeft + contentWidth);
+      hit.x = left;
+      hit.width = std::max(0.0F, right - left);
       hit.y += correction;
       const float end = std::min(viewportY + viewportH, hit.y + hit.height);
       hit.y = std::max(hit.y, viewportY);
@@ -1527,7 +1533,8 @@ namespace app {
     m_fontPickerAnchor.y += correction;
     root.addChild(std::move(page));
     settingsScrollbar(
-        root, "settings-scrollbar", {contentX + width + 4, viewportY, 8, viewportH}, pageHeight, m_settingsScroll
+        root, "settings-scrollbar", {frame.contentScrollbarX, viewportY, layout::Settings::scrollbarWidth, viewportH},
+        pageHeight, m_settingsScroll
     );
     if (unsaved) {
       const float y = h - Style::spaceXl - saveHeight - (statusHeight ? statusHeight + Style::spaceSm : 0);

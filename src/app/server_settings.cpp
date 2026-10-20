@@ -1867,7 +1867,7 @@ namespace app {
     auto nav = std::make_unique<Node>();
     nav->setPosition(frameX, 124);
     const float navH = std::max(40.0F, h - 154);
-    nav->setSize(navWidth, navH);
+    nav->setSize(frame.navigationContentWidth, navH);
     nav->setClipChildren(true);
     const auto access = serverSettingsAccess();
     const std::vector<api::Channel> noChannels;
@@ -1915,9 +1915,9 @@ namespace app {
       if (group != page.group) {
         group = page.group;
         label(
-            *nav, 12, navY - state.navScroll + Style::spaceSm, navWidth - Style::spaceXl, page.group,
-            settings::navigationHeading.size, std::string_view(page.group) == "DANGER ZONE" ? danger : muted,
-            FontWeight::SemiBold
+            *nav, 12, navY - state.navScroll + Style::spaceSm, frame.navigationContentWidth - Style::spaceXl,
+            page.group, settings::navigationHeading.size,
+            std::string_view(page.group) == "DANGER ZONE" ? danger : muted, FontWeight::SemiBold
         );
         navY += (Style::spaceXl + Style::spaceXxs);
       }
@@ -1934,7 +1934,7 @@ namespace app {
       control->setControlHeight(layout::Settings::actionHeight);
       control->setRadius(Style::scaledRadius(layout::Settings::actionRadius));
       control->setPadding(0, 8);
-      control->setFrameSize(navWidth - Style::spaceSm, 26);
+      control->setFrameSize(frame.navigationContentWidth - Style::spaceSm, layout::Settings::actionHeight);
       control->setEnabled(!state.saving);
       control->setOnClick([this, id = std::string(page.id)] { selectServerSettingsPage(id); });
       nav->addChild(std::move(control));
@@ -1948,7 +1948,9 @@ namespace app {
         child->setPosition(child->x(), child->y() + previousNav - state.navScroll);
     root.addChild(std::move(nav));
     settingsScrollbar(
-        root, "server-settings-nav-scrollbar", {frameX + navWidth - Style::spaceXs, 124, 8, navH}, navY, state.navScroll
+        root, "server-settings-nav-scrollbar",
+        {frame.navigationScrollbarX, layout::Settings::navigationTop, layout::Settings::scrollbarWidth, navH}, navY,
+        state.navScroll
     );
     iconButton(root, {w - 56, 52, 30, 30, Action::CloseServerSettings, {}}, "x", "Close server settings (Esc)");
     label(
@@ -1981,7 +1983,7 @@ namespace app {
     pageNode->setClipChildren(true);
     auto body = std::make_unique<Node>();
     auto* bodyNode = body.get();
-    body->setPosition(14, -state.scroll);
+    body->setPosition(layout::Settings::contentInset, -state.scroll);
     pageNode->addChild(std::move(body));
     auto& p = *bodyNode;
     const auto bodyHitsBegin = m_hits.size();
@@ -2003,7 +2005,7 @@ namespace app {
         cursor += Style::spaceLg;
       categoryTop = cursor;
       auto card = std::make_unique<RectNode>();
-      card->setPosition(-14, cursor);
+      card->setPosition(-layout::Settings::contentInset, cursor);
       card->setStyle({.fill = sidebar, .radius = Style::scaledRadius(Style::surfaceRadius)});
       card->setZIndex(-1);
       category = card.get();
@@ -3904,10 +3906,11 @@ namespace app {
       m_tooltipX = tooltipXBefore;
       m_tooltipY = tooltipYBefore;
     }
-    bodyNode->setPosition(14, -state.scroll);
+    bodyNode->setPosition(layout::Settings::contentInset, -state.scroll);
     root.addChild(std::move(pageNode));
     settingsScrollbar(
-        root, "server-settings-scrollbar", {contentX + width + 4, viewportY, 8, viewportH}, fullHeight, state.scroll
+        root, "server-settings-scrollbar",
+        {frame.contentScrollbarX, viewportY, layout::Settings::scrollbarWidth, viewportH}, fullHeight, state.scroll
     );
     if (dirty) {
       const float y = h - Style::spaceXl - saveHeight - (feedbackHeight ? feedbackHeight + Style::spaceSm : 0);

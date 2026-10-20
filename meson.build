@@ -347,3 +347,7 @@ window_icons_test = executable('window_icons_test', 'tests/window_icons_test.cpp
   'src/app/window_icons.cpp', 'src/app/file_picker.cpp',
   include_directories: include_directories('src'), dependencies: [render_dep, dependency('gio-2.0'), dependency('threads')])
 test('window_icons', window_icons_test, timeout: 10)
+
+settings_layout_test = executable('settings_layout_test', 'tests/settings_layout_test.cpp',
+  include_directories: include_directories('src'))
+test('settings_layout', settings_layout_test)

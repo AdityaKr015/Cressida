@@ -404,6 +404,12 @@ namespace app::layout {
     static constexpr float navigationBottom = 78;
     static constexpr float navigationRowHeight = 30;
     static constexpr float navigationHeadingHeight = 26;
+    // Native bars expand inward and add hit slop. Keep all of that outside
+    // the clipped navigation/content panes, with a stationary visible gap.
+    static constexpr float scrollbarWidth = Style::scrollbarWidth;
+    static constexpr float scrollbarInwardExtent =
+        Style::scrollbarHoverWidth - Style::scrollbarWidth + Style::scrollbarHitSlop;
+    static constexpr float scrollbarLane = Style::scrollbarHoverWidth + Style::scrollbarHitSlop + Style::scrollbarGap;
     static constexpr float contentGutter = 28;
     static constexpr float contentInset = Style::cardPadding;
     static constexpr float contentMaximumWidth = 730;
@@ -419,6 +425,7 @@ namespace app::layout {
   };
   struct SettingsFrame {
     float x, navigationWidth, contentLeft, contentWidth, contentX, innerWidth;
+    float navigationContentWidth, navigationScrollbarX, contentScrollbarX;
   };
   inline SettingsFrame settingsFrame(float windowWidth) {
     const float x = std::max(Style::spaceLg, (windowWidth - Settings::frameWidth) / 2);
@@ -429,7 +436,18 @@ namespace app::layout {
         Settings::narrowNavigationWidth,
         std::min(windowWidth - left - Settings::rightReserve, Settings::contentMaximumWidth)
     );
-    return {x, navigation, left, width, left + Settings::contentInset, width - Settings::contentInset * 2};
+    const auto viewportWidth = width - Settings::scrollbarLane;
+    return {
+        x,
+        navigation,
+        left,
+        viewportWidth,
+        left + Settings::contentInset,
+        viewportWidth - Settings::contentInset * 2,
+        navigation - Settings::scrollbarLane,
+        x + navigation - Settings::scrollbarWidth,
+        left + width - Settings::scrollbarWidth
+    };
   }
   struct Picker {
     static constexpr float emojiWidth = 552;

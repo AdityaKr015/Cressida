@@ -534,6 +534,7 @@ namespace app {
     void drawGuildTooltip(Node& root, float w, float h);
     void demoGuildHoverStep();
     void drawSettings(Node& root, float w, float h);
+    void verifySettingsScrollbarGutters() const;
     void notifyMessage(const api::Message& message, const std::string& channel);
     void drainDesktopNotifications();
     bool extendedPreference(const std::string& action);

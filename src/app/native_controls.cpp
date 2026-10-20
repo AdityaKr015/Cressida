@@ -338,6 +338,53 @@ namespace app {
     bar->update(bounds.height, content, offset);
     parent.addChild(std::move(saved));
   }
+  void ClientApplication::verifySettingsScrollbarGutters() const {
+    if (!m_settingsOpen && !m_serverSettings.open)
+      return;
+    const bool server = m_serverSettings.open;
+    const auto frame = layout::settingsFrame(m_window.width());
+    const auto prefix = server ? "server-settings" : "settings";
+    const auto tabs = server ? "server-nav:" : "nav:";
+    const auto require = [](bool value, const char* reason) {
+      if (!value)
+        throw std::runtime_error(reason);
+    };
+    for (const bool navigation : {true, false}) {
+      const auto id = std::string(prefix) + (navigation ? "-nav-scrollbar" : "-scrollbar");
+      const auto found = m_widgets.find(id);
+      if (found == m_widgets.end() || !found->second->parent())
+        continue;
+      const auto* bar = static_cast<const Scrollbar*>(found->second);
+      const auto paneRight =
+          navigation ? frame.x + frame.navigationContentWidth : frame.contentLeft + frame.contentWidth;
+      require(
+          bar->x() - layout::Settings::scrollbarInwardExtent - paneRight >= Style::scrollbarGap,
+          "Native settings scrollbar expansion/hit slop must stay in its reserved gutter"
+      );
+      if (bar->visible())
+        for (const auto& child : bar->children()) {
+          float left = 0, top = 0, right = 0, bottom = 0;
+          Node::transformedBounds(child.get(), left, top, right, bottom);
+          require(
+              left - child->hitTestOutset().left >= paneRight + Style::scrollbarGap,
+              "Painted settings scrollbars and their native pointer regions cannot overlap content"
+          );
+        }
+      if (navigation) {
+        for (const auto& [key, node] : m_widgets) {
+          if (!key.starts_with(tabs) || !node->parent())
+            continue;
+          float left = 0, top = 0, right = 0, bottom = 0;
+          Node::transformedBounds(node, left, top, right, bottom);
+          require(right <= paneRight, "Retained settings tabs must fit before the scrollbar gutter");
+        }
+      } else {
+        for (const auto& child : m_scene->children())
+          if (child->clipChildren() && child->x() == frame.contentLeft && child->y() == layout::Settings::viewportTop)
+            require(child->width() == frame.contentWidth, "The settings category clip must exclude the scrollbar lane");
+      }
+    }
+  }
   void ClientApplication::finishControls() {
     m_scene->setInvalidationCallback([this](NodeInvalidation) {
       if (!m_buildingScene)

@@ -106,6 +106,8 @@ namespace app {
       const auto drawStarted = std::chrono::steady_clock::now();
       prepareDemo();
       draw();
+      if (m_demo)
+        verifySettingsScrollbarGutters();
       if (m_demo && m_demoOverlay == "chat-preload-cycle")
         demoChatPreloadStep();
       if (m_demo && m_demoOverlay == "tray-cycle" && m_demoInteractionStep < trayReplayFrames)
