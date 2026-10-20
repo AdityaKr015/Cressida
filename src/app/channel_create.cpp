@@ -111,7 +111,7 @@ namespace app {
     auto surface = std::make_unique<RectNode>();
     surface->setPosition(x, y);
     surface->setSize(width, height);
-    surface->setStyle({.fill = background, .border = raised, .radius = 16, .borderWidth = 1});
+    surface->setStyle({.fill = background, .border = raised, .radius = Style::scaledRadiusXl(), .borderWidth = 1});
     root.addChild(std::move(surface));
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
@@ -150,7 +150,12 @@ namespace app {
       auto box = std::make_unique<RectNode>();
       box->setPosition(0, top);
       box->setSize(inner, boxHeight);
-      box->setStyle({.fill = fill, .border = focus ? withAlpha(accent, .65F) : raised, .radius = 7, .borderWidth = 1});
+      box->setStyle(
+          {.fill = fill,
+           .border = focus ? withAlpha(accent, .65F) : raised,
+           .radius = Style::scaledRadius(Style::hoverRadius),
+           .borderWidth = 1}
+      );
       page.addChild(std::move(box));
     };
     float cursor = 0;

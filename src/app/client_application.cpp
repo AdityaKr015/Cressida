@@ -1,5 +1,6 @@
 #include "app/client_application.h"
 
+#include "app/member_list_layout.h"
 #include "app/message_group.h"
 #include "app/message_layout.h"
 #include "app/message_log_layout.h"
@@ -249,9 +250,9 @@ namespace app {
         const auto& last = m_messages.back();
         const float messageEnd =
             m_messageTops.at(last.id) + 18 + std::max(22.0F, m_messageLayouts.at(last.id).layout.height);
-        if (std::abs(m_composerTop - messageEnd - 12) > .5F)
+        if (std::abs(m_messageViewportBottom - messageEnd - layout::Chat::bottomPadding) > .5F)
           throw std::runtime_error(
-              "The final message must retain a compact composer gutter without another group's margin"
+              "The final message retains its gutter above the reserved typing row without another group's margin"
           );
         std::clog << "Offline final-message composer spacing check passed\n";
       }
@@ -272,7 +273,7 @@ namespace app {
         demoDeletedStep();
       if (m_demo && m_demoOverlay == "dm-compose-cycle" && m_demoInteractionStep < 16)
         demoDmComposeStep();
-      if (m_demo && m_demoOverlay == "dm-home-cycle" && m_demoInteractionStep < 18)
+      if (m_demo && m_demoOverlay.starts_with("dm-home-cycle") && m_demoInteractionStep < dmHomeReplayFrames)
         demoDmHomeStep();
       if (m_demo && m_demoOverlay == "inline-edit-cycle" && m_demoInteractionStep < 8)
         demoMessageEditStep();
@@ -280,6 +281,10 @@ namespace app {
         demoCompletionStep();
       if (m_demo && m_demoOverlay.starts_with("decorations-cycle") && m_demoInteractionStep < 4)
         demoDecorationsStep();
+      if (m_demo && m_demoOverlay.starts_with("floating-cycle") && m_demoInteractionStep < floatingReplayFrames)
+        demoFloatingStep();
+      if (m_demo && m_demoOverlay.starts_with("reply-cycle") && m_demoInteractionStep < composerReplyReplayFrames)
+        demoComposerReplyStep();
       if (m_demo && m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep < 12)
         demoUserPreferencesStep();
       if (m_demo && m_demoOverlay == "user-account-cycle" && m_demoInteractionStep < 16)
@@ -861,10 +866,11 @@ namespace app {
       openContext(x, y);
     };
     m_window.key = [this](const Key& key) { onKey(key); };
+    m_window.focusChanged = [this](bool focused) { windowFocusChanged(focused); };
     m_window.animate = [this] {
       const bool active = m_scrolling.tick();
       if (m_showMembers && !forumView() && !m_dmMode && !m_demo && !m_guildId.empty() && !m_channelId.empty()) {
-        const int page = static_cast<int>(m_memberScroll / 44) / 100 * 100;
+        const int page = layout::MemberListLayout(m_members, m_memberCount).indexAt(m_memberScroll) / 100 * 100;
         if (page != m_memberPage) {
           m_memberPage = page;
           m_client.subscribe(m_guildId, m_channelId, page);
@@ -1155,52 +1161,55 @@ namespace app {
       m_desktopNotifications.start();
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "chat-links-cycle"         ? chatLinkReplayFrames
-                         : m_demo && view && std::string_view(view) == "attachment-cycle"   ? attachmentReplayFrames
-                         : m_demo && view && std::string_view(view) == "sticker-cycle"      ? 8
-                         : m_demo && view && std::string_view(view) == "dm-compose-cycle"   ? 16
-                         : m_demo && view && std::string_view(view) == "dm-home-cycle"      ? 18
-                         : m_demo && view && std::string_view(view) == "chat-preload-cycle" ? 10
-                         : m_demo && view && std::string_view(view) == "join-cycle"         ? 4
-                         : m_demo && view && std::string_view(view) == "deleted-cycle"      ? 3
-                         : m_demo && view && std::string_view(view) == "inline-edit-cycle"  ? 8
-                         : m_demo && view && std::string_view(view) == "autocomplete-cycle" ? 9
-                         : m_demo && view && std::string_view(view).starts_with("decorations-cycle")       ? 4
-                         : m_demo && view && std::string_view(view) == "user-preferences-cycle"            ? 12
-                         : m_demo && view && std::string_view(view) == "user-account-cycle"                ? 16
-                         : m_demo && view && std::string_view(view) == "user-settings-lists-cycle"         ? 30
-                         : m_demo && view && std::string_view(view) == "settings-font-cycle"               ? 12
-                         : m_demo && view && std::string_view(view) == "server-hover-cycle"                ? 7
-                         : m_demo && view && std::string_view(view) == "themes-cycle"                      ? 11
-                         : m_demo && view && std::string_view(view).starts_with("message-hover-cycle")     ? 10
-                         : m_demo && view && std::string_view(view) == "sidebar-cycle"                     ? 10
-                         : m_demo && view && std::string_view(view) == "role-emoji-cycle"                  ? 3
-                         : m_demo && view && std::string_view(view) == "role-members-cycle"                ? 2
-                         : m_demo && view && std::string_view(view) == "mentions-cycle"                    ? 4
-                         : m_demo && view && std::string_view(view) == "channel-menu-scroll-cycle"         ? 3
-                         : m_demo && view && std::string_view(view) == "channel-create-cycle"              ? 12
-                         : m_demo && view && std::string_view(view) == "channel-invite-cycle"              ? 18
-                         : m_demo && view && std::string_view(view) == "server-settings-commands-cycle"    ? 12
-                         : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
-                         : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
-                         : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
-                         : m_demo && view && std::string_view(view).starts_with("typing-cycle") ? typingReplayFrames
-                         : m_demo && view && std::string_view(view) == "folder-menu-cycle"      ? 13
-                         : m_demo && view && std::string_view(view) == "server-menu-cycle"      ? 20
-                         : m_demo && view && std::string_view(view) == "channel-menu-cycle"     ? 31
-                         : m_demo && view && std::string_view(view) == "channel-cycle"          ? 18
-                         : m_demo && view && std::string_view(view) == "forum-cycle"            ? 12
-                         : m_demo && view && std::string_view(view) == "thread-cycle"           ? 10
-                         : m_demo && view && std::string_view(view) == "guild-tag-cycle"        ? 10
-                         : m_demo && view && std::string_view(view) == "profile-card-cycle"     ? 8
-                         : m_demo && view && std::string_view(view) == "role-style-cycle"       ? 7
-                         : m_demo && view && std::string_view(view) == "unread-badge-cycle"     ? 4
-                         : m_demo && view && std::string_view(view) == "unread-cycle"           ? 10
-                         : m_demo && view && std::string_view(view) == "jump-latest-cycle"      ? 8
-                         : m_demo && view && std::string_view(view) == "connection-cycle"       ? 8
-                         : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
-                                            : 1)
-                  : 0,
+        smokeTest
+            ? (m_demo && view && std::string_view(view) == "chat-links-cycle"              ? chatLinkReplayFrames
+                   : m_demo && view && std::string_view(view) == "attachment-cycle"        ? attachmentReplayFrames
+                   : m_demo && view && std::string_view(view) == "sticker-cycle"           ? 8
+                   : m_demo && view && std::string_view(view) == "dm-compose-cycle"        ? 16
+                   : m_demo && view && std::string_view(view).starts_with("dm-home-cycle") ? dmHomeReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("reply-cycle")   ? composerReplyReplayFrames
+                   : m_demo && view && std::string_view(view) == "chat-preload-cycle"      ? 10
+                   : m_demo && view && std::string_view(view) == "join-cycle"              ? 4
+                   : m_demo && view && std::string_view(view) == "deleted-cycle"           ? 3
+                   : m_demo && view && std::string_view(view) == "inline-edit-cycle"       ? 8
+                   : m_demo && view && std::string_view(view) == "autocomplete-cycle"      ? 9
+                   : m_demo && view && std::string_view(view).starts_with("decorations-cycle")       ? 4
+                   : m_demo && view && std::string_view(view) == "user-preferences-cycle"            ? 12
+                   : m_demo && view && std::string_view(view) == "user-account-cycle"                ? 16
+                   : m_demo && view && std::string_view(view) == "user-settings-lists-cycle"         ? 30
+                   : m_demo && view && std::string_view(view) == "settings-font-cycle"               ? 12
+                   : m_demo && view && std::string_view(view) == "server-hover-cycle"                ? 7
+                   : m_demo && view && std::string_view(view) == "themes-cycle"                      ? 11
+                   : m_demo && view && std::string_view(view).starts_with("message-hover-cycle")     ? 10
+                   : m_demo && view && std::string_view(view) == "sidebar-cycle"                     ? 10
+                   : m_demo && view && std::string_view(view) == "role-emoji-cycle"                  ? 3
+                   : m_demo && view && std::string_view(view) == "role-members-cycle"                ? 2
+                   : m_demo && view && std::string_view(view) == "mentions-cycle"                    ? 4
+                   : m_demo && view && std::string_view(view) == "channel-menu-scroll-cycle"         ? 3
+                   : m_demo && view && std::string_view(view) == "channel-create-cycle"              ? 12
+                   : m_demo && view && std::string_view(view) == "channel-invite-cycle"              ? 18
+                   : m_demo && view && std::string_view(view) == "server-settings-commands-cycle"    ? 12
+                   : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
+                   : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
+                   : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
+                   : m_demo && view && std::string_view(view).starts_with("floating-cycle") ? floatingReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("typing-cycle")   ? typingReplayFrames
+                   : m_demo && view && std::string_view(view) == "folder-menu-cycle"        ? 13
+                   : m_demo && view && std::string_view(view) == "server-menu-cycle"        ? 20
+                   : m_demo && view && std::string_view(view) == "channel-menu-cycle"       ? 31
+                   : m_demo && view && std::string_view(view) == "channel-cycle"            ? 18
+                   : m_demo && view && std::string_view(view) == "forum-cycle"              ? 12
+                   : m_demo && view && std::string_view(view) == "thread-cycle"             ? 10
+                   : m_demo && view && std::string_view(view) == "guild-tag-cycle"          ? 10
+                   : m_demo && view && std::string_view(view) == "profile-card-cycle"       ? 8
+                   : m_demo && view && std::string_view(view) == "role-style-cycle"         ? 7
+                   : m_demo && view && std::string_view(view) == "unread-badge-cycle"       ? 4
+                   : m_demo && view && std::string_view(view) == "unread-cycle"             ? 10
+                   : m_demo && view && std::string_view(view) == "jump-latest-cycle"        ? 8
+                   : m_demo && view && std::string_view(view) == "connection-cycle"         ? 8
+                   : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
+                                      : 1)
+            : 0,
         m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd(), m_filePicker.eventFd(), m_soundPreview.eventFd(),
         m_desktopNotifications.eventFd()
     );
@@ -1250,8 +1259,10 @@ namespace app {
       throw std::runtime_error("Client preferences replay did not finish");
     if (m_demoOverlay == "dm-compose-cycle" && m_demoInteractionStep != 16)
       throw std::runtime_error("DM compose replay did not finish");
-    if (m_demoOverlay == "dm-home-cycle" && m_demoInteractionStep != 18)
+    if (m_demoOverlay.starts_with("dm-home-cycle") && m_demoInteractionStep != dmHomeReplayFrames)
       throw std::runtime_error("Direct message home replay did not finish");
+    if (m_demoOverlay.starts_with("reply-cycle") && m_demoInteractionStep != composerReplyReplayFrames)
+      throw std::runtime_error("Reply composer replay did not finish");
     if (m_demoOverlay == "user-account-cycle" && m_demoInteractionStep != 16)
       throw std::runtime_error("User account replay did not finish");
     if (m_demoOverlay == "user-settings-lists-cycle" && m_demoInteractionStep != 30)
@@ -1264,6 +1275,8 @@ namespace app {
       throw std::runtime_error("Channel creation replay did not finish");
     if (m_demoOverlay == "channel-invite-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Channel invite replay did not finish");
+    if (m_demoOverlay.starts_with("floating-cycle") && m_demoInteractionStep != floatingReplayFrames)
+      throw std::runtime_error("Floating layout and radius replay did not complete");
     if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
       throw std::runtime_error("Typing indicator replay did not finish");
     if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
@@ -1408,8 +1421,13 @@ namespace app {
           m_guildChannels[m_guildId] = m_channels;
           m_unreadGuilds[m_channels.front().id] = m_guildId;
           m_unreadChannels.insert(m_channels.front().id);
-          m_pointerX = 38;
-          m_pointerY = view == "server-hover-partner" ? 197 : view == "server-hover-verified" ? 257 : 137;
+          m_pointerX = layout::Sidebar::railWidth / 2;
+          m_pointerY = layout::ServerRail::top
+              + (view == "server-hover-partner"        ? 1
+                     : view == "server-hover-verified" ? 2
+                                                       : 0)
+                  * layout::ServerRail::step
+              + layout::Avatar::rail / 2;
           if (view == "server-hover-light")
             m_preferences.theme = "light";
           if (view == "server-hover-plain") {
@@ -1727,11 +1745,21 @@ namespace app {
             || view == "channel-delete"
             || view == "channel-move-confirm")
           prepareChannelMenuDemo(view);
+        if (view.starts_with("floating-cycle")) {
+          prepareChannelMenuDemo("channel-menu");
+          closeContext();
+          m_demoOverlay = view;
+          m_demoInteractionStep = 0;
+          m_showMembers = true;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+        }
         if (view.starts_with("typing-")) {
           prepareChannelMenuDemo("channel-menu");
           closeContext();
           m_demoOverlay = view;
           m_showMembers = true;
+          m_demoTypingLayout.reset();
           const std::vector<api::Account> typists{{"7", "Maya"}, {"8", "Noah"}, {"10", "Alex"}, {"11", "Dani"}};
           m_members.clear();
           for (std::size_t i = 0; i < typists.size(); ++i)
@@ -1921,6 +1949,7 @@ namespace app {
             || view == "reaction-loading"
             || view == "user-menu"
             || view == "reply"
+            || view.starts_with("reply-cycle")
             || view == "edit-message"
             || view == "block-user"
             || view == "user-profile"
@@ -1949,8 +1978,14 @@ namespace app {
           m_userDirectory.apply(users);
           if (view.starts_with("guild-tag") || view == "guild-profile")
             prepareGuildTagDemo();
-          if (view == "reply")
+          if (view == "reply" || view.starts_with("reply-cycle"))
             m_replies[m_channelId] = {"1", m_channelId, "11", "Maya", m_messages.front().content};
+          if (view.starts_with("reply-cycle")) {
+            m_drafts[m_channelId] = "Reply draft";
+            m_showMembers = false;
+            if (view.ends_with("light"))
+              m_preferences.theme = "light";
+          }
         }
         if (view == "attachment-cycle" || view == "attachments" || view == "attachments-light") {
           if (view == "attachments-light")
@@ -2586,7 +2621,19 @@ namespace app {
     auto node = std::make_unique<RectNode>();
     node->setPosition(x, y);
     node->setSize(std::max(w, 0.0F), std::max(h, 0.0F));
-    node->setStyle(RoundedRectStyle{.fill = fill, .radius = radius});
+    node->setStyle(RoundedRectStyle{.fill = fill, .radius = Style::scaledShapeRadius(radius, w, h)});
+    parent.addChild(std::move(node));
+  }
+
+  void ClientApplication::floatingPanel(Node& parent, const layout::Frame& frame, Color fill) {
+    m_floatingFrames.push_back(frame);
+    auto node = std::make_unique<RectNode>();
+    node->setHitTestVisible(false);
+    node->setPosition(frame.x, frame.y);
+    node->setSize(frame.width, frame.height);
+    node->setStyle(
+        {.fill = fill, .border = theme::raised, .radius = Style::scaledRadiusXl(), .borderWidth = Style::borderWidth}
+    );
     parent.addChild(std::move(node));
   }
 
@@ -2815,7 +2862,7 @@ namespace app {
     node->setTextureId(cached.texture.id);
     node->setTextureSize(cached.texture.width, cached.texture.height);
     node->setFitMode(fit);
-    node->setRadius(radius);
+    node->setRadius(Style::scaledShapeRadius(radius, width, height));
     parent.addChild(std::move(node));
     return true;
   }
@@ -2833,6 +2880,7 @@ namespace app {
   }
 
   void ClientApplication::draw() {
+    m_floatingFrames.clear();
     m_typingVisible = false;
     m_roleMotion.begin();
     m_videoVisible = false;
@@ -2843,6 +2891,7 @@ namespace app {
     const bool lightMode = resolveLightMode(m_preferences.theme, m_themeSnapshot.systemLight);
     const auto& colorTheme = m_themeSnapshot.selected(m_preferences.colorTheme);
     theme::apply(lightMode ? colorTheme.light : colorTheme.dark, lightMode, m_preferences.saturation / 100.0F);
+    Style::setCornerRadiusScale(static_cast<float>(m_preferences.cornerRadius) / Style::cornerRadiusDefaultPercent);
     m_window.setDesktopDecorations(m_preferences.desktopDecorations);
     m_window.context().setTextFontFamily(m_connected ? m_preferences.fontFamily : std::string{});
     const float w = m_window.width(),
@@ -2970,16 +3019,23 @@ namespace app {
         );
       }
     } else if (!settingsVisible()) {
-      rectangle(
-          root, 0, layout::Window::titlebarHeight, layout::Sidebar::railWidth, h - layout::Window::titlebarHeight,
-          theme::railBackground
+      rectangle(root, 0, layout::Window::titlebarHeight, w, h - layout::Window::titlebarHeight, panel);
+      const auto account = layout::accountFrame(h, chatLeft());
+      const auto railFrame = layout::floatingFrame(
+          0, layout::Window::titlebarHeight, layout::Sidebar::railWidth,
+          account.y - Style::spaceSm - layout::Window::titlebarHeight
       );
+      const float sidebarBottom = railFrame.y + railFrame.height;
+      floatingPanel(root, railFrame, theme::railBackground);
       const float sidebarWidth = channelSidebarWidth();
-      rectangle(
-          root, layout::Sidebar::railWidth, layout::Window::titlebarHeight, sidebarWidth,
-          h - layout::Window::titlebarHeight, sidebar
+      floatingPanel(
+          root,
+          layout::floatingFrame(
+              layout::Sidebar::railWidth, layout::Window::titlebarHeight, sidebarWidth,
+              account.y - Style::spaceSm - layout::Window::titlebarHeight
+          ),
+          background
       );
-      rectangle(root, layout::Sidebar::railWidth, layout::Window::titlebarHeight, sidebarWidth, 66, sidebar);
       std::string guildName = m_dmMode ? "Direct messages" : "Your servers";
       for (const auto& guild : m_guilds)
         if (guild.id == m_guildId)
@@ -2989,11 +3045,16 @@ namespace app {
         if (const auto at = std::ranges::find(m_guilds, m_guildId, &api::Guild::id); at != m_guilds.end())
           guildBadgeWidth = drawGuildBadge(root, 98, 59, api::guildBadge(*at));
       }
-      if (m_dmMode)
-        inputControl(
-            root, 90, 53, sidebarWidth - Style::spaceXl, 32, "dm-search", m_dmSearch, "Find or start a conversation"
+      if (m_dmMode) {
+        auto& search = inputControl(
+            root, layout::Sidebar::railWidth + layout::DmSidebar::inset, layout::DmSidebar::searchTop,
+            sidebarWidth - layout::DmSidebar::inset * 2, layout::DmSidebar::searchHeight, "dm-search", m_dmSearch,
+            "Find or start a conversation"
         );
-      else
+        search.setFontSize(Style::fontSizeCaption);
+        search.setHorizontalPadding(Style::spaceMd);
+        search.setFrameRadius(Style::controlRadius);
+      } else
         label(
             root, 98 + guildBadgeWidth, 57, sidebarWidth - 60 - guildBadgeWidth, guildName, Style::fontSizeSection,
             foreground, FontWeight::SemiBold
@@ -3006,11 +3067,15 @@ namespace app {
       }
       if (m_dmMode) {
         for (const auto& [page, title, icon, y] : std::vector<std::tuple<std::string, std::string, std::string, float>>{
-                 {"friends", "Friends", "users", 105}, {"requests", "Message Requests", "mail", 145}
+                 {"friends", "Friends", "users", layout::DmSidebar::friendsTop},
+                 {"requests", "Message Requests", "mail", layout::DmSidebar::requestsTop}
              }) {
           const bool selected = m_dmPage == page;
-          if (selected || hovered(90, y, sidebarWidth - Style::spaceXl, 36))
-            rectangle(root, 90, y, sidebarWidth - Style::spaceXl, 36, selected ? raised : panel, Style::radiusMd);
+          if (selected || hovered(90, y, sidebarWidth - Style::spaceXl, layout::DmSidebar::rowHeight))
+            rectangle(
+                root, 90, y, sidebarWidth - Style::spaceXl, layout::DmSidebar::rowHeight, selected ? raised : panel,
+                Style::radiusMd
+            );
           glyph(root, 102, y + Style::spaceSm, Style::glyphSizeLarge, icon, selected ? foreground : muted);
           label(
               root, 136, y + Style::spaceDense, sidebarWidth - 94, title, Style::fontSizeCaption,
@@ -3021,10 +3086,10 @@ namespace app {
                 root, chatLeft() - (Style::spaceXl - Style::spaceXxs), y + (Style::spaceSm + Style::borderWidth),
                 messageRequestCount(), false, "pending message request"
             );
-          m_hits.push_back({90, y, sidebarWidth - Style::spaceXl, 36, Action::DmPage, page});
+          m_hits.push_back({90, y, sidebarWidth - Style::spaceXl, layout::DmSidebar::rowHeight, Action::DmPage, page});
         }
       }
-      constexpr float dmHeadingTop = 190, dmHeadingHeight = 26;
+      constexpr float dmHeadingTop = layout::DmSidebar::headingTop, dmHeadingHeight = layout::DmSidebar::headingHeight;
       const auto dmHeadingMetrics =
           m_window.target().renderer().measureText("DIRECT MESSAGES", Style::fontSizeDetail, FontWeight::SemiBold);
       const float dmHeadingY = dmHeadingTop + (dmHeadingHeight - (dmHeadingMetrics.bottom - dmHeadingMetrics.top)) / 2;
@@ -3032,8 +3097,11 @@ namespace app {
           root, 98, m_dmMode ? dmHeadingY : 113, sidebarWidth - Style::spaceGroup,
           m_dmMode ? "DIRECT MESSAGES" : "CHANNELS", Style::fontSizeDetail, muted, FontWeight::SemiBold
       );
-      iconButton(root, {14, 48, 48, 48, Action::Home, {}}, "message-circle", "Direct messages", m_dmMode);
-      countBadge(root, 67, 80, messageRequestCount(), true, "pending message request");
+      drawDirectMessagesButton(root);
+      countBadge(
+          root, layout::ServerRail::badgeRight, layout::ServerRail::homeTop + layout::Avatar::rail - Style::spaceMd,
+          messageRequestCount(), true, "pending message request"
+      );
 
       // Derive rail totals from the same filtered cursors as the channel badges,
       // so an in-flight local ACK cannot leave a stale server/folder count.
@@ -3072,83 +3140,140 @@ namespace app {
         m_revealGuild = false;
         for (std::size_t i = 0; i < rail.size(); ++i) {
           if (rail[i].guild && rail[i].guild->id == m_guildId) {
-            const float top = 113 + i * 60;
-            if (top - m_guildScroll < 102)
-              m_guildScroll = top - 102;
-            if (top + 48 - m_guildScroll > h - 50)
-              m_guildScroll = top + 48 - (h - 50);
+            const float top = layout::ServerRail::top + i * layout::ServerRail::step;
+            if (top - m_guildScroll < layout::ServerRail::visibleTop)
+              m_guildScroll = top - layout::ServerRail::visibleTop;
+            if (top + layout::ServerRail::rowHeight - m_guildScroll > sidebarBottom)
+              m_guildScroll = top + layout::ServerRail::rowHeight - sidebarBottom;
             break;
           }
         }
       }
-      m_scrolling.limit(m_guildScroll, std::max(0.0F, rail.size() * 60.0F - (h - 164)));
+      m_scrolling.limit(
+          m_guildScroll,
+          std::max(0.0F, rail.size() * layout::ServerRail::step - (sidebarBottom - layout::ServerRail::top))
+      );
       for (std::size_t i = 0; i < rail.size(); ++i) {
-        const float y = 113 + i * 60 - m_guildScroll;
-        if (y < 102 || y + Style::spaceGroup > h - 50)
+        const float y = layout::ServerRail::top + i * layout::ServerRail::step - m_guildScroll;
+        if (y < layout::ServerRail::visibleTop || y + layout::ServerRail::rowHeight > sidebarBottom)
           continue;
         const auto& row = rail[i];
         if (row.dm) {
           const auto& channel = *row.dm;
-          const bool over = hovered(14, y, 48, 48);
-          avatar(root, 14, y, layout::Avatar::rail, channel.icon, channelName(channel));
+          const bool over = hovered(layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail);
+          avatar(root, layout::ServerRail::iconX, y, layout::Avatar::rail, channel.icon, channelName(channel));
           if (channel.type == 1 && !channel.recipients.empty())
             statusBadge(
-                root, 48, y + (Style::space2Xl + Style::spaceXxs), userStatus(channel.recipients.front().id),
+                root, layout::ServerRail::iconX + layout::Avatar::rail - Style::spaceMd - Style::spaceXxs,
+                y + layout::Avatar::rail - Style::spaceMd - Style::spaceXxs, userStatus(channel.recipients.front().id),
                 theme::railBackground, channel.recipients.front().id, channel.id
             );
-          rectangle(root, 0, y + Style::spaceLg, 4, 16, foreground, Style::radiusXs);
-          countBadge(root, 67, y - Style::spaceXxs, m_unreadTimeline.mentions(channel.id), true);
+          rectangle(
+              root, layout::ServerRail::markerX, y + (layout::Avatar::rail - Style::spaceLg) / 2, Style::spaceXs,
+              Style::spaceLg, foreground, Style::radiusXs
+          );
+          countBadge(
+              root, layout::ServerRail::badgeRight, y - Style::spaceXxs, m_unreadTimeline.mentions(channel.id), true
+          );
           if (over)
-            rectangle(root, 70, y + Style::cardPadding, 4, 20, accent, Style::radiusXs);
-          m_hits.push_back({14, y, 48, 48, Action::DirectMessage, channel.id});
+            rectangle(
+                root, layout::Sidebar::railWidth - layout::ServerRail::markerX - Style::spaceXs,
+                y + (layout::Avatar::rail - Style::spaceRelaxed) / 2, Style::spaceXs, Style::spaceRelaxed, accent,
+                Style::radiusXs
+            );
+          m_hits.push_back(
+              {layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::DirectMessage,
+               channel.id}
+          );
           if (i + 1 == unreadDMRows)
-            rectangle(root, 22, y + 55, 32, 2, raised, 1);
+            rectangle(
+                root, (layout::Sidebar::railWidth - Style::space2Xl) / 2,
+                y + layout::Avatar::rail + Style::spaceCompact, Style::space2Xl, Style::borderWidth, raised
+            );
           continue;
         }
         if (!row.guild) {
           auto color = rgbHex(row.folder->color);
-          color.a = hovered(10, y, 56, 50) ? 0.65F : 0.35F;
-          rectangle(root, 10, y, 56, 50, color, 14);
+          color.a =
+              hovered(layout::ServerRail::folderX, y, layout::ServerRail::folderSize, layout::ServerRail::folderSize)
+              ? 0.65F
+              : 0.35F;
+          rectangle(
+              root, layout::ServerRail::folderX, y, layout::ServerRail::folderSize, layout::ServerRail::folderSize,
+              color, Style::radiusXl
+          );
           for (std::size_t j = 0; j < std::min<std::size_t>(4, row.folder->guildIds.size()); ++j) {
             auto guild = std::ranges::find(m_guilds, row.folder->guildIds[j], &api::Guild::id);
             if (guild != m_guilds.end())
               avatar(
-                  root, 17 + (j % 2) * 22, y + (Style::spaceXs + Style::borderWidth) + (j / 2) * 22, 18, guild->icon,
-                  guild->name
+                  root,
+                  layout::ServerRail::folderX
+                      + layout::ServerRail::folderInset
+                      + (j % 2) * layout::ServerRail::folderAvatarStep,
+                  y + layout::ServerRail::folderInset + (j / 2) * layout::ServerRail::folderAvatarStep,
+                  layout::ServerRail::folderAvatarSize, guild->icon, guild->name
               );
           }
           int count = 0;
           for (const auto& guild : row.folder->guildIds)
             count = std::min(1000000, count + guildMentions[guild]);
-          countBadge(root, 68, y + (Style::space2Xl + Style::spaceXxs), count, true);
-          m_hits.push_back({10, y, 56, 50, Action::Folder, row.folder->id});
+          countBadge(
+              root, layout::ServerRail::badgeRight, y + layout::ServerRail::folderSize - Style::spaceLg, count, true
+          );
+          m_hits.push_back(
+              {layout::ServerRail::folderX, y, layout::ServerRail::folderSize, layout::ServerRail::folderSize,
+               Action::Folder, row.folder->id}
+          );
           m_contextTargets.push_back(m_hits.back());
           continue;
         }
         const auto& guild = *row.guild;
         if (!row.folder->id.empty())
-          rectangle(root, 8, y - Style::spaceCompact, 60, 60, panel, 10);
-        const bool selected = guild.id == m_guildId;
-        const bool over = hovered(14, y, 48, 48);
-        if (!selected)
-          rectangle(root, 14, y, 48, 48, over ? panel : raised, over ? 16 : 23);
-        if (!image(root, 14, y, 48, guild.icon, selected || over ? 16 : 23))
-          label(
-              root, 30, y + Style::spaceMd, 24, initial(guild.name), Style::fontSizeDialog,
-              selected ? accent : foreground, FontWeight::SemiBold
+          rectangle(
+              root, layout::ServerRail::expandedX, y - (layout::ServerRail::expandedSize - layout::Avatar::rail) / 2,
+              layout::ServerRail::expandedSize, layout::ServerRail::expandedSize, panel, Style::radiusXl
           );
+        const bool selected = guild.id == m_guildId;
+        const bool over = hovered(layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail);
+        if (!selected)
+          rectangle(
+              root, layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, over ? panel : raised,
+              over ? Style::radiusXl : layout::Avatar::rail / 2
+          );
+        if (!image(
+                root, layout::ServerRail::iconX, y, layout::Avatar::rail, guild.icon,
+                selected || over ? Style::radiusXl : layout::Avatar::rail / 2
+            )) {
+          const auto text = initial(guild.name);
+          const auto metrics =
+              m_window.target().renderer().measureText(text, Style::fontSizeDialog, FontWeight::SemiBold);
+          label(
+              root, layout::ServerRail::iconX + (layout::Avatar::rail - metrics.width) / 2,
+              y + (layout::Avatar::rail - (metrics.bottom - metrics.top)) / 2, metrics.width + Style::borderWidth, text,
+              Style::fontSizeDialog, selected ? accent : foreground, FontWeight::SemiBold
+          );
+        }
         const bool unread =
             !m_userDirectory.muted(guild.id) && std::ranges::any_of(m_unreadGuilds, [&](const auto& state) {
               return state.second == guild.id && m_unreadChannels.contains(state.first) && !channelMuted(state.first);
             });
         if (selected || over || unread)
           rectangle(
-              root, 0, y + (selected ? 14 : 19), 4, selected ? 20 : 10, selected || over ? accent : foreground,
+              root, layout::ServerRail::markerX,
+              y + (layout::Avatar::rail - (selected ? Style::spaceRelaxed : Style::spaceDense)) / 2, Style::spaceXs,
+              selected ? Style::spaceRelaxed : Style::spaceDense, selected || over ? accent : foreground,
               Style::radiusXs
           );
-        countBadge(root, 67, y + (Style::space2Xl + Style::borderWidth), guildMentions[guild.id], true);
-        m_hits.push_back({14, y, 48, 48, Action::Guild, guild.id});
-        m_contextTargets.push_back({14, y, 48, 48, Action::GuildMenu, guild.id});
+        countBadge(
+            root, layout::ServerRail::badgeRight, y + layout::Avatar::rail - Style::spaceLg, guildMentions[guild.id],
+            true
+        );
+        m_hits.push_back(
+            {layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::Guild, guild.id}
+        );
+        m_contextTargets.push_back(
+            {layout::ServerRail::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::GuildMenu, guild.id}
+        );
       }
       auto listedChannels = m_channels;
       if (m_dmMode && !m_dmSearch.empty())
@@ -3166,29 +3291,34 @@ namespace app {
              "create"},
             "plus", "New message"
         );
-      const float channelTop = m_dmMode ? 228 : 142;
+      const float channelTop = m_dmMode ? layout::DmSidebar::channelsTop : 142;
+      const float accountTop = account.y;
       const float channelListHeight =
           visibleChannels.empty() ? 0 : visibleChannels.back().top + visibleChannels.back().advance;
-      m_scrolling.limit(m_channelScroll, std::max(0.0F, channelListHeight - (h - channelTop - 86)));
+      m_scrolling.limit(
+          m_channelScroll, std::max(0.0F, channelListHeight - (accountTop - channelTop - Style::cardPadding))
+      );
       if (!m_dmMode)
-        m_contextTargets.push_back({78, 138, sidebarWidth, std::max(0.0F, h - 214), Action::ChannelListMenu, {}});
+        m_contextTargets.push_back(
+            {78, 138, sidebarWidth, std::max(0.0F, sidebarBottom - 138), Action::ChannelListMenu, {}}
+        );
       int mentionsBelow = 0;
       std::string nextMention;
       for (const auto& row : visibleChannels) {
         const float y = channelTop + row.top - m_channelScroll;
         const auto& channel = *row.channel;
         if (channel.type != 4
-            && y + (Style::space2Xl + Style::spaceXxs) > h - 76
+            && y + (Style::space2Xl + Style::spaceXxs) > sidebarBottom
             && m_unreadTimeline.mentions(channel.id) > 0) {
           mentionsBelow = std::min(1000000, mentionsBelow + m_unreadTimeline.mentions(channel.id));
           if (nextMention.empty())
             nextMention = channel.id;
         }
-        if (y < channelTop - Style::spaceXs || y + row.height > h - 76)
+        if (y < channelTop - Style::spaceXs || y + row.height > sidebarBottom)
           continue;
         if (channel.type == 4) {
-          const float categoryX = layout::Sidebar::railWidth + Style::spaceXs;
-          const float categoryWidth = sidebarWidth - Style::spaceXs - layout::Sidebar::rowInset;
+          const float categoryX = layout::Sidebar::railWidth + Style::spaceMd;
+          const float categoryWidth = chatLeft() - Style::spaceSm - categoryX - Style::spaceXs;
           const float labelX = categoryX + Style::baseGlyphSize + Style::spaceXxs;
           if (hovered(categoryX, y, categoryWidth, row.height))
             rectangle(root, categoryX, y, categoryWidth, row.height, panel, Style::radiusMd);
@@ -3216,14 +3346,17 @@ namespace app {
         constexpr float channelHoverTint = .06F;
         const auto rowSurface = m_dmMode ? (selected   ? raised
                                                 : over ? panel
-                                                       : sidebar)
-            : over                       ? lerpColor(selected ? raised : sidebar, foreground, channelHoverTint)
+                                                       : background)
+            : over                       ? lerpColor(selected ? raised : background, foreground, channelHoverTint)
             : selected                   ? raised
-                                         : sidebar;
+                                         : background;
         if (selected || over)
           rectangle(root, rowX, y, rowWidth, layout::Sidebar::rowHeight, rowSurface, Style::surfaceRadius);
         if (unread && !selected)
-          rectangle(root, 80, y + Style::cardPadding, 4, 6, foreground, Style::radiusXs);
+          rectangle(
+              root, layout::Sidebar::unreadX, y + (layout::Sidebar::rowHeight - layout::Sidebar::unreadHeight) / 2,
+              layout::Sidebar::unreadWidth, layout::Sidebar::unreadHeight, foreground, Style::radiusXs
+          );
         if (m_dmMode) {
           avatar(
               root, 99, y + (Style::spaceXxs + Style::borderWidth), layout::Avatar::dm, channel.icon,
@@ -3234,7 +3367,7 @@ namespace app {
                 root, 119, y + (Style::spaceRelaxed + Style::borderWidth), userStatus(channel.recipients.front().id),
                 selected   ? raised
                     : over ? panel
-                           : sidebar,
+                           : background,
                 channel.recipients.front().id, channel.id
             );
         } else {
@@ -3327,7 +3460,8 @@ namespace app {
             + std::string(mentionsBelow == 1 ? " NEW MENTION" : " NEW MENTIONS");
         const auto metrics = m_window.target().renderer().measureText(text, Style::fontSizeMini, FontWeight::Bold);
         const float width = std::ceil(metrics.width) + 24,
-                    x = layout::Sidebar::railWidth + sidebarWidth / 2 - width / 2, y = h - 110;
+                    x = layout::Sidebar::railWidth + sidebarWidth / 2 - width / 2,
+                    y = accountTop - (Style::spaceSection - Style::spaceXxs);
         rectangle(
             root, x - (Style::spaceXxs + Style::borderWidth), y - (Style::spaceXxs + Style::borderWidth),
             width + Style::spaceCompact, 34, sidebar, 17
@@ -3349,26 +3483,48 @@ namespace app {
                                                               : "No text channels to show.",
             Style::fontSizeCaption, muted, FontWeight::Normal, 2
         );
-      rectangle(root, layout::Sidebar::railWidth, h - 72, sidebarWidth, 72, lerpColor(sidebar, background, .4F));
-      if (hovered(88, h - 65, sidebarWidth - 68, 58))
-        rectangle(root, 88, h - 65, sidebarWidth - 68, 58, panel, Style::surfaceRadius);
-      // Redraw the account chip above its hover background.
-      avatar(root, 94, h - 54, layout::Avatar::account, m_account.avatar, m_account.name);
+      floatingPanel(
+          root, {account.x, account.y, account.width, account.height},
+          hovered(account.x, account.y, account.width, account.height) ? panel : background
+      );
+      avatar(root, account.avatarX, account.avatarY, layout::Avatar::account, m_account.avatar, m_account.name);
       rectangle(
-          root, 118, h - (Style::space2Xl - Style::spaceXxs), 11, 11, presenceColor(m_presence.status), Style::radiusMd
+          root, account.avatarX + layout::Avatar::account - layout::Sidebar::accountStatusSize + Style::borderWidth,
+          account.avatarY + layout::Avatar::account - layout::Sidebar::accountStatusSize + Style::borderWidth,
+          layout::Sidebar::accountStatusSize, layout::Sidebar::accountStatusSize, presenceColor(m_presence.status),
+          Style::radiusMd
+      );
+      const auto accountDetail = !m_live && !m_demo ? m_gatewayStatus
+          : !m_presence.text.empty()                ? m_presence.text
+                                                    : std::string(presenceName(m_presence.status));
+      const auto accountNameMetrics =
+          m_window.target().renderer().measureText(m_account.name, Style::fontSizeCaption, FontWeight::Medium);
+      const auto accountDetailMetrics = m_window.target().renderer().measureText(accountDetail, Style::fontSizeDetail);
+      const float accountNameHeight =
+          std::max(Style::fontSizeCaption + Style::spaceXs, accountNameMetrics.bottom - accountNameMetrics.top);
+      const float accountDetailHeight =
+          std::max(Style::fontSizeDetail + Style::spaceXs, accountDetailMetrics.bottom - accountDetailMetrics.top);
+      const float accountTextTop =
+          accountTop + layout::Sidebar::accountOffset(accountNameHeight + accountDetailHeight + Style::spaceXxs);
+      label(
+          root, account.nameX, accountTextTop, account.nameWidth, m_account.name, Style::fontSizeCaption, foreground,
+          FontWeight::Medium
       );
       label(
-          root, 140, h - 55, sidebarWidth - 120, m_account.name, Style::fontSizeCaption, foreground, FontWeight::Medium
-      );
-      label(
-          root, 140, h - (Style::space2Xl + Style::borderWidth), sidebarWidth - 120,
-          !m_live && !m_demo             ? m_gatewayStatus
-              : !m_presence.text.empty() ? m_presence.text
-                                         : std::string(presenceName(m_presence.status)),
+          root, account.nameX, accountTextTop + accountNameHeight + Style::spaceXxs, account.nameWidth, accountDetail,
           Style::fontSizeDetail, muted
       );
-      m_hits.push_back({88, h - 65, sidebarWidth - 68, 58, Action::TogglePresence, {}});
-      iconButton(root, {chatLeft() - 50, h - 57, 36, 36, Action::Settings, {}}, "settings", "User settings");
+      m_hits.push_back({account.x, account.y, account.presenceWidth, account.height, Action::TogglePresence, {}});
+      iconButton(
+          root,
+          {account.settingsX,
+           account.settingsY,
+           layout::Sidebar::accountSettingsSize,
+           layout::Sidebar::accountSettingsSize,
+           Action::Settings,
+           {}},
+          "settings", "User settings"
+      );
 
       const bool forum = forumView();
       const float panelWidth = m_channelPanel.empty() ? 0 : channelPanelWidth();
@@ -3387,7 +3543,20 @@ namespace app {
         cancelMessageEdit(false);
       if (!m_dmMode || m_dmPage.empty())
         drawChannelHeader(root, w);
-      rectangle(root, left, 101, bodyWidth, 1, raised);
+      else
+        floatingPanel(
+            root, layout::floatingFrame(left, layout::Window::titlebarHeight, w - left, layout::ChannelHeader::height),
+            background
+        );
+      if ((m_dmMode && !m_dmPage.empty()) || forum)
+        floatingPanel(
+            root,
+            layout::floatingFrame(
+                left, layout::Window::titlebarHeight + layout::ChannelHeader::height, bodyWidth,
+                h - layout::Window::titlebarHeight - layout::ChannelHeader::height - Style::spaceSm
+            ),
+            background
+        );
       if (m_dmMode && !m_dmPage.empty())
         drawDmHome(root, w, h);
       else if (forum)
@@ -3408,22 +3577,31 @@ namespace app {
         m_window.target().renderer().measureTextCursorStopsWrapped(
             draftPresentation.text(), Style::fontSizeBody, displayOffsets, m_draftWidth, m_draftStops
         );
-        const float fullDraftHeight =
-            m_draftStops.empty() ? 22 : m_draftStops.back().y + std::max(22.0F, m_draftStops.back().height);
-        m_draftHeight = std::clamp(fullDraftHeight, 22.0F, std::min(160.0F, h * 0.3F));
+        const float fullDraftHeight = m_draftStops.empty()
+            ? layout::Composer::minimumTextHeight
+            : m_draftStops.back().y + std::max(layout::Composer::minimumTextHeight, m_draftStops.back().height);
+        m_draftHeight = std::clamp(fullDraftHeight, layout::Composer::minimumTextHeight, std::min(160.0F, h * 0.3F));
         const float uploadHeight = m_attachments[m_channelId].empty() ? 0 : layout::DraftAttachment::composerReserve;
         const float stickerHeight = m_draftStickers[m_channelId].empty() ? 0 : 100;
         const float attachmentHeight = uploadHeight + stickerHeight;
-        const float replyHeight = m_replies.contains(m_channelId) ? 34 : 0;
-        const float composerHeight = m_draftHeight + Style::spaceXl + attachmentHeight + replyHeight;
-        const float composerY = h - (Style::space2Xl - Style::spaceXxs) - composerHeight;
+        const float replyHeight = m_replies.contains(m_channelId) ? layout::ComposerReply::height : 0;
+        const float composerHeight = m_draftHeight + layout::Composer::verticalPadding + attachmentHeight + replyHeight;
+        const auto composer = layout::composerFrame(h, composerHeight);
+        const float composerY = composer.top;
         float top = m_unreadTimeline.unread() ? layout::Chat::unreadTimelineTop : layout::Chat::timelineTop;
         constexpr float timelineTopPadding = layout::Chat::topPadding,
                         timelineBottomPadding = layout::Chat::bottomPadding;
         const auto typing = typingText();
-        const float typingHeight = typing.empty() ? 0 : layout::Typing::height;
-        const float bottom = composerY - layout::Chat::composerGap - typingHeight,
-                    textWidth = std::max(32.0F, bodyWidth - 104);
+        // Reserve typing space inside the conversation panel, keeping its bottom
+        // aligned with the sidebar even when nobody is typing.
+        const float bottom = composer.viewportBottom, textWidth = std::max(32.0F, bodyWidth - 104);
+        const float panelTop = layout::Window::titlebarHeight + layout::ChannelHeader::height + Style::spaceSm;
+        floatingPanel(
+            root,
+            {left + Style::spaceSm, panelTop, std::max(0.0F, bodyWidth - Style::spaceSm * 2),
+             std::max(0.0F, composer.panelBottom - panelTop)},
+            background
+        );
         const MessageMeasure measure = [&](std::string_view text, const MessageStyle& style) {
           return m_window.target()
               .renderer()
@@ -4466,45 +4644,51 @@ namespace app {
           }
           auto* bar = static_cast<Scrollbar*>(owned.get());
           m_widgets[id] = bar;
-          bar->setPosition(left + bodyWidth - Style::spaceMd, top);
+          bar->setPosition(left + bodyWidth - Style::spaceSm - Style::spaceXs - bar->reservedThickness(), top);
           bar->setSize(bar->reservedThickness(), std::max(0.0F, bottom - top));
           bar->update(std::max(0.0F, bottom - top), totalHeight, m_messageMaxScroll - m_messageScroll);
           root.addChild(std::move(owned));
         }
-        rectangle(
-            root, left + (Style::spaceXl - Style::spaceXxs), composerY,
-            bodyWidth - (Style::spaceSection + Style::spaceXs), composerHeight, m_fieldFocused ? raised : panel, 14
+        floatingPanel(
+            root, {left + Style::spaceSm, composerY, bodyWidth - Style::spaceSm * 2, composerHeight}, background
         );
         if (!typing.empty())
-          drawTyping(
-              root, left + layout::Chat::inset, composerY - typingHeight, bodyWidth - layout::Chat::inset * 2, typing
-          );
+          drawTyping(root, left + layout::Chat::inset, composer.typingTop, bodyWidth - layout::Chat::inset * 2, typing);
         if (replyHeight) {
           const auto& reply = m_replies.at(m_channelId);
+          auto& renderer = m_window.target().renderer();
+          const std::string caption = "Replying to " + userName(reply.authorId, reply.author);
+          const auto captionMetrics = renderer.measureText(caption, layout::ComposerReply::captionSize);
+          const auto offMetrics = renderer.measureText("@ OFF", layout::ComposerReply::captionSize);
+          const auto onMetrics = renderer.measureText("@ ON", layout::ComposerReply::captionSize);
+          const auto frame = layout::composerReplyFrame(
+              left + Style::spaceSm, composerY, bodyWidth - Style::spaceSm * 2,
+              std::ceil(std::max(offMetrics.width, onMetrics.width)), captionMetrics.bottom - captionMetrics.top
+          );
           label(
-              root, left + (Style::spaceSection - Style::spaceXxs), composerY + (Style::spaceSm + Style::borderWidth),
-              bodyWidth - 220, "Replying to " + userName(reply.authorId, reply.author), Style::fontSizeDescription,
+              root, frame.label.x, frame.label.y, frame.label.width, caption, layout::ComposerReply::captionSize,
               foreground
           );
-          button(
-              root,
-              {left + bodyWidth - 174,
-               composerY + (Style::spaceXxs + Style::borderWidth),
-               94,
-               28,
-               Action::ToggleReplyMention,
-               {}},
-              reply.mention ? "@ ON" : "@ OFF"
+          const Hit mention{frame.mention.x,
+                            frame.mention.y,
+                            frame.mention.width,
+                            frame.mention.height,
+                            Action::ToggleReplyMention,
+                            {}};
+          const bool over = mention.contains(m_pointerX, m_pointerY);
+          rectangle(
+              root, mention.x, mention.y, mention.width, mention.height, over ? raised : panel, Style::controlRadius
           );
+          const auto& metrics = reply.mention ? onMetrics : offMetrics;
+          label(
+              root, mention.x + (mention.width - metrics.width) / 2,
+              mention.y + (mention.height - (metrics.bottom - metrics.top)) / 2, metrics.width + Style::borderWidth,
+              reply.mention ? "@ ON" : "@ OFF", layout::ComposerReply::captionSize, reply.mention ? accent : foreground
+          );
+          m_hits.push_back(mention);
           iconButton(
-              root,
-              {left + bodyWidth - 70,
-               composerY + (Style::spaceXxs + Style::borderWidth),
-               28,
-               28,
-               Action::CancelReply,
-               {}},
-              "x", "Cancel reply"
+              root, {frame.close.x, frame.close.y, frame.close.width, frame.close.height, Action::CancelReply, {}}, "x",
+              "Cancel reply"
           );
         }
         m_attachmentX = left + (Style::space2Xl + Style::spaceXs);
@@ -4596,38 +4780,51 @@ namespace app {
         if (!m_status.empty())
           label(root, left + Style::spaceWide, 105, bodyWidth - 56, m_status, Style::fontSizeMini, muted);
         if (memberWidth > 0) {
-          m_scrolling.limit(m_memberScroll, std::max(0.0F, m_memberCount * 44.0F - (h - 158)));
           const float memberX = w - memberWidth;
-          rectangle(root, memberX, 102, memberWidth, h - 102, sidebar);
-          label(
-              root, memberX + (Style::spaceLg + Style::spaceXxs), 118, memberWidth - layout::Window::titlebarHeight,
-              m_dmMode ? "PARTICIPANTS" : "MEMBERS", Style::fontSizeMini, muted, FontWeight::SemiBold
+          const auto memberFrame = layout::floatingFrame(
+              memberX, layout::Window::titlebarHeight + layout::ChannelHeader::height, memberWidth,
+              h - layout::Window::titlebarHeight - layout::ChannelHeader::height - Style::spaceSm
           );
+          const float memberBottom = memberFrame.y + memberFrame.height - Style::spaceXs;
+          const float memberTop = layout::Members::top;
+          const float memberHeight = layout::Members::viewportHeight(h);
+          const layout::MemberListLayout memberLayout(m_members, m_memberCount);
+          m_scrolling.limit(m_memberScroll, memberLayout.maximumScroll(memberHeight));
+          floatingPanel(root, memberFrame, background);
           auto members = std::make_unique<Node>();
-          members->setPosition(memberX, 148);
-          members->setSize(memberWidth, h - 158);
+          members->setPosition(memberX, memberTop);
+          members->setSize(memberWidth, memberHeight);
           members->setClipChildren(true);
           const auto guildRoles = m_dmMode ? std::vector<api::ColoredRole>{} : m_roleDirectory.allRoles(m_guildId);
           for (const auto& member : m_members) {
-            const float rowY = member.index * 44.0F - m_memberScroll;
-            if (rowY < -44 || rowY > h - 148)
+            const float rowY = memberLayout.top(member.index) - m_memberScroll;
+            const float rowHeight = member.group.empty() ? layout::Members::rowHeight : layout::Members::groupHeight;
+            if (rowY + rowHeight <= 0 || rowY >= memberHeight)
               continue;
             if (!member.group.empty()) {
-              // Keep spacing above groups while bringing their heading closer to
-              // the first avatar; member rows and subscription indices stay stable.
+              // Compact group headings without changing remote subscription indices.
               const auto role = std::ranges::find(guildRoles, member.groupId, &api::ColoredRole::id);
               const float iconWidth = role != guildRoles.end() && (!role->icon.empty() || !role->unicodeEmoji.empty())
-                  ? drawRoleBadge(*members, 18, rowY + Style::spaceXl, *role)
+                  ? drawRoleBadge(
+                        *members, Style::spaceLg + Style::spaceXxs, rowY + layout::Members::groupIconTop, *role
+                    )
                   : 0;
               label(
-                  *members, 18 + iconWidth, rowY + (Style::spaceXl + Style::spaceXxs),
+                  *members, Style::spaceLg + Style::spaceXxs + iconWidth, rowY + layout::Members::groupTextTop,
                   memberWidth - layout::Window::titlebarHeight - iconWidth,
                   member.group + (member.count >= 0 ? " — " + std::to_string(member.count) : ""), Style::fontSizeMini,
                   muted, FontWeight::SemiBold
               );
             } else if (!member.user.id.empty()) {
-              if (hovered(memberX + Style::spaceSm, 148 + rowY, memberWidth - Style::spaceLg, 42))
-                rectangle(*members, 8, rowY, memberWidth - Style::spaceLg, 42, panel, Style::radiusMd);
+              const bool memberOver = hovered(
+                  memberX + Style::spaceMd, memberTop + rowY, memberWidth - Style::spaceXl,
+                  layout::Members::rowHitHeight
+              );
+              if (memberOver)
+                rectangle(
+                    *members, Style::spaceMd, rowY, memberWidth - Style::spaceXl, layout::Members::rowHitHeight, panel,
+                    Style::radiusMd
+                );
               const auto name = userName(member.user.id, member.user.name);
               const auto status = m_dmMode ? userStatus(member.user.id) : member.status;
               avatar(
@@ -4635,24 +4832,22 @@ namespace app {
                   name
               );
               statusBadge(
-                  *members, 38, rowY + ((Style::spaceXl + Style::spaceXxs) + Style::borderWidth), status, sidebar,
-                  member.user.id, m_channelId
+                  *members, 38, rowY + ((Style::spaceXl + Style::spaceXxs) + Style::borderWidth), status,
+                  memberOver ? panel : background, member.user.id, m_channelId
               );
               roleLabel(
                   *members, 60, rowY + Style::spaceMd, memberWidth - 78, name, Style::fontSizeCaption,
                   status == "offline" ? muted : foreground, FontWeight::Normal, member.user.id,
-                  "member:" + member.user.id,
-                  hovered(memberX + Style::spaceSm, 148 + rowY, memberWidth - Style::spaceLg, 42)
+                  "member:" + member.user.id, memberOver
               );
-              const auto rowTop = std::max(148.0F, 148 + rowY),
-                         rowBottom =
-                             std::min(h - Style::spaceDense, 148 + rowY + (Style::spaceSection + Style::spaceXxs));
+              const auto rowTop = std::max(memberTop, memberTop + rowY),
+                         rowBottom = std::min(memberBottom, memberTop + rowY + layout::Members::rowHitHeight);
               m_contextTargets.push_back(
-                  {memberX + Style::spaceSm, rowTop, memberWidth - Style::spaceLg, std::max(0.0F, rowBottom - rowTop),
+                  {memberX + Style::spaceMd, rowTop, memberWidth - Style::spaceXl, std::max(0.0F, rowBottom - rowTop),
                    Action::UserMenu, member.user.id}
               );
               m_hits.push_back(
-                  {memberX + Style::spaceSm, rowTop, memberWidth - Style::spaceLg, std::max(0.0F, rowBottom - rowTop),
+                  {memberX + Style::spaceMd, rowTop, memberWidth - Style::spaceXl, std::max(0.0F, rowBottom - rowTop),
                    Action::UserProfile, member.user.id}
               );
             }
@@ -4666,16 +4861,32 @@ namespace app {
         }
       }
     }
-    if (sidebarResizeAvailable())
-      rectangle(
-          root, chatLeft() - Style::borderWidth, 36, 2, h - layout::Window::titlebarHeight,
-          m_resizingSidebar || sidebarResizeAt(m_pointerX, m_pointerY) ? accent : raised
-      );
     if (m_resizingSidebar && !sidebarResizeAvailable())
       finishSidebarResize();
     if (m_connected && !m_channelPanel.empty() && !settingsVisible()) {
       const float panel = channelPanelWidth();
       drawChannelPanel(root, w - panel, 102, panel, h - 102);
+    }
+    // Reuse inverse rounded rectangles to mask pane corners without changing
+    // content transforms, native controls or the renderer's clipping model.
+    for (const auto& frame : m_floatingFrames) {
+      auto mask = std::make_unique<RectNode>();
+      mask->setHitTestVisible(false);
+      mask->setPosition(frame.x, frame.y);
+      mask->setSize(frame.width, frame.height);
+      mask->setStyle({.fill = panel, .radius = Style::scaledRadiusXl(), .invertFill = true});
+      root.addChild(std::move(mask));
+      auto edge = std::make_unique<RectNode>();
+      edge->setHitTestVisible(false);
+      edge->setPosition(frame.x, frame.y);
+      edge->setSize(frame.width, frame.height);
+      edge->setStyle(
+          {.fill = withAlpha(background, 0),
+           .border = raised,
+           .radius = Style::scaledRadiusXl(),
+           .borderWidth = Style::borderWidth}
+      );
+      root.addChild(std::move(edge));
     }
     if (m_serverSettings.open)
       drawServerSettings(root, w, h);
@@ -5204,6 +5415,12 @@ namespace app {
       auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
       selectChannel(selected == m_channels.end() ? m_channels.front().id : selected->id);
       m_restoreChannel.clear();
+    } else if (!home && m_channels.empty() && m_privateReady) {
+      m_dmPage = "friends";
+      m_dmFilter = "online";
+      m_restoreChannel.clear();
+      if (!m_demo)
+        m_client.subscribe({}, {});
     }
     m_window.invalidate();
   }
@@ -5293,7 +5510,11 @@ namespace app {
              [&](const auto& channel) { return m_dmMode || serverChannelVisible(channel); }
          )) {
       if (row.channel->id == id) {
-        const auto view = std::max(38.0F, m_window.height() - (m_dmMode ? 314.0F : 228.0F));
+        const float sceneHeight = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
+        const float listTop = m_dmMode ? layout::DmSidebar::channelsTop : 142;
+        const auto view = std::max(
+            layout::Sidebar::rowStep, layout::accountFrame(sceneHeight, chatLeft()).y - Style::spaceSm * 2 - listTop
+        );
         m_channelScroll = std::clamp(m_channelScroll, std::max(0.0F, row.top - view + row.advance), row.top);
         break;
       }
@@ -6148,6 +6369,13 @@ namespace app {
               auto selected = std::ranges::find(m_channels, m_restoreChannel, &api::Channel::id);
               selectChannel(selected == m_channels.end() ? m_channels.front().id : selected->id);
               m_restoreChannel.clear();
+            } else if (m_dmPage.empty() && m_channelId.empty() && m_channels.empty()) {
+              m_dmPage = "friends";
+              m_dmFilter = "online";
+              m_restoreChannel.clear();
+              m_loadingMessages = false;
+              if (!m_demo)
+                m_client.subscribe({}, {});
             }
             updateDmMembers();
           }
@@ -6205,8 +6433,15 @@ namespace app {
               cached = snapshot;
         }
         m_messageLayouts.clear();
-        m_memberScroll =
-            std::clamp(m_memberScroll, 0.0F, std::max(0.0F, m_memberCount * 44.0F - (m_window.height() - 158)));
+        m_scrolling.limit(
+            m_memberScroll,
+            layout::MemberListLayout(m_members, m_memberCount)
+                .maximumScroll(
+                    layout::Members::viewportHeight(
+                        m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight()
+                    )
+                )
+        );
       } else if (event.operation == api::Operation::Gateway) {
         if (!event.live) {
           clearTyping();
@@ -6609,6 +6844,10 @@ namespace app {
       m_window.invalidate();
       return;
     }
+    if (key.symbol == XKB_KEY_Escape && m_replies.contains(m_channelId)) {
+      activate({.action = Action::CancelReply});
+      return;
+    }
     if (key.control && (key.symbol == XKB_KEY_r || key.symbol == XKB_KEY_R)) {
       refresh();
       return;
@@ -6993,8 +7232,11 @@ namespace app {
       break;
     }
     case Action::Home:
+      m_dmSearch.clear();
+      if (m_dmMode && m_dmPage.empty() && !m_channelId.empty())
+        break;
       m_restoreChannel.clear();
-      openDmPage("friends");
+      showDirectMessages();
       break;
     case Action::DmPage:
       openDmPage(hit.id);

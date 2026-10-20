@@ -203,7 +203,7 @@ namespace app {
       image->setTextureId(texture.id);
       image->setTextureSize(texture.width, texture.height);
       image->setFitMode(ImageFitMode::Contain);
-      image->setRadius(Style::surfaceRadius);
+      image->setRadius(Style::scaledRadius(Style::surfaceRadius));
       imageLayer->addChild(std::move(image));
     } else
       picture(*imageLayer, x, y, iw, ih, m_viewImage, Style::surfaceRadius, true);

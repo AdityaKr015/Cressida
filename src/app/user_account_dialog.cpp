@@ -735,7 +735,7 @@ namespace app {
       control->setText(caption);
       control->setFontSize(Style::fontSizeDescription);
       control->setControlHeight(26);
-      control->setRadius(5);
+      control->setRadius(Style::scaledRadius(Style::controlRadius));
       control->setFrameSize(std::min(bw, width - Style::spaceGroup), 26);
       control->setPosition(0, y);
       control->setVariant(variant);

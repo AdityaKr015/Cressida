@@ -299,7 +299,7 @@ namespace app {
       control->setFontSize(Style::fontSizeDescription);
       control->setPosition(x, y);
       control->setControlHeight(26);
-      control->setRadius(5);
+      control->setRadius(Style::scaledRadius(Style::controlRadius));
       control->setPadding(0, 10);
       control->setFrameSize(size, 26);
       control->setEnabled(enabled);
@@ -310,7 +310,7 @@ namespace app {
       auto node = std::make_unique<RectNode>();
       node->setPosition(-14, top);
       node->setSize(width + Style::spaceWide, height);
-      node->setStyle({.fill = sidebar, .radius = 8});
+      node->setStyle({.fill = sidebar, .radius = Style::scaledRadius(Style::surfaceRadius)});
       node->setZIndex(-1);
       parent.addChild(std::move(node));
     };

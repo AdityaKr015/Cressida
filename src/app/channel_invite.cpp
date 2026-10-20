@@ -43,7 +43,7 @@ namespace app {
       auto shape = std::make_unique<RectNode>();
       shape->setPosition(x, y);
       shape->setFrameSize(width, height);
-      shape->setStyle({.fill = fill, .border = border, .radius = radius, .borderWidth = 1});
+      shape->setStyle({.fill = fill, .border = border, .radius = Style::scaledRadius(radius), .borderWidth = 1});
       parent.addChild(std::move(shape));
     }
     std::string recipientKey(const api::Interaction& action) {

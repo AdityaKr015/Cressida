@@ -335,14 +335,20 @@ namespace app {
         .enter =
             [](void* data, wl_keyboard*, std::uint32_t, wl_surface*, wl_array*) {
               auto& self = *static_cast<Impl*>(data);
+              const bool changed = !self.keyboardFocused;
               self.keyboardFocused = true;
+              if (changed && self.owner.focusChanged)
+                self.owner.focusChanged(true);
               self.owner.invalidate();
             },
         .leave =
             [](void* data, wl_keyboard*, std::uint32_t, wl_surface*) {
               auto& self = *static_cast<Impl*>(data);
+              const bool changed = self.keyboardFocused;
               self.keyboardFocused = false;
               self.repeatKey = 0;
+              if (changed && self.owner.focusChanged)
+                self.owner.focusChanged(false);
               self.owner.invalidate();
             },
         .key =

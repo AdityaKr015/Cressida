@@ -1,4 +1,8 @@
+#include "app/brand_logo.h"
 #include "app/client_application.h"
+#include "app/theme.h"
+#include "render/scene/image_node.h"
+#include "render/scene/rect_node.h"
 #include "render/scene/text_node.h"
 
 #include <algorithm>
@@ -76,7 +80,7 @@ namespace app {
       m_demoOverlay = view;
       m_demoInteractionStep = 0;
     }
-    if (view == "dm-home-cycle") {
+    if (view.starts_with("dm-home-cycle")) {
       m_demoOverlay = view;
       m_demoInteractionStep = 0;
     }
@@ -164,6 +168,54 @@ namespace app {
       inspect(inspect, *m_scene);
       require(checked >= 2, "The DM replay must inspect rendered button captions");
     };
+    const auto home = std::ranges::find(m_hits, Action::Home, &Hit::action);
+    require(home != m_hits.end(), "The branded DM rail button is always visible");
+    const auto homeBackground = std::ranges::find_if(m_scene->children(), [&](const auto& node) {
+      return node->type() == NodeType::Rect
+          && node->x() == home->x
+          && node->y() == home->y
+          && node->width() == home->width
+          && node->height() == home->height;
+    });
+    require(homeBackground != m_scene->children().end(), "The DM button always paints a background");
+    require(
+        static_cast<const RectNode&>(**homeBackground).style().fill
+            == (home->contains(m_pointerX, m_pointerY) ? theme::raised : theme::panel),
+        "Only hover changes the persistent DM tile background"
+    );
+    const auto logo = std::ranges::find_if(m_scene->children(), [&](const auto& node) {
+      return node->type() == NodeType::Image
+          && node->x() == home->x + layout::ServerRail::logoInset
+          && node->y() == home->y + layout::ServerRail::logoInset
+          && node->width() == layout::ServerRail::logoSize;
+    });
+    require(logo != m_scene->children().end(), "The DM button renders the actual bundled Cressida logo");
+    const auto& image = static_cast<const ImageNode&>(**logo);
+    require(
+        !image.monochromeTint() && !image.alphaMaskTint(),
+        "The logo preserves its layered gradients instead of flattening them into a silhouette"
+    );
+    const int pixels =
+        std::max(1, static_cast<int>(std::ceil(layout::ServerRail::logoSize * m_window.target().contentScale())));
+    const auto colors = logoGradientColors(theme::accent, theme::foreground, theme::background, theme::lightTheme);
+    const auto themed = m_images.find("builtin:cressida-logo:" + std::to_string(pixels) + logoGradientKey(colors));
+    require(
+        themed != m_images.end() && themed->second.texture.valid() && image.textureId() == themed->second.texture.id,
+        "The logo renders the original artwork recolored for the active palette and mode"
+    );
+    if (m_dmMode) {
+      const auto input = m_inputs.find("dm-search");
+      require(
+          input != m_inputs.end() && input->second->height() == layout::DmSidebar::searchHeight,
+          "DM search uses the shared comfortable input height"
+      );
+      const auto metrics =
+          m_window.target().renderer().measureText("Find or start a conversation", Style::fontSizeCaption);
+      require(
+          metrics.width <= input->second->width() - Style::spaceMd * 2 - Style::spaceXs,
+          "The default DM sidebar fits the full search placeholder with inner padding"
+      );
+    }
     switch (m_demoInteractionStep++) {
     case 0:
       require(
@@ -248,8 +300,8 @@ namespace app {
       );
       break;
     case 5:
-      click(Action::Home);
-      require(m_dmPage == "friends" && m_channelId.empty(), "Home opens the native Friends view");
+      click(Action::DmPage, "friends");
+      require(m_dmPage == "friends" && m_channelId.empty(), "The explicit Friends row opens the native Friends view");
       break;
     case 6:
       click(Action::DmPage, "requests");
@@ -317,7 +369,45 @@ namespace app {
           messageRequestCount() == 0 && m_dmPending.empty() && m_dmPreview.empty(),
           "Finished DM actions leave no stale request data"
       );
-      std::clog << "Offline DM navigation, requests, previews, badges and friends replay passed\n";
+      click(Action::DmPage, "friends");
+      break;
+    case 18:
+      require(m_dmPage == "friends", "Friends remains explicitly available in the DM sidebar");
+      click(Action::Home);
+      break;
+    case 19: {
+      require(
+          m_dmPage.empty() && m_channelId == "9001" && m_drafts["9001"] == "An unsent message",
+          "The rail returns from Friends to the last DM without changing its draft"
+      );
+      const auto scroll = m_messageScroll;
+      click(Action::Home);
+      require(
+          m_channelId == "9001" && m_messageScroll == scroll,
+          "Clicking the active DM button preserves the current timeline"
+      );
+      selectGuild("1");
+      break;
+    }
+    case 20:
+      click(Action::Home);
+      require(m_channelId == "9001" && m_dmPage.empty(), "The rail restores the last DM after visiting a server");
+      break;
+    case 21:
+      m_preferences.theme = theme::lightTheme ? "dark" : "light";
+      m_preferences.colorTheme = "gruvbox";
+      break;
+    case 22:
+      selectGuild("1");
+      m_privateChannels.clear();
+      click(Action::Home);
+      break;
+    case 23:
+      require(
+          m_dmPage == "friends" && m_channelId.empty(),
+          "An empty conversation list falls back to Friends instead of a missing DM"
+      );
+      std::clog << "Offline DM navigation, themed branding, requests, previews and friends replay passed\n";
       break;
     }
     m_window.invalidate();

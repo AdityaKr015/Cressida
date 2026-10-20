@@ -180,7 +180,10 @@ namespace app {
   void ClientApplication::drawChannelHeader(Node& root, float w) {
     const float left = chatLeft();
     const float width = w - left;
-    rectangle(root, left, layout::Window::titlebarHeight, width, layout::ChannelHeader::height, background);
+    floatingPanel(
+        root, layout::floatingFrame(left, layout::Window::titlebarHeight, width, layout::ChannelHeader::height),
+        background
+    );
     const auto* channel = selectedChannel();
     if (!channel) {
       label(
@@ -521,8 +524,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::drawChannelPanel(Node& root, float x, float y, float width, float height) {
-    rectangle(root, x, y, width, height, sidebar);
-    rectangle(root, x, y, 1, height, raised);
+    floatingPanel(root, layout::floatingFrame(x, y, width, height - Style::spaceSm), sidebar);
     label(
         root, x + (Style::spaceLg + Style::spaceXxs), y + ((Style::spaceLg + Style::spaceXxs) + Style::borderWidth),
         width - 74, m_channelPanel == "pins" ? "Pinned messages" : "Search results", Style::fontSizeHeading, foreground,
@@ -748,7 +750,7 @@ namespace app {
         item->setContentAlign(navigation ? ButtonContentAlign::Start : ButtonContentAlign::Center);
         item->setPosition(hit.x, hit.y + (hit.height - 26) / 2);
         item->setControlHeight(26);
-        item->setRadius(5);
+        item->setRadius(Style::scaledRadius(Style::controlRadius));
         item->setPadding(0, 8);
         item->setFrameSize(hit.width, 26);
         item->setEnabled(hit.action != Action::None);

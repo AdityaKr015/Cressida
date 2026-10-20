@@ -1,3 +1,5 @@
+#include "app/brand_logo.h"
+#include "app/member_list_layout.h"
 #include "core/files/resource_paths.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/keybind_matcher.h"
@@ -11,7 +13,9 @@
 #include FT_FREETYPE_H
 #include "ui/controls/toggle.h"
 
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -26,6 +30,70 @@ int main() {
       throw std::runtime_error(message);
   };
   try {
+    std::ifstream logoFile(paths::assetPath("cressida-logo.svg"), std::ios::binary);
+    const std::string logo(std::istreambuf_iterator<char>{logoFile}, std::istreambuf_iterator<char>{});
+    require(
+        !logo.empty() && logo.find("<path") != std::string::npos,
+        "The native UI ships the original Cressida vector artwork"
+    );
+    for (const bool light : {false, true}) {
+      const auto colors = app::logoGradientColors(
+          rgbHex(0xA6B975), rgbHex(light ? 0x162027 : 0xF1EBD5), rgbHex(light ? 0xF8F8F2 : 0x0B1924), light
+      );
+      const auto svg = app::themedLogoSvg(logo, colors);
+      require(
+          svg.substr(svg.find("<path")) == logo.substr(logo.find("<path")),
+          "Theme adaptation preserves every logo path and its drawing order"
+      );
+      require(
+          colors[0] != colors[2] && colors[1] != colors[3],
+          "The logo retains distinct highlight and shadow gradients in both modes"
+      );
+      for (const auto color : colors)
+        require(
+            color.a == 1 && svg.find(app::logoColorHex(color)) != std::string::npos,
+            "Themed gradients remain opaque and visible instead of becoming transparency"
+        );
+    }
+    struct MemberRow {
+      int index;
+      std::string group;
+    };
+    const std::vector<MemberRow> members{{0, "Online"}, {1, {}}, {2, "Offline"}, {3, {}}, {1000, "Other"}};
+    const app::layout::MemberListLayout layout(members, 1002);
+    require(
+        layout.top(1) == app::layout::Members::groupHeight
+            && layout.top(3) == app::layout::Members::groupHeight * 2 + app::layout::Members::rowHeight,
+        "Member groups compact independently of ordinary member rows"
+    );
+    for (const auto index : {0, 1, 2, 3, 999, 1000, 1001})
+      require(
+          layout.indexAt(layout.top(index)) == index,
+          "Sparse remote member indices map back from their compact scroll positions"
+      );
+    require(
+        layout.maximumScroll(layout.height() + app::layout::Members::rowHeight) == 0
+            && layout.indexAt(layout.height()) == 1001,
+        "Member scrolling stays bounded across unloaded pages and at the last member"
+    );
+    for (const auto scale : {0.0F, 0.5F, 2.0F}) {
+      Style::setCornerRadiusScale(scale);
+      require(
+          Style::scaledRadiusXl() == Style::radiusXl * scale
+              && Style::scaledShapeRadius(Style::surfaceRadius, Style::spaceSection, Style::spaceXl)
+                  == Style::surfaceRadius * scale,
+          "All surface and control corners use the same global radius scale"
+      );
+      require(
+          Style::scaledShapeRadius(Style::spaceSm, Style::spaceLg, Style::spaceLg) == Style::spaceSm,
+          "Circular identities retain their shape while UI corners change"
+      );
+    }
+    Style::setCornerRadiusScale(-1);
+    require(Style::cornerRadiusScale() == 0, "Corner scaling clamps below square");
+    Style::setCornerRadiusScale(3);
+    require(Style::cornerRadiusScale() == 2, "Corner scaling clamps to its maximum");
+    Style::setCornerRadiusScale(1);
     FT_Library fonts = nullptr;
     require(FT_Init_FreeType(&fonts) == 0, "Initialize bundled icon font verification");
     FT_Face face = nullptr;

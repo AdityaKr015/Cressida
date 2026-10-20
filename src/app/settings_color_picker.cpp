@@ -124,7 +124,7 @@ namespace app {
         {.fill = m_color,
          .border = colorForRole(ColorRole::Outline),
          .fillMode = FillMode::Solid,
-         .radius = 5,
+         .radius = Style::scaledRadius(Style::controlRadius),
          .borderWidth = 1}
     );
     m_preview->setOpacity(m_enabled ? 1.0F : 0.5F);

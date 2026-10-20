@@ -1,13 +1,19 @@
+#include "app/brand_logo.h"
 #include "app/client_application.h"
 #include "app/message_preferences.h"
 #include "app/notification_preview.h"
 #include "app/theme.h"
+#include "core/files/resource_paths.h"
+#include "render/core/texture_manager.h"
+#include "render/scene/image_node.h"
 #include "render/scene/text_node.h"
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <glib.h>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 
 namespace app {
@@ -35,6 +41,47 @@ namespace app {
     return static_cast<int>(std::ranges::count_if(m_privateChannels, [](const auto& channel) {
       return channel.isMessageRequest() && !channel.spam.value_or(false);
     }));
+  }
+  void ClientApplication::drawDirectMessagesButton(Node& root) {
+    const Hit hit{layout::ServerRail::iconX,
+                  layout::ServerRail::homeTop,
+                  layout::Avatar::rail,
+                  layout::Avatar::rail,
+                  Action::Home,
+                  {}};
+    const bool over = hit.contains(m_pointerX, m_pointerY);
+    rectangle(root, hit.x, hit.y, hit.width, hit.height, over ? theme::raised : theme::panel, Style::radiusXl);
+    const int pixels =
+        std::max(1, static_cast<int>(std::ceil(layout::ServerRail::logoSize * m_window.target().contentScale())));
+    const auto colors = logoGradientColors(theme::accent, theme::foreground, theme::background, theme::lightTheme);
+    auto& logo = m_images["builtin:cressida-logo:" + std::to_string(pixels) + logoGradientKey(colors)];
+    logo.touched = ++m_imageSerial;
+    if (!logo.texture.valid()) {
+      static const auto source = [] {
+        std::ifstream file(paths::assetPath("cressida-logo.svg"), std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{});
+      }();
+      const auto svg = themedLogoSvg(source, colors);
+      auto* encoded = g_base64_encode(reinterpret_cast<const guchar*>(svg.data()), svg.size());
+      const auto uri = "data:image/svg+xml;base64," + std::string(encoded);
+      g_free(encoded);
+      logo.texture = m_window.context().textureManager().loadFromFile(uri, pixels);
+    }
+    if (logo.texture.valid()) {
+      auto image = std::make_unique<ImageNode>();
+      image->setPosition(hit.x + layout::ServerRail::logoInset, hit.y + layout::ServerRail::logoInset);
+      image->setSize(layout::ServerRail::logoSize, layout::ServerRail::logoSize);
+      image->setTextureId(logo.texture.id);
+      image->setTextureSize(logo.texture.width, logo.texture.height);
+      image->setFitMode(ImageFitMode::Contain);
+      root.addChild(std::move(image));
+    }
+    m_hits.push_back(hit);
+    if (over) {
+      m_tooltip = "Direct messages";
+      m_tooltipX = hit.x + hit.width / 2;
+      m_tooltipY = hit.y;
+    }
   }
   void ClientApplication::openDmPage(const std::string& page) {
     clearTyping();
@@ -203,7 +250,7 @@ namespace app {
     if (m_dmPending.contains(id))
       return;
     m_dmStatus.clear();
-    const bool replay = m_demo && m_demoOverlay == "dm-home-cycle";
+    const bool replay = m_demo && m_demoOverlay.starts_with("dm-home-cycle");
     if (replay)
       m_dmDemoAction = action;
     if (replay || startInteraction(action)) {

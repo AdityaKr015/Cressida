@@ -168,8 +168,8 @@ namespace app {
                 m_scene->children(),
                 [&](const auto& node) {
                   return node->type() == NodeType::Image
-                      && node->x() == 14
-                      && node->y() == 113 + i * 60
+                      && node->x() == layout::ServerRail::iconX
+                      && node->y() == layout::ServerRail::top + i * layout::ServerRail::step
                       && static_cast<const ImageNode&>(*node).textureId() == texture;
                 }
             ),

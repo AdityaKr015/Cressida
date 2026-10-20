@@ -1801,7 +1801,7 @@ namespace app {
       control->setVariant(variant);
       control->setPosition(x, y);
       control->setControlHeight(layout::Settings::actionHeight);
-      control->setRadius(layout::Settings::actionRadius);
+      control->setRadius(Style::scaledRadius(layout::Settings::actionRadius));
       control->setPadding(0, Style::spaceDense);
       control->setFrameSize(bw, layout::Settings::actionHeight);
       control->setEnabled(
@@ -1932,7 +1932,7 @@ namespace app {
       control->setContentAlign(ButtonContentAlign::Start);
       control->setPosition(4, navY - state.navScroll);
       control->setControlHeight(layout::Settings::actionHeight);
-      control->setRadius(layout::Settings::actionRadius);
+      control->setRadius(Style::scaledRadius(layout::Settings::actionRadius));
       control->setPadding(0, 8);
       control->setFrameSize(navWidth - Style::spaceSm, 26);
       control->setEnabled(!state.saving);
@@ -2004,7 +2004,7 @@ namespace app {
       categoryTop = cursor;
       auto card = std::make_unique<RectNode>();
       card->setPosition(-14, cursor);
-      card->setStyle({.fill = sidebar, .radius = 8});
+      card->setStyle({.fill = sidebar, .radius = Style::scaledRadius(Style::surfaceRadius)});
       card->setZIndex(-1);
       category = card.get();
       p.addChild(std::move(card));

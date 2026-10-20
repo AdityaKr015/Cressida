@@ -142,7 +142,7 @@ namespace app {
       int emojiNames = 0, headingIcons = 0;
       const Node* memberList = nullptr;
       const auto check = [&](auto&& self, const Node& node) -> void {
-        if (node.x() == m_window.width() - 240 && node.y() == 148)
+        if (node.x() == m_window.width() - 240 && node.y() == layout::Members::top)
           memberList = &node;
         if (node.type() == NodeType::Text) {
           const auto& text = static_cast<const TextNode&>(node);
@@ -198,8 +198,8 @@ namespace app {
             !(child->type() == NodeType::Rect
               && child->x() == selected->x
               && child->y() == selected->y
-              && child->width() == 48
-              && child->height() == 48),
+              && child->width() == layout::Avatar::rail
+              && child->height() == layout::Avatar::rail),
             "Active guild icons must not have a selection background"
         );
       if (step == 0) {

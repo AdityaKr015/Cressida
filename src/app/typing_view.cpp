@@ -2,15 +2,190 @@
 #include "app/theme.h"
 #include "render/scene/rect_node.h"
 #include "render/scene/text_node.h"
+#include "ui/controls/slider.h"
 
 #include <algorithm>
 #include <cmath>
+#include <linux/input-event-codes.h>
 #include <numbers>
 #include <stdexcept>
 
 namespace app {
   namespace {
     constexpr auto minimumExpiryDelay = std::chrono::milliseconds{1};
+  }
+  void ClientApplication::demoFloatingStep() {
+    const auto require = [](bool value, const char* message) {
+      if (!value)
+        throw std::runtime_error(message);
+    };
+    const auto surface = [&](const layout::Frame& frame) {
+      const auto found = std::ranges::find_if(m_scene->children(), [&](const auto& node) {
+        return node->type() == NodeType::Rect
+            && node->x() == frame.x
+            && node->y() == frame.y
+            && node->width() == frame.width
+            && node->height() == frame.height;
+      });
+      require(found != m_scene->children().end(), "Floating panes paint their measured layout frames");
+      for (const auto& node : m_scene->children())
+        if (node->type() == NodeType::Rect
+            && node->x() == frame.x
+            && node->y() == frame.y
+            && node->width() == frame.width
+            && node->height() == frame.height)
+          require(!node->hitTestVisible(), "Pane backgrounds, masks and borders never cover native input targets");
+      const auto& style = static_cast<const RectNode&>(**found).style();
+      if (frame.x > Style::spaceSm)
+        require(
+            style.fill == theme::background, "Channel, member, header, chat and input panels share the chat surface"
+        );
+      require(
+          style.radius == Radii{Style::scaledRadiusXl()} && style.borderWidth == Style::borderWidth,
+          "Every floating pane follows the shared corner scale and border token"
+      );
+    };
+    const auto panes = [&] {
+      require(
+          m_floatingFrames.size() == 7,
+          "The rail, channels, profile, header, conversation, composer and members float independently"
+      );
+      for (const auto& frame : m_floatingFrames) {
+        require(frame.width > 0 && frame.height > 0, "Floating panes retain usable dimensions");
+        surface(frame);
+      }
+      for (const auto& hit : m_hits)
+        if (hit.x < layout::Sidebar::railWidth
+            && (hit.action == Action::Home
+                || hit.action == Action::Guild
+                || hit.action == Action::Folder
+                || hit.action == Action::DirectMessage))
+          require(
+              hit.x + hit.width / 2 == layout::Sidebar::railWidth / 2
+                  && hit.x >= Style::spaceSm + Style::spaceCompact
+                  && hit.x + hit.width <= layout::Sidebar::railWidth - Style::spaceSm - Style::spaceCompact,
+              "Rail icons and folders are centered with breathing room on both sides"
+          );
+      const float h = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
+      const auto account = layout::accountFrame(h, chatLeft());
+      surface({account.x, account.y, account.width, account.height});
+      surface(
+          layout::floatingFrame(
+              0, layout::Window::titlebarHeight, layout::Sidebar::railWidth,
+              account.y - Style::spaceSm - layout::Window::titlebarHeight
+          )
+      );
+      surface(
+          layout::floatingFrame(
+              layout::Sidebar::railWidth, layout::Window::titlebarHeight, channelSidebarWidth(),
+              account.y - Style::spaceSm - layout::Window::titlebarHeight
+          )
+      );
+      surface(
+          layout::floatingFrame(
+              chatLeft(), layout::Window::titlebarHeight, m_window.width() - chatLeft(), layout::ChannelHeader::height
+          )
+      );
+      const auto composer = layout::composerFrame(h, layout::Composer::minimumHeight);
+      const auto unreadChannel = std::ranges::find_if(m_hits, [](const auto& hit) {
+        return hit.action == Action::Channel && hit.id == "103";
+      });
+      require(unreadChannel != m_hits.end(), "The floating fixture includes an unread channel");
+      const auto unreadMarker = std::ranges::find_if(m_scene->children(), [&](const auto& node) {
+        return node->type() == NodeType::Rect
+            && node->x() == layout::Sidebar::unreadX
+            && node->y() == unreadChannel->y + (layout::Sidebar::rowHeight - layout::Sidebar::unreadHeight) / 2
+            && node->width() == layout::Sidebar::unreadWidth
+            && node->height() == layout::Sidebar::unreadHeight;
+      });
+      require(
+          unreadMarker != m_scene->children().end()
+              && (*unreadMarker)->x() > layout::Sidebar::railWidth + Style::spaceSm
+              && (*unreadMarker)->x() + (*unreadMarker)->width()
+                  < layout::Sidebar::railWidth + layout::Sidebar::rowInset * 2,
+          "Unread markers stay inside the channel panel and clear of channel icons"
+      );
+      const float memberX = m_window.width() - m_floatingFrames.back().width - Style::spaceSm * 2;
+      const auto memberHit = std::ranges::find_if(m_hits, [&](const auto& hit) {
+        return hit.action == Action::UserProfile && hit.x == memberX + Style::spaceMd;
+      });
+      require(
+          memberHit != m_hits.end() && memberHit->y == layout::Members::top + layout::Members::groupHeight,
+          "The first member follows the compact group heading with no redundant section header"
+      );
+      const auto noHeading = [&](auto&& self, const Node& node) -> void {
+        if (node.type() == NodeType::Text) {
+          const auto& text = static_cast<const TextNode&>(node).text();
+          require(text != "MEMBERS" && text != "PARTICIPANTS", "The member list has no redundant title row");
+        }
+        for (const auto& child : node.children())
+          self(self, *child);
+      };
+      noHeading(noHeading, *m_scene);
+      const auto& conversation = m_floatingFrames[4];
+      const auto scrollbar = m_widgets.find("chat-scrollbar");
+      require(
+          scrollbar != m_widgets.end()
+              && scrollbar->second->x() >= conversation.x
+              && scrollbar->second->x() + scrollbar->second->width() <= conversation.x + conversation.width
+              && scrollbar->second->y() + scrollbar->second->height() <= composer.typingTop,
+          "The timeline scrollbar stays inside the conversation panel above the typing row"
+      );
+      require(
+          conversation.y + conversation.height == composer.panelBottom
+              && composer.panelBottom == account.y - Style::spaceSm * 2
+              && composer.typingTop >= m_messageViewportBottom
+              && composer.typingTop + layout::Typing::height < composer.panelBottom,
+          "Typing stays inside the conversation panel, whose bottom aligns with both sidebars"
+      );
+      require(m_composerTop == account.y, "Floating profile and default input share their height and bottom margin");
+    };
+    const auto radius = [&](bool maximum) {
+      const auto found = m_widgets.find("user-account-slider:local:corner_radius");
+      require(
+          found != m_widgets.end() && found->second->parent(), "Appearance exposes a retained native radius slider"
+      );
+      auto& control = *static_cast<Slider*>(found->second);
+      float x = 0, y = 0;
+      Node::mapToScene(
+          &control, maximum ? control.width() - Style::spaceXxs : Style::spaceXxs, control.height() / 2, x, y
+      );
+      m_window.motion(x, y);
+      m_window.click(x, y, BTN_LEFT);
+      m_window.released();
+      require(
+          m_preferences.cornerRadius == (maximum ? Style::cornerRadiusMaximumPercent : 0),
+          "Dragging the native corner slider applies its full bounded range"
+      );
+      require(!m_profileDirty, "Corner changes do not dirty account profile fields");
+    };
+    const auto step = m_demoInteractionStep++;
+    if (step == 0) {
+      panes();
+      openSettings();
+      selectSettingsPage("appearance");
+    } else if (step == 1) {
+      radius(false);
+    } else if (step == 2) {
+      require(Style::cornerRadiusScale() == 0, "Square corners apply before settings are measured and painted");
+      activate({0, 0, 0, 0, Action::CloseSettings, {}});
+    } else if (step == 3) {
+      panes();
+      openSettings();
+      selectSettingsPage("appearance");
+    } else if (step == 4) {
+      radius(true);
+    } else if (step == 5) {
+      require(Style::cornerRadiusScale() == 2, "Maximum rounding applies immediately to retained settings controls");
+      activate({0, 0, 0, 0, Action::CloseSettings, {}});
+    } else if (step == 6) {
+      panes();
+      extendedPreference("corner_radius:" + std::to_string(Style::cornerRadiusDefaultPercent));
+    } else if (step == 7) {
+      panes();
+      require(Style::cornerRadiusScale() == 1, "Default rounding can be restored without changing layout geometry");
+    }
+    m_window.invalidate();
   }
   void ClientApplication::demoTypingStep() {
     const auto require = [](bool value, const char* message) {
@@ -39,9 +214,15 @@ namespace app {
           found = true;
           float x = 0, y = 0;
           Node::mapToScene(&node, 0, 0, x, y);
+          const float chrome = m_window.titlebarHeight() - layout::Window::titlebarHeight;
+          const float sceneHeight = m_window.height() - chrome;
+          const auto composer = layout::composerFrame(sceneHeight, layout::Composer::minimumHeight);
+          const auto metrics = m_window.target().renderer().measureText(expected, Style::fontSizeDescription);
           require(
-              y < m_draftY + m_window.titlebarHeight() - layout::Window::titlebarHeight,
-              "Typing text stays above the native composer"
+              y + metrics.top >= composer.typingTop + chrome
+                  && y + metrics.bottom <= composer.typingTop + layout::Typing::height + chrome
+                  && y + metrics.bottom < composer.panelBottom + chrome,
+              "Typing text stays inside its reserved row within the conversation panel"
           );
         }
         for (const auto& child : node.children())
@@ -90,6 +271,62 @@ namespace app {
         );
     };
     const auto step = m_demoInteractionStep++;
+    const float sceneHeight = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
+    require(
+        m_composerTop == sceneHeight - layout::Sidebar::accountReserve,
+        "The default input bar aligns with the profile area above their shared bottom margin"
+    );
+    const auto accountHit = std::ranges::find(m_hits, Action::TogglePresence, &Hit::action);
+    const auto account = layout::accountFrame(sceneHeight, chatLeft());
+    require(
+        accountHit != m_hits.end()
+            && accountHit->x == account.x
+            && accountHit->y == m_composerTop
+            && accountHit->height == layout::Composer::minimumHeight,
+        "The profile area and its hit region match the default input bar's height and position"
+    );
+    const auto accountSurface = std::ranges::find_if(m_scene->children(), [&](const auto& node) {
+      return node->type() == NodeType::Rect
+          && node->x() == account.x
+          && node->y() == account.y
+          && node->width() == account.width
+          && node->height() == account.height;
+    });
+    require(
+        accountSurface != m_scene->children().end()
+            && static_cast<const RectNode&>(**accountSurface).style().radius == Radii{Style::scaledRadiusXl()}
+            && account.x > 0
+            && account.x + account.width < chatLeft(),
+        "The profile paints as a floating rounded card with side margins"
+    );
+    for (const auto& hit : m_hits)
+      if (hit.action == Action::Guild
+          || hit.action == Action::Folder
+          || hit.action == Action::DirectMessage
+          || hit.action == Action::Channel)
+        require(
+            hit.y + hit.height <= account.y - Style::spaceSm,
+            "Server, DM and channel hit regions remain above the floating account card"
+        );
+    require(
+        m_composerTop + layout::Composer::minimumHeight == sceneHeight - layout::Composer::bottomInset,
+        "The composer stays at the shared bottom inset whether or not people are typing"
+    );
+    const TypingLayoutSnapshot current{m_channelId,          m_composerTop,
+                                       m_messageViewportTop, m_messageViewportBottom,
+                                       m_messageMaxScroll,   m_messageScroll,
+                                       m_messageTops};
+    if (m_demoTypingLayout && m_demoTypingLayout->channel == current.channel)
+      require(
+          current.composerTop == m_demoTypingLayout->composerTop
+              && current.viewportTop == m_demoTypingLayout->viewportTop
+              && current.viewportBottom == m_demoTypingLayout->viewportBottom
+              && current.maximumScroll == m_demoTypingLayout->maximumScroll
+              && current.scroll == m_demoTypingLayout->scroll
+              && current.messageTops == m_demoTypingLayout->messageTops,
+          "Typing starts, expiry, blocking and completion never move the timeline, scroll range or composer"
+      );
+    m_demoTypingLayout = current;
     const std::size_t expectedBadges[] = {0, 1, 2, 4, 3, 1, 2, 0, 0, 0, 0, 0, 3, 0, 3, 0};
     require(step < typingReplayFrames, "Avatar typing replay remains within its frame count");
     badges(expectedBadges[step]);

@@ -64,6 +64,7 @@ namespace app {
     std::function<void(float)> scroll;
     std::function<void(float)> zoom;
     std::function<void(const Key&)> key;
+    std::function<void(bool)> focusChanged;
     std::function<void(std::string, std::string)> pasted;
 
   private:

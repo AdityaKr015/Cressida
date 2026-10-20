@@ -151,6 +151,7 @@ int main() {
       selected.spoilerMode = 2;
       selected.desktopNotifications = false;
       selected.desktopDecorations = false;
+      selected.cornerRadius = 0;
       selected.notificationPrivacy = 2;
       selected.keybinds = {{"settings", "Ctrl+Alt+s"}, {"quit", ""}};
       store.savePreferences("123", selected);
@@ -161,6 +162,7 @@ int main() {
               && actual.roleColorMode == 1
               && actual.spoilerMode == 2
               && !actual.desktopDecorations
+              && actual.cornerRadius == 0
               && !actual.desktopNotifications
               && actual.notificationPrivacy == 2
               && actual.keybinds == selected.keybinds,
@@ -173,12 +175,28 @@ int main() {
               && store.startupPreferences().saturation == 100,
           "Accessibility and notification choices never leak to other accounts or sign-in"
       );
+      require(
+          store.preferences("456").cornerRadius == Style::cornerRadiusDefaultPercent
+              && store.startupPreferences().cornerRadius == Style::cornerRadiusDefaultPercent,
+          "Corner choices stay per account and never leak into sign-in defaults"
+      );
       app::SessionStore restarted(std::filesystem::path(directory) / "client-preferences.json");
       require(
-          !restarted.preferences("123").desktopDecorations,
+          !restarted.preferences("123").desktopDecorations && restarted.preferences("123").cornerRadius == 0,
           "The desktop-decoration choice survives a new application session"
       );
       restarted.savePreferences("123", {});
+      require(
+          store.preferences("123").cornerRadius == Style::cornerRadiusDefaultPercent,
+          "Default corner rounding can replace a saved square preference"
+      );
+      auto bounded = app::Preferences{};
+      bounded.cornerRadius = Style::cornerRadiusMaximumPercent + 1;
+      restarted.savePreferences("456", bounded);
+      require(
+          restarted.preferences("456").cornerRadius == Style::cornerRadiusMaximumPercent,
+          "Persisted corner values remain within the supported range"
+      );
       require(
           store.preferences("123").desktopDecorations,
           "Re-enabling desktop decorations persists over a previously disabled choice"

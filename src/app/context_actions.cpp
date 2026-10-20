@@ -1463,7 +1463,7 @@ namespace app {
                     : over   ? raised
                              : panel,
                 .border = mine || over ? withAlpha(accent, mine ? 0.8F : 0.45F) : withAlpha(muted, 0.16F),
-                .radius = 8,
+                .radius = Style::scaledRadius(Style::surfaceRadius),
                 .borderWidth = 1
             }
         );
@@ -1529,6 +1529,7 @@ namespace app {
       break;
     case Action::CancelReply:
       m_replies.erase(m_channelId);
+      focusControl("composer");
       break;
     case Action::ToggleReplyMention:
       if (m_replies.contains(m_channelId))

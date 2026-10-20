@@ -384,7 +384,7 @@ namespace app {
     m_hits.push_back(
         {0, 36, static_cast<float>(m_window.width()), h - layout::Window::titlebarHeight, Action::TogglePresence, {}}
     );
-    const float x = 90, y = h - 338;
+    const float x = layout::accountFrame(h, chatLeft()).x, y = h - 338;
     rectangle(root, x, y, 258, 254, background, Style::radiusXl);
     label(
         root, x + Style::spaceLg, y + Style::cardPadding, 220, m_account.name, Style::fontSizeBody, foreground,
@@ -445,7 +445,7 @@ namespace app {
       control->setPosition(hit.x, hit.y);
       control->setFrameSize(hit.width, layout::Settings::actionHeight);
       control->setControlHeight(layout::Settings::actionHeight);
-      control->setRadius(layout::Settings::actionRadius);
+      control->setRadius(Style::scaledRadius(layout::Settings::actionRadius));
       control->setPadding(0, Style::spaceDense);
       control->setContentAlign(centered ? ButtonContentAlign::Center : ButtonContentAlign::Start);
       control->setVariant(
@@ -533,7 +533,7 @@ namespace app {
         item->setContentAlign(ButtonContentAlign::Start);
         item->setPosition(4, y);
         item->setControlHeight(layout::Settings::actionHeight);
-        item->setRadius(layout::Settings::actionRadius);
+        item->setRadius(Style::scaledRadius(layout::Settings::actionRadius));
         item->setPadding(0, 8);
         item->setFrameSize(navWidth - Style::spaceSm, 26);
         item->setOnClick([this, id = std::string(row.page->id)] {
@@ -600,7 +600,7 @@ namespace app {
       categoryTop = cursor;
       auto card = std::make_unique<RectNode>();
       card->setPosition(-14, cursor);
-      card->setStyle({.fill = sidebar, .radius = 8});
+      card->setStyle({.fill = sidebar, .radius = Style::scaledRadius(Style::surfaceRadius)});
       card->setZIndex(-1);
       category = card.get();
       p.addChild(std::move(card));
@@ -723,7 +723,7 @@ namespace app {
       control->setPosition(x, y);
       control->setFrameSize(buttonWidth, 26);
       control->setControlHeight(layout::Settings::actionHeight);
-      control->setRadius(layout::Settings::actionRadius);
+      control->setRadius(Style::scaledRadius(layout::Settings::actionRadius));
       control->setPadding(0, Style::spaceDense);
       control->setEnabled(enabled);
       control->setOnClick([this, action] {
@@ -914,7 +914,10 @@ namespace app {
         tile->setPosition(x, y);
         tile->setSize(cardWidth, cardHeight);
         tile->setStyle(
-            {.fill = panel, .border = selected ? accent : withAlpha(muted, .18F), .radius = 7, .borderWidth = 1}
+            {.fill = panel,
+             .border = selected ? accent : withAlpha(muted, .18F),
+             .radius = Style::scaledRadius(Style::hoverRadius),
+             .borderWidth = 1}
         );
         auto* card = p.addChild(std::move(tile));
         label(
@@ -987,6 +990,12 @@ namespace app {
           row(issue.file, issue.message + " The last valid version stays active when available.");
       }
     } else if (m_settingsPage == "appearance") {
+      section("Corners");
+      localSlider(
+          "Corner radius", "corner_radius",
+          "Adjust rounding across panels, controls, menus and media. Zero gives square corners.",
+          m_preferences.cornerRadius, 0, Style::cornerRadiusMaximumPercent, "%"
+      );
       section("Color mode");
       int index = 0;
       const bool stacked = width < layout::Settings::stackThreshold;

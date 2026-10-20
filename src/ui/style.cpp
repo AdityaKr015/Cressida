@@ -62,6 +62,10 @@ namespace Style {
   void setPopupShadowsEnabled(bool enabled) { g_popupShadowsEnabled = enabled; }
 
   float scaledRadius(float radius, float localScale) noexcept { return radius * localScale * g_cornerRadiusScale; }
+  float scaledShapeRadius(float radius, float width, float height) noexcept {
+    // Circular identities and dots retain their geometry, independent of UI corners.
+    return width == height && radius >= width / 2 ? radius : scaledRadius(radius);
+  }
 
   float scaledRadiusSm(float localScale) noexcept { return scaledRadius(radiusSm, localScale); }
 

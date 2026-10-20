@@ -78,6 +78,7 @@ namespace app {
     };
     const Number numbers[] = {
         {"saturation:", &Preferences::saturation, 100},
+        {"corner_radius:", &Preferences::cornerRadius, Style::cornerRadiusMaximumPercent},
         {"spoiler_mode:", &Preferences::spoilerMode, 2},
         {"role_color_mode:", &Preferences::roleColorMode, 2},
         {"message_group_spacing:", &Preferences::messageGroupSpacing, 24},

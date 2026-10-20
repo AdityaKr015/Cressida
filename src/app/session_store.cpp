@@ -224,6 +224,9 @@ namespace app {
       result.roleColorMode = std::clamp(value.value("role_color_mode", result.roleColors ? 0 : 2), 0, 2);
       result.messageGroupSpacing = std::clamp(value.value("message_group_spacing", 16), 0, 24);
       result.notificationPrivacy = std::clamp(value.value("notification_privacy", 0), 0, 2);
+      result.cornerRadius = std::clamp(
+          value.value("corner_radius", Style::cornerRadiusDefaultPercent), 0, Style::cornerRadiusMaximumPercent
+      );
       result.roleColors = result.roleColorMode != 2;
       if (value.contains("keybinds") && value["keybinds"].is_object() && value["keybinds"].size() <= 20)
         for (const auto& [key, chord] : value["keybinds"].items())
@@ -299,6 +302,7 @@ namespace app {
           {"show_role_icons", preferences.showRoleIcons},
           {"desktop_notifications", preferences.desktopNotifications},
           {"desktop_decorations", preferences.desktopDecorations},
+          {"corner_radius", std::clamp(preferences.cornerRadius, 0, Style::cornerRadiusMaximumPercent)},
           {"notification_sounds", preferences.notificationSounds},
           {"saturation", preferences.saturation},
           {"spoiler_mode", preferences.spoilerMode},

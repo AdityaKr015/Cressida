@@ -120,7 +120,7 @@ namespace app {
           image->setTextureId(m_videoTarget.colorTexture());
           image->setTextureSize(state.width, state.height);
           image->setFitMode(ImageFitMode::Contain);
-          image->setRadius(7);
+          image->setRadius(Style::scaledRadius(Style::hoverRadius));
           parent.addChild(std::move(image));
         }
       }

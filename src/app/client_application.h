@@ -63,6 +63,9 @@ namespace app {
     static constexpr int chatLinkReplayFrames = 6;
     static constexpr int attachmentReplayFrames = 7;
     static constexpr int typingReplayFrames = 16;
+    static constexpr int floatingReplayFrames = 8;
+    static constexpr int dmHomeReplayFrames = 24;
+    static constexpr int composerReplyReplayFrames = 10;
     enum class Action {
       Settings,
       DmPage,
@@ -276,6 +279,8 @@ namespace app {
     float messageEditHeight(float width);
     void drawMessageEdit(Node& parent, float x, float y, float width);
     void demoMessageEditStep();
+    void demoComposerReplyStep();
+    void windowFocusChanged(bool focused);
     void closeVideo();
     void openVideo(const std::string& source);
     void drawVideo(
@@ -312,6 +317,7 @@ namespace app {
     bool dmMatches(const std::string& text) const;
     int messageRequestCount() const;
     void openDmPage(const std::string& page);
+    void drawDirectMessagesButton(Node& root);
     void dmAction(const std::string& action);
     void openDmCreate();
     void dmCreateAction(const std::string& command);
@@ -334,6 +340,7 @@ namespace app {
     void drawTypingDots(Node& parent, float x, float y, float size, float step, Color color);
     void drawTyping(Node& root, float x, float y, float width, const std::string& text);
     void demoTypingStep();
+    void demoFloatingStep();
     MessageOptions::ChannelMention channelMention(std::string_view guild, std::string_view channel) const;
     bool channelPrivate(const std::string& guild, const api::Channel& channel) const;
     const char* channelGlyph(const std::string& guild, const api::Channel& channel) const;
@@ -451,6 +458,7 @@ namespace app {
     void demoGuildTagStep();
     void send();
     void rectangle(Node& parent, float x, float y, float w, float h, Color fill, float radius = 0);
+    void floatingPanel(Node& parent, const layout::Frame& frame, Color fill);
     float countBadge(
         Node& parent, float right, float y, int count, bool rail = false, std::string_view noun = "unread mention"
     );
@@ -909,6 +917,7 @@ namespace app {
     Timer m_reactorHoverTimer;
     bool m_reactionHoveredThisFrame = false;
     std::map<std::string, float> m_messageTops;
+    std::vector<layout::Frame> m_floatingFrames;
     float m_tooltipX = 0, m_tooltipY = 0, m_composerTop = 0;
     bool m_demo = false, m_demoPrepared = false;
     bool m_traceScroll = false, m_animateWheel = true;
@@ -918,6 +927,12 @@ namespace app {
     std::optional<api::HistoryQuery> m_demoHistoryQuery;
     std::optional<TimelineAnchor::Row> m_demoHistoryAnchor;
     std::optional<TimelineAnchor::Row> m_demoMotionAnchor;
+    struct TypingLayoutSnapshot {
+      std::string channel;
+      float composerTop, viewportTop, viewportBottom, maximumScroll, scroll;
+      std::map<std::string, float> messageTops;
+    };
+    std::optional<TypingLayoutSnapshot> m_demoTypingLayout;
     unsigned m_demoHistoryPages = 0, m_demoHistoryPhase = 0, m_demoHistoryMotion = 0;
     bool m_connected = false;
     bool m_connecting = false, m_restoringLogin = false, m_retrySavedLogin = false;

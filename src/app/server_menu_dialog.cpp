@@ -416,7 +416,7 @@ namespace app {
     auto surface = std::make_unique<RectNode>();
     surface->setPosition(x, y);
     surface->setFrameSize(width, height);
-    surface->setStyle({.fill = background, .border = raised, .radius = 12, .borderWidth = 1});
+    surface->setStyle({.fill = background, .border = raised, .radius = Style::scaledRadiusXl(), .borderWidth = 1});
     root.addChild(std::move(surface));
     m_dialogBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back(m_dialogBounds);
@@ -583,7 +583,7 @@ namespace app {
                : hover      ? lerpColor(fill, foreground, .1F)
                             : fill,
            .border = primary ? fill : raised,
-           .radius = 5,
+           .radius = Style::scaledRadius(Style::controlRadius),
            .borderWidth = primary ? 0.0F : 1.0F}
       );
       root.addChild(std::move(shape));

@@ -29,6 +29,7 @@ namespace app {
     int notificationPrivacy = 0;
     std::map<std::string, std::string> keybinds;
     bool desktopDecorations = true;
+    int cornerRadius = Style::cornerRadiusDefaultPercent;
   };
   struct LastChannel {
     std::string guild, channel;

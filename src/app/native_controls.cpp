@@ -4,11 +4,15 @@
 #include "core/input/key_modifiers.h"
 #include "core/input/keybind_matcher.h"
 #include "render/scene/input_area.h"
+#include "render/scene/text_node.h"
 #include "ui/controls/glyph.h"
 #include "ui/controls/scrollbar.h"
 #include "ui/palette.h"
 
+#include <algorithm>
 #include <cmath>
+#include <iostream>
+#include <stdexcept>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace app {
@@ -153,6 +157,163 @@ namespace app {
       m_focusedInput = id;
       m_controlInput.setFocus(found->second->inputArea());
     }
+  }
+  void ClientApplication::windowFocusChanged(bool focused) {
+    if (!focused
+        || !m_connected
+        || m_channelId.empty()
+        || settingsVisible()
+        || !m_dialogKind.empty()
+        || m_contextOpen
+        || m_messageEdit
+        || m_selectRequest
+        || m_emojiMenu
+        || m_gifMenu
+        || m_presenceMenu
+        || !m_viewImage.empty()
+        || m_videoExpanded
+        || !m_channelPanel.empty()
+        || forumView()
+        || (m_dmMode && !m_dmPage.empty()))
+      return;
+    const auto input = m_inputs.find("composer");
+    if (input == m_inputs.end() || !input->second->enabled())
+      return;
+    focusControl("composer");
+    if (m_controlInput.focusedArea() == input->second->inputArea())
+      m_fieldFocused = true;
+    m_window.invalidate();
+  }
+  void ClientApplication::demoComposerReplyStep() {
+    const auto require = [](bool value, const char* message) {
+      if (!value)
+        throw std::runtime_error(message);
+    };
+    const auto click = [&](Action action) {
+      const auto found = std::ranges::find(m_hits, action, &Hit::action);
+      require(found != m_hits.end(), "Reply replay requires the actual visible control");
+      const float x = found->x + found->width / 2,
+                  y = found->y + found->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight;
+      m_window.motion(x, y);
+      m_window.click(x, y, 1);
+      m_window.released();
+    };
+    const auto reply = [&] {
+      m_contextChannel = m_channelId;
+      m_contextMessage = m_messages.front().id;
+      contextAction(Action::Reply);
+    };
+    const auto focusedComposer = [&] {
+      require(
+          m_focusedInput == "composer" && m_controlInput.focusedArea() == m_inputs.at("composer")->inputArea(),
+          "Reply cancellation and window focus select the retained native composer"
+      );
+    };
+    const auto geometry = [&] {
+      const auto toggle = std::ranges::find(m_hits, Action::ToggleReplyMention, &Hit::action);
+      const auto close = std::ranges::find(m_hits, Action::CancelReply, &Hit::action);
+      require(toggle != m_hits.end() && close != m_hits.end(), "Both reply controls are painted");
+      require(
+          toggle->height == layout::ComposerReply::controlSize
+              && close->height == toggle->height
+              && close->width == close->height
+              && close->y == toggle->y
+              && close->x - toggle->x - toggle->width == layout::ComposerReply::gap
+              && close->y == m_composerTop + layout::ComposerReply::padding,
+          "Reply controls have equal heights, one center line and a compact shared gap"
+      );
+      const auto panel = std::ranges::find_if(m_floatingFrames, [&](const auto& frame) {
+        return frame.x == chatLeft() + Style::spaceSm && frame.y == m_composerTop;
+      });
+      require(
+          panel != m_floatingFrames.end()
+              && close->x + close->width == panel->x + panel->width - layout::ComposerReply::inset
+              && toggle->x >= panel->x + layout::ComposerReply::inset,
+          "Reply actions keep their right padding inside the composer, including narrow layouts"
+      );
+      int captions = 0;
+      for (const auto& node : m_scene->children()) {
+        if (node->type() != NodeType::Text)
+          continue;
+        const auto& text = static_cast<const TextNode&>(*node);
+        if (!text.text().starts_with("Replying to ") && text.text() != "@ ON" && text.text() != "@ OFF")
+          continue;
+        const auto metrics = m_window.target().renderer().measureText(text.text(), layout::ComposerReply::captionSize);
+        require(
+            text.fontSize() == layout::ComposerReply::captionSize
+                && std::abs(text.y() + (metrics.top + metrics.bottom) / 2 - toggle->y - toggle->height / 2)
+                    < Style::borderWidth,
+            "Reply names and mention captions align by actual glyph bounds"
+        );
+        ++captions;
+      }
+      require(captions == 2, "The reply row contains its name and compact mention caption");
+    };
+    const auto step = m_demoInteractionStep++;
+    if (step == 0) {
+      geometry();
+      click(Action::ToggleReplyMention);
+      require(m_replies.at(m_channelId).mention, "The aligned mention control remains functional");
+    } else if (step == 1) {
+      geometry();
+      onKey({XKB_KEY_Escape});
+      require(!m_replies.contains(m_channelId), "Escape uses the same cancel action as the close glyph");
+      focusedComposer();
+      reply();
+    } else if (step == 2) {
+      geometry();
+      click(Action::CancelReply);
+      require(!m_replies.contains(m_channelId), "The actual close glyph cancels the reply");
+      focusedComposer();
+      m_controlInput.setFocus(nullptr);
+      m_window.focusChanged(false);
+      require(!m_controlInput.focusedArea(), "Losing window focus never selects another input");
+      m_window.focusChanged(true);
+      focusedComposer();
+      onKey({XKB_KEY_a, "a"});
+      require(m_drafts.at(m_channelId) == "Reply drafta", "Typing works immediately after window activation");
+      onKey({XKB_KEY_z, {}, true});
+      require(m_drafts.at(m_channelId) == "Reply draft", "Activation preserves native composer undo");
+    } else if (step == 3) {
+      openSettings();
+    } else if (step == 4) {
+      focusControl("settings:search");
+      const auto* area = m_controlInput.focusedArea();
+      m_window.focusChanged(true);
+      require(area && m_controlInput.focusedArea() == area, "Activation preserves an active settings input");
+      activate({.action = Action::CloseSettings});
+    } else if (step == 5) {
+      reply();
+      activate({.action = Action::ToggleEmoji});
+    } else if (step == 6) {
+      require(m_emojiMenu && m_replies.contains(m_channelId), "The picker covers an existing reply");
+      m_window.focusChanged(true);
+      onKey({XKB_KEY_Escape});
+      require(!m_emojiMenu && m_replies.contains(m_channelId), "Escape closes the picker before cancelling a reply");
+      require(beginMessageEdit("3"), "The reply fixture includes an editable own message");
+    } else if (step == 7) {
+      focusControl("message-edit");
+      const auto* area = m_controlInput.focusedArea();
+      m_window.focusChanged(true);
+      require(area && m_controlInput.focusedArea() == area, "Activation preserves an inline message editor");
+      onKey({XKB_KEY_Escape});
+      require(!m_messageEdit && m_replies.contains(m_channelId), "Escape closes the editor before the reply");
+      onKey({XKB_KEY_Escape});
+      require(!m_replies.contains(m_channelId), "A following Escape cancels the remaining reply");
+      reply();
+      m_window.setUiScale(1.7F);
+    } else if (step == 8) {
+      geometry();
+      onKey({XKB_KEY_Escape});
+      focusedComposer();
+    } else if (step == 9) {
+      require(
+          !m_replies.contains(m_channelId) && m_drafts.at(m_channelId) == "Reply draft",
+          "Reply controls and focus changes preserve the unsent draft throughout"
+      );
+      std::clog << "Offline reply geometry, Escape and native composer activation replay passed\n";
+    }
+    m_window.invalidate();
   }
   void
   ClientApplication::settingsScrollbar(Node& parent, const std::string& id, Hit bounds, float content, float& offset) {
@@ -421,6 +582,7 @@ namespace app {
                 : id == "composer"     ? !m_demo
                     || m_demoOverlay == "sidebar-cycle"
                     || m_demoOverlay == "inline-edit-cycle"
+                    || m_demoOverlay.starts_with("reply-cycle")
                     || m_demoOverlay == "chat-links-cycle"
                     || m_demoOverlay.starts_with("autocomplete")
                                    : !m_savingProfile)

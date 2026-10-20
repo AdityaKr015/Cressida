@@ -68,6 +68,10 @@ namespace Style {
   inline constexpr float controlRadius = 5.0F;
   inline constexpr float hoverRadius = 7.0F;
   inline constexpr float surfaceRadius = 8.0F;
+  inline constexpr float logoHighlightMix = 0.25F;
+  inline constexpr float logoShadowMix = 0.65F;
+  inline constexpr int cornerRadiusDefaultPercent = 100;
+  inline constexpr int cornerRadiusMaximumPercent = cornerRadiusDefaultPercent * 2;
 
   inline constexpr float controlHeightSm = 32.0F;
   inline constexpr float controlHeight = 38.0F;
@@ -131,6 +135,7 @@ namespace Style {
   void setPopupShadowsEnabled(bool enabled);
 
   [[nodiscard]] float scaledRadius(float radius, float localScale = 1.0F) noexcept;
+  [[nodiscard]] float scaledShapeRadius(float radius, float width, float height) noexcept;
   [[nodiscard]] float scaledRadiusSm(float localScale = 1.0F) noexcept;
   [[nodiscard]] float scaledRadiusMd(float localScale = 1.0F) noexcept;
   [[nodiscard]] float scaledRadiusLg(float localScale = 1.0F) noexcept;

@@ -10,6 +10,51 @@
 // Application geometry extends the shared control style. Measurements and hit
 // regions must use these same values; changing density must not move them apart.
 namespace app::layout {
+  struct Frame {
+    float x, y, width, height;
+  };
+  inline Frame floatingFrame(float x, float y, float width, float height) {
+    return {
+        x + Style::spaceSm, y + Style::spaceSm, std::max(0.0F, width - Style::spaceSm * 2),
+        std::max(0.0F, height - Style::spaceSm * 2)
+    };
+  }
+  struct Composer {
+    static constexpr float bottomInset = Style::spaceLg;
+    static constexpr float minimumTextHeight = Style::fontSizeBody + Style::spaceSm;
+    static constexpr float verticalPadding = Style::spaceXl;
+    static constexpr float minimumHeight = minimumTextHeight + verticalPadding;
+  };
+  struct ComposerReply {
+    static constexpr float controlSize = Style::spaceXl;
+    static constexpr float padding = Style::spaceSm;
+    static constexpr float inset = Style::spaceLg;
+    static constexpr float gap = Style::spaceSm;
+    static constexpr float height = controlSize + padding * 2;
+    static constexpr float captionSize = Style::fontSizeDescription;
+  };
+  struct ComposerReplyFrame {
+    Frame label, mention, close;
+  };
+  inline ComposerReplyFrame
+  composerReplyFrame(float x, float y, float width, float mentionTextWidth, float labelHeight) {
+    const float controlY = y + (ComposerReply::height - ComposerReply::controlSize) / 2;
+    const Frame close{
+        x + width - ComposerReply::inset - ComposerReply::controlSize, controlY, ComposerReply::controlSize,
+        ComposerReply::controlSize
+    };
+    const float mentionWidth = mentionTextWidth + Style::spaceMd * 2;
+    const Frame mention{
+        close.x - ComposerReply::gap - mentionWidth, controlY, mentionWidth, ComposerReply::controlSize
+    };
+    const float labelX = x + ComposerReply::inset;
+    return {
+        {labelX, y + (ComposerReply::height - labelHeight) / 2, std::max(0.0F, mention.x - ComposerReply::gap - labelX),
+         labelHeight},
+        mention,
+        close
+    };
+  }
   struct Sidebar {
     static constexpr float railWidth = 78;
     static constexpr float preferredWidth = 248;
@@ -22,6 +67,14 @@ namespace app::layout {
     static constexpr float rowGap = Style::spaceXs;
     static constexpr float rowStep = rowHeight + rowGap;
     static constexpr float rowInset = Style::spaceMd;
+    static constexpr float unreadWidth = Style::spaceXs;
+    static constexpr float unreadHeight = Style::spaceCompact;
+    static constexpr float unreadX = railWidth + Style::spaceSm + Style::spaceXs;
+    static constexpr float accountHeight = Composer::minimumHeight;
+    static constexpr float accountReserve = accountHeight + Composer::bottomInset;
+    static constexpr float accountStatusSize = Style::spaceDense + Style::borderWidth;
+    static constexpr float accountSettingsSize = Style::controlHeightSm + Style::spaceXs;
+    static constexpr float accountOffset(float size) { return (accountHeight - size) / 2; }
     static constexpr float iconSize = 20;
     static constexpr float threadIconSize = Style::baseGlyphSize;
     static constexpr float lockSize = 8;
@@ -31,6 +84,17 @@ namespace app::layout {
   };
   struct Window {
     static constexpr float titlebarHeight = 36;
+  };
+  struct DmSidebar {
+    static constexpr float inset = Style::spaceLg;
+    static constexpr float searchTop = Window::titlebarHeight + Style::spaceLg;
+    static constexpr float searchHeight = Style::controlHeight;
+    static constexpr float rowHeight = Style::controlHeight;
+    static constexpr float friendsTop = searchTop + searchHeight + Style::spaceMd;
+    static constexpr float requestsTop = friendsTop + rowHeight + Style::spaceXs;
+    static constexpr float headingTop = requestsTop + rowHeight + Style::spaceMd;
+    static constexpr float headingHeight = Style::spaceRelaxed + Style::spaceCompact;
+    static constexpr float channelsTop = headingTop + headingHeight + Style::spaceMd;
   };
   inline float sidebarWidth(float preferred, float windowWidth) {
     if (!std::isfinite(preferred))
@@ -68,6 +132,15 @@ namespace app::layout {
     static constexpr float textInset = dotsWidth + Style::spaceSm;
     static constexpr auto cycle = std::chrono::milliseconds{Style::animSlow * 3};
   };
+  struct ComposerFrame {
+    float top, panelBottom, typingTop, viewportBottom;
+  };
+  inline ComposerFrame composerFrame(float windowHeight, float composerHeight) {
+    const float top = windowHeight - Composer::bottomInset - composerHeight;
+    const float panelBottom = top - Style::spaceSm * 2;
+    const float typingTop = panelBottom - Style::spaceSm - Typing::height;
+    return {top, panelBottom, typingTop, typingTop - Chat::composerGap};
+  }
   struct TypingBadge {
     static constexpr float height = Style::spaceMd;
     static constexpr float width = height * 2;
@@ -94,6 +167,16 @@ namespace app::layout {
     static constexpr float actionWidth = 30;
     static constexpr float actionStep = 35;
     static constexpr float actionsReserve = 146;
+  };
+  struct Members {
+    static constexpr float rowHeight = Style::controlHeightLg;
+    static constexpr float groupHeight = Style::spaceXl;
+    static constexpr float top = Window::titlebarHeight + ChannelHeader::height + Style::spaceSm * 2;
+    static constexpr float bottomInset = Composer::bottomInset + Style::spaceXs;
+    static constexpr float groupTextTop = (groupHeight - Style::fontSizeMini) / 2;
+    static constexpr float groupIconTop = (groupHeight - Style::baseGlyphSize) / 2;
+    static constexpr float rowHitHeight = rowHeight - Style::spaceXxs;
+    static float viewportHeight(float windowHeight) { return std::max(0.0F, windowHeight - bottomInset - top); }
   };
   struct DraftAttachment {
     static constexpr float size = 82;
@@ -192,9 +275,6 @@ namespace app::layout {
     static constexpr float gifMaximumTileHeight = 220;
     static constexpr float gifFallbackTileHeight = 140;
   };
-  struct Frame {
-    float x, y, width, height;
-  };
   inline Frame pickerFrame(
       float windowWidth, float composerTop, bool members, float desiredWidth,
       float minimumHeight = Picker::minimumHeight, float maximumHeight = Picker::maximumHeight
@@ -211,8 +291,51 @@ namespace app::layout {
   }
   struct Avatar {
     static constexpr float tiny = 20, compact = 24, dm = 28, member = 30, small = 32, account = 34;
-    static constexpr float chat = Chat::avatarSize, rail = 48, preview = 56, large = 64;
+    static constexpr float chat = Chat::avatarSize, rail = Style::spaceSection, preview = 56, large = 64;
     static constexpr float request = 72, profile = 84, hero = 96;
+  };
+  struct AccountFrame {
+    float x, y, width, height, avatarX, avatarY, nameX, nameWidth, settingsX, settingsY, presenceWidth;
+  };
+  inline AccountFrame accountFrame(float windowHeight, float sidebarRight) {
+    const float x = Style::spaceSm, y = windowHeight - Sidebar::accountReserve;
+    const float width = sidebarRight - x * 2;
+    const float avatarX = x + Style::spaceSm;
+    const float nameX = avatarX + Avatar::account + Style::spaceSm;
+    const float settingsX = x + width - Style::spaceXs - Sidebar::accountSettingsSize;
+    return {
+        x,
+        y,
+        width,
+        Sidebar::accountHeight,
+        avatarX,
+        y + Sidebar::accountOffset(Avatar::account),
+        nameX,
+        std::max(0.0F, settingsX - Style::spaceSm - nameX),
+        settingsX,
+        y + Sidebar::accountOffset(Sidebar::accountSettingsSize),
+        settingsX - x
+    };
+  }
+  struct ServerRail {
+    static constexpr float iconX = (Sidebar::railWidth - Avatar::rail) / 2;
+    static constexpr float homeTop = Window::titlebarHeight + Style::spaceLg;
+    static constexpr float logoSize = Avatar::rail - Style::spaceXs * 2;
+    static constexpr float logoInset = (Avatar::rail - logoSize) / 2;
+    static constexpr float folderSize = Avatar::rail + Style::spaceXs;
+    static constexpr float folderX = (Sidebar::railWidth - folderSize) / 2;
+    static constexpr float folderAvatarSize = Style::baseGlyphSize;
+    static constexpr float folderAvatarStep = folderAvatarSize + Style::spaceXxs;
+    static constexpr float folderInset = (folderSize - folderAvatarSize - folderAvatarStep) / 2;
+    static constexpr float expandedSize = folderSize + Style::spaceXs;
+    static constexpr float expandedX = (Sidebar::railWidth - expandedSize) / 2;
+    static constexpr float markerX = Style::spaceSm + Style::spaceXxs;
+    static constexpr float badgeRight = iconX + Avatar::rail + Style::spaceXs;
+    static constexpr float visibleTop = Window::titlebarHeight + ChannelHeader::height + Style::spaceSm;
+    static constexpr float top =
+        Window::titlebarHeight + ChannelHeader::height + Style::spaceDense + Style::borderWidth;
+    static constexpr float step = Avatar::rail + Style::spaceMd;
+    static constexpr float rowHeight = folderSize;
   };
   struct Emoji {
     static constexpr float badge = Style::baseGlyphSize, inlineSize = 22, picker = 36, preview = 32, jumbo = 48;

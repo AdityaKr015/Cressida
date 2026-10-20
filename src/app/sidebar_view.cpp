@@ -64,7 +64,20 @@ namespace app {
       return std::pair{x, y + layout::Window::titlebarHeight - m_window.titlebarHeight()};
     };
     const auto shape = [&](std::uint32_t expected) {
-      require(m_window.cursorShape() == expected, "Cursor must match the active control/drag");
+      if (m_window.cursorShape() != expected)
+        throw std::runtime_error(
+            "Sidebar replay frame "
+            + std::to_string(m_demoInteractionStep - 1)
+            + " expected cursor "
+            + std::to_string(expected)
+            + ", found "
+            + std::to_string(m_window.cursorShape())
+        );
+    };
+    const auto moveToServer = [&] {
+      const auto rail = std::ranges::find(m_hits, Action::Guild, &Hit::action);
+      require(rail != m_hits.end(), "Cursor replay includes a visible server target");
+      move(rail->x + rail->width / 2, rail->y + rail->height / 2);
     };
     const auto step = m_demoInteractionStep++;
     if (step == 0) {
@@ -74,12 +87,12 @@ namespace app {
       click(x, y);
       move(chatLeft(), 180);
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT);
-      move(40, 160);
+      moveToServer();
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT);
     } else if (step == 1) {
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT);
       m_window.released();
-      move(40, 160);
+      moveToServer();
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
       move(chatLeft() + Style::spaceXxs, 180);
       shape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_COL_RESIZE);
