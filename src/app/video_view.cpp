@@ -310,8 +310,10 @@ namespace app {
   void ClientApplication::setVideoExpanded(bool enabled) {
     if (enabled == m_videoExpanded)
       return;
-    if (enabled)
+    if (enabled) {
       m_videoPreviousFullscreen = m_window.fullscreen();
+      enterMediaViewer();
+    }
     m_videoExpanded = enabled;
     m_window.setFullscreen(enabled || m_videoPreviousFullscreen);
     m_videoDrag = 0;
@@ -341,7 +343,7 @@ namespace app {
           hit.x + hit.width / 2, hit.y + hit.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight,
           272
       );
-      if (action != Action::SeekVideo)
+      if (action != Action::SeekVideo && action != Action::VolumeVideo)
         m_window.released();
     };
     const auto& state = m_video.state();
@@ -375,12 +377,17 @@ namespace app {
       }
       require(!state.playing, "Seeking a paused video keeps it paused");
       click(Action::ExpandVideo);
+      require(!m_controlInput.hoveredArea(), "Expanding video clears covered native hover and captures");
     } else if (m_demoInteractionStep == 5) {
       require(m_videoExpanded, "Expanded player opens");
       if (!m_window.fullscreen()) {
         m_window.invalidate();
         return;
       }
+      require(m_contextTargets.empty() && m_textAreas.empty(), "Expanded video excludes covered chat hit targets");
+      const float previousScroll = m_messageScroll;
+      m_window.scroll(Style::spaceGroup);
+      require(m_messageScroll == previousScroll, "Expanded video blocks scrolling the covered conversation");
       click(Action::PauseVideo);
     } else if (m_demoInteractionStep == 6) {
       require(state.playing, "Expanded play button resumes");

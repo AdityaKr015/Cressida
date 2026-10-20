@@ -3,6 +3,7 @@ from email.parser import BytesParser
 from email.policy import default
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -30,8 +31,13 @@ class Handler(BaseHTTPRequestHandler):
             assert payload["allowed_mentions"]["replied_user"] is False
             assert payload["allowed_mentions"]["parse"] == ["users", "roles", "everyone"]
             assert "flags" not in payload
-            assert payload["attachments"] == [{"id": 0, "filename": "plant.png"}, {"id": 1, "filename": "second.jpg"}]
-            assert parts["files[0]"].get_filename() == "plant.png"
+            assert len(payload["attachments"]) == 2
+            for index, extension in enumerate(("png", "jpg")):
+                attachment = payload["attachments"][index]
+                assert attachment["id"] == index
+                assert re.fullmatch(r"[0-9a-f]{32}\." + extension, attachment["filename"])
+                assert parts[f"files[{index}]"].get_filename() == attachment["filename"]
+            assert b"plant" not in body and b"second.jpg" not in body
             assert parts["files[0]"].get_content_type() == "image/png"
             assert parts["files[0]"].get_payload(decode=True) == b"\x89PNG\x00\x0a\xff"
             assert parts["files[1]"].get_payload(decode=True) == b"\xff\xd8\xff"

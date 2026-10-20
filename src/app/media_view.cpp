@@ -73,6 +73,26 @@ namespace app {
     m_viewImage.clear();
     m_dragImage = false;
   }
+  void ClientApplication::enterMediaViewer() {
+    finishRailDrag(true);
+    finishSidebarResize();
+    closeCompletion();
+    closeGifPicker();
+    closeEmojiPicker();
+    closeContext();
+    m_presenceMenu = false;
+    m_scrolling.stopAll();
+    m_controlInput.pointerLeave();
+    m_controlInput.setFocus(nullptr);
+    m_focusedInput.clear();
+    m_dragDraft = m_dragMessage = false;
+    m_tooltip.clear();
+    m_contextTargets.clear();
+    m_textAreas.clear();
+    std::erase_if(m_hits, [](const auto& hit) {
+      return hit.action != Action::Close && hit.action != Action::Minimize && hit.action != Action::Maximize;
+    });
+  }
   void ClientApplication::openImageContext(float x, float y) {
     closeContext();
     const auto image = std::ranges::find_if(m_hits, [&](const auto& hit) {
@@ -604,9 +624,15 @@ namespace app {
       m_window.motion(x, y);
       m_window.click(x, y, 272);
       m_window.released();
-    } else if (step == 1)
+      m_window.motion(chatLeft() + Style::spaceSection, m_composerTop + Style::spaceXl + titleOffset);
+      require(!m_controlInput.hoveredArea(), "Opening an image clears covered native hover and pointer capture");
+    } else if (step == 1) {
+      require(
+          m_tooltip.empty() && m_contextTargets.empty() && m_textAreas.empty(),
+          "Covered chat controls contribute no tooltip, profile targets or text selection to the viewer"
+      );
       openMenu();
-    else if (step == 2) {
+    } else if (step == 2) {
       require(
           m_contextEntries.size() == 5 && m_contextEntries[2].separator,
           "The image menu has Copy Image, Save Image, a separator and both media-link actions"
@@ -775,10 +801,33 @@ namespace app {
       require(m_attachments.at(m_channelId).size() == 8, "Previewing preserves the remaining draft images");
       activate({.action = Action::ViewAttachment, .id = "9"});
       require(m_viewImage.empty(), "A stale attachment target cannot open a removed draft image");
+    } else if (step == 6) {
+      openSettings();
+      selectSettingsPage("cressida");
     } else {
+      const auto at = m_widgets.find("toggle:randomize_media_filenames");
+      require(at != m_widgets.end() && at->second->parent(), "Media naming uses a mounted native settings toggle");
+      auto* node = at->second;
+      float x = node->width() / 2, y = node->height() / 2;
+      for (; node && node != m_scene.get(); node = node->parent()) {
+        x += node->x();
+        y += node->y();
+      }
+      require(
+          m_preferences.randomizeMediaFilenames == (step == 8),
+          "The native toggle retains its account value across redraws"
+      );
+      m_window.motion(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight);
+      m_window.click(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272);
+      m_window.released();
+      require(
+          m_preferences.randomizeMediaFilenames == (step == 7),
+          "Native clicks enable and disable random media filenames"
+      );
       require(m_drafts.at(m_channelId) == "Unsent draft" && !m_sending, "Previewing never changes or sends the draft");
       require(m_pendingImages.empty(), "Local draft previews never request media from the network");
-      std::clog << "Offline draft attachment replay passed\n";
+      if (step == 8)
+        std::clog << "Offline draft attachment and native random filename toggle replay passed\n";
     }
     m_window.invalidate();
   }

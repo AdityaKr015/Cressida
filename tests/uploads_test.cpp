@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <set>
 
 int main(int argc, char** argv) {
   if (argc != 2)
@@ -11,15 +12,51 @@ int main(int argc, char** argv) {
   try {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
-    const std::vector<api::Upload> uploads{
+    std::vector<api::Upload> uploads{
         {"plant.png", "image/png", {0x89, 'P', 'N', 'G', 0, 10, 255}}, {"second.jpg", "image/jpeg", {255, 216, 255}}
     };
+    if (!api::randomizeMediaFilenames(uploads, false) || uploads.front().filename != "plant.png")
+      throw std::runtime_error("Disabled random naming must preserve filenames");
+    const auto original = uploads;
+    if (!api::randomizeMediaFilenames(uploads, true) || !api::validUploads(uploads))
+      throw std::runtime_error("Random image filenames remain valid uploads");
+    for (std::size_t i = 0; i < uploads.size(); ++i)
+      if (uploads[i].bytes != original[i].bytes || uploads[i].mime != original[i].mime)
+        throw std::runtime_error("Random naming must preserve MIME types and bytes");
+    std::vector<api::Upload> otherMedia{
+        {"SPOILER_personal-recording.MP4", "video/mp4", {1}},
+        {"personal-recording.webm", "video/webm", {2}},
+        {"private-photo.JPEG", "image/jpeg", {3}},
+        {"private-photo", "image/png", {4}},
+        {"notes.txt", "text/plain", {5}}
+    };
+    if (!api::randomizeMediaFilenames(otherMedia, true)
+        || !otherMedia[0].filename.starts_with("SPOILER_")
+        || !otherMedia[0].filename.ends_with(".MP4")
+        || !otherMedia[1].filename.ends_with(".webm")
+        || !otherMedia[2].filename.ends_with(".JPEG")
+        || !otherMedia[3].filename.ends_with(".png")
+        || otherMedia[4].filename != "notes.txt")
+      throw std::runtime_error(
+          "Media naming preserves extensions and spoilers, with MIME fallback and nonmedia exclusion"
+      );
+    std::set<std::string> generated;
+    for (int i = 0; i < 32; ++i) {
+      auto batch = original;
+      if (!api::randomizeMediaFilenames(batch, true))
+        throw std::runtime_error("Random naming requires system entropy");
+      for (const auto& upload : batch)
+        if (!generated.insert(upload.filename).second)
+          throw std::runtime_error("Every attachment receives an independent random name");
+    }
     auto body = api::messageBody("first\nsecond 🌿 <@7> <@&8> @everyone @here", api::MessageReference{"20", "10"});
     body.update(
         json{
             {"content", "first\nsecond 🌿 <@7> <@&8> @everyone @here"},
             {"attachments",
-             json::array({{{"id", 0}, {"filename", "plant.png"}}, {{"id", 1}, {"filename", "second.jpg"}}})}
+             json::array(
+                 {{{"id", 0}, {"filename", uploads[0].filename}}, {{"id", 1}, {"filename", uploads[1].filename}}}
+             )}
         }
     );
     const auto payload = body.dump();

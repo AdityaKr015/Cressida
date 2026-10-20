@@ -1,5 +1,6 @@
 #include "app/client_application.h"
 
+#include "api/uploads.h"
 #include "app/automod_message.h"
 #include "app/member_list_layout.h"
 #include "app/message_group.h"
@@ -823,7 +824,10 @@ namespace app {
         }
       }
       videoMotion(x, y);
-      m_controlInput.pointerMotion(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 0);
+      if ((!m_viewImage.empty() || m_videoExpanded) && (!m_contextOpen || !m_contextBounds.contains(x, y)))
+        m_controlInput.pointerLeave();
+      else
+        m_controlInput.pointerMotion(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 0);
       contextMotion(x, y);
       if (m_dragImage) {
         m_viewPanX += x - m_imageDragX;
@@ -845,6 +849,8 @@ namespace app {
       m_controlInput.pointerButton(
           m_pointerX, m_pointerY + m_window.titlebarHeight() - layout::Window::titlebarHeight, 272, false, 0, 0, false
       );
+      if ((!m_viewImage.empty() || m_videoExpanded) && !m_contextOpen)
+        m_controlInput.pointerLeave();
       m_dragDraft = m_dragMessage = m_dragImage = false;
       updateCursor();
     };
@@ -3200,6 +3206,14 @@ namespace app {
     if (m_window.titlebarHeight() > 0)
       drawTitlebar(root, w);
 
+    const auto pointer = std::pair{m_pointerX, m_pointerY};
+    const bool mediaViewer = !m_viewImage.empty() || m_videoExpanded;
+    if (mediaViewer) {
+      // Covered surfaces still paint, but only the media overlay sees the pointer.
+      m_pointerX = -w;
+      m_pointerY = -h;
+    }
+
     if (!m_connected && m_restoringLogin) {
       const float center = h / 2;
       const std::string title = "Opening Cressida…";
@@ -5064,6 +5078,13 @@ namespace app {
       drawEmojiPicker(root, w, h);
     if (m_gifMenu && !settingsVisible() && m_viewImage.empty())
       drawGifPicker(root, w, h);
+    if (mediaViewer) {
+      m_pointerX = pointer.first;
+      m_pointerY = pointer.second;
+      m_tooltip.clear();
+      m_contextTargets.clear();
+      m_textAreas.clear();
+    }
     if (!m_viewImage.empty())
       drawImageViewer(root, w, h);
     if (m_videoExpanded)
@@ -5994,6 +6015,11 @@ namespace app {
       uploads.push_back(attachment.upload);
     if (draft.empty() && uploads.empty() && m_draftStickers[m_channelId].empty())
       return;
+    if (!api::randomizeMediaFilenames(uploads, m_preferences.randomizeMediaFilenames)) {
+      m_status = "Could not generate attachment filenames. Please try again.";
+      m_window.invalidate();
+      return;
+    }
     const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
     auto content = m_emojiCatalog.messageContent(
         m_preferences.convertEmoticons ? convertMessageEmoticons(draft) : draft, m_dmMode ? "" : m_guildId,
@@ -7341,6 +7367,7 @@ namespace app {
       m_scrolling.stopAll();
       closeImageViewer();
       m_viewImage = hit.id;
+      enterMediaViewer();
       m_viewUrl.clear();
       m_viewZoom = 1;
       m_viewPanX = m_viewPanY = 0;

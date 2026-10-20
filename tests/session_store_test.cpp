@@ -41,6 +41,29 @@ int main() {
   };
   try {
     {
+      const auto mediaPath = std::filesystem::path(directory) / "media-preferences.json";
+      app::SessionStore store(mediaPath);
+      require(!store.preferences("123").randomizeMediaFilenames, "Filename randomization defaults off");
+      app::Preferences prefs;
+      prefs.randomizeMediaFilenames = true;
+      store.savePreferences("123", prefs);
+      app::SessionStore restarted(mediaPath);
+      require(
+          restarted.preferences("123").randomizeMediaFilenames
+              && !restarted.preferences("456").randomizeMediaFilenames
+              && !restarted.startupPreferences().randomizeMediaFilenames,
+          "Random media names survive restart and remain isolated to the account"
+      );
+      prefs.randomizeMediaFilenames = false;
+      store.savePreferences("123", prefs);
+      require(!restarted.preferences("123").randomizeMediaFilenames, "Random media names can be disabled again");
+      std::ofstream(mediaPath) << R"({"123":{"preferences":{"theme":"light","randomize_media_filenames":"yes"}}})";
+      require(
+          !store.preferences("123").randomizeMediaFilenames && store.preferences("123").theme == "light",
+          "Malformed filename preferences retain safe defaults without discarding other settings"
+      );
+    }
+    {
       const auto foldersPath = std::filesystem::path(directory) / "folders.json";
       app::SessionStore store(foldersPath);
       require(!store.expandedFolders("123"), "Missing expansion state retains legacy startup behavior");

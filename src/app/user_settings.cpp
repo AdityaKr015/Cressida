@@ -888,6 +888,12 @@ namespace app {
           "Show role icons", m_preferences.showRoleIcons, "show_role_icons",
           "Display role icons beside message authors in chat."
       );
+      section("Uploads");
+      toggle(
+          "Randomize media filenames", m_preferences.randomizeMediaFilenames, "randomize_media_filenames",
+          "Replace outgoing image and video filenames with random names. File extensions and media contents stay the "
+          "same."
+      );
       section("Message logger");
       toggle(
           "Keep deleted messages", m_preferences.logDeletedMessages, "log_deleted_messages",

@@ -32,6 +32,7 @@ namespace app {
     bool desktopDecorations = true;
     WindowControlPreferences windowControls;
     int cornerRadius = Style::cornerRadiusDefaultPercent;
+    bool randomizeMediaFilenames = false;
   };
   struct LastChannel {
     std::string guild, channel;

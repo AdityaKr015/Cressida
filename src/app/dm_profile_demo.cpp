@@ -98,7 +98,8 @@ namespace app {
       });
       require(at != m_hits.end(), "DM profile replay has a native click target");
       m_window.motion(
-          at->x + at->width / 2, at->y + at->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+          at->x + (action == Action::Channel ? Style::spaceXs : at->width / 2),
+          at->y + at->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight
       );
       m_window.click(m_pointerX, m_pointerY + m_window.titlebarHeight() - layout::Window::titlebarHeight, BTN_LEFT);
       m_window.released();
@@ -123,7 +124,10 @@ namespace app {
       });
     };
     const auto response = [&](const std::string& error = std::string{}, bool longBio = false, bool hidden = false) {
-      require(m_dmProfile.request.has_value(), "Profile results require an outstanding generation");
+      if (!m_dmProfile.request)
+        throw std::runtime_error(
+            "Profile result without a request at replay step " + std::to_string(m_demoInteractionStep)
+        );
       api::Event event;
       event.interaction = m_dmProfile.request;
       event.error = error;

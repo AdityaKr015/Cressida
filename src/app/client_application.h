@@ -65,7 +65,7 @@ namespace app {
 
   private:
     static constexpr int chatLinkReplayFrames = 6;
-    static constexpr int attachmentReplayFrames = 7;
+    static constexpr int attachmentReplayFrames = 9;
     static constexpr int typingReplayFrames = 16;
     static constexpr int floatingReplayFrames = 8;
     static constexpr int dmHomeReplayFrames = 24;
@@ -723,6 +723,7 @@ namespace app {
     void imageViewerAction(Action action);
     std::string viewerMediaLink() const;
     void closeImageViewer();
+    void enterMediaViewer();
     bool imageSaved(const PickedFile& result);
     void demoImageMenuStep();
     bool hovered(float x, float y, float width, float height) const;

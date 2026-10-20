@@ -58,6 +58,7 @@ namespace app {
         {"developer_mode", &Preferences::developerMode},
         {"desktop_decorations", &Preferences::desktopDecorations},
         {"convert_emoticons", &Preferences::convertEmoticons},
+        {"randomize_media_filenames", &Preferences::randomizeMediaFilenames},
         {"show_reactions", &Preferences::showReactions},
         {"show_role_icons", &Preferences::showRoleIcons},
         {"desktop_notifications", &Preferences::desktopNotifications},
