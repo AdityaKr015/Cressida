@@ -33,6 +33,7 @@
 #include "app/user_settings_form.h"
 #include "app/user_settings_lists.h"
 #include "app/window.h"
+#include "app/window_icons.h"
 #include "auth/browser_login.h"
 #include "core/text_clipboard.h"
 #include "core/timer_manager.h"
@@ -540,6 +541,14 @@ namespace app {
     bool shortcutKey(const Key& key);
     void demoUserPreferencesStep();
     void demoDecorationsStep();
+    void drawTitlebar(Node& root, float width);
+    void drawWindowIcon(Node& node, float x, float y, WindowIcon icon, bool over);
+    void drawWindowControlSettings(UserSettingsForm& form);
+    bool windowControlPreference(const std::string& action);
+    void updateWindowIcons();
+    void drainWindowIcons();
+    void demoWindowControlsStep();
+    static constexpr unsigned windowControlsReplayFrames = 16;
     bool spoilersVisible(const std::string& message) const;
     void resetUserAccountSettings();
     void loadUserAccountSettings(const std::string& page, bool force = false);
@@ -733,6 +742,11 @@ namespace app {
     void demoInteractionStep();
 
     Window m_window;
+    WindowIcons m_windowIcons;
+    std::optional<WindowIconRequest> m_windowIconRequest;
+    std::uint64_t m_windowIconGeneration = 0;
+    std::array<TextureHandle, windowIconNames.size()> m_windowIconTextures;
+    std::array<std::string, windowIconNames.size()> m_windowIconErrors;
     ScrollMotion m_scrolling;
     api::Client m_client;
     DesktopTray m_tray;

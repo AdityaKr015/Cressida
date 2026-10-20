@@ -49,6 +49,8 @@ namespace app {
     return found == defaultShortcuts.end() ? "Unassigned" : found->second;
   }
   bool ClientApplication::extendedPreference(const std::string& action) {
+    if (windowControlPreference(action))
+      return true;
     const std::pair<std::string_view, bool Preferences::*> flags[] = {
         {"reduced_motion", &Preferences::reducedMotion},
         {"animate_emoji", &Preferences::animateEmoji},

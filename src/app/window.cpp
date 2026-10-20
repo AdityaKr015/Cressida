@@ -68,6 +68,8 @@ namespace app {
     zxdg_decoration_manager_v1* decorationManager = nullptr;
     zxdg_toplevel_decoration_v1* decoration = nullptr;
     WindowDecorations decorations;
+    WindowCapabilities capabilities;
+    WindowControlPreferences windowControls;
     bool maximized = false, fullscreen = false;
     std::uint32_t pointerSerial = 0;
     Clock::time_point titleClick{};
@@ -206,6 +208,9 @@ namespace app {
     }
 
     void createToplevel() {
+      static_assert(WindowCapabilities::maximizeCapability == XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE);
+      static_assert(WindowCapabilities::minimizeCapability == XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE);
+      capabilities = {};
       role = xdg_wm_base_get_xdg_surface(shell, surface);
       toplevel = xdg_surface_get_toplevel(role);
       xdg_toplevel_set_title(toplevel, "Cressida");
@@ -227,6 +232,13 @@ namespace app {
                 }
               },
           .close = [](void* data, xdg_toplevel*) { static_cast<Impl*>(data)->owner.requestClose(); },
+          .configure_bounds = [](void*, xdg_toplevel*, std::int32_t, std::int32_t) {},
+          .wm_capabilities =
+              [](void* data, xdg_toplevel*, wl_array* values) {
+                static_cast<Impl*>(data)->capabilities.configure(
+                    {static_cast<const std::uint32_t*>(values->data), values->size / sizeof(std::uint32_t)}
+                );
+              },
       };
       xdg_toplevel_add_listener(toplevel, &toplevelListener, this);
       if (decorationManager) {
@@ -251,6 +263,7 @@ namespace app {
             xdg_surface_ack_configure(role, serial);
             self.configured = true;
             self.decorations.surfaceConfigured();
+            self.capabilities.surfaceConfigured();
             self.resize();
           },
       };
@@ -496,10 +509,7 @@ namespace app {
                                                         : XDG_TOPLEVEL_RESIZE_EDGE_RIGHT)
                     : XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM;
                 xdg_toplevel_resize(self.toplevel, self.seat, serial, edge);
-              } else if (
-                  self.pointerY < self.owner.titlebarHeight() * self.uiScale
-                  && self.pointerX < self.width - 144 * self.uiScale
-              ) {
+              } else if (self.owner.titlebarDragContains(self.pointerX / self.uiScale, self.pointerY / self.uiScale)) {
                 if (Clock::now() - self.titleClick < std::chrono::milliseconds(350)) {
                   self.owner.toggleMaximized();
                   self.titleClick = {};
@@ -654,7 +664,9 @@ namespace app {
                     wl_registry_bind(registry, name, &wl_compositor_interface, std::min(version, 6U))
                 );
               else if (std::strcmp(interface, xdg_wm_base_interface.name) == 0) {
-                self.shell = static_cast<xdg_wm_base*>(wl_registry_bind(registry, name, &xdg_wm_base_interface, 1));
+                self.shell = static_cast<xdg_wm_base*>(wl_registry_bind(
+                    registry, name, &xdg_wm_base_interface, std::min(version, WindowCapabilities::protocolVersion)
+                ));
                 static const xdg_wm_base_listener listener{.ping = [](void*, xdg_wm_base* shell, std::uint32_t serial) {
                   xdg_wm_base_pong(shell, serial);
                 }};
@@ -796,7 +808,7 @@ namespace app {
 
   void Window::run(
       int wakeFd, std::function<void()> tick, int frameLimit, int assetFd, int videoFd, int themeFd, int pickerFd,
-      int audioFd, int notificationFd, int trayFd
+      int audioFd, int notificationFd, int trayFd, int iconFd
   ) {
     int frames = 0;
     while (m->running) {
@@ -868,6 +880,7 @@ namespace app {
       descriptors.push_back({audioFd, POLLIN, 0});
       descriptors.push_back({notificationFd, POLLIN, 0});
       descriptors.push_back({trayFd, POLLIN, 0});
+      descriptors.push_back({iconFd, POLLIN, 0});
       const int ready = ::poll(descriptors.data(), descriptors.size(), timeout);
       if (ready > 0 && (descriptors[0].revents & POLLIN)) {
         if (wl_display_read_events(m->display) < 0)
@@ -961,11 +974,11 @@ namespace app {
   }
 
   void Window::minimize() {
-    if (m->toplevel)
+    if (m->toplevel && m->capabilities.minimize())
       xdg_toplevel_set_minimized(m->toplevel);
   }
   void Window::toggleMaximized() {
-    if (!m->toplevel)
+    if (!m->toplevel || !m->capabilities.maximize())
       return;
     if (m->maximized)
       xdg_toplevel_unset_maximized(m->toplevel);
@@ -1000,6 +1013,14 @@ namespace app {
   }
   bool Window::desktopDecorations() const { return m->decorations.desktopPreferred(); }
   bool Window::desktopDecorationsAvailable() const { return m->decoration != nullptr; }
+  void Window::setWindowControls(const WindowControlPreferences& preferences) { m->windowControls = preferences; }
+  const WindowCapabilities& Window::capabilities() const { return m->capabilities; }
+  bool Window::titlebarDragContains(float x, float y) const {
+    return titlebarHeight() > 0
+        && layout::Titlebar::dragContains(
+               x, y, width(), visibleWindowButtons(m->windowControls, m->capabilities).size(), m->windowControls.left
+        );
+  }
   void Window::setCursorShape(std::uint32_t shape) {
     if (m->cursorShape == shape)
       return;

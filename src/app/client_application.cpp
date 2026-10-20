@@ -325,6 +325,10 @@ namespace app {
         demoMessageEditStep();
       if (m_demo && m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep < 9)
         demoCompletionStep();
+      if (m_demo
+          && m_demoOverlay.starts_with("window-controls-cycle")
+          && m_demoInteractionStep < windowControlsReplayFrames)
+        demoWindowControlsStep();
       if (m_demo && m_demoOverlay.starts_with("decorations-cycle") && m_demoInteractionStep < 4)
         demoDecorationsStep();
       if (m_demo && m_demoOverlay.starts_with("floating-cycle") && m_demoInteractionStep < floatingReplayFrames)
@@ -1222,8 +1226,10 @@ namespace app {
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest
-            ? (m_demo && view && std::string_view(view) == "chat-links-cycle"              ? chatLinkReplayFrames
-                   : m_demo && view && std::string_view(view) == "attachment-cycle"        ? attachmentReplayFrames
+            ? (m_demo && view && std::string_view(view) == "chat-links-cycle"       ? chatLinkReplayFrames
+                   : m_demo && view && std::string_view(view) == "attachment-cycle" ? attachmentReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("window-controls-cycle")
+                   ? windowControlsReplayFrames
                    : m_demo && view && std::string_view(view) == "tray-cycle"              ? trayReplayFrames
                    : m_demo && view && std::string_view(view) == "sticker-cycle"           ? 8
                    : m_demo && view && std::string_view(view) == "dm-compose-cycle"        ? 16
@@ -1276,7 +1282,7 @@ namespace app {
                                       : 1)
             : 0,
         m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd(), m_filePicker.eventFd(), m_soundPreview.eventFd(),
-        m_desktopNotifications.eventFd(), m_tray.eventFd()
+        m_desktopNotifications.eventFd(), m_tray.eventFd(), m_windowIcons.eventFd()
     );
     if (m_demoOverlay == "server-settings-commands-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Server command permissions replay did not finish");
@@ -1320,6 +1326,8 @@ namespace app {
       throw std::runtime_error("Cursor/sidebar replay did not complete");
     if (m_demoOverlay == "jump-latest-cycle" && m_demoInteractionStep != 8)
       throw std::runtime_error("Jump to latest replay did not complete");
+    if (m_demoOverlay.starts_with("window-controls-cycle") && m_demoInteractionStep != windowControlsReplayFrames)
+      throw std::runtime_error("Window controls replay did not finish");
     if (m_demoOverlay.starts_with("decorations-cycle") && m_demoInteractionStep != 4)
       throw std::runtime_error("Desktop decorations replay did not finish");
     if (m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep != 12)
@@ -2661,6 +2669,27 @@ namespace app {
           selectSettingsPage("account");
           prepareUserAccountDemo();
           userAccountAction(view.substr(view.find(':') + 1));
+        } else if (view == "window-controls" || view == "window-controls-custom" || view == "window-controls-left") {
+          m_preferences.desktopDecorations = false;
+          if (view == "window-controls-left") {
+            m_preferences.windowControls.left = true;
+            m_preferences.windowControls.order = 2;
+            m_preferences.windowControls.style = static_cast<int>(WindowIconStyle::Circular);
+          }
+          if (view == "window-controls-custom")
+            m_preferences.windowControls.style = static_cast<int>(WindowIconStyle::Custom);
+          openSettings();
+          selectSettingsPage("advanced");
+          if (view == "window-controls-custom")
+            m_settingsScroll = layout::Titlebar::height * windowIconNames.size() * 3;
+        } else if (view.starts_with("window-controls-cycle")) {
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          m_preferences.desktopDecorations = false;
+          openSettings();
+          selectSettingsPage("advanced");
+          m_demoOverlay = view;
+          m_demoInteractionStep = 0;
         } else if (view.starts_with("decorations-cycle")) {
           if (view.ends_with("light"))
             m_preferences.theme = "light";
@@ -3043,6 +3072,8 @@ namespace app {
     theme::apply(lightMode ? colorTheme.light : colorTheme.dark, lightMode, m_preferences.saturation / 100.0F);
     Style::setCornerRadiusScale(static_cast<float>(m_preferences.cornerRadius) / Style::cornerRadiusDefaultPercent);
     m_window.setDesktopDecorations(m_preferences.desktopDecorations);
+    m_window.setWindowControls(m_preferences.windowControls);
+    updateWindowIcons();
     m_window.context().setTextFontFamily(m_connected ? m_preferences.fontFamily : std::string{});
     const float w = m_window.width(),
                 h = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
@@ -3073,23 +3104,8 @@ namespace app {
         root, 0, 0, std::ceil(m_window.target().renderWidth()),
         std::ceil(m_window.target().renderHeight()) + 36 - m_window.titlebarHeight(), background
     );
-    if (m_window.titlebarHeight() > 0) {
-      rectangle(root, 0, 0, w, 36, theme::sidebar);
-      label(root, 18, 8, 300, "CRESSIDA", Style::fontSizeMini, muted, FontWeight::SemiBold);
-      for (int i = 0; i < 3; ++i) {
-        const float x = w - 144 + i * 48;
-        if (hovered(x, 0, 48, 36))
-          rectangle(root, x, 0, 48, 36, i == 2 ? destructive : raised);
-        glyph(
-            root, x + (Style::cardPadding + Style::borderWidth), 8, Style::glyphSizeMedium,
-            i == 0       ? "minus"
-                : i == 1 ? (m_window.maximized() ? "squares" : "square")
-                         : "x",
-            foreground
-        );
-        m_hits.push_back({x, 0, 48, 36, i == 0 ? Action::Minimize : i == 1 ? Action::Maximize : Action::Close, {}});
-      }
-    }
+    if (m_window.titlebarHeight() > 0)
+      drawTitlebar(root, w);
 
     if (!m_connected && m_restoringLogin) {
       const float center = h / 2;
@@ -6103,6 +6119,7 @@ namespace app {
     for (auto& callback : DeferredCall::takePending())
       callback();
     TimerManager::instance().tick();
+    drainWindowIcons();
     bool imagesChanged = false;
     for (auto& asset : m_assets.drain()) {
       m_desktopNotifications.avatarLoaded(asset.path, asset.bytes);

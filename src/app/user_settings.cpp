@@ -99,6 +99,9 @@ namespace app {
     if (std::ranges::none_of(pages, [&](const auto& item) { return item.id == page; }))
       return;
     m_settingsPage = page;
+    if (page == "advanced")
+      for (std::size_t i = 0; i < m_preferences.windowControls.icons.size(); ++i)
+        m_settingsFields["window-icon:" + std::to_string(i)] = m_preferences.windowControls.icons[i];
     m_fontPickerOpen = false;
     m_fontPickerBounds = {};
     m_scrolling.stop(m_fontPickerScroll);
@@ -181,6 +184,7 @@ namespace app {
   }
   void ClientApplication::savePreferences() {
     m_window.setDesktopDecorations(m_preferences.desktopDecorations);
+    m_window.setWindowControls(m_preferences.windowControls);
     m_messageLayouts.clear();
     if (!m_demo)
       m_sessionStore.savePreferences(m_account.id, m_preferences);
@@ -727,7 +731,7 @@ namespace app {
       control->setPadding(0, Style::spaceDense);
       control->setEnabled(enabled);
       control->setOnClick([this, action] {
-        activate({0, 0, 0, 0, Action::UserAccountAction, action});
+        activate({0, 0, 0, 0, action.starts_with("window-") ? Action::Preference : Action::UserAccountAction, action});
         m_window.invalidate();
       });
       parent.addChild(std::move(control));
@@ -1430,6 +1434,7 @@ namespace app {
                                                  : "Prefer your desktop's window decorations when available. This "
                                                    "desktop does not provide them, so Cressida's title bar is used."
       );
+      drawWindowControlSettings(form);
     } else if (m_settingsPage == "voice") {
       section("Voice and video");
       row("Calls and audio devices",

@@ -218,6 +218,32 @@ namespace app {
       result.showRoleIcons = value.value("show_role_icons", true);
       result.desktopNotifications = value.value("desktop_notifications", true);
       result.desktopDecorations = value.value("desktop_decorations", true);
+      if (const auto at = value.find("window_controls"); at != value.end() && at->is_object()) {
+        auto& controls = result.windowControls;
+        const auto flag = [&](const char* name, bool fallback) {
+          const auto value = at->find(name);
+          return value != at->end() && value->is_boolean() ? value->get<bool>() : fallback;
+        };
+        const auto number = [&](const char* name, int count) {
+          const auto value = at->find(name);
+          return value != at->end() && value->is_number_integer()
+              ? static_cast<int>(std::clamp(value->get<std::int64_t>(), std::int64_t{0}, std::int64_t{count - 1}))
+              : 0;
+        };
+        controls.minimize = flag("minimize", true);
+        controls.maximize = flag("maximize", true);
+        controls.close = flag("close", true);
+        controls.left = flag("left", false);
+        controls.order = number("order", windowButtonOrderCount);
+        controls.style = number("style", windowIconStyleCount);
+        if (const auto paths = at->find("icons"); paths != at->end() && paths->is_array())
+          for (std::size_t i = 0; i < std::min(paths->size(), controls.icons.size()); ++i)
+            if ((*paths)[i].is_string()) {
+              const auto path = (*paths)[i].get<std::string>();
+              if (validWindowIconPath(path))
+                controls.icons[i] = path;
+            }
+      }
       result.notificationSounds = value.value("notification_sounds", true);
       result.saturation = std::clamp(value.value("saturation", 100), 0, 100);
       result.spoilerMode = std::clamp(value.value("spoiler_mode", 0), 0, 2);
@@ -278,6 +304,10 @@ namespace app {
       return;
     try {
       auto all = readState(m_path, m_legacyPath);
+      auto icons = preferences.windowControls.icons;
+      for (auto& icon : icons)
+        if (!validWindowIconPath(icon))
+          icon.clear();
       all[account]["preferences"] = {
           {"theme", validColorMode(preferences.theme) ? preferences.theme : "dark"},
           {"color_theme", validThemeId(preferences.colorTheme) ? preferences.colorTheme : "cressida"},
@@ -302,6 +332,14 @@ namespace app {
           {"show_role_icons", preferences.showRoleIcons},
           {"desktop_notifications", preferences.desktopNotifications},
           {"desktop_decorations", preferences.desktopDecorations},
+          {"window_controls",
+           {{"minimize", preferences.windowControls.minimize},
+            {"maximize", preferences.windowControls.maximize},
+            {"close", preferences.windowControls.close},
+            {"left", preferences.windowControls.left},
+            {"order", std::clamp(preferences.windowControls.order, 0, windowButtonOrderCount - 1)},
+            {"style", std::clamp(preferences.windowControls.style, 0, windowIconStyleCount - 1)},
+            {"icons", icons}}},
           {"corner_radius", std::clamp(preferences.cornerRadius, 0, Style::cornerRadiusMaximumPercent)},
           {"notification_sounds", preferences.notificationSounds},
           {"saturation", preferences.saturation},

@@ -192,7 +192,7 @@ namespace app::layout {
     static constexpr float panelMinimumWidth = 250;
   };
   struct Window {
-    static constexpr float titlebarHeight = 36;
+    static constexpr float titlebarHeight = Style::windowTitlebarHeight;
     static constexpr int minimumWidth = Style::windowMinimumWidth;
     static constexpr int minimumHeight = Style::windowMinimumHeight;
   };
@@ -280,6 +280,26 @@ namespace app::layout {
     static constexpr float actionWidth = 30;
     static constexpr float actionStep = 35;
     static constexpr float actionsReserve = 146;
+  };
+  struct Titlebar {
+    static constexpr float height = Window::titlebarHeight;
+    static constexpr float buttonWidth = Style::windowButtonWidth;
+    static constexpr float iconSize = Style::glyphSizeMedium;
+    static constexpr float dotSize = Style::glyphSizeTiny;
+    static constexpr float labelInset = Style::spaceLg + Style::spaceXxs;
+    static constexpr float pathFieldHeight = Style::controlHeightSm;
+    static Frame buttons(float width, std::size_t count, bool left) {
+      const float size = static_cast<float>(count) * buttonWidth;
+      return {left ? 0 : width - size, 0, size, height};
+    }
+    static Frame button(float width, std::size_t count, bool left, std::size_t index) {
+      const auto area = buttons(width, count, left);
+      return {area.x + static_cast<float>(index) * buttonWidth, 0, buttonWidth, height};
+    }
+    static bool dragContains(float x, float y, float width, std::size_t count, bool left) {
+      const auto area = buttons(width, count, left);
+      return y >= 0 && y < height && x >= 0 && x < width && (x < area.x || x >= area.x + area.width);
+    }
   };
   struct Members {
     static constexpr float rowHeight = Style::controlHeightLg;

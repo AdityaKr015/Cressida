@@ -1,5 +1,6 @@
 #pragma once
 #include "app/layout_metrics.h"
+#include "app/window_controls.h"
 
 #include <filesystem>
 #include <map>
@@ -29,6 +30,7 @@ namespace app {
     int notificationPrivacy = 0;
     std::map<std::string, std::string> keybinds;
     bool desktopDecorations = true;
+    WindowControlPreferences windowControls;
     int cornerRadius = Style::cornerRadiusDefaultPercent;
   };
   struct LastChannel {

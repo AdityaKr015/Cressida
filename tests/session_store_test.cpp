@@ -151,6 +151,15 @@ int main() {
       selected.spoilerMode = 2;
       selected.desktopNotifications = false;
       selected.desktopDecorations = false;
+      selected.windowControls = {
+          .minimize = false,
+          .maximize = true,
+          .close = false,
+          .left = true,
+          .order = 2,
+          .style = 3,
+          .icons = {"/tmp/minimize.svg", "", "/tmp/restore.png", ""}
+      };
       selected.cornerRadius = 0;
       selected.notificationPrivacy = 2;
       selected.keybinds = {{"settings", "Ctrl+Alt+s"}, {"quit", ""}};
@@ -162,6 +171,7 @@ int main() {
               && actual.roleColorMode == 1
               && actual.spoilerMode == 2
               && !actual.desktopDecorations
+              && actual.windowControls == selected.windowControls
               && actual.cornerRadius == 0
               && !actual.desktopNotifications
               && actual.notificationPrivacy == 2
@@ -180,7 +190,16 @@ int main() {
               && store.startupPreferences().cornerRadius == Style::cornerRadiusDefaultPercent,
           "Corner choices stay per account and never leak into sign-in defaults"
       );
+      require(
+          store.preferences("456").windowControls == app::WindowControlPreferences{}
+              && store.startupPreferences().windowControls == app::WindowControlPreferences{},
+          "Window button choices and local paths do not leak to other accounts or sign-in"
+      );
       app::SessionStore restarted(std::filesystem::path(directory) / "client-preferences.json");
+      require(
+          restarted.preferences("123").windowControls == selected.windowControls,
+          "Custom titlebar choices and all icon slots survive restart"
+      );
       require(
           !restarted.preferences("123").desktopDecorations && restarted.preferences("123").cornerRadius == 0,
           "The desktop-decoration choice survives a new application session"
@@ -200,6 +219,42 @@ int main() {
       require(
           store.preferences("123").desktopDecorations,
           "Re-enabling desktop decorations persists over a previously disabled choice"
+      );
+      bounded.windowControls.order = app::windowButtonOrderCount;
+      bounded.windowControls.style = app::windowIconStyleCount;
+      bounded.windowControls.icons = {
+          "relative.svg", "https://example.com/icon.png", std::string("/tmp/a\0.svg", 11), ""
+      };
+      restarted.savePreferences("456", bounded);
+      const auto sanitized = restarted.preferences("456").windowControls;
+      require(
+          sanitized.order == app::windowButtonOrderCount - 1
+              && sanitized.style == app::windowIconStyleCount - 1
+              && std::ranges::all_of(sanitized.icons, [](const auto& path) { return path.empty(); }),
+          "Persisted titlebar indices and custom paths are bounded and local"
+      );
+      const auto malformedPath = std::filesystem::path(directory) / "malformed-window-controls.json";
+      std::ofstream(malformedPath) << nlohmann::json{
+          {"123",
+           {{"preferences",
+             {{"theme", "light"},
+              {"window_controls",
+               {{"minimize", "invalid"},
+                {"maximize", false},
+                {"order", "invalid"},
+                {"style", 2},
+                {"icons", {"/tmp/icon.svg", 12, nullptr, "relative.png"}}}}}}}}
+      };
+      const auto malformed = app::SessionStore(malformedPath).preferences("123");
+      require(
+          malformed.theme == "light"
+              && malformed.windowControls.minimize
+              && !malformed.windowControls.maximize
+              && malformed.windowControls.order == 0
+              && malformed.windowControls.style == 2
+              && malformed.windowControls.icons[0] == "/tmp/icon.svg"
+              && malformed.windowControls.icons[3].empty(),
+          "Malformed titlebar fields cannot reset unrelated account preferences"
       );
       require(
           app::notificationMessagePreview("hello ||private\nmessage|| and `a || b` \\||literal")

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/window_controls.h"
 #include "render/render_context.h"
 #include "render/render_target.h"
 
@@ -27,7 +28,8 @@ namespace app {
     void initialize();
     void
     run(int wakeFd, std::function<void()> tick, int frameLimit = 0, int assetFd = -1, int videoFd = -1,
-        int themeFd = -1, int pickerFd = -1, int audioFd = -1, int notificationFd = -1, int trayFd = -1);
+        int themeFd = -1, int pickerFd = -1, int audioFd = -1, int notificationFd = -1, int trayFd = -1,
+        int iconFd = -1);
     void close();
     void requestClose();
     void hide();
@@ -44,6 +46,9 @@ namespace app {
     void setDesktopDecorations(bool enabled);
     bool desktopDecorations() const;
     bool desktopDecorationsAvailable() const;
+    void setWindowControls(const WindowControlPreferences& preferences);
+    const WindowCapabilities& capabilities() const;
+    bool titlebarDragContains(float x, float y) const;
     void setCursorShape(std::uint32_t shape);
     std::uint32_t cursorShape() const;
     void invalidate();
