@@ -92,8 +92,9 @@ namespace app {
     }
   }
   void ClientApplication::drawGifPicker(Node& root, float w, float h) {
-    const auto frame =
-        layout::pickerFrame(w, m_composerTop, m_showMembers, layout::Picker::gifWidth, layout::Picker::minimumHeight);
+    const auto frame = layout::pickerFrame(
+        w - memberPaneWidth(), m_composerTop, false, layout::Picker::gifWidth, layout::Picker::minimumHeight
+    );
     const auto [x, y, width, height] = frame;
     m_gifBounds = {x, y, width, height, Action::None, {}};
     m_hits.push_back({0, 36, w, h - layout::Window::titlebarHeight, Action::CloseGif, {}});

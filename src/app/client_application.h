@@ -69,6 +69,7 @@ namespace app {
     static constexpr int typingReplayFrames = 16;
     static constexpr int floatingReplayFrames = 8;
     static constexpr int dmHomeReplayFrames = 24;
+    static constexpr int dmProfileReplayFrames = 13;
     static constexpr int composerReplyReplayFrames = 10;
     static constexpr int embedReplayFrames = 12;
     static constexpr int mediaGalleryReplayFrames = 13;
@@ -136,6 +137,7 @@ namespace app {
       Channel,
       Folder,
       ToggleMembers,
+      DmProfileRetry,
       Send,
       PasteClipboard,
       ToggleEmoji,
@@ -740,6 +742,22 @@ namespace app {
     std::string userStatus(const std::string& id, const std::string& fallback = "offline") const;
     std::string channelName(const api::Channel& channel) const;
     void updateDmMembers();
+    const api::Account* dmRecipient() const;
+    float memberPaneWidth() const;
+    void refreshDmProfile(bool retry = false);
+    bool dmProfileResult(const api::Event& event);
+    void drawDmProfile(Node& root, const layout::Frame& frame);
+    void drawCustomStatus(Node& root, const layout::Frame& frame, const api::UserCustomStatus& status, float size);
+    void prepareDmProfileDemo(const std::string& view);
+    void demoDmProfileStep();
+    struct DmProfileState {
+      std::string user, channel, error;
+      std::optional<api::UserProfile> data;
+      std::optional<api::Interaction> request;
+      float scroll = 0;
+    };
+    DmProfileState m_dmProfile;
+    std::uint64_t m_dmProfileSerial = 0;
     void statusBadge(
         Node& parent, float x, float y, const std::string& status, Color backdrop, const std::string& user = {},
         const std::string& channel = {}

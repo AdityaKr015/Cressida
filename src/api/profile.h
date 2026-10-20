@@ -4,6 +4,7 @@
 #include <array>
 
 namespace api {
+  std::string accountCreationDate(std::string_view user);
   struct ProfileBadge {
     std::string description, image;
   };

@@ -262,7 +262,7 @@ namespace app {
       m_focusedInput = "emoji-search";
     }
     const auto frame = layout::pickerFrame(
-        w, m_composerTop, m_showMembers, layout::Picker::emojiWidth, layout::Picker::minimumHeight,
+        w - memberPaneWidth(), m_composerTop, false, layout::Picker::emojiWidth, layout::Picker::minimumHeight,
         m_stickerInfo ? layout::Picker::stickerInfoHeight : layout::Picker::maximumHeight
     );
     const auto [x, y, width, height] = frame;

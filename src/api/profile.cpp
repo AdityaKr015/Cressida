@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <ctime>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <stdexcept>
@@ -29,6 +30,23 @@ namespace api {
       return result >= 0 && result <= 0xFFFFFF ? std::optional(static_cast<std::uint32_t>(result)) : std::nullopt;
     }
   } // namespace
+  std::string accountCreationDate(std::string_view user) {
+    if (!validSnowflake(std::string(user)))
+      return {};
+    constexpr std::uint64_t accountEpochMilliseconds = 1420070400000ULL;
+    constexpr unsigned timestampBits = 22;
+    std::uint64_t id = 0;
+    const auto parsed = std::from_chars(user.data(), user.data() + user.size(), id);
+    if (parsed.ec != std::errc{} || parsed.ptr != user.data() + user.size())
+      return {};
+    const auto seconds = static_cast<std::time_t>(((id >> timestampBits) + accountEpochMilliseconds) / 1000);
+    std::tm utc{};
+    if (!gmtime_r(&seconds, &utc))
+      return {};
+    constexpr std::size_t maximumDateBytes = 64;
+    std::array<char, maximumDateBytes> buffer{};
+    return std::strftime(buffer.data(), buffer.size(), "%d %b %Y", &utc) ? buffer.data() : "";
+  }
   UserProfile parseUserProfile(const Json& value, const std::string& requestedGuild) {
     UserProfile result;
     result.user = parseAccount(value.at("user"));

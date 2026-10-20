@@ -979,6 +979,12 @@ namespace app {
         .guild = m_profileCard.guild,
         .revision = m_dialogGeneration
     };
+    if (m_dmMode && m_dmProfile.user == user && m_dmProfile.data) {
+      m_profileCard = *m_dmProfile.data;
+      m_dialogAccount = m_profileCard.user;
+      m_dialogPending = false;
+      return;
+    }
     m_dialogPending = !m_demo && startInteraction(*m_dialogAction);
     if (m_demo)
       prepareProfileDemo();
@@ -1041,6 +1047,8 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::clearInteractions() {
+    m_scrolling.stop(m_dmProfile.scroll);
+    m_dmProfile = {};
     m_dmDemoAction.reset();
     m_dmPinRequests.clear();
     m_dmPage.clear();
@@ -1231,6 +1239,8 @@ namespace app {
       return;
     }
     m_pendingInteractions.erase(key);
+    if (dmProfileResult(event))
+      return;
     if (serverMenuInteractionResult(event))
       return;
     if (dmInteractionResult(event))

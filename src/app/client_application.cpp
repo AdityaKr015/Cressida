@@ -622,6 +622,8 @@ namespace app {
               || m_demoOverlay == "role-members-cycle"
               || m_demoOverlay == "role-emoji-cycle"))
         demoRoleStep();
+      if (m_demo && m_demoOverlay.starts_with("dm-profile-cycle") && m_demoInteractionStep < dmProfileReplayFrames)
+        demoDmProfileStep();
       if (m_demo && m_demoOverlay == "profile-card-cycle")
         demoProfileStep();
       if (m_demo && m_demoOverlay == "channel-cycle")
@@ -1192,13 +1194,8 @@ namespace app {
         scroll(m_channelPanelScroll, delta);
       else if (forumView())
         scroll(m_forumScroll, delta);
-      else if (
-          m_showMembers
-          && m_window.width() >= 1000
-          && m_window.width() - chatLeft() >= 600
-          && m_pointerX >= m_window.width() - 240
-      ) {
-        scroll(m_memberScroll, delta);
+      else if (memberPaneWidth() > 0 && m_pointerX >= m_window.width() - memberPaneWidth()) {
+        scroll(dmRecipient() ? m_dmProfile.scroll : m_memberScroll, delta);
       } else
         scroll(m_messageScroll, -delta);
       m_window.invalidate();
@@ -1302,6 +1299,7 @@ namespace app {
                    : m_demo && view && std::string_view(view) == "forum-cycle"                ? 12
                    : m_demo && view && std::string_view(view) == "thread-cycle"               ? 10
                    : m_demo && view && std::string_view(view) == "guild-tag-cycle"            ? 10
+                   : m_demo && view && std::string_view(view).starts_with("dm-profile-cycle") ? dmProfileReplayFrames
                    : m_demo && view && std::string_view(view) == "profile-card-cycle"         ? 8
                    : m_demo && view && std::string_view(view) == "role-style-cycle"           ? 7
                    : m_demo && view && std::string_view(view) == "unread-badge-cycle"         ? 4
@@ -1408,6 +1406,8 @@ namespace app {
       throw std::runtime_error("Mention highlighting replay did not complete");
     if (m_demoOverlay == "forum-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Forum replay did not complete");
+    if (m_demoOverlay.starts_with("dm-profile-cycle") && m_demoInteractionStep != dmProfileReplayFrames)
+      throw std::runtime_error("DM profile replay did not finish");
     if (m_demoOverlay == "thread-cycle" && m_demoInteractionStep != 10)
       throw std::runtime_error("Thread replay did not complete");
     if (m_demoOverlay == "video-cycle" && m_demoInteractionStep < 11)
@@ -2685,6 +2685,8 @@ namespace app {
             || view.starts_with("dm-pins")
         ) {
           prepareDmHomeDemo(view);
+        } else if (view.starts_with("dm-profile")) {
+          prepareDmProfileDemo(view);
         } else if (view == "dm-presence") {
           m_privateChannels.clear();
           for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
@@ -3444,12 +3446,13 @@ namespace app {
           );
         if (m_dmMode) {
           avatar(
-              root, 99, y + (Style::spaceXxs + Style::borderWidth), layout::Avatar::dm, channel.icon,
+              root, 99, y + (row.height - layout::Avatar::dm) / 2, layout::Avatar::dm, channel.icon,
               channelName(channel)
           );
           if (channel.type == 1 && !channel.recipients.empty())
             statusBadge(
-                root, 119, y + (Style::spaceRelaxed + Style::borderWidth), userStatus(channel.recipients.front().id),
+                root, 119, y + (row.height - layout::Avatar::dm) / 2 + Style::spaceRelaxed - Style::spaceXxs,
+                userStatus(channel.recipients.front().id),
                 selected   ? raised
                     : over ? panel
                            : background,
@@ -3503,26 +3506,43 @@ namespace app {
           const bool tagFits = tag && available >= tagWidth + (Style::spaceSection - Style::spaceXxs);
           const float nameWidth = std::max(1.0F, available - (tagFits ? tagWidth + Style::spaceCompact : 0));
           const auto name = channelName(channel);
+          const auto custom = channel.kind() == api::ChannelType::DirectMessage && !channel.recipients.empty()
+              ? m_userDirectory.customStatus(channel.recipients.front().id)
+              : api::UserCustomStatus{};
+          const float identityHeight = custom.empty() ? row.height : layout::DmSidebar::identityHeight;
+          const float identityY = y + (custom.empty() ? 0 : layout::DmSidebar::contentInset);
+          const auto metrics =
+              m_window.target().renderer().measureText(name, Style::fontSizeBody, weight, nameWidth, 1);
           label(
-              root, 136, y + Style::spaceSm, nameWidth, name, Style::fontSizeBody,
-              selected || over || unread ? foreground : muted, weight
+              root, 136, identityY + (identityHeight - (metrics.bottom - metrics.top)) / 2, nameWidth, name,
+              Style::fontSizeBody, selected || over || unread ? foreground : muted, weight
           );
+          if (!custom.empty())
+            drawCustomStatus(
+                root, {136, identityY + identityHeight, available, layout::DmSidebar::statusHeight}, custom,
+                Style::fontSizeMini
+            );
           if (tagFits) {
             const float actualName = std::min(
                 nameWidth, std::ceil(m_window.target().renderer().measureText(name, Style::fontSizeBody, weight).width)
             );
-            drawGuildTag(root, 136 + actualName + 6, y + (Style::spaceCompact + Style::borderWidth), tagWidth, tag);
+            drawGuildTag(
+                root, 136 + actualName + Style::spaceCompact, identityY + (identityHeight - Style::spaceRelaxed) / 2,
+                tagWidth, tag
+            );
           }
           if (showPin)
             iconButton(
                 root,
-                {chatLeft() - ((Style::spaceSection + Style::spaceXxs) + Style::borderWidth), y + Style::spaceXs, 26,
-                 26, m_dmPinRequests.contains(channel.id) ? Action::None : Action::DmAction,
+                {chatLeft() - ((Style::spaceSection + Style::spaceXxs) + Style::borderWidth),
+                 y + (row.height - layout::DmSidebar::pinSize) / 2, layout::DmSidebar::pinSize,
+                 layout::DmSidebar::pinSize, m_dmPinRequests.contains(channel.id) ? Action::None : Action::DmAction,
                  std::string(pinned ? "unpin:" : "pin:") + channel.id},
                 pinned
                         && hovered(
                             chatLeft() - ((Style::spaceSection + Style::spaceXxs) + Style::borderWidth),
-                            y + Style::spaceXs, 26, 26
+                            y + (row.height - layout::DmSidebar::pinSize) / 2, layout::DmSidebar::pinSize,
+                            layout::DmSidebar::pinSize
                         )
                     ? "pinned-off"
                     : pinned ? "pinned-filled"
@@ -3624,14 +3644,7 @@ namespace app {
 
       const bool forum = forumView();
       const float panelWidth = m_channelPanel.empty() ? 0 : channelPanelWidth();
-      const float memberWidth = (!m_dmMode || m_dmPage.empty())
-              && !forum
-              && m_channelPanel.empty()
-              && m_showMembers
-              && w >= 1000
-              && w - chatLeft() >= 600
-          ? 240
-          : 0;
+      const float memberWidth = memberPaneWidth();
       const float left = chatLeft(), bodyWidth = w - left - memberWidth - panelWidth;
       if (m_messageEdit
           && (m_messageEdit->channel != m_channelId
@@ -4922,7 +4935,15 @@ namespace app {
         );
         if (!m_status.empty())
           label(root, left + Style::spaceWide, 105, bodyWidth - 56, m_status, Style::fontSizeMini, muted);
-        if (memberWidth > 0) {
+        if (memberWidth > 0 && dmRecipient()) {
+          drawDmProfile(
+              root,
+              layout::floatingFrame(
+                  w - memberWidth, layout::Window::titlebarHeight + layout::ChannelHeader::height, memberWidth,
+                  h - layout::Window::titlebarHeight - layout::ChannelHeader::height
+              )
+          );
+        } else if (memberWidth > 0) {
           const float memberX = w - memberWidth;
           const auto memberFrame = layout::floatingFrame(
               memberX, layout::Window::titlebarHeight + layout::ChannelHeader::height, memberWidth,
@@ -5204,6 +5225,7 @@ namespace app {
         m_members.push_back({index, m_account, userStatus(m_account.id)});
     }
     m_memberCount = m_members.size();
+    refreshDmProfile();
   }
 
   void ClientApplication::statusBadge(
@@ -7419,12 +7441,17 @@ namespace app {
         m_openFolders.insert(hit.id);
       saveExpandedFolders();
       break;
+    case Action::DmProfileRetry:
+      refreshDmProfile(true);
+      break;
     case Action::ToggleMembers:
       if (!m_channelPanel.empty()) {
         closeChannelPanel();
         m_showMembers = true;
       } else
         m_showMembers = !m_showMembers;
+      if (m_showMembers)
+        refreshDmProfile();
       break;
     case Action::PasteClipboard:
       if (!m_demo && !m_channelId.empty()) {

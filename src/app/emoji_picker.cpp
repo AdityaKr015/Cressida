@@ -218,7 +218,7 @@ namespace app {
     }
     prepareEmojiPicker();
     const auto frame = layout::pickerFrame(
-        w, m_composerTop, m_showMembers, layout::Picker::emojiWidth, layout::Picker::emojiMinimumHeight
+        w - memberPaneWidth(), m_composerTop, false, layout::Picker::emojiWidth, layout::Picker::emojiMinimumHeight
     );
     const auto [x, y, width, height] = frame;
     m_emojiBounds = {x, y, width, height, Action::None, {}};

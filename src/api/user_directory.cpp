@@ -9,6 +9,9 @@
 namespace api {
   namespace {
     constexpr std::size_t maxUsers = 100000;
+    constexpr std::size_t maximumActivities = 64, maximumStatusBytes = 512, maximumStatusEmojiBytes = 128;
+    constexpr std::size_t maximumPresenceGuilds = 1000;
+    constexpr int customActivityType = 4;
     std::string text(const nlohmann::json& value, const char* key) {
       const auto field = value.find(key);
       return field != value.end() && field->is_string() ? field->get<std::string>() : std::string{};
@@ -91,6 +94,7 @@ namespace api {
     if (update.reset) {
       m_accounts.clear();
       m_statuses.clear();
+      m_customStatuses.clear();
       m_relationships.clear();
       m_mutedChannels.clear();
       m_notifications.clear();
@@ -120,6 +124,8 @@ namespace api {
       }
       if (user.status && (m_statuses.contains(id) || m_statuses.size() < maxUsers))
         m_statuses[id] = *user.status;
+      if (user.customStatus && (m_customStatuses.contains(id) || m_customStatuses.size() < maxUsers))
+        m_customStatuses[id] = *user.customStatus;
       if (user.relationship && (m_relationships.contains(id) || m_relationships.size() < maxUsers))
         m_relationships[id] = *user.relationship;
       if (user.guildTag && (m_tags.contains(id) || m_tags.size() < maxUsers))
@@ -173,6 +179,10 @@ namespace api {
   std::string UserDirectory::status(const std::string& user, const std::string& fallback) const {
     const auto found = m_statuses.find(user);
     return found == m_statuses.end() ? fallback : found->second;
+  }
+  UserCustomStatus UserDirectory::customStatus(const std::string& user) const {
+    const auto at = m_customStatuses.find(user);
+    return at == m_customStatuses.end() ? UserCustomStatus{} : at->second;
   }
   int UserDirectory::relationship(const std::string& user) const {
     const auto found = m_relationships.find(user);
@@ -249,6 +259,8 @@ namespace api {
       changes.reset = true;
       m_globalStatuses.clear();
       m_guildStatuses.clear();
+      m_globalCustomStatuses.clear();
+      m_guildCustomStatuses.clear();
     }
     auto recordTag = [&](const nlohmann::json& user) {
       const auto id = text(user, "id");
@@ -304,6 +316,60 @@ namespace api {
       auto id = text(item, "user_id");
       if (const auto user = item.find("user"); user != item.end() && user->is_object())
         id = text(*user, "id");
+      if (!validSnowflake(id) || (changes.users.size() >= maxUsers && !changes.users.contains(id)))
+        return;
+      const auto activityScope = text(item, "guild_id");
+      const auto& activityGuild = activityScope.empty() ? guild : activityScope;
+      if (!activityGuild.empty() && !validSnowflake(activityGuild))
+        return;
+      if (const auto list = item.find("activities");
+          list != item.end() && list->is_array() && list->size() <= maximumActivities) {
+        std::optional<UserCustomStatus> custom = UserCustomStatus{};
+        for (const auto& activity : *list) {
+          if (!activity.is_object()
+              || !activity.contains("type")
+              || !activity["type"].is_number_integer()
+              || activity["type"] != customActivityType)
+            continue;
+          if (const auto state = activity.find("state"); state != activity.end() && !state->is_null()) {
+            if (!state->is_string() || state->get_ref<const std::string&>().size() > maximumStatusBytes) {
+              custom.reset();
+              break;
+            }
+            custom->text = state->get<std::string>();
+          }
+          if (const auto emoji = activity.find("emoji"); emoji != activity.end() && emoji->is_object()) {
+            const auto name = text(*emoji, "name");
+            const auto emojiId = text(*emoji, "id");
+            if (name.size() <= maximumStatusEmojiBytes && (emojiId.empty() || validSnowflake(emojiId))) {
+              custom->emojiName = name;
+              custom->emojiId = emojiId;
+              custom->animated = emoji->contains("animated") && (*emoji)["animated"] == true;
+            }
+          }
+          break;
+        }
+        if (custom) {
+          if (activityGuild.empty()) {
+            if (m_globalCustomStatuses.contains(id) || m_globalCustomStatuses.size() < maxUsers)
+              m_globalCustomStatuses[id] = *custom;
+          } else if (m_guildCustomStatuses.contains(id) || m_guildCustomStatuses.size() < maxUsers) {
+            auto& scopes = m_guildCustomStatuses[id];
+            if (scopes.contains(activityGuild) || scopes.size() < maximumPresenceGuilds)
+              scopes[activityGuild] = *custom;
+          }
+          UserCustomStatus resolved;
+          if (const auto global = m_globalCustomStatuses.find(id); global != m_globalCustomStatuses.end())
+            resolved = global->second;
+          else if (const auto scopes = m_guildCustomStatuses.find(id); scopes != m_guildCustomStatuses.end())
+            for (const auto& [scope, value] : scopes->second)
+              if (!value.empty()) {
+                resolved = value;
+                break;
+              }
+          changes.users[id].customStatus = std::move(resolved);
+        }
+      }
       auto status = text(item, "status");
       if (!validSnowflake(id)
           || (status != "online"
@@ -324,7 +390,7 @@ namespace api {
         if (!validSnowflake(guildId) || (!m_guildStatuses.contains(id) && m_guildStatuses.size() >= maxUsers))
           return;
         auto& guilds = m_guildStatuses[id];
-        if (!guilds.contains(guildId) && guilds.size() >= 1000)
+        if (!guilds.contains(guildId) && guilds.size() >= maximumPresenceGuilds)
           return;
         guilds[guildId] = status;
         // A global friend presence is authoritative for DMs. Guild-scoped data

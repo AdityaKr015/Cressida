@@ -225,7 +225,7 @@ namespace app {
     );
     iconButton(
         root, {icons + layout::ChannelHeader::actionStep * 3, 52, 30, 32, Action::ToggleMembers, {}}, "users",
-        "Member list", m_showMembers && m_channelPanel.empty()
+        dmRecipient() ? "Profile panel" : "Member list", m_showMembers && m_channelPanel.empty()
     );
     float nameX = left + (Style::spaceXl - Style::spaceXxs);
     if (thread) {
@@ -234,12 +234,18 @@ namespace app {
           "arrow-left", "Back to channel"
       );
       nameX += Style::spaceWide;
-    } else if (m_dmMode && channel->type == 1 && !channel->recipients.empty()) {
+    } else if (const auto* recipient = dmRecipient()) {
+      const auto& user = *recipient;
+      const float size = layout::DmProfile::headerAvatar;
+      const float top = layout::ChannelHeader::centerY - size / 2;
+      avatar(root, nameX, top, size, user.avatar, userName(user.id, user.name));
       statusBadge(
-          root, nameX + (Style::spaceXs + Style::borderWidth), 68, userStatus(channel->recipients.front().id),
-          background, channel->recipients.front().id, channel->id
+          root, nameX + size - Style::spaceMd, top + size - Style::spaceMd, userStatus(user.id), background, user.id,
+          channel->id
       );
-      nameX += ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth);
+      m_hits.push_back({nameX, top, size, size, Action::UserProfile, user.id});
+      m_contextTargets.push_back({nameX, top, size, size, Action::UserMenu, user.id});
+      nameX += size + layout::DmProfile::headerGap;
     } else if (!m_dmMode) {
       channelIcon(root, nameX, layout::ChannelHeader::iconTop, layout::Sidebar::iconSize, *channel, muted, background);
       nameX += ((Style::space2Xl - Style::spaceXxs) + Style::borderWidth);
@@ -254,7 +260,20 @@ namespace app {
         root, nameX, layout::ChannelHeader::textTop(caption.bottom - caption.top), nameWidth, name,
         Style::fontSizeTitle, foreground, FontWeight::SemiBold
     );
-    m_hits.push_back({nameX, 48, nameWidth, 44, Action::ChannelInfo, {}});
+    if (const auto* user = dmRecipient()) {
+      m_hits.push_back(
+          {nameX, layout::ChannelHeader::centerY - Style::controlHeight / 2, nameWidth, Style::controlHeight,
+           Action::UserProfile, user->id}
+      );
+      const float statusX = nameX + nameWidth + layout::DmProfile::headerGap;
+      drawCustomStatus(
+          root,
+          {statusX, layout::ChannelHeader::centerY - layout::DmProfile::statusHeight / 2,
+           std::max(0.0F, icons - statusX - Style::spaceMd), layout::DmProfile::statusHeight},
+          m_userDirectory.customStatus(user->id), Style::fontSizeDescription
+      );
+    } else
+      m_hits.push_back({nameX, 48, nameWidth, 44, Action::ChannelInfo, {}});
     float topicX = nameX + nameWidth + (Style::spaceLg + Style::spaceXxs);
     if (thread && available - nameWidth > 96) {
       const auto action = channel->archived.value_or(false) ? Action::ReopenThread

@@ -63,6 +63,91 @@ int main() {
           "Mute deadlines accept UTC fractions and timezone offsets"
       );
     }
+    {
+      api::UserDirectory gateway, view;
+      const auto receive = [&](const auto& type, const auto& data) { view.apply(gateway.consume(type, data)); };
+      receive(
+          "READY",
+          json{
+              {"merged_presences",
+               {{"friends",
+                 json::array(
+                     {{{"user_id", "7"},
+                       {"status", "online"},
+                       {"activities",
+                        json::array(
+                            {{{"type", 4},
+                              {"state", "Building native things"},
+                              {"emoji", {{"name", "👀"}, {"id", nullptr}}}}}
+                        )}}}
+                 )}}}
+          }
+      );
+      require(
+          view.customStatus("7").text == "Building native things" && view.customStatus("7").emojiName == "👀",
+          "READY custom status text and Unicode emoji reach the owning-loop view"
+      );
+      receive("PRESENCE_UPDATE", json{{"user", {{"id", "7"}}}, {"status", "idle"}});
+      require(view.customStatus("7").text == "Building native things", "Absent activities retain the custom status");
+      receive(
+          "PRESENCE_UPDATE",
+          json{
+              {"user_id", "7"},
+              {"activities",
+               json::array(
+                   {{{"type", 4},
+                     {"state", "Updated"},
+                     {"emoji", {{"name", "dance"}, {"id", "123"}, {"animated", true}}}}}
+               )}
+          }
+      );
+      require(
+          view.customStatus("7").text == "Updated"
+              && view.customStatus("7").emojiId == "123"
+              && view.customStatus("7").animated,
+          "Activity-only updates retain animated custom emoji identity"
+      );
+      receive(
+          "PRESENCE_UPDATE",
+          json{
+              {"user_id", "7"},
+              {"guild_id", "10"},
+              {"status", "online"},
+              {"activities", json::array({{{"type", 4}, {"state", "Guild fallback"}}})}
+          }
+      );
+      require(view.customStatus("7").text == "Updated", "Global custom status wins over guild-scoped data");
+      receive("PRESENCE_UPDATE", json{{"user_id", "7"}, {"activities", nullptr}});
+      receive("PRESENCE_UPDATE", json{{"user_id", "7"}, {"activities", json::array({{{"type", 4}, {"state", 42}}})}});
+      require(view.customStatus("7").text == "Updated", "Malformed activity lists and custom text preserve prior data");
+      receive("PRESENCE_UPDATE", json{{"user_id", "7"}, {"activities", json::array()}});
+      require(
+          view.customStatus("7").empty(),
+          "An explicit global empty list clears custom status without a guild fallback leak"
+      );
+      receive(
+          "READY_SUPPLEMENTAL",
+          json{
+              {"guilds", json::array({{{"id", "10"}}})},
+              {"merged_presences",
+               {{"guilds",
+                 json::array({json::array(
+                     {{{"user_id", "8"},
+                       {"status", "online"},
+                       {"activities", json::array({{{"type", 4}, {"state", "Guild status"}}})}}}
+                 )})}}}
+          }
+      );
+      require(
+          view.customStatus("8").text == "Guild status",
+          "Guild statuses can initialize users without a global status snapshot"
+      );
+      receive("READY", json::object());
+      require(
+          view.customStatus("7").empty() && view.customStatus("8").empty(),
+          "A new account/session clears custom status state"
+      );
+    }
     api::UserDirectory gateway, view;
     auto dispatch = [&](const auto& type, const auto& data) { view.apply(gateway.consume(type, data)); };
     dispatch(

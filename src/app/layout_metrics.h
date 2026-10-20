@@ -204,8 +204,12 @@ namespace app::layout {
     static constexpr int minimumHeight = Style::windowMinimumHeight;
   };
   struct DmSidebar {
-    static constexpr float conversationHeight = Style::space2Xl + Style::spaceXxs;
+    static constexpr float contentInset = Style::spaceXs;
+    static constexpr float identityHeight = Style::spaceRelaxed;
+    static constexpr float statusHeight = Style::spaceMd + Style::spaceXxs;
+    static constexpr float conversationHeight = contentInset * 2 + identityHeight + statusHeight;
     static constexpr float conversationStep = conversationHeight + Style::spaceXs;
+    static constexpr float pinSize = Style::spaceRelaxed + Style::spaceCompact;
     static constexpr float inset = Style::spaceLg;
     static constexpr float searchTop = Window::titlebarHeight + Style::spaceLg;
     static constexpr float searchHeight = Style::controlHeight;
@@ -319,6 +323,9 @@ namespace app::layout {
     }
   };
   struct Members {
+    static constexpr float width = Style::spaceSection * 6;
+    static constexpr float minimumWindowWidth = Style::windowMinimumWidth + width;
+    static constexpr float minimumAvailableWidth = Sidebar::minimumConversation + width;
     static constexpr float rowHeight = Style::controlHeightLg;
     static constexpr float groupHeight = Style::spaceXl;
     static constexpr float top = Window::titlebarHeight + ChannelHeader::height + Floating::inset + Style::spaceSm;
@@ -507,6 +514,23 @@ namespace app::layout {
     static constexpr float tiny = 20, compact = 24, dm = 28, member = 30, small = 32, account = 34;
     static constexpr float chat = Chat::avatarSize, rail = Style::spaceSection, preview = 56, large = 64;
     static constexpr float request = 72, profile = 84, hero = 96;
+  };
+  struct DmProfile {
+    static constexpr float width = Style::spaceSection * 8;
+    static constexpr float inset = Style::spaceLg;
+    static constexpr float bannerHeight = Style::spaceGroup * 2;
+    static constexpr float avatarSize = Avatar::profile;
+    static constexpr float avatarTop = bannerHeight - avatarSize / 2;
+    static constexpr float identityTop = avatarTop + avatarSize + Style::spaceLg;
+    static constexpr float nameHeight = Style::spaceWide;
+    static constexpr float metaHeight = Style::spaceRelaxed;
+    static constexpr float statusHeight = Style::spaceXl;
+    static constexpr float gap = Style::spaceSm;
+    static constexpr float sectionGap = Style::spaceLg;
+    static constexpr float footerHeight = Style::controlHeight + inset * 2;
+    static constexpr float statusScale = avatarSize / Avatar::rail;
+    static constexpr float headerAvatar = Avatar::compact;
+    static constexpr float headerGap = Style::spaceSm;
   };
   struct AccountFrame {
     float x, y, width, height, avatarX, avatarY, nameX, nameWidth, settingsX, settingsY, presenceWidth;

@@ -91,6 +91,10 @@ int main() {
         {"token", "synthetic-private-response-field"},
         {"analytics_token", "synthetic-only"}
     };
+    require(
+        api::accountCreationDate("4194304000") == "01 Jan 2015" && api::accountCreationDate("not-an-id").empty(),
+        "Account creation dates use a validated timestamp and stable UTC date"
+    );
     auto global = api::parseUserProfile(response);
     require(
         global.user.id == "11"
