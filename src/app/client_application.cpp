@@ -112,6 +112,8 @@ namespace app {
         demoChatPreloadStep();
       if (m_demo && m_demoOverlay == "tray-cycle" && m_demoInteractionStep < trayReplayFrames)
         demoTrayStep();
+      if (m_demo && m_demoOverlay.starts_with("tray-startup-") && m_demoInteractionStep == 0)
+        demoTrayStartup(true);
       if (m_demo && m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep < chatLinkReplayFrames)
         demoChatLinksStep();
       if (m_demo && m_demoOverlay == "attachment-cycle" && m_demoInteractionStep < attachmentReplayFrames)
@@ -1189,7 +1191,7 @@ namespace app {
       demo();
   }
 
-  int ClientApplication::run(bool smokeTest) {
+  int ClientApplication::run(bool smokeTest, bool startMinimized) {
     if (ContextMenuControl::compiledEntrySize() != sizeof(ContextMenuControlEntry))
       throw std::runtime_error(
           "The renderer library is stale: its menu layout differs from the client. Run just rebuild."
@@ -1203,6 +1205,15 @@ namespace app {
       m_window.closeRequested = [this] { closeToTray(); };
       m_tray.start(paths::assetPath("cressida-tray.svg"));
     }
+    const auto* view = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW");
+    const bool trayStartupDemo = m_demo && view && std::string_view(view).starts_with("tray-startup-");
+    if ((!m_demo && startMinimized) || trayStartupDemo) {
+      beginTrayStartup();
+      if (trayStartupDemo) {
+        m_demoOverlay = view;
+        demoTrayStartup(false);
+      }
+    }
     if (auto snapshot = m_themes.drain())
       m_themeSnapshot = std::move(*snapshot);
     if (!m_demo) {
@@ -1211,7 +1222,6 @@ namespace app {
       else
         restoreLogin();
     }
-    const auto* view = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW");
     const bool interactionCycle = m_demo
         && view
         && (std::string_view(view) == "interaction-cycle"
@@ -1304,6 +1314,8 @@ namespace app {
       throw std::runtime_error("Font settings replay did not finish");
     if (m_demoOverlay == "tray-cycle" && m_demoInteractionStep != trayReplayFrames)
       throw std::runtime_error("Tray lifecycle replay did not complete");
+    if (m_demoOverlay.starts_with("tray-startup-") && m_demoInteractionStep != 1)
+      throw std::runtime_error("Tray startup replay did not finish");
     if (m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep != chatLinkReplayFrames)
       throw std::runtime_error("Chat link replay did not finish");
     if (m_demoOverlay == "attachment-cycle" && m_demoInteractionStep != attachmentReplayFrames)
@@ -6084,7 +6096,7 @@ namespace app {
   void ClientApplication::tick() {
     while (auto event = m_tray.poll())
       trayEvent(std::move(*event));
-    if (m_demo && m_demoOverlay == "tray-cycle" && !m_window.visible())
+    if (m_demo && m_demoOverlay.starts_with("tray-") && !m_window.visible())
       ++m_trayHiddenTicks;
     drainDesktopNotifications();
     drainServerSettingsUploads();

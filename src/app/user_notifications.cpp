@@ -135,6 +135,7 @@ namespace app {
         return;
     } else if (std::ranges::find(m_guilds, action.guild, &api::Guild::id) == m_guilds.end())
       return;
+    m_trayStartupTimer.stop();
     m_window.show(std::move(action.activationToken));
     // Bring an existing settings/dialog window forward without discarding its
     // edits. A notification for the current conversation also needs only focus.

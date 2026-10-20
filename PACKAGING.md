@@ -194,6 +194,10 @@ The client uses the existing desktop services; it does not install its own
 notification daemon, browser engine or keyring. No compositor autostart entry
 or privileged service is required. Start `cressida` from the application menu
 or a terminal.
+For a desktop-managed autostart command, use `cressida --start-minimized` to start
+hidden in the tray. It opens the window if no tray host appears within five
+seconds. Cressida does not install or enable an autostart entry itself. Demo and
+smoke-test modes ignore this flag.
 
 ## User files
 

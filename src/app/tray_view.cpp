@@ -5,6 +5,17 @@
 #include <utility>
 
 namespace app {
+  namespace {
+    constexpr auto startupTrayWait = std::chrono::seconds(5);
+  }
+  void ClientApplication::beginTrayStartup() {
+    // Never attach the first window buffer while the tray host is being discovered.
+    m_window.hide();
+    m_trayStartupTimer.start(startupTrayWait, [this] {
+      if (!m_trayAvailable && !m_window.visible())
+        m_window.show();
+    });
+  }
   void ClientApplication::closeToTray() {
     // A window must remain reachable when the desktop has no tray host.
     if (!m_trayAvailable) {
@@ -35,23 +46,91 @@ namespace app {
     switch (event.command) {
     case TrayCommand::Availability:
       m_trayAvailable = event.available;
-      if (!event.available && !m_window.visible())
+      if (event.available)
+        m_trayStartupTimer.stop();
+      else if (!m_trayStartupTimer.active() && !m_window.visible())
         m_window.show();
       break;
     case TrayCommand::Open:
+      m_trayStartupTimer.stop();
       m_window.show(std::move(event.activationToken));
       break;
     case TrayCommand::Restart:
+      m_trayStartupTimer.stop();
       saveSelection();
       m_restartRequested = true;
       if (!m_demo)
         m_window.close();
       break;
     case TrayCommand::Close:
+      m_trayStartupTimer.stop();
       m_restartRequested = false;
       m_window.close();
       break;
     }
+  }
+  void ClientApplication::demoTrayStartup(bool verify) {
+    const auto require = [](bool value, const char* reason) {
+      if (!value)
+        throw std::runtime_error(reason);
+    };
+    if (verify) {
+      require(
+          m_demoInteractionStep++ == 0
+              && m_window.visible()
+              && !m_trayStartupTimer.active()
+              && m_trayHiddenTicks > 0
+              && m_window.toplevelGeneration() == 2,
+          "Startup stays unpresented until one explicit open or fallback recreates its role"
+      );
+      require(
+          m_trayAvailable
+              == (m_demoOverlay == "tray-startup-host"
+                  || m_demoOverlay == "tray-startup-open"
+                  || m_demoOverlay == "tray-startup-notification"),
+          "Startup host state matches the tested open, loss or timeout path"
+      );
+      std::clog
+          << "Offline "
+          << m_demoOverlay
+          << ": no startup frame, hidden event-loop delivery, explicit open "
+             "or fallback, timer cancellation and native restore passed\n";
+      return;
+    }
+    m_trayDemoTimer.start(std::chrono::milliseconds(Style::animFast), [this, require] {
+      require(!m_window.visible() && m_animationDraw == 0, "Start-minimized never presents a startup frame");
+      trayEvent({.available = false});
+      require(
+          !m_window.visible() && m_trayStartupTimer.active(),
+          "Initial host absence preserves the asynchronous startup grace period"
+      );
+      if (m_demoOverlay == "tray-startup-missing")
+        return; // Exercise the actual one-shot deadline, without a polling loop.
+      if (m_demoOverlay == "tray-startup-open" || m_demoOverlay == "tray-startup-notification") {
+        if (m_demoOverlay == "tray-startup-notification")
+          desktopNoticeAction(
+              {.account = m_account.id, .guild = m_guildId, .channel = m_channelId, .generation = m_session}
+          );
+        else
+          trayEvent({.command = TrayCommand::Open});
+        require(
+            m_window.visible() && !m_trayStartupTimer.active(),
+            "An explicit open during discovery cancels the startup wait immediately"
+        );
+        trayEvent({.available = true});
+        require(m_window.visible(), "Late tray registration never re-hides an explicitly opened window");
+      } else {
+        trayEvent({.available = true});
+        require(
+            !m_window.visible() && !m_trayStartupTimer.active(),
+            "Successful host registration leaves startup hidden and cancels its deadline"
+        );
+        if (m_demoOverlay == "tray-startup-host-loss")
+          trayEvent({.available = false});
+        else
+          trayEvent({.command = TrayCommand::Open});
+      }
+    });
   }
   void ClientApplication::demoTrayStep() {
     const auto require = [](bool value, const char* message) {
@@ -62,6 +141,7 @@ namespace app {
     std::clog << "Offline tray lifecycle step " << step << '\n';
     require(m_window.visible(), "Only mapped windows present tray replay frames");
     if (step == 0) {
+      require(m_window.toplevelGeneration() == 1, "Start-minimized does not hide ordinary offline demos");
       m_drafts[m_channelId] = "Draft retained while hidden";
       m_window.closeRequested = [this] { closeToTray(); };
       trayEvent({.available = true});

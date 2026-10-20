@@ -59,7 +59,7 @@ namespace app {
   public:
     ClientApplication(bool demo, std::string token);
     ~ClientApplication();
-    int run(bool smokeTest = false);
+    int run(bool smokeTest = false, bool startMinimized = false);
     bool restartRequested() const { return m_restartRequested; }
 
   private:
@@ -313,8 +313,10 @@ namespace app {
     void demoVideoStep();
     void tick();
     void closeToTray();
+    void beginTrayStartup();
     void trayEvent(TrayEvent event);
     void demoTrayStep();
+    void demoTrayStartup(bool verify);
     void onKey(const Key& key);
     void insert(std::string text);
     void activate(const Hit& hit);
@@ -753,6 +755,7 @@ namespace app {
     api::Client m_client;
     DesktopTray m_tray;
     bool m_trayAvailable = false, m_restartRequested = false;
+    Timer m_trayStartupTimer;
     Timer m_trayDemoTimer;
     unsigned m_trayHiddenTicks = 0;
     api::Assets m_assets;

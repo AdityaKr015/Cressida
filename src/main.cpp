@@ -8,15 +8,18 @@
 #include <string_view>
 
 int main(int argc, char** argv) {
-  bool demo = false, smoke = false;
+  bool demo = false, smoke = false, startMinimized = false;
   std::string tokenFile;
   for (int i = 1; i < argc; ++i) {
     const std::string_view arg(argv[i]);
     if (arg == "--help") {
-      std::cout << "Cressida\n\nUsage: cressida [--demo] [--smoke-test] [--token-file PATH]\n"
+      std::cout << "Cressida\n\nUsage: cressida [--start-minimized] [--demo] [--smoke-test] [--token-file PATH]\n"
                    "\nAccount tokens can also be entered in the window or provided through CRESSIDA_TOKEN.\n"
                    "--demo opens sample conversations without contacting Discord.\n"
-                   "--smoke-test renders one demo frame and exits.\n";
+                   "--smoke-test renders one demo frame and exits.\n"
+                   "--start-minimized starts hidden in the tray; shows the window if no tray host appears within five "
+                   "seconds.\n"
+                   "It is ignored in demo and smoke-test modes.\n";
       return 0;
     }
     if (arg == "--version") {
@@ -25,6 +28,8 @@ int main(int argc, char** argv) {
     }
     if (arg == "--demo")
       demo = true;
+    else if (arg == "--start-minimized")
+      startMinimized = true;
     else if (arg == "--smoke-test") {
       smoke = true;
       demo = true;
@@ -56,7 +61,7 @@ int main(int argc, char** argv) {
     bool restart;
     {
       app::ClientApplication application(demo, std::move(token));
-      result = application.run(smoke);
+      result = application.run(smoke, startMinimized);
       restart = application.restartRequested();
     }
     if (restart && !demo)

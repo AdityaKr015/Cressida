@@ -26,6 +26,8 @@ For builds without Nix or Guix and distribution packages, see [PACKAGING.md](PAC
 
 With a desktop tray available, closing the window keeps Cressida running. Use
 the tray's **Open**, **Restart** or **Close** menu; **Close** exits the application.
+Run `cressida --start-minimized` for a hidden tray startup. If no tray host appears
+within five seconds, the window opens normally.
 
 ### Nix
 With Nix installed, run from this checkout:
