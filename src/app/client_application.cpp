@@ -278,6 +278,8 @@ namespace app {
         demoMessageEditStep();
       if (m_demo && m_demoOverlay == "autocomplete-cycle" && m_demoInteractionStep < 9)
         demoCompletionStep();
+      if (m_demo && m_demoOverlay.starts_with("decorations-cycle") && m_demoInteractionStep < 4)
+        demoDecorationsStep();
       if (m_demo && m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep < 12)
         demoUserPreferencesStep();
       if (m_demo && m_demoOverlay == "user-account-cycle" && m_demoInteractionStep < 16)
@@ -1153,18 +1155,19 @@ namespace app {
       m_desktopNotifications.start();
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
-        smokeTest ? (m_demo && view && std::string_view(view) == "chat-links-cycle"             ? chatLinkReplayFrames
-                         : m_demo && view && std::string_view(view) == "attachment-cycle"       ? attachmentReplayFrames
-                         : m_demo && view && std::string_view(view) == "sticker-cycle"          ? 8
-                         : m_demo && view && std::string_view(view) == "dm-compose-cycle"       ? 16
-                         : m_demo && view && std::string_view(view) == "dm-home-cycle"          ? 18
-                         : m_demo && view && std::string_view(view) == "chat-preload-cycle"     ? 10
-                         : m_demo && view && std::string_view(view) == "join-cycle"             ? 4
-                         : m_demo && view && std::string_view(view) == "deleted-cycle"          ? 3
-                         : m_demo && view && std::string_view(view) == "inline-edit-cycle"      ? 8
-                         : m_demo && view && std::string_view(view) == "autocomplete-cycle"     ? 9
-                         : m_demo && view && std::string_view(view) == "user-preferences-cycle" ? 12
-                         : m_demo && view && std::string_view(view) == "user-account-cycle"     ? 16
+        smokeTest ? (m_demo && view && std::string_view(view) == "chat-links-cycle"         ? chatLinkReplayFrames
+                         : m_demo && view && std::string_view(view) == "attachment-cycle"   ? attachmentReplayFrames
+                         : m_demo && view && std::string_view(view) == "sticker-cycle"      ? 8
+                         : m_demo && view && std::string_view(view) == "dm-compose-cycle"   ? 16
+                         : m_demo && view && std::string_view(view) == "dm-home-cycle"      ? 18
+                         : m_demo && view && std::string_view(view) == "chat-preload-cycle" ? 10
+                         : m_demo && view && std::string_view(view) == "join-cycle"         ? 4
+                         : m_demo && view && std::string_view(view) == "deleted-cycle"      ? 3
+                         : m_demo && view && std::string_view(view) == "inline-edit-cycle"  ? 8
+                         : m_demo && view && std::string_view(view) == "autocomplete-cycle" ? 9
+                         : m_demo && view && std::string_view(view).starts_with("decorations-cycle")       ? 4
+                         : m_demo && view && std::string_view(view) == "user-preferences-cycle"            ? 12
+                         : m_demo && view && std::string_view(view) == "user-account-cycle"                ? 16
                          : m_demo && view && std::string_view(view) == "user-settings-lists-cycle"         ? 30
                          : m_demo && view && std::string_view(view) == "settings-font-cycle"               ? 12
                          : m_demo && view && std::string_view(view) == "server-hover-cycle"                ? 7
@@ -1241,6 +1244,8 @@ namespace app {
       throw std::runtime_error("Cursor/sidebar replay did not complete");
     if (m_demoOverlay == "jump-latest-cycle" && m_demoInteractionStep != 8)
       throw std::runtime_error("Jump to latest replay did not complete");
+    if (m_demoOverlay.starts_with("decorations-cycle") && m_demoInteractionStep != 4)
+      throw std::runtime_error("Desktop decorations replay did not finish");
     if (m_demoOverlay == "user-preferences-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Client preferences replay did not finish");
     if (m_demoOverlay == "dm-compose-cycle" && m_demoInteractionStep != 16)
@@ -2466,6 +2471,13 @@ namespace app {
           selectSettingsPage("account");
           prepareUserAccountDemo();
           userAccountAction(view.substr(view.find(':') + 1));
+        } else if (view.starts_with("decorations-cycle")) {
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          openSettings();
+          selectSettingsPage("advanced");
+          m_demoOverlay = view;
+          m_demoInteractionStep = 0;
         } else if (view == "user-preferences-cycle") {
           openSettings();
           selectSettingsPage("keybinds");
@@ -2826,6 +2838,7 @@ namespace app {
     const bool lightMode = resolveLightMode(m_preferences.theme, m_themeSnapshot.systemLight);
     const auto& colorTheme = m_themeSnapshot.selected(m_preferences.colorTheme);
     theme::apply(lightMode ? colorTheme.light : colorTheme.dark, lightMode, m_preferences.saturation / 100.0F);
+    m_window.setDesktopDecorations(m_preferences.desktopDecorations);
     m_window.context().setTextFontFamily(m_connected ? m_preferences.fontFamily : std::string{});
     const float w = m_window.width(),
                 h = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();

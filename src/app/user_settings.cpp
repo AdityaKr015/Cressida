@@ -180,6 +180,7 @@ namespace app {
     selectSettingsPage(m_settingsPage);
   }
   void ClientApplication::savePreferences() {
+    m_window.setDesktopDecorations(m_preferences.desktopDecorations);
     m_messageLayouts.clear();
     if (!m_demo)
       m_sessionStore.savePreferences(m_account.id, m_preferences);
@@ -1413,8 +1414,13 @@ namespace app {
           "Show identifier-copy actions in supported user, server, channel and message menus."
       );
       section("Window");
-      row("Desktop decorations",
-          "Use your compositor's window decorations when available, with native Cressida controls as the fallback.");
+      toggle(
+          "Desktop decorations", m_preferences.desktopDecorations, "desktop_decorations",
+          m_window.desktopDecorationsAvailable() ? "Use your desktop's window decorations. Turn off to request "
+                                                   "Cressida's title bar. Your desktop may override this choice."
+                                                 : "Prefer your desktop's window decorations when available. This "
+                                                   "desktop does not provide them, so Cressida's title bar is used."
+      );
     } else if (m_settingsPage == "voice") {
       section("Voice and video");
       row("Calls and audio devices",

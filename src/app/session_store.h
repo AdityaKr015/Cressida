@@ -28,6 +28,7 @@ namespace app {
     bool desktopNotifications = true, notificationSounds = true;
     int notificationPrivacy = 0;
     std::map<std::string, std::string> keybinds;
+    bool desktopDecorations = true;
   };
   struct LastChannel {
     std::string guild, channel;

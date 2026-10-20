@@ -1,13 +1,72 @@
 #include "app/client_application.h"
 #include "app/message_group.h"
 #include "app/theme.h"
+#include "ui/controls/toggle.h"
 
 #include <cmath>
 #include <iostream>
+#include <linux/input-event-codes.h>
 #include <stdexcept>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace app {
+  void ClientApplication::demoDecorationsStep() {
+    const auto require = [](bool condition, const char* message) {
+      if (!condition)
+        throw std::runtime_error(message);
+    };
+    const auto control = [&]() -> Toggle& {
+      const auto at = m_widgets.find("toggle:desktop_decorations");
+      require(
+          at != m_widgets.end() && at->second->parent(),
+          "Advanced settings mounts a retained native desktop-decoration toggle"
+      );
+      return *static_cast<Toggle*>(at->second);
+    };
+    const auto click = [&] {
+      auto& toggle = control();
+      float x = 0, y = 0;
+      Node::mapToScene(&toggle, toggle.width() / 2, toggle.height() / 2, x, y);
+      m_window.motion(x, y);
+      m_window.click(x, y, BTN_LEFT);
+      m_window.released();
+    };
+    const auto step = m_demoInteractionStep++;
+    if (step == 0) {
+      require(m_preferences.desktopDecorations && control().checked(), "Desktop decorations start enabled");
+      m_profileDirty = false;
+      click();
+      require(
+          !m_preferences.desktopDecorations && !m_window.desktopDecorations() && !m_profileDirty,
+          "Clicking the native toggle requests Cressida decorations without dirtying a profile"
+      );
+    } else if (step == 1) {
+      require(
+          !control().checked() && !m_window.desktopDecorations(),
+          "The decoration choice survives a retained settings rebuild"
+      );
+      if (!m_window.desktopDecorationsAvailable())
+        require(
+            m_window.titlebarHeight() == layout::Window::titlebarHeight,
+            "Compositors without xdg-decoration retain Cressida's working title bar"
+        );
+      click();
+      require(
+          m_preferences.desktopDecorations && m_window.desktopDecorations(),
+          "The native toggle can request desktop decorations again"
+      );
+    } else if (step == 2) {
+      require(control().checked(), "Re-enabled decorations remain checked on the following frame");
+      selectSettingsPage("appearance");
+      selectSettingsPage("advanced");
+    } else if (step == 3) {
+      require(
+          control().checked() && m_preferences.desktopDecorations && !m_profileDirty,
+          "Settings navigation preserves the decoration preference without profile mutations"
+      );
+    }
+    m_window.invalidate();
+  }
   void ClientApplication::demoUserPreferencesStep() {
     const auto require = [](bool ok, const char* reason) {
       if (!ok)

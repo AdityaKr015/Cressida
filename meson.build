@@ -326,3 +326,7 @@ test('billing_amount', billing_amount_test)
 
 typing_test = executable('typing_test', 'tests/typing_test.cpp', dependencies: backend_dep)
 test('typing', typing_test)
+
+window_decorations_test = executable('window_decorations_test', 'tests/window_decorations_test.cpp',
+  include_directories: include_directories('src'))
+test('window_decorations', window_decorations_test)

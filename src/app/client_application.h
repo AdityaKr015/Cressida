@@ -507,6 +507,7 @@ namespace app {
     std::string shortcutLabel(const std::string& action) const;
     bool shortcutKey(const Key& key);
     void demoUserPreferencesStep();
+    void demoDecorationsStep();
     bool spoilersVisible(const std::string& message) const;
     void resetUserAccountSettings();
     void loadUserAccountSettings(const std::string& page, bool force = false);

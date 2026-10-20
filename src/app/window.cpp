@@ -2,6 +2,7 @@
 
 #include "app/layout_metrics.h"
 #include "app/surface_scale.h"
+#include "app/window_decorations.h"
 #include "core/deferred_call.h"
 #include "core/environment.h"
 #include "core/timer_manager.h"
@@ -63,8 +64,7 @@ namespace app {
     xdg_toplevel* toplevel = nullptr;
     zxdg_decoration_manager_v1* decorationManager = nullptr;
     zxdg_toplevel_decoration_v1* decoration = nullptr;
-    std::uint32_t decorationMode = ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
-    std::uint32_t pendingDecorationMode = ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
+    WindowDecorations decorations;
     bool maximized = false, fullscreen = false;
     std::uint32_t pointerSerial = 0;
     Clock::time_point titleClick{};
@@ -421,7 +421,7 @@ namespace app {
               }
               if (!self.maximized
                   && !self.fullscreen
-                  && self.decorationMode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
+                  && self.decorations.clientSide()
                   && (self.pointerX >= self.width - 7 || self.pointerY >= self.height - 7)) {
                 const auto edge = self.pointerX >= self.width - 7
                     ? (self.pointerY >= self.height - 7 ? XDG_TOPLEVEL_RESIZE_EDGE_BOTTOM_RIGHT
@@ -742,19 +742,24 @@ namespace app {
       m->decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(m->decorationManager, m->toplevel);
       static const zxdg_toplevel_decoration_v1_listener listener{
           .configure = [](void* data, zxdg_toplevel_decoration_v1*, std::uint32_t mode) {
-            static_cast<Impl*>(data)->pendingDecorationMode = mode;
+            static_cast<Impl*>(data)->decorations.configure(mode);
           },
       };
       zxdg_toplevel_decoration_v1_add_listener(m->decoration, &listener, m.get());
-      // Let the compositor select its preferred mode, including undecorated tiling.
-      zxdg_toplevel_decoration_v1_unset_mode(m->decoration);
+      static_assert(
+          static_cast<std::uint32_t>(WindowDecorations::Mode::Client) == ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
+      );
+      static_assert(
+          static_cast<std::uint32_t>(WindowDecorations::Mode::Server) == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+      );
+      zxdg_toplevel_decoration_v1_set_mode(m->decoration, static_cast<std::uint32_t>(m->decorations.requested()));
     }
     static const xdg_surface_listener roleListener{
         .configure = [](void* data, xdg_surface* role, std::uint32_t serial) {
           auto& self = *static_cast<Impl*>(data);
           xdg_surface_ack_configure(role, serial);
           self.configured = true;
-          self.decorationMode = self.pendingDecorationMode;
+          self.decorations.surfaceConfigured();
           self.resize();
         },
     };
@@ -955,10 +960,18 @@ namespace app {
     invalidate();
   }
   float Window::titlebarHeight() const {
-    return m->fullscreen || m->decorationMode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
-        ? 0
-        : layout::Window::titlebarHeight;
+    return m->decorations.needsTitlebar(m->fullscreen) ? layout::Window::titlebarHeight : 0;
   }
+  void Window::setDesktopDecorations(bool enabled) {
+    if (!m->decorations.preferDesktop(enabled))
+      return;
+    if (m->decoration)
+      zxdg_toplevel_decoration_v1_set_mode(m->decoration, static_cast<std::uint32_t>(m->decorations.requested()));
+    // Continue using the confirmed mode until the compositor configures it.
+    invalidate();
+  }
+  bool Window::desktopDecorations() const { return m->decorations.desktopPreferred(); }
+  bool Window::desktopDecorationsAvailable() const { return m->decoration != nullptr; }
   void Window::setCursorShape(std::uint32_t shape) {
     if (m->cursorShape == shape)
       return;

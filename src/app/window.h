@@ -37,6 +37,9 @@ namespace app {
     bool active() const;
     bool preciseScroll() const;
     float titlebarHeight() const;
+    void setDesktopDecorations(bool enabled);
+    bool desktopDecorations() const;
+    bool desktopDecorationsAvailable() const;
     void setCursorShape(std::uint32_t shape);
     std::uint32_t cursorShape() const;
     void invalidate();

@@ -54,6 +54,7 @@ namespace app {
         {"animate_emoji", &Preferences::animateEmoji},
         {"animate_avatars", &Preferences::animateAvatars},
         {"developer_mode", &Preferences::developerMode},
+        {"desktop_decorations", &Preferences::desktopDecorations},
         {"convert_emoticons", &Preferences::convertEmoticons},
         {"show_reactions", &Preferences::showReactions},
         {"show_role_icons", &Preferences::showRoleIcons},

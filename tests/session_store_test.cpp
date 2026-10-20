@@ -150,6 +150,7 @@ int main() {
       selected.roleColorMode = 1;
       selected.spoilerMode = 2;
       selected.desktopNotifications = false;
+      selected.desktopDecorations = false;
       selected.notificationPrivacy = 2;
       selected.keybinds = {{"settings", "Ctrl+Alt+s"}, {"quit", ""}};
       store.savePreferences("123", selected);
@@ -159,14 +160,28 @@ int main() {
               && actual.saturation == 45
               && actual.roleColorMode == 1
               && actual.spoilerMode == 2
+              && !actual.desktopDecorations
               && !actual.desktopNotifications
               && actual.notificationPrivacy == 2
               && actual.keybinds == selected.keybinds,
           "Client behavior and shortcuts persist per account"
       );
       require(
-          !store.preferences("456").reducedMotion && store.startupPreferences().saturation == 100,
+          !store.preferences("456").reducedMotion
+              && store.preferences("456").desktopDecorations
+              && store.startupPreferences().desktopDecorations
+              && store.startupPreferences().saturation == 100,
           "Accessibility and notification choices never leak to other accounts or sign-in"
+      );
+      app::SessionStore restarted(std::filesystem::path(directory) / "client-preferences.json");
+      require(
+          !restarted.preferences("123").desktopDecorations,
+          "The desktop-decoration choice survives a new application session"
+      );
+      restarted.savePreferences("123", {});
+      require(
+          store.preferences("123").desktopDecorations,
+          "Re-enabling desktop decorations persists over a previously disabled choice"
       );
       require(
           app::notificationMessagePreview("hello ||private\nmessage|| and `a || b` \\||literal")

@@ -217,6 +217,7 @@ namespace app {
       result.showReactions = value.value("show_reactions", true);
       result.showRoleIcons = value.value("show_role_icons", true);
       result.desktopNotifications = value.value("desktop_notifications", true);
+      result.desktopDecorations = value.value("desktop_decorations", true);
       result.notificationSounds = value.value("notification_sounds", true);
       result.saturation = std::clamp(value.value("saturation", 100), 0, 100);
       result.spoilerMode = std::clamp(value.value("spoiler_mode", 0), 0, 2);
@@ -297,6 +298,7 @@ namespace app {
           {"show_reactions", preferences.showReactions},
           {"show_role_icons", preferences.showRoleIcons},
           {"desktop_notifications", preferences.desktopNotifications},
+          {"desktop_decorations", preferences.desktopDecorations},
           {"notification_sounds", preferences.notificationSounds},
           {"saturation", preferences.saturation},
           {"spoiler_mode", preferences.spoilerMode},
