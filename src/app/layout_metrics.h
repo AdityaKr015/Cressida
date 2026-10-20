@@ -157,6 +157,8 @@ namespace app::layout {
   };
   struct ChannelHeader {
     static constexpr float height = 66;
+    static constexpr float centerY = Window::titlebarHeight + height / 2;
+    static constexpr float textTop(float textHeight) { return centerY - textHeight / 2; }
     static constexpr float iconTop = 58;
     static constexpr float searchBreakpoint = 690;
     static constexpr float searchMinimumWidth = 180;

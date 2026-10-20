@@ -246,9 +246,14 @@ namespace app {
     }
     const float available = std::max(20.0F, icons - nameX - Style::spaceMd);
     const auto name = channelName(*channel);
-    const auto measured = m_window.target().renderer().measureText(name, Style::fontSizeTitle, FontWeight::SemiBold);
-    const float nameWidth = std::min(available, std::max(40.0F, measured.width + 4));
-    label(root, nameX, 60, nameWidth, name, Style::fontSizeTitle, foreground, FontWeight::SemiBold);
+    auto& renderer = m_window.target().renderer();
+    const auto measured = renderer.measureText(name, Style::fontSizeTitle, FontWeight::SemiBold);
+    const float nameWidth = std::min(available, std::max(Style::spaceSection, measured.width + Style::spaceXs));
+    const auto caption = renderer.measureText(name, Style::fontSizeTitle, FontWeight::SemiBold, nameWidth, 1);
+    label(
+        root, nameX, layout::ChannelHeader::textTop(caption.bottom - caption.top), nameWidth, name,
+        Style::fontSizeTitle, foreground, FontWeight::SemiBold
+    );
     m_hits.push_back({nameX, 48, nameWidth, 44, Action::ChannelInfo, {}});
     float topicX = nameX + nameWidth + (Style::spaceLg + Style::spaceXxs);
     if (thread && available - nameWidth > 96) {

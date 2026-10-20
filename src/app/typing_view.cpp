@@ -86,6 +86,21 @@ namespace app {
               chatLeft(), layout::Window::titlebarHeight, m_window.width() - chatLeft(), layout::ChannelHeader::height
           )
       );
+      const auto caption = std::ranges::find_if(m_scene->children(), [&](const auto& node) {
+        return node->type() == NodeType::Text
+            && static_cast<const TextNode&>(*node).text() == channelName(*selectedChannel())
+            && node->x() > chatLeft()
+            && node->y() < layout::Window::titlebarHeight + layout::ChannelHeader::height;
+      });
+      require(caption != m_scene->children().end(), "The actual channel header caption is mounted");
+      const auto& text = static_cast<const TextNode&>(**caption);
+      const auto metrics = m_window.target().renderer().measureText(
+          text.text(), text.fontSize(), text.fontWeight(), text.maxWidth(), text.maxLines()
+      );
+      require(
+          std::abs(text.y() + (metrics.top + metrics.bottom) / 2 - layout::ChannelHeader::centerY) < Style::borderWidth,
+          "Channel names center their actual glyph bounds in the floating header, including emoji and ellipsis"
+      );
       const auto composer = layout::composerFrame(h, layout::Composer::minimumHeight);
       const auto unreadChannel = std::ranges::find_if(m_hits, [](const auto& hit) {
         return hit.action == Action::Channel && hit.id == "103";
@@ -171,6 +186,9 @@ namespace app {
       activate({0, 0, 0, 0, Action::CloseSettings, {}});
     } else if (step == 3) {
       panes();
+      for (auto& channel : m_channels)
+        if (channel.id == m_channelId)
+          channel.name = "offtopic";
       openSettings();
       selectSettingsPage("appearance");
     } else if (step == 4) {
@@ -180,6 +198,9 @@ namespace app {
       activate({0, 0, 0, 0, Action::CloseSettings, {}});
     } else if (step == 6) {
       panes();
+      for (auto& channel : m_channels)
+        if (channel.id == m_channelId)
+          channel.name = "☕-a-long-channel-name-that-needs-to-be-ellipsized-in-the-header";
       extendedPreference("corner_radius:" + std::to_string(Style::cornerRadiusDefaultPercent));
     } else if (step == 7) {
       panes();

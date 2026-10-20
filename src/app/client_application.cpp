@@ -1748,6 +1748,9 @@ namespace app {
         if (view.starts_with("floating-cycle")) {
           prepareChannelMenuDemo("channel-menu");
           closeContext();
+          for (auto& channel : m_channels)
+            if (channel.id == m_channelId)
+              channel.name = "☕-offtopic";
           m_demoOverlay = view;
           m_demoInteractionStep = 0;
           m_showMembers = true;
