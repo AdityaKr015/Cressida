@@ -122,14 +122,18 @@ namespace app::layout {
     result.height = y - gap;
     return result;
   }
+  struct Floating {
+    static constexpr float inset = Style::spaceXs;
+    static constexpr float gap = inset * 2;
+  };
   inline Frame floatingFrame(float x, float y, float width, float height) {
     return {
-        x + Style::spaceSm, y + Style::spaceSm, std::max(0.0F, width - Style::spaceSm * 2),
-        std::max(0.0F, height - Style::spaceSm * 2)
+        x + Floating::inset, y + Floating::inset, std::max(0.0F, width - Floating::gap),
+        std::max(0.0F, height - Floating::gap)
     };
   }
   struct Composer {
-    static constexpr float bottomInset = Style::spaceLg;
+    static constexpr float bottomInset = Floating::inset;
     static constexpr float minimumTextHeight = Style::fontSizeBody + Style::spaceSm;
     static constexpr float verticalPadding = Style::spaceXl;
     static constexpr float minimumHeight = minimumTextHeight + verticalPadding;
@@ -178,7 +182,7 @@ namespace app::layout {
     static constexpr float rowInset = Style::spaceMd;
     static constexpr float unreadWidth = Style::spaceXs;
     static constexpr float unreadHeight = Style::spaceCompact;
-    static constexpr float unreadX = railWidth + Style::spaceSm + Style::spaceXs;
+    static constexpr float unreadX = railWidth + Floating::inset + Style::spaceXs;
     static constexpr float accountHeight = Composer::minimumHeight;
     static constexpr float accountReserve = accountHeight + Composer::bottomInset;
     static constexpr float accountStatusSize = Style::spaceDense + Style::borderWidth;
@@ -248,7 +252,7 @@ namespace app::layout {
   };
   inline ComposerFrame composerFrame(float windowHeight, float composerHeight) {
     const float top = windowHeight - Composer::bottomInset - composerHeight;
-    const float panelBottom = top - Style::spaceSm * 2;
+    const float panelBottom = top - Floating::gap;
     const float typingTop = panelBottom - Style::spaceSm - Typing::height;
     return {top, panelBottom, typingTop, typingTop - Chat::composerGap};
   }
@@ -312,7 +316,7 @@ namespace app::layout {
   struct Members {
     static constexpr float rowHeight = Style::controlHeightLg;
     static constexpr float groupHeight = Style::spaceXl;
-    static constexpr float top = Window::titlebarHeight + ChannelHeader::height + Style::spaceSm * 2;
+    static constexpr float top = Window::titlebarHeight + ChannelHeader::height + Floating::inset + Style::spaceSm;
     static constexpr float bottomInset = Composer::bottomInset + Style::spaceXs;
     static constexpr float groupTextTop = (groupHeight - Style::fontSizeMini) / 2;
     static constexpr float groupIconTop = (groupHeight - Style::baseGlyphSize) / 2;
@@ -503,7 +507,7 @@ namespace app::layout {
     float x, y, width, height, avatarX, avatarY, nameX, nameWidth, settingsX, settingsY, presenceWidth;
   };
   inline AccountFrame accountFrame(float windowHeight, float sidebarRight) {
-    const float x = Style::spaceSm, y = windowHeight - Sidebar::accountReserve;
+    const float x = Floating::inset, y = windowHeight - Sidebar::accountReserve;
     const float width = sidebarRight - x * 2;
     const float avatarX = x + Style::spaceSm;
     const float nameX = avatarX + Avatar::account + Style::spaceSm;

@@ -529,7 +529,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::drawChannelPanel(Node& root, float x, float y, float width, float height) {
-    floatingPanel(root, layout::floatingFrame(x, y, width, height - Style::spaceSm), sidebar);
+    floatingPanel(root, layout::floatingFrame(x, y, width, height), sidebar);
     label(
         root, x + (Style::spaceLg + Style::spaceXxs), y + ((Style::spaceLg + Style::spaceXxs) + Style::borderWidth),
         width - 74, m_channelPanel == "pins" ? "Pinned messages" : "Search results", Style::fontSizeHeading, foreground,

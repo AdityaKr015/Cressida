@@ -225,7 +225,7 @@ namespace app {
           "Reply controls have equal heights, one center line and a compact shared gap"
       );
       const auto panel = std::ranges::find_if(m_floatingFrames, [&](const auto& frame) {
-        return frame.x == chatLeft() + Style::spaceSm && frame.y == m_composerTop;
+        return frame.x == chatLeft() + layout::Floating::inset && frame.y == m_composerTop;
       });
       require(
           panel != m_floatingFrames.end()

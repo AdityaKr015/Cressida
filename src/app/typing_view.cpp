@@ -72,13 +72,13 @@ namespace app {
       surface(
           layout::floatingFrame(
               0, layout::Window::titlebarHeight, layout::Sidebar::railWidth,
-              account.y - Style::spaceSm - layout::Window::titlebarHeight
+              account.y - layout::Floating::inset - layout::Window::titlebarHeight
           )
       );
       surface(
           layout::floatingFrame(
               layout::Sidebar::railWidth, layout::Window::titlebarHeight, channelSidebarWidth(),
-              account.y - Style::spaceSm - layout::Window::titlebarHeight
+              account.y - layout::Floating::inset - layout::Window::titlebarHeight
           )
       );
       surface(
@@ -115,12 +115,12 @@ namespace app {
       });
       require(
           unreadMarker != m_scene->children().end()
-              && (*unreadMarker)->x() > layout::Sidebar::railWidth + Style::spaceSm
+              && (*unreadMarker)->x() > layout::Sidebar::railWidth + layout::Floating::inset
               && (*unreadMarker)->x() + (*unreadMarker)->width()
                   < layout::Sidebar::railWidth + layout::Sidebar::rowInset * 2,
           "Unread markers stay inside the channel panel and clear of channel icons"
       );
-      const float memberX = m_window.width() - m_floatingFrames.back().width - Style::spaceSm * 2;
+      const float memberX = m_window.width() - m_floatingFrames.back().width - layout::Floating::gap;
       const auto memberHit = std::ranges::find_if(m_hits, [&](const auto& hit) {
         return hit.action == Action::UserProfile && hit.x == memberX + Style::spaceMd;
       });
@@ -138,6 +138,27 @@ namespace app {
       };
       noHeading(noHeading, *m_scene);
       const auto& conversation = m_floatingFrames[4];
+      const auto& rail = m_floatingFrames[0];
+      const auto& channels = m_floatingFrames[1];
+      const auto& header = m_floatingFrames[3];
+      const auto& input = m_floatingFrames[5];
+      const auto& members = m_floatingFrames[6];
+      require(
+          channels.x - rail.x - rail.width == layout::Floating::gap
+              && header.x - channels.x - channels.width == layout::Floating::gap
+              && conversation.y - header.y - header.height == layout::Floating::gap
+              && members.x - conversation.x - conversation.width == layout::Floating::gap
+              && members.y - header.y - header.height == layout::Floating::gap
+              && input.y - conversation.y - conversation.height == layout::Floating::gap
+              && input.x - account.x - account.width == layout::Floating::gap
+              && account.y - rail.y - rail.height == layout::Floating::gap
+              && account.y - channels.y - channels.height == layout::Floating::gap
+              && input.y + input.height == members.y + members.height
+              && rail.y - layout::Window::titlebarHeight == layout::Floating::inset
+              && h - input.y - input.height == layout::Floating::inset
+              && m_window.width() - members.x - members.width == layout::Floating::inset,
+          "All neighboring floating panels share the compact gutter and aligned bottom edges"
+      );
       const auto scrollbar = m_widgets.find("chat-scrollbar");
       require(
           scrollbar != m_widgets.end()
@@ -148,7 +169,7 @@ namespace app {
       );
       require(
           conversation.y + conversation.height == composer.panelBottom
-              && composer.panelBottom == account.y - Style::spaceSm * 2
+              && composer.panelBottom == account.y - layout::Floating::gap
               && composer.typingTop >= m_messageViewportBottom
               && composer.typingTop + layout::Typing::height < composer.panelBottom,
           "Typing stays inside the conversation panel, whose bottom aligns with both sidebars"

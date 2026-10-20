@@ -3212,7 +3212,7 @@ namespace app {
       const auto account = layout::accountFrame(h, chatLeft());
       const auto railFrame = layout::floatingFrame(
           0, layout::Window::titlebarHeight, layout::Sidebar::railWidth,
-          account.y - Style::spaceSm - layout::Window::titlebarHeight
+          account.y - layout::Floating::inset - layout::Window::titlebarHeight
       );
       const float sidebarBottom = railFrame.y + railFrame.height;
       floatingPanel(root, railFrame, theme::railBackground);
@@ -3221,7 +3221,7 @@ namespace app {
           root,
           layout::floatingFrame(
               layout::Sidebar::railWidth, layout::Window::titlebarHeight, sidebarWidth,
-              account.y - Style::spaceSm - layout::Window::titlebarHeight
+              account.y - layout::Floating::inset - layout::Window::titlebarHeight
           ),
           background
       );
@@ -3742,7 +3742,7 @@ namespace app {
             root,
             layout::floatingFrame(
                 left, layout::Window::titlebarHeight + layout::ChannelHeader::height, bodyWidth,
-                h - layout::Window::titlebarHeight - layout::ChannelHeader::height - Style::spaceSm
+                h - layout::Window::titlebarHeight - layout::ChannelHeader::height
             ),
             background
         );
@@ -3784,10 +3784,10 @@ namespace app {
         // Reserve typing space inside the conversation panel, keeping its bottom
         // aligned with the sidebar even when nobody is typing.
         const float bottom = composer.viewportBottom, textWidth = std::max(32.0F, bodyWidth - 104);
-        const float panelTop = layout::Window::titlebarHeight + layout::ChannelHeader::height + Style::spaceSm;
+        const float panelTop = layout::Window::titlebarHeight + layout::ChannelHeader::height + layout::Floating::inset;
         floatingPanel(
             root,
-            {left + Style::spaceSm, panelTop, std::max(0.0F, bodyWidth - Style::spaceSm * 2),
+            {left + layout::Floating::inset, panelTop, std::max(0.0F, bodyWidth - layout::Floating::gap),
              std::max(0.0F, composer.panelBottom - panelTop)},
             background
         );
@@ -4864,13 +4864,14 @@ namespace app {
           }
           auto* bar = static_cast<Scrollbar*>(owned.get());
           m_widgets[id] = bar;
-          bar->setPosition(left + bodyWidth - Style::spaceSm - Style::spaceXs - bar->reservedThickness(), top);
+          bar->setPosition(left + bodyWidth - layout::Floating::inset - Style::spaceXs - bar->reservedThickness(), top);
           bar->setSize(bar->reservedThickness(), std::max(0.0F, bottom - top));
           bar->update(std::max(0.0F, bottom - top), totalHeight, m_messageMaxScroll - m_messageScroll);
           root.addChild(std::move(owned));
         }
         floatingPanel(
-            root, {left + Style::spaceSm, composerY, bodyWidth - Style::spaceSm * 2, composerHeight}, background
+            root, {left + layout::Floating::inset, composerY, bodyWidth - layout::Floating::gap, composerHeight},
+            background
         );
         if (!typing.empty())
           drawTyping(root, left + layout::Chat::inset, composer.typingTop, bodyWidth - layout::Chat::inset * 2, typing);
@@ -4882,7 +4883,7 @@ namespace app {
           const auto offMetrics = renderer.measureText("@ OFF", layout::ComposerReply::captionSize);
           const auto onMetrics = renderer.measureText("@ ON", layout::ComposerReply::captionSize);
           const auto frame = layout::composerReplyFrame(
-              left + Style::spaceSm, composerY, bodyWidth - Style::spaceSm * 2,
+              left + layout::Floating::inset, composerY, bodyWidth - layout::Floating::gap,
               std::ceil(std::max(offMetrics.width, onMetrics.width)), captionMetrics.bottom - captionMetrics.top
           );
           label(
@@ -5003,7 +5004,7 @@ namespace app {
           const float memberX = w - memberWidth;
           const auto memberFrame = layout::floatingFrame(
               memberX, layout::Window::titlebarHeight + layout::ChannelHeader::height, memberWidth,
-              h - layout::Window::titlebarHeight - layout::ChannelHeader::height - Style::spaceSm
+              h - layout::Window::titlebarHeight - layout::ChannelHeader::height
           );
           const float memberBottom = memberFrame.y + memberFrame.height - Style::spaceXs;
           const float memberTop = layout::Members::top;
@@ -5733,7 +5734,7 @@ namespace app {
         const float sceneHeight = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
         const float listTop = m_dmMode ? layout::DmSidebar::channelsTop : 142;
         const auto view = std::max(
-            layout::Sidebar::rowStep, layout::accountFrame(sceneHeight, chatLeft()).y - Style::spaceSm * 2 - listTop
+            layout::Sidebar::rowStep, layout::accountFrame(sceneHeight, chatLeft()).y - layout::Floating::gap - listTop
         );
         m_channelScroll = std::clamp(m_channelScroll, std::max(0.0F, row.top - view + row.advance), row.top);
         break;
