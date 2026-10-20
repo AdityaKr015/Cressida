@@ -2309,6 +2309,7 @@ namespace app {
           if (view == "emoji-fit")
             m_demoOverlay = view;
           m_messages.clear();
+          const std::string replyAvatar = "/avatars/11/reply-preview.png";
           const std::vector<std::string> replies = {
               "my beautiful pink role <:woe:1407464763293831269>",
               "animated <a:dance:123> beside <:woe:1407464763293831269> 🙂",
@@ -2321,7 +2322,7 @@ namespace app {
                 std::to_string(8400 + i), m_channelId, "Lysec", "they're back xD", "2026-10-17T09:41:00Z"
             };
             message.reply = api::MessageReference{"1", m_channelId, "11", "Yocraft", replies[i]};
-            message.reply->avatar = api::emojiPath("1407464763293831269", false);
+            message.reply->avatar = replyAvatar;
             m_messages.push_back(std::move(message));
           }
           if (view == "emoji-fit") {
@@ -2366,6 +2367,16 @@ namespace app {
             if (animated)
               cached.animation = std::move(animation);
           }
+          const int avatarSize = static_cast<int>(Style::space2Xl);
+          std::vector<std::uint8_t> avatarPixels(avatarSize * avatarSize * 4);
+          const auto avatarFill = rgbHex(theme::palette.accent);
+          const std::array avatarColor{avatarFill.r, avatarFill.g, avatarFill.b, 1.0F};
+          for (std::size_t pixel = 0; pixel < avatarPixels.size(); ++pixel)
+            avatarPixels[pixel] = static_cast<std::uint8_t>(
+                std::lround(avatarColor[pixel % avatarColor.size()] * std::numeric_limits<std::uint8_t>::max())
+            );
+          m_images[replyAvatar].texture =
+              m_window.context().textureManager().loadFromRgba(avatarPixels.data(), avatarSize, avatarSize);
           m_messageLayouts.clear();
         } else if (view == "reply-overlap") {
           m_messages.clear();
@@ -4121,7 +4132,21 @@ namespace app {
                 for (const auto& image : m_messageLayouts.at(message.id).reply.pictures)
                   avatar(*previewNode, image.x, image.y, image.width, image.media.url, reply.author);
                 const float mediaTop = (layout::Reply::height - layout::Reply::avatarSize) / 2;
-                for (const auto& run : m_messageLayouts.at(message.id).reply.runs) {
+                const auto& previewRuns = m_messageLayouts.at(message.id).reply.runs;
+                std::string textMarkup;
+                for (const auto& run : previewRuns)
+                  if (run.image.empty() && !run.style.emoji && (!run.style.spoiler || spoilersVisible(reply.message)))
+                    textMarkup += messageMarkup(run.text, run.style);
+                const auto textMetrics = m_window.target().renderer().measureText(
+                    textMarkup, Style::fontSizeDescription, FontWeight::Normal, 0, 1, TextAlign::Start, {},
+                    TextEllipsize::End, true
+                );
+                const auto inkCenter = [](const TextMetrics& metrics) {
+                  return metrics.inkBottom > metrics.inkTop ? (metrics.inkTop + metrics.inkBottom) / 2
+                                                            : (metrics.top + metrics.bottom) / 2;
+                };
+                const float textCenter = inkCenter(textMetrics);
+                for (const auto& run : previewRuns) {
                   if (run.style.spoiler && !spoilersVisible(reply.message)) {
                     rectangle(
                         *previewNode, run.x, mediaTop, run.width, layout::Reply::avatarSize, raised, Style::radiusSm
@@ -4138,7 +4163,8 @@ namespace app {
                         markup, run.style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {}, TextEllipsize::End, true
                     );
                     label(
-                        *previewNode, run.x, (layout::Reply::height - (metrics.bottom - metrics.top)) / 2,
+                        *previewNode, run.x,
+                        layout::Reply::height / 2 + metrics.top - (run.style.emoji ? inkCenter(metrics) : textCenter),
                         run.width + Style::spaceXxs, markup, run.style.size, muted, FontWeight::Normal, 1, true
                     );
                   }
