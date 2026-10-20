@@ -68,6 +68,14 @@ namespace app::layout {
     static constexpr float textInset = dotsWidth + Style::spaceSm;
     static constexpr auto cycle = std::chrono::milliseconds{Style::animSlow * 3};
   };
+  struct TypingBadge {
+    static constexpr float height = Style::spaceMd;
+    static constexpr float width = height * 2;
+    static constexpr float inset = Style::spaceXxs;
+    static constexpr float dotSize = Style::spaceXxs;
+    static constexpr float dotStep = dotSize + Style::spaceXxs;
+    static constexpr float dotsWidth = dotSize + (Typing::dotCount - 1) * dotStep;
+  };
   struct Reply {
     static constexpr float height = Style::spaceRelaxed;
     static constexpr float avatarSize = Style::spaceLg;

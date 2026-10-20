@@ -1184,20 +1184,20 @@ namespace app {
                          : m_demo && view && std::string_view(view) == "server-settings-expressions-cycle" ? 26
                          : m_demo && view && std::string_view(view) == "server-settings-management-cycle"  ? 12
                          : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
-                         : m_demo && view && std::string_view(view).starts_with("typing-cycle")            ? 12
-                         : m_demo && view && std::string_view(view) == "folder-menu-cycle"                 ? 13
-                         : m_demo && view && std::string_view(view) == "server-menu-cycle"                 ? 20
-                         : m_demo && view && std::string_view(view) == "channel-menu-cycle"                ? 31
-                         : m_demo && view && std::string_view(view) == "channel-cycle"                     ? 18
-                         : m_demo && view && std::string_view(view) == "forum-cycle"                       ? 12
-                         : m_demo && view && std::string_view(view) == "thread-cycle"                      ? 10
-                         : m_demo && view && std::string_view(view) == "guild-tag-cycle"                   ? 10
-                         : m_demo && view && std::string_view(view) == "profile-card-cycle"                ? 8
-                         : m_demo && view && std::string_view(view) == "role-style-cycle"                  ? 7
-                         : m_demo && view && std::string_view(view) == "unread-badge-cycle"                ? 4
-                         : m_demo && view && std::string_view(view) == "unread-cycle"                      ? 10
-                         : m_demo && view && std::string_view(view) == "jump-latest-cycle"                 ? 8
-                         : m_demo && view && std::string_view(view) == "connection-cycle"                  ? 8
+                         : m_demo && view && std::string_view(view).starts_with("typing-cycle") ? typingReplayFrames
+                         : m_demo && view && std::string_view(view) == "folder-menu-cycle"      ? 13
+                         : m_demo && view && std::string_view(view) == "server-menu-cycle"      ? 20
+                         : m_demo && view && std::string_view(view) == "channel-menu-cycle"     ? 31
+                         : m_demo && view && std::string_view(view) == "channel-cycle"          ? 18
+                         : m_demo && view && std::string_view(view) == "forum-cycle"            ? 12
+                         : m_demo && view && std::string_view(view) == "thread-cycle"           ? 10
+                         : m_demo && view && std::string_view(view) == "guild-tag-cycle"        ? 10
+                         : m_demo && view && std::string_view(view) == "profile-card-cycle"     ? 8
+                         : m_demo && view && std::string_view(view) == "role-style-cycle"       ? 7
+                         : m_demo && view && std::string_view(view) == "unread-badge-cycle"     ? 4
+                         : m_demo && view && std::string_view(view) == "unread-cycle"           ? 10
+                         : m_demo && view && std::string_view(view) == "jump-latest-cycle"      ? 8
+                         : m_demo && view && std::string_view(view) == "connection-cycle"       ? 8
                          : interactionCycle ? (std::string_view(view) == "video-cycle" ? 512 : 64)
                                             : 1)
                   : 0,
@@ -1264,7 +1264,7 @@ namespace app {
       throw std::runtime_error("Channel creation replay did not finish");
     if (m_demoOverlay == "channel-invite-cycle" && m_demoInteractionStep != 18)
       throw std::runtime_error("Channel invite replay did not finish");
-    if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != 12)
+    if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
       throw std::runtime_error("Typing indicator replay did not finish");
     if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
       throw std::runtime_error("Folder menu replay did not finish");
@@ -1731,19 +1731,24 @@ namespace app {
           prepareChannelMenuDemo("channel-menu");
           closeContext();
           m_demoOverlay = view;
+          m_showMembers = true;
+          const std::vector<api::Account> typists{{"7", "Maya"}, {"8", "Noah"}, {"10", "Alex"}, {"11", "Dani"}};
+          m_members.clear();
+          for (std::size_t i = 0; i < typists.size(); ++i)
+            m_members.push_back({static_cast<int>(i), typists[i], i ? "idle" : "online"});
+          m_memberCount = static_cast<int>(m_members.size());
           if (view.ends_with("light"))
             m_preferences.theme = "light";
           if (!view.starts_with("typing-cycle")) {
             const auto timestamp =
                 std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
                     .count();
-            const std::vector<std::string> names = view == "typing-one"
-                ? std::vector<std::string>{"Maya"}
-                : std::vector<std::string>{"Maya", "Noah", "Alex", "Dani"};
-            for (std::size_t i = 0; i < names.size(); ++i) {
+            for (const auto& user : typists) {
               api::Event event{.operation = api::Operation::TypingStart, .session = m_session, .resource = m_channelId};
-              event.typing = api::TypingStart{m_channelId, m_guildId, std::to_string(i + 7), names[i], timestamp};
+              event.typing = api::TypingStart{m_channelId, m_guildId, user.id, user.name, timestamp};
               typingEvent(event);
+              if (view == "typing-one")
+                break;
             }
           }
         }
@@ -3089,7 +3094,7 @@ namespace app {
           if (channel.type == 1 && !channel.recipients.empty())
             statusBadge(
                 root, 48, y + (Style::space2Xl + Style::spaceXxs), userStatus(channel.recipients.front().id),
-                theme::railBackground
+                theme::railBackground, channel.recipients.front().id, channel.id
             );
           rectangle(root, 0, y + Style::spaceLg, 4, 16, foreground, Style::radiusXs);
           countBadge(root, 67, y - Style::spaceXxs, m_unreadTimeline.mentions(channel.id), true);
@@ -3229,7 +3234,8 @@ namespace app {
                 root, 119, y + (Style::spaceRelaxed + Style::borderWidth), userStatus(channel.recipients.front().id),
                 selected   ? raised
                     : over ? panel
-                           : sidebar
+                           : sidebar,
+                channel.recipients.front().id, channel.id
             );
         } else {
           const float size = channel.isThread() ? layout::Sidebar::threadIconSize : layout::Sidebar::iconSize;
@@ -4629,7 +4635,8 @@ namespace app {
                   name
               );
               statusBadge(
-                  *members, 38, rowY + ((Style::spaceXl + Style::spaceXxs) + Style::borderWidth), status, sidebar
+                  *members, 38, rowY + ((Style::spaceXl + Style::spaceXxs) + Style::borderWidth), status, sidebar,
+                  member.user.id, m_channelId
               );
               roleLabel(
                   *members, 60, rowY + Style::spaceMd, memberWidth - 78, name, Style::fontSizeCaption,
@@ -4845,7 +4852,28 @@ namespace app {
     m_memberCount = m_members.size();
   }
 
-  void ClientApplication::statusBadge(Node& parent, float x, float y, const std::string& status, Color backdrop) {
+  void ClientApplication::statusBadge(
+      Node& parent, float x, float y, const std::string& status, Color backdrop, const std::string& user,
+      const std::string& channel
+  ) {
+    if (userTyping(user, channel)) {
+      auto badge = std::make_unique<Node>();
+      badge->setPosition(x + layout::TypingBadge::height - layout::TypingBadge::width, y);
+      badge->setSize(layout::TypingBadge::width, layout::TypingBadge::height);
+      rectangle(*badge, 0, 0, badge->width(), badge->height(), backdrop, badge->height() / 2);
+      rectangle(
+          *badge, layout::TypingBadge::inset, layout::TypingBadge::inset,
+          badge->width() - layout::TypingBadge::inset * 2, badge->height() - layout::TypingBadge::inset * 2,
+          theme::muted, (badge->height() - layout::TypingBadge::inset * 2) / 2
+      );
+      drawTypingDots(
+          *badge, (badge->width() - layout::TypingBadge::dotsWidth) / 2,
+          (badge->height() - layout::TypingBadge::dotSize) / 2, layout::TypingBadge::dotSize,
+          layout::TypingBadge::dotStep, backdrop
+      );
+      parent.addChild(std::move(badge));
+      return;
+    }
     rectangle(parent, x, y, 12, 12, backdrop, Style::radiusMd);
     rectangle(parent, x + Style::spaceXxs, y + Style::spaceXxs, 8, 8, presenceColor(status), 4);
     if (status == "offline" || status == "unknown" || status == "invisible")

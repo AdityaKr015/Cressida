@@ -62,6 +62,7 @@ namespace app {
   private:
     static constexpr int chatLinkReplayFrames = 6;
     static constexpr int attachmentReplayFrames = 7;
+    static constexpr int typingReplayFrames = 16;
     enum class Action {
       Settings,
       DmPage,
@@ -329,6 +330,8 @@ namespace app {
     void typingEvent(const api::Event& event);
     void armTypingExpiry();
     std::string typingText() const;
+    bool userTyping(const std::string& user, const std::string& channel) const;
+    void drawTypingDots(Node& parent, float x, float y, float size, float step, Color color);
     void drawTyping(Node& root, float x, float y, float width, const std::string& text);
     void demoTypingStep();
     MessageOptions::ChannelMention channelMention(std::string_view guild, std::string_view channel) const;
@@ -661,7 +664,10 @@ namespace app {
     std::string userStatus(const std::string& id, const std::string& fallback = "offline") const;
     std::string channelName(const api::Channel& channel) const;
     void updateDmMembers();
-    void statusBadge(Node& parent, float x, float y, const std::string& status, Color backdrop);
+    void statusBadge(
+        Node& parent, float x, float y, const std::string& status, Color backdrop, const std::string& user = {},
+        const std::string& channel = {}
+    );
     void openContext(float x, float y);
     void closeContext();
     void drawContext(Node& root, float w, float h);

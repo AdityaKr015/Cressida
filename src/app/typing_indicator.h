@@ -68,6 +68,10 @@ namespace app {
     bool expire(Clock::time_point now = Clock::now()) {
       return std::erase_if(m_users, [&](const auto& entry) { return entry.expires <= now; }) != 0;
     }
+    bool contains(const std::string& channel, const std::string& user, Clock::time_point now = Clock::now()) const {
+      return channel == m_channel
+          && std::ranges::any_of(m_users, [&](const auto& entry) { return entry.id == user && entry.expires > now; });
+    }
     std::optional<Clock::time_point> deadline() const {
       const auto at = std::ranges::min_element(m_users, {}, &User::expires);
       return at == m_users.end() ? std::nullopt : std::make_optional(at->expires);

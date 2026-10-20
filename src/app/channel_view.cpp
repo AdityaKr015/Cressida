@@ -234,7 +234,7 @@ namespace app {
     } else if (m_dmMode && channel->type == 1 && !channel->recipients.empty()) {
       statusBadge(
           root, nameX + (Style::spaceXs + Style::borderWidth), 68, userStatus(channel->recipients.front().id),
-          background
+          background, channel->recipients.front().id, channel->id
       );
       nameX += ((Style::spaceXl - Style::spaceXxs) + Style::borderWidth);
     } else if (!m_dmMode) {

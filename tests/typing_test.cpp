@@ -48,6 +48,12 @@ int main() {
     );
     require(indicator.text(names) == "Moon 🌙 is typing…", "One member uses singular wording");
     require(
+        indicator.contains("10", "7", now)
+            && !indicator.contains("11", "7", now)
+            && !indicator.contains("10", "8", now),
+        "Avatar badges query the typing person only within the selected conversation"
+    );
+    require(
         !indicator.start({"10", "1", "99", "Self", 1000}, "10", "1", "99", now, wall)
             && !indicator.start(*parsed, "11", "1", "99", now, wall)
             && !indicator.start(*parsed, "10", "2", "99", now, wall),
@@ -64,6 +70,7 @@ int main() {
     });
     require(filtered == "Moon 🌙 is typing…", "Blocked or ignored users do not enter counts or wording");
     const auto original = indicator.deadline();
+    require(indicator.contains("10", "11", now), "Avatar badges include typists beyond the three displayed names");
     require(
         !indicator.start(*parsed, "10", "1", "99", now + 5s, wall + 5s) && indicator.deadline() == original,
         "Duplicate Gateway events never extend typing lifetime"
@@ -81,8 +88,13 @@ int main() {
         "Each user expires independently"
     );
     require(
+        indicator.contains("10", "7", now + 10s) && !indicator.contains("10", "8", now + 10s),
+        "Refreshed avatar badges survive while other people expire"
+    );
+    require(
         !indicator.message("11", "7")
             && indicator.message("10", "7")
+            && !indicator.contains("10", "7", now + 10s)
             && indicator.text(names).empty()
             && !indicator.deadline(),
         "Sending a message removes typing immediately in that channel only"
@@ -97,10 +109,15 @@ int main() {
     require(
         !indicator.deadline() && indicator.text(names).empty(), "Navigation and account resets release all typing state"
     );
+    require(!indicator.contains("10", "7", now), "Clearing state also removes every avatar badge");
     indicator.start({"10", "", "7", "<b>Literal</b>\nname", 999}, "10", "", "99", now, wall);
     require(
         indicator.deadline() == now + 9s && indicator.text(names) == "<b>Literal</b> name is typing…",
         "Delayed events retain only their remaining lifetime and names stay single-line plain text"
+    );
+    require(
+        indicator.contains("10", "7", now + 8s) && !indicator.contains("10", "7", now + 9s),
+        "Avatar queries never display expired typing while the owning-loop timer is pending"
     );
     indicator.expire(now + 10s);
     require(!indicator.deadline(), "Expiry leaves no timer deadline or stale users");
