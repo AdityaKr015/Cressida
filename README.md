@@ -24,6 +24,9 @@ A few highlights:
 A Wayland desktop and working graphics drivers are required.
 For builds without Nix or Guix and distribution packages, see [PACKAGING.md](PACKAGING.md).
 
+With a desktop tray available, closing the window keeps Cressida running. Use
+the tray's **Open**, **Restart** or **Close** menu; **Close** exits the application.
+
 ### Nix
 With Nix installed, run from this checkout:
 

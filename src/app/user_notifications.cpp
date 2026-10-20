@@ -139,6 +139,7 @@ namespace app {
         selectGuild(action->guild);
       }
       selectChannel(action->channel);
+      m_window.show();
       m_window.invalidate();
     }
   }

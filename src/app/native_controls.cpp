@@ -87,6 +87,7 @@ namespace app {
     );
   }
   ClientApplication::~ClientApplication() {
+    m_trayDemoTimer.stop();
     closeSelectDropdown();
     m_typingTimer.stop();
     m_filePicker.cancel();

@@ -8,6 +8,7 @@
 #include "app/channel_menu.h"
 #include "app/chat_cache.h"
 #include "app/desktop_notifications.h"
+#include "app/desktop_tray.h"
 #include "app/discord_link.h"
 #include "app/emoji_catalog.h"
 #include "app/file_picker.h"
@@ -58,6 +59,7 @@ namespace app {
     ClientApplication(bool demo, std::string token);
     ~ClientApplication();
     int run(bool smokeTest = false);
+    bool restartRequested() const { return m_restartRequested; }
 
   private:
     static constexpr int chatLinkReplayFrames = 6;
@@ -69,6 +71,7 @@ namespace app {
     static constexpr int embedReplayFrames = 12;
     static constexpr int mediaGalleryReplayFrames = 13;
     static constexpr int imageMenuReplayFrames = 13;
+    static constexpr int trayReplayFrames = 4;
     enum class Action {
       Settings,
       DmPage,
@@ -308,6 +311,9 @@ namespace app {
     void setVideoExpanded(bool enabled);
     void demoVideoStep();
     void tick();
+    void closeToTray();
+    void trayEvent(TrayEvent event);
+    void demoTrayStep();
     void onKey(const Key& key);
     void insert(std::string text);
     void activate(const Hit& hit);
@@ -729,6 +735,10 @@ namespace app {
     Window m_window;
     ScrollMotion m_scrolling;
     api::Client m_client;
+    DesktopTray m_tray;
+    bool m_trayAvailable = false, m_restartRequested = false;
+    Timer m_trayDemoTimer;
+    unsigned m_trayHiddenTicks = 0;
     api::Assets m_assets;
     media::VideoPlayer m_video;
     media::VideoPlayer m_soundPreview;

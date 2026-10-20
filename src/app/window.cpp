@@ -12,6 +12,7 @@
 #include "render/scene/input_area.h"
 #include "ui/style.h"
 #include "viewporter-client-protocol.h"
+#include "xdg-activation-v1-client-protocol.h"
 #include "xdg-decoration-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -46,6 +47,8 @@ namespace app {
     wl_registry* registry = nullptr;
     wl_compositor* compositor = nullptr;
     xdg_wm_base* shell = nullptr;
+    xdg_activation_v1* activation = nullptr;
+    std::string activationToken;
     wl_surface* surface = nullptr;
     wp_viewporter* viewporter = nullptr;
     wp_viewport* viewport = nullptr;
@@ -121,6 +124,7 @@ namespace app {
     float uiScale = 1;
     bool configured = false;
     bool running = true;
+    bool visible = true, restoreMaximized = false, restoreFullscreen = false;
     bool dirty = true;
     GlSharedContext shared;
     RenderContext context;
@@ -191,12 +195,66 @@ namespace app {
         wp_viewporter_destroy(viewporter);
       if (shell)
         xdg_wm_base_destroy(shell);
+      if (activation)
+        xdg_activation_v1_destroy(activation);
       if (compositor)
         wl_compositor_destroy(compositor);
       if (registry)
         wl_registry_destroy(registry);
       if (display)
         wl_display_disconnect(display);
+    }
+
+    void createToplevel() {
+      role = xdg_wm_base_get_xdg_surface(shell, surface);
+      toplevel = xdg_surface_get_toplevel(role);
+      xdg_toplevel_set_title(toplevel, "Cressida");
+      xdg_toplevel_set_app_id(toplevel, "dev.lysec.Cressida");
+      xdg_toplevel_set_min_size(toplevel, layout::Window::minimumWidth, layout::Window::minimumHeight);
+      static const xdg_toplevel_listener toplevelListener{
+          .configure =
+              [](void* data, xdg_toplevel*, std::int32_t width, std::int32_t height, wl_array* states) {
+                auto& self = *static_cast<Impl*>(data);
+                if (width > 0)
+                  self.width = width;
+                if (height > 0)
+                  self.height = height;
+                self.maximized = self.fullscreen = false;
+                auto* values = static_cast<const std::uint32_t*>(states->data);
+                for (std::size_t i = 0; i < states->size / sizeof(std::uint32_t); ++i) {
+                  self.maximized |= values[i] == XDG_TOPLEVEL_STATE_MAXIMIZED;
+                  self.fullscreen |= values[i] == XDG_TOPLEVEL_STATE_FULLSCREEN;
+                }
+              },
+          .close = [](void* data, xdg_toplevel*) { static_cast<Impl*>(data)->owner.requestClose(); },
+      };
+      xdg_toplevel_add_listener(toplevel, &toplevelListener, this);
+      if (decorationManager) {
+        decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(decorationManager, toplevel);
+        static const zxdg_toplevel_decoration_v1_listener listener{
+            .configure = [](void* data, zxdg_toplevel_decoration_v1*, std::uint32_t mode) {
+              static_cast<Impl*>(data)->decorations.configure(mode);
+            },
+        };
+        zxdg_toplevel_decoration_v1_add_listener(decoration, &listener, this);
+        static_assert(
+            static_cast<std::uint32_t>(WindowDecorations::Mode::Client) == ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
+        );
+        static_assert(
+            static_cast<std::uint32_t>(WindowDecorations::Mode::Server) == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
+        );
+        zxdg_toplevel_decoration_v1_set_mode(decoration, static_cast<std::uint32_t>(decorations.requested()));
+      }
+      static const xdg_surface_listener roleListener{
+          .configure = [](void* data, xdg_surface* role, std::uint32_t serial) {
+            auto& self = *static_cast<Impl*>(data);
+            xdg_surface_ack_configure(role, serial);
+            self.configured = true;
+            self.decorations.surfaceConfigured();
+            self.resize();
+          },
+      };
+      xdg_surface_add_listener(role, &roleListener, this);
     }
 
     void resize() {
@@ -265,7 +323,7 @@ namespace app {
     }
 
     void emitKey(std::uint32_t code) {
-      if (!state || !owner.key)
+      if (!visible || !state || !owner.key)
         return;
       Key event;
       event.symbol = xkb_state_key_get_one_sym(state, code);
@@ -335,6 +393,8 @@ namespace app {
         .enter =
             [](void* data, wl_keyboard*, std::uint32_t, wl_surface*, wl_array*) {
               auto& self = *static_cast<Impl*>(data);
+              if (!self.visible)
+                return;
               const bool changed = !self.keyboardFocused;
               self.keyboardFocused = true;
               if (changed && self.owner.focusChanged)
@@ -354,6 +414,8 @@ namespace app {
         .key =
             [](void* data, wl_keyboard*, std::uint32_t serial, std::uint32_t, std::uint32_t key, std::uint32_t state) {
               auto& self = *static_cast<Impl*>(data);
+              if (!self.visible)
+                return;
               if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
                 self.inputSerial = serial;
                 self.emitKey(key + 8);
@@ -597,6 +659,9 @@ namespace app {
                   xdg_wm_base_pong(shell, serial);
                 }};
                 xdg_wm_base_add_listener(self.shell, &listener, nullptr);
+              } else if (std::strcmp(interface, xdg_activation_v1_interface.name) == 0 && !self.activation) {
+                self.activation =
+                    static_cast<xdg_activation_v1*>(wl_registry_bind(registry, name, &xdg_activation_v1_interface, 1));
               } else if (std::strcmp(interface, wp_viewporter_interface.name) == 0 && !self.viewporter) {
                 self.viewporter =
                     static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, 1));
@@ -721,55 +786,7 @@ namespace app {
       };
       wp_fractional_scale_v1_add_listener(m->fractionalScale, &listener, m.get());
     }
-    m->role = xdg_wm_base_get_xdg_surface(m->shell, m->surface);
-    m->toplevel = xdg_surface_get_toplevel(m->role);
-    xdg_toplevel_set_title(m->toplevel, "Cressida");
-    xdg_toplevel_set_app_id(m->toplevel, "dev.lysec.Cressida");
-    xdg_toplevel_set_min_size(m->toplevel, 760, 520);
-    static const xdg_toplevel_listener toplevelListener{
-        .configure =
-            [](void* data, xdg_toplevel*, std::int32_t width, std::int32_t height, wl_array* states) {
-              auto& self = *static_cast<Impl*>(data);
-              if (width > 0)
-                self.width = width;
-              if (height > 0)
-                self.height = height;
-              self.maximized = self.fullscreen = false;
-              auto* values = static_cast<const std::uint32_t*>(states->data);
-              for (std::size_t i = 0; i < states->size / sizeof(std::uint32_t); ++i) {
-                self.maximized |= values[i] == XDG_TOPLEVEL_STATE_MAXIMIZED;
-                self.fullscreen |= values[i] == XDG_TOPLEVEL_STATE_FULLSCREEN;
-              }
-            },
-        .close = [](void* data, xdg_toplevel*) { static_cast<Impl*>(data)->running = false; },
-    };
-    xdg_toplevel_add_listener(m->toplevel, &toplevelListener, m.get());
-    if (m->decorationManager) {
-      m->decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(m->decorationManager, m->toplevel);
-      static const zxdg_toplevel_decoration_v1_listener listener{
-          .configure = [](void* data, zxdg_toplevel_decoration_v1*, std::uint32_t mode) {
-            static_cast<Impl*>(data)->decorations.configure(mode);
-          },
-      };
-      zxdg_toplevel_decoration_v1_add_listener(m->decoration, &listener, m.get());
-      static_assert(
-          static_cast<std::uint32_t>(WindowDecorations::Mode::Client) == ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE
-      );
-      static_assert(
-          static_cast<std::uint32_t>(WindowDecorations::Mode::Server) == ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
-      );
-      zxdg_toplevel_decoration_v1_set_mode(m->decoration, static_cast<std::uint32_t>(m->decorations.requested()));
-    }
-    static const xdg_surface_listener roleListener{
-        .configure = [](void* data, xdg_surface* role, std::uint32_t serial) {
-          auto& self = *static_cast<Impl*>(data);
-          xdg_surface_ack_configure(role, serial);
-          self.configured = true;
-          self.decorations.surfaceConfigured();
-          self.resize();
-        },
-    };
-    xdg_surface_add_listener(m->role, &roleListener, m.get());
+    m->createToplevel();
     m->shared.initialize(m->display);
     m->context.initialize(m->shared);
     m->target.create(m->surface, m->context);
@@ -779,7 +796,7 @@ namespace app {
 
   void Window::run(
       int wakeFd, std::function<void()> tick, int frameLimit, int assetFd, int videoFd, int themeFd, int pickerFd,
-      int audioFd, int notificationFd
+      int audioFd, int notificationFd, int trayFd
   ) {
     int frames = 0;
     while (m->running) {
@@ -797,11 +814,15 @@ namespace app {
         m->emitKey(m->repeatKey);
         m->repeatAt = Clock::now() + std::chrono::milliseconds(1000 / m->repeatRate);
       }
-      if (m->configured && m->dirty && !m->frameCallback && draw) {
+      if (m->visible && m->configured && m->dirty && !m->frameCallback && draw) {
         m->dirty = false;
         const bool animating = animate && animate();
         m->requestFrame();
         draw();
+        if (m->activation && !m->activationToken.empty()) {
+          xdg_activation_v1_activate(m->activation, m->activationToken.c_str(), m->surface);
+          m->activationToken.clear();
+        }
         if (animating)
           m->dirty = true;
         if (frameLimit > 0 && ++frames >= frameLimit)
@@ -813,7 +834,7 @@ namespace app {
       while (wl_display_prepare_read(m->display) != 0) {
         if (wl_display_dispatch_pending(m->display) < 0)
           throw std::runtime_error("Wayland connection lost");
-        if (m->configured && m->dirty && !m->frameCallback) {
+        if (m->visible && m->configured && m->dirty && !m->frameCallback) {
           redraw = true;
           break;
         }
@@ -846,6 +867,7 @@ namespace app {
       descriptors.push_back({pickerFd, POLLIN, 0});
       descriptors.push_back({audioFd, POLLIN, 0});
       descriptors.push_back({notificationFd, POLLIN, 0});
+      descriptors.push_back({trayFd, POLLIN, 0});
       const int ready = ::poll(descriptors.data(), descriptors.size(), timeout);
       if (ready > 0 && (descriptors[0].revents & POLLIN)) {
         if (wl_display_read_events(m->display) < 0)
@@ -950,7 +972,7 @@ namespace app {
     else
       xdg_toplevel_set_maximized(m->toplevel);
   }
-  bool Window::active() const { return m->keyboardFocused; }
+  bool Window::active() const { return m->visible && m->keyboardFocused; }
   bool Window::preciseScroll() const {
     return m->axisSource == WL_POINTER_AXIS_SOURCE_FINGER || m->axisSource == WL_POINTER_AXIS_SOURCE_CONTINUOUS;
   }
@@ -987,6 +1009,66 @@ namespace app {
   }
   std::uint32_t Window::cursorShape() const { return m->cursorShape; }
   void Window::close() { m->running = false; }
+  void Window::requestClose() {
+    if (closeRequested)
+      closeRequested();
+    else
+      close();
+  }
+  bool Window::visible() const { return m->visible; }
+  void Window::hide() {
+    if (!m->visible)
+      return;
+    m->visible = false;
+    m->configured = false;
+    m->restoreMaximized = m->maximized;
+    m->restoreFullscreen = m->fullscreen;
+    m->repeatKey = 0;
+    m->activationToken.clear();
+    if (m->frameCallback) {
+      wl_callback_destroy(m->frameCallback);
+      m->frameCallback = nullptr;
+    }
+    if (m->keyboardFocused) {
+      m->keyboardFocused = false;
+      if (focusChanged)
+        focusChanged(false);
+    }
+    if (pointerLeft)
+      pointerLeft();
+    wl_surface_attach(m->surface, nullptr, 0, 0);
+    wl_surface_commit(m->surface);
+    // A fresh shell role guarantees a new configure on restore, including on
+    // compositors that retain the old role's configure state after unmapping.
+    // Keep the wl_surface, EGL target and shared resources alive for asset work.
+    if (m->decoration) {
+      zxdg_toplevel_decoration_v1_destroy(m->decoration);
+      m->decoration = nullptr;
+    }
+    xdg_toplevel_destroy(m->toplevel);
+    m->toplevel = nullptr;
+    xdg_surface_destroy(m->role);
+    m->role = nullptr;
+    m->dirty = true;
+  }
+  void Window::show(std::string activationToken) {
+    // Older tray hosts cannot supply an activation token. Remapping an inactive
+    // toplevel also clears a compositor's minimized state without private APIs.
+    if (m->visible && !m->keyboardFocused && (activationToken.empty() || !m->activation))
+      hide();
+    m->activationToken = std::move(activationToken);
+    if (!m->visible) {
+      m->visible = true;
+      m->configured = false;
+      m->createToplevel();
+      if (m->restoreMaximized)
+        xdg_toplevel_set_maximized(m->toplevel);
+      if (m->restoreFullscreen)
+        xdg_toplevel_set_fullscreen(m->toplevel, nullptr);
+      wl_surface_commit(m->surface);
+    }
+    invalidate();
+  }
   void Window::invalidate() { m->dirty = true; }
   void Window::setUiScale(float scale) {
     m->uiScale = std::isfinite(scale) ? std::clamp(scale, 0.67F, 1.5F) : 1.0F;

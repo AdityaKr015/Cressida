@@ -193,6 +193,8 @@ namespace app::layout {
   };
   struct Window {
     static constexpr float titlebarHeight = 36;
+    static constexpr int minimumWidth = Style::windowMinimumWidth;
+    static constexpr int minimumHeight = Style::windowMinimumHeight;
   };
   struct DmSidebar {
     static constexpr float inset = Style::spaceLg;

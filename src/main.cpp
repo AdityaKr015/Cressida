@@ -1,4 +1,5 @@
 #include "app/client_application.h"
+#include "app/restart_process.h"
 #include "core/environment.h"
 
 #include <cstdlib>
@@ -51,8 +52,16 @@ int main(int argc, char** argv) {
       } else if (const char* value = cressida::environment("CRESSIDA_TOKEN", "DISCORD_CPP_TOKEN"))
         token = value;
     }
-    app::ClientApplication application(demo, std::move(token));
-    return application.run(smoke);
+    int result;
+    bool restart;
+    {
+      app::ClientApplication application(demo, std::move(token));
+      result = application.run(smoke);
+      restart = application.restartRequested();
+    }
+    if (restart && !demo)
+      app::restartProcess(argv);
+    return result;
   } catch (const std::exception& error) {
     std::cerr << "cressida: " << error.what() << '\n';
     return 1;

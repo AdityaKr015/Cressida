@@ -1,0 +1,16 @@
+#pragma once
+
+#include <cerrno>
+#include <cstring>
+#include <stdexcept>
+#include <string>
+#include <unistd.h>
+
+namespace app {
+  // Call only after application destruction: retain the same PID, argv and
+  // launch environment, without a shell, duplicate client or credentials in args.
+  [[noreturn]] inline void restartProcess(char* const* arguments) {
+    ::execv("/proc/self/exe", arguments);
+    throw std::runtime_error(std::string("Could not restart Cressida: ") + std::strerror(errno));
+  }
+} // namespace app

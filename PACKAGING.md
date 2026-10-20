@@ -14,7 +14,7 @@ Meson and Ninja build the client directly. Contributor checks are described in
 | Version | `project(... version: ...)` in `meson.build`; keep `nix/package.nix` in sync |
 | License | MIT; retain the bundled third-party notices described below |
 | Desktop entry | `dev.lysec.Cressida.desktop` |
-| Desktop icon | `applications-internet` from the system icon theme |
+| Desktop icon | `dev.lysec.Cressida`, installed in `icons/hicolor/scalable/apps` |
 
 The configured CI targets are native `x86_64` and `aarch64` Linux. Other
 architectures and libc implementations have no dedicated CI coverage. Cressida
@@ -38,7 +38,7 @@ metadata as well as the runtime libraries. Cressida uses neither Qt nor GTK.
   archivers without the compiler's LTO plugin can produce archives whose symbols
   the linker cannot find. See [GCC's LTO documentation](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html#index-flto).
 - `wayland-scanner` and `wayland-protocols`, including xdg-shell, xdg-decoration,
-  viewporter and fractional-scale-v1 XML files.
+  viewporter, fractional-scale-v1 and xdg-activation-v1 XML files.
 - Python 3 and the `ffmpeg` executable for the test fixtures.
 - `dbus-daemon` for private test buses.
 

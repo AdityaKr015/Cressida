@@ -108,6 +108,8 @@ namespace app {
       draw();
       if (m_demo && m_demoOverlay == "chat-preload-cycle")
         demoChatPreloadStep();
+      if (m_demo && m_demoOverlay == "tray-cycle" && m_demoInteractionStep < trayReplayFrames)
+        demoTrayStep();
       if (m_demo && m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep < chatLinkReplayFrames)
         demoChatLinksStep();
       if (m_demo && m_demoOverlay == "attachment-cycle" && m_demoInteractionStep < attachmentReplayFrames)
@@ -1191,6 +1193,10 @@ namespace app {
     m_themeSnapshot =
         m_themes.start(paths::assetPath("themes"), m_demo ? std::filesystem::path{} : userThemeDirectory(), !m_demo);
     m_window.initialize();
+    if (!m_demo) {
+      m_window.closeRequested = [this] { closeToTray(); };
+      m_tray.start(paths::assetPath("cressida-tray.svg"));
+    }
     if (auto snapshot = m_themes.drain())
       m_themeSnapshot = std::move(*snapshot);
     if (!m_demo) {
@@ -1218,6 +1224,7 @@ namespace app {
         smokeTest
             ? (m_demo && view && std::string_view(view) == "chat-links-cycle"              ? chatLinkReplayFrames
                    : m_demo && view && std::string_view(view) == "attachment-cycle"        ? attachmentReplayFrames
+                   : m_demo && view && std::string_view(view) == "tray-cycle"              ? trayReplayFrames
                    : m_demo && view && std::string_view(view) == "sticker-cycle"           ? 8
                    : m_demo && view && std::string_view(view) == "dm-compose-cycle"        ? 16
                    : m_demo && view && std::string_view(view).starts_with("dm-home-cycle") ? dmHomeReplayFrames
@@ -1269,7 +1276,7 @@ namespace app {
                                       : 1)
             : 0,
         m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd(), m_filePicker.eventFd(), m_soundPreview.eventFd(),
-        m_desktopNotifications.eventFd()
+        m_desktopNotifications.eventFd(), m_tray.eventFd()
     );
     if (m_demoOverlay == "server-settings-commands-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Server command permissions replay did not finish");
@@ -1287,6 +1294,8 @@ namespace app {
       throw std::runtime_error("Autocomplete replay did not finish");
     if (m_demoOverlay == "settings-font-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Font settings replay did not finish");
+    if (m_demoOverlay == "tray-cycle" && m_demoInteractionStep != trayReplayFrames)
+      throw std::runtime_error("Tray lifecycle replay did not complete");
     if (m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep != chatLinkReplayFrames)
       throw std::runtime_error("Chat link replay did not finish");
     if (m_demoOverlay == "attachment-cycle" && m_demoInteractionStep != attachmentReplayFrames)
@@ -1393,7 +1402,10 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
-        if (view.starts_with("image-menu")) {
+        if (view == "tray-cycle") {
+          m_demoOverlay = view;
+          m_drafts[m_channelId].clear();
+        } else if (view.starts_with("image-menu")) {
           m_demoOverlay = view;
           if (view.ends_with("light"))
             m_preferences.theme = "light";
@@ -6043,6 +6055,10 @@ namespace app {
   }
 
   void ClientApplication::tick() {
+    while (auto event = m_tray.poll())
+      trayEvent(std::move(*event));
+    if (m_demo && m_demoOverlay == "tray-cycle" && !m_window.visible())
+      ++m_trayHiddenTicks;
     drainDesktopNotifications();
     drainServerSettingsUploads();
     if (m_soundPreview.drain())
@@ -7355,7 +7371,7 @@ namespace app {
       changeImage(-1);
       break;
     case Action::Close:
-      m_window.close();
+      m_window.requestClose();
       break;
     case Action::Connect:
       connect();

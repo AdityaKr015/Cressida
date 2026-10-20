@@ -46,6 +46,8 @@ namespace Style {
   inline constexpr float panelPadding = 14.0F;
 
   inline constexpr float baseGlyphSize = 16.0F;
+  inline constexpr int windowMinimumWidth = 760;
+  inline constexpr int windowMinimumHeight = 520;
 
   inline constexpr float fontSizeMini = 11.0F;
   inline constexpr float fontSizeFine = 9.0F;
