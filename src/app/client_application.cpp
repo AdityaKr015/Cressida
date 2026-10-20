@@ -3440,23 +3440,14 @@ namespace app {
               + layout::Sidebar::rowInset * 2
               + (channel.isThread() ? layout::Sidebar::threadIconSize : 0);
           if (channel.isThread()) {
-            auto branch = std::make_unique<Node>();
-            branch->setPosition(x - layout::Sidebar::threadIconSize + hoverShift, y);
-            branch->setSize(layout::Sidebar::threadBranchWidth, layout::Sidebar::threadBranchHeight);
-            branch->setClipChildren(true);
-            branch->setHitTestVisible(false);
-            auto curve = std::make_unique<RectNode>();
-            curve->setPosition(0, -layout::Sidebar::threadBranchHeight);
-            curve->setSize(layout::Sidebar::threadBranchWidth * 2, layout::Sidebar::threadBranchHeight * 2);
-            curve->setStyle(
-                {.border = muted,
-                 .fillMode = FillMode::None,
-                 .radius = {0, 0, 0, Style::scaledRadiusSm()},
-                 .borderWidth = layout::Sidebar::threadBranchStroke}
+            const float branchX = x - layout::Sidebar::threadIconSize;
+            rectangle(
+                root, branchX, y, layout::Sidebar::threadBranchStroke, layout::Sidebar::threadBranchHeight, muted
             );
-            curve->setHitTestVisible(false);
-            branch->addChild(std::move(curve));
-            root.addChild(std::move(branch));
+            rectangle(
+                root, branchX, y + layout::Sidebar::threadBranchHeight - layout::Sidebar::threadBranchStroke,
+                layout::Sidebar::threadBranchWidth, layout::Sidebar::threadBranchStroke, muted
+            );
           }
           channelIcon(
               root, x + hoverShift, y + (layout::Sidebar::rowHeight - size) / 2, size, channel,
