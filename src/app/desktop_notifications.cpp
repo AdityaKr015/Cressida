@@ -1,5 +1,6 @@
 #include "app/desktop_notifications.h"
 
+#include "app/desktop_activation.h"
 #include "core/process/wake_event.h"
 #include "render/core/image_decoder.h"
 
@@ -100,6 +101,7 @@ namespace app {
     struct Active {
       DesktopNoticeAction target;
       std::uint64_t epoch;
+      DesktopActivationToken activationToken;
     };
     std::map<guint32, Active> active;
     bool clearPending = false;
@@ -197,7 +199,7 @@ namespace app {
         GVariantBuilder hints;
         g_variant_builder_init(&hints, G_VARIANT_TYPE_VARDICT);
         g_variant_builder_add(&hints, "{sv}", "category", g_variant_new_string("im.received"));
-        g_variant_builder_add(&hints, "{sv}", "desktop-entry", g_variant_new_string("cressida"));
+        g_variant_builder_add(&hints, "{sv}", "desktop-entry", g_variant_new_string(desktopApplicationId));
         g_variant_builder_add(&hints, "{sv}", "suppress-sound", g_variant_new_boolean(!notice.sound));
         if (notice.sound)
           g_variant_builder_add(&hints, "{sv}", "sound-name", g_variant_new_string("message-new-instant"));
@@ -217,7 +219,7 @@ namespace app {
         g_dbus_connection_call(
             bus, service, path, service, "Notify",
             g_variant_new(
-                "(susss^as@a{sv}i)", "Cressida", 0U, "cressida", plain(notice.title).c_str(),
+                "(susss^as@a{sv}i)", "Cressida", 0U, desktopApplicationId, plain(notice.title).c_str(),
                 plain(notice.body, bodyMarkup).c_str(), buttons, g_variant_builder_end(&hints), 7000
             ),
             G_VARIANT_TYPE("(u)"), G_DBUS_CALL_FLAGS_NONE, 5000, cancel,
@@ -255,7 +257,7 @@ namespace app {
     void run() {
       g_main_context_push_thread_default(context);
       bus = g_bus_get_sync(G_BUS_TYPE_SESSION, cancel, nullptr);
-      guint action = 0, closed = 0;
+      guint action = 0, closed = 0, activation = 0;
       if (bus) {
         // Only the optional notification body supports markup. A server without
         // that capability receives ordinary text, including literal '&'/'<'.
@@ -274,6 +276,21 @@ namespace app {
           g_variant_unref(values);
           g_variant_unref(capabilities);
         }
+        activation = g_dbus_connection_signal_subscribe(
+            bus, service, service, "ActivationToken", path, nullptr, G_DBUS_SIGNAL_FLAGS_NONE,
+            [](GDBusConnection*, const char*, const char*, const char*, const char*, GVariant* value, void* data) {
+              if (!g_variant_is_of_type(value, G_VARIANT_TYPE("(us)")))
+                return;
+              auto& self = *static_cast<Impl*>(data);
+              guint32 id;
+              const char* token;
+              g_variant_get(value, "(u&s)", &id, &token);
+              const auto found = self.active.find(id);
+              if (found != self.active.end())
+                found->second.activationToken.assign(token);
+            },
+            this, nullptr
+        );
         action = g_dbus_connection_signal_subscribe(
             bus, service, service, "ActionInvoked", path, nullptr, G_DBUS_SIGNAL_FLAGS_NONE,
             [](GDBusConnection*, const char*, const char*, const char*, const char*, GVariant* value, void* data) {
@@ -288,8 +305,11 @@ namespace app {
                 return;
               {
                 std::lock_guard lock(self.mutex);
-                if (found->second.epoch == self.epoch && self.actions.size() < 32)
-                  self.actions.push_back(found->second.target);
+                if (found->second.epoch == self.epoch && self.actions.size() < 32) {
+                  auto target = std::move(found->second.target);
+                  target.activationToken = found->second.activationToken.take();
+                  self.actions.push_back(std::move(target));
+                }
               }
               self.close(id);
               self.active.erase(found);
@@ -316,6 +336,7 @@ namespace app {
         for (const auto& [id, _] : active)
           close(id);
         active.clear();
+        g_dbus_connection_signal_unsubscribe(bus, activation);
         g_dbus_connection_signal_unsubscribe(bus, action);
         g_dbus_connection_signal_unsubscribe(bus, closed);
         g_object_unref(bus);

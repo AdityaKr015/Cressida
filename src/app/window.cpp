@@ -1,7 +1,9 @@
 #include "app/window.h"
 
+#include "app/desktop_activation.h"
 #include "app/layout_metrics.h"
 #include "app/surface_scale.h"
+#include "app/window_activation.h"
 #include "app/window_decorations.h"
 #include "core/deferred_call.h"
 #include "core/environment.h"
@@ -48,7 +50,8 @@ namespace app {
     wl_compositor* compositor = nullptr;
     xdg_wm_base* shell = nullptr;
     xdg_activation_v1* activation = nullptr;
-    std::string activationToken;
+    WindowActivation activationState;
+    std::uint64_t toplevelGeneration = 0;
     wl_surface* surface = nullptr;
     wp_viewporter* viewporter = nullptr;
     wp_viewport* viewport = nullptr;
@@ -137,6 +140,7 @@ namespace app {
       traceScroll = trace && std::strcmp(trace, "1") == 0;
     }
     ~Impl() {
+      activationState.unmap();
       // EGL resources must be destroyed before their wl_surface and display.
       target.destroy();
       if (frameCallback)
@@ -208,13 +212,14 @@ namespace app {
     }
 
     void createToplevel() {
+      ++toplevelGeneration;
       static_assert(WindowCapabilities::maximizeCapability == XDG_TOPLEVEL_WM_CAPABILITIES_MAXIMIZE);
       static_assert(WindowCapabilities::minimizeCapability == XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE);
       capabilities = {};
       role = xdg_wm_base_get_xdg_surface(shell, surface);
       toplevel = xdg_surface_get_toplevel(role);
       xdg_toplevel_set_title(toplevel, "Cressida");
-      xdg_toplevel_set_app_id(toplevel, "dev.lysec.Cressida");
+      xdg_toplevel_set_app_id(toplevel, desktopApplicationId);
       xdg_toplevel_set_min_size(toplevel, layout::Window::minimumWidth, layout::Window::minimumHeight);
       static const xdg_toplevel_listener toplevelListener{
           .configure =
@@ -771,6 +776,7 @@ namespace app {
     if (wl_display_roundtrip(m->display) < 0 || !m->compositor || !m->shell)
       throw std::runtime_error("The desktop does not provide xdg-shell");
     m->surface = wl_compositor_create_surface(m->compositor);
+    m->activationState.bind(m->activation, m->surface);
     static const wl_surface_listener surfaceListener{
         .enter = [](void* data, wl_surface*,
                     wl_output* output) { static_cast<Impl*>(data)->outputEntered(output, true); },
@@ -830,10 +836,10 @@ namespace app {
         m->dirty = false;
         const bool animating = animate && animate();
         m->requestFrame();
+        const auto drawnGeneration = m->toplevelGeneration;
         draw();
-        if (m->activation && !m->activationToken.empty()) {
-          xdg_activation_v1_activate(m->activation, m->activationToken.c_str(), m->surface);
-          m->activationToken.clear();
+        if (m->visible && m->configured && m->toplevelGeneration == drawnGeneration) {
+          m->activationState.presented();
         }
         if (animating)
           m->dirty = true;
@@ -1037,15 +1043,16 @@ namespace app {
       close();
   }
   bool Window::visible() const { return m->visible; }
+  std::uint64_t Window::toplevelGeneration() const { return m->toplevelGeneration; }
   void Window::hide() {
     if (!m->visible)
       return;
     m->visible = false;
     m->configured = false;
+    m->activationState.unmap();
     m->restoreMaximized = m->maximized;
     m->restoreFullscreen = m->fullscreen;
     m->repeatKey = 0;
-    m->activationToken.clear();
     if (m->frameCallback) {
       wl_callback_destroy(m->frameCallback);
       m->frameCallback = nullptr;
@@ -1073,11 +1080,6 @@ namespace app {
     m->dirty = true;
   }
   void Window::show(std::string activationToken) {
-    // Older tray hosts cannot supply an activation token. Remapping an inactive
-    // toplevel also clears a compositor's minimized state without private APIs.
-    if (m->visible && !m->keyboardFocused && (activationToken.empty() || !m->activation))
-      hide();
-    m->activationToken = std::move(activationToken);
     if (!m->visible) {
       m->visible = true;
       m->configured = false;
@@ -1088,6 +1090,7 @@ namespace app {
         xdg_toplevel_set_fullscreen(m->toplevel, nullptr);
       wl_surface_commit(m->surface);
     }
+    m->activationState.request(activationToken);
     invalidate();
   }
   void Window::invalidate() { m->dirty = true; }

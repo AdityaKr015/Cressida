@@ -1,3 +1,4 @@
+#include "app/desktop_activation.h"
 #include "app/desktop_notifications.h"
 #include "render/core/image_encoder.h"
 
@@ -77,6 +78,7 @@ namespace {
           "<arg type='as' direction='in'/><arg type='a{sv}' direction='in'/><arg type='i' direction='in'/>"
           "<arg type='u' direction='out'/></method>"
           "<method name='CloseNotification'><arg type='u' direction='in'/></method>"
+          "<signal name='ActivationToken'><arg type='u'/><arg type='s'/></signal>"
           "<signal name='ActionInvoked'><arg type='u'/><arg type='s'/></signal>"
           "<signal name='NotificationClosed'><arg type='u'/><arg type='u'/></signal>"
           "</interface></node>",
@@ -160,6 +162,16 @@ namespace {
       require(reply, "Own only the private fake notification service");
       g_variant_unref(reply);
     }
+    void token(unsigned id, const std::string& value) {
+      require(
+          g_dbus_connection_emit_signal(
+              connection, nullptr, "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "ActivationToken",
+              g_variant_new("(us)", id, value.c_str()), nullptr
+          ),
+          "Emit a synthetic notification activation token"
+      );
+      g_dbus_connection_flush_sync(connection, nullptr, nullptr);
+    }
     void action(unsigned id, const char* key = "default") {
       require(
           g_dbus_connection_emit_signal(
@@ -214,8 +226,8 @@ int main() {
       const auto first = service.captures.front();
       require(
           first.application == "Cressida"
-              && first.icon == "cressida"
-              && first.desktop == "cressida"
+              && first.icon == app::desktopApplicationId
+              && first.desktop == app::desktopApplicationId
               && first.category == "im.received",
           "Notification identity uses native desktop metadata"
       );
@@ -232,6 +244,7 @@ int main() {
           "Enabled notification sounds and expiry use documented hints"
       );
       require(first.image.empty(), "A notice without sender identity never contains an avatar");
+      service.token(first.id, "private-notification-token");
       service.action(first.id, "unrecognized");
       dispatchFor(std::chrono::milliseconds(30));
       require(!notifications.poll(), "Unrecognized notification actions do not navigate");
@@ -245,7 +258,8 @@ int main() {
               && target->guild == "100"
               && target->channel == "101"
               && target->message == "200"
-              && target->generation == 17,
+              && target->generation == 17
+              && target->activationToken == "private-notification-token",
           "Notification action preserves session/account/conversation identity"
       );
       waitFor([&] { return service.closed.contains(first.id); }, "Activating notification closes its presentation");
@@ -253,6 +267,23 @@ int main() {
       dispatchFor(std::chrono::milliseconds(30));
       require(!notifications.poll(), "Repeated desktop actions cannot reopen expired targets");
 
+      service.token(first.id, "expired-target-token");
+      notifications.show(notice("New target"));
+      waitFor([&] { return service.captures.size() == 2; }, "Create a separate activation target");
+      dispatchFor(std::chrono::milliseconds(30));
+      const auto secondId = service.captures.back().id;
+      service.action(secondId);
+      waitFor([&] { return ::poll(&wake, 1, 0) > 0; }, "Tokenless action wakes the owning loop");
+      require(notifications.poll()->activationToken.empty(), "An old notification token cannot leak into a new target");
+      notifications.show(notice("Oversized token"));
+      waitFor([&] { return service.captures.size() == 3; }, "Create a bounded activation target");
+      dispatchFor(std::chrono::milliseconds(30));
+      const auto oversizedId = service.captures.back().id;
+      service.token(oversizedId, std::string(app::DesktopActivationToken::maximumBytes + 1, 'x'));
+      service.action(oversizedId);
+      waitFor([&] { return ::poll(&wake, 1, 0) > 0; }, "Oversized tokens cannot block the action");
+      require(notifications.poll()->activationToken.empty(), "Overlong activation handles are rejected");
+      service.captures.resize(1);
       auto silent = notice("Muted", std::string(1023, 'a') + "🙂");
       silent.sound = false;
       notifications.show(std::move(silent));
@@ -311,7 +342,7 @@ int main() {
                 && image.bits == 8
                 && image.channels == 4
                 && image.image.size() == rgba.size()
-                && image.icon == "cressida",
+                && image.icon == app::desktopApplicationId,
             "Standard image-data carries the sender avatar and separate application icon"
         );
         bool antialiased = false;

@@ -18,6 +18,7 @@ namespace app {
   struct DesktopNoticeAction {
     std::string account, guild, channel, message;
     std::uint64_t generation = 0;
+    std::string activationToken;
   };
   // Session-only desktop delivery, isolated from the application's owning loop.
   class DesktopNotifications {

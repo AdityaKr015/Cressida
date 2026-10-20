@@ -121,26 +121,34 @@ namespace app {
       (void)m_assets.request(avatar);
   }
   void ClientApplication::drainDesktopNotifications() {
-    while (auto action = m_desktopNotifications.poll()) {
-      if (!m_connected
-          || !m_preferences.desktopNotifications
-          || action->generation != m_session
-          || action->account != m_account.id)
-        continue;
-      if (settingsVisible() || !m_dialogKind.empty() || userAccountDialogOpen())
-        continue;
-      if (action->guild.empty()) {
-        if (std::ranges::find(m_privateChannels, action->channel, &api::Channel::id) == m_privateChannels.end())
-          continue;
+    while (auto action = m_desktopNotifications.poll())
+      desktopNoticeAction(std::move(*action));
+  }
+  void ClientApplication::desktopNoticeAction(DesktopNoticeAction action) {
+    if (!m_connected
+        || !m_preferences.desktopNotifications
+        || action.generation != m_session
+        || action.account != m_account.id)
+      return;
+    if (action.guild.empty()) {
+      if (std::ranges::find(m_privateChannels, action.channel, &api::Channel::id) == m_privateChannels.end())
+        return;
+    } else if (std::ranges::find(m_guilds, action.guild, &api::Guild::id) == m_guilds.end())
+      return;
+    m_window.show(std::move(action.activationToken));
+    // Bring an existing settings/dialog window forward without discarding its
+    // edits. A notification for the current conversation also needs only focus.
+    if (settingsVisible() || !m_dialogKind.empty() || userAccountDialogOpen())
+      return;
+    if (m_channelId != action.channel
+        || (action.guild.empty() != m_dmMode)
+        || (!action.guild.empty() && action.guild != m_guildId)) {
+      if (action.guild.empty())
         showDirectMessages();
-      } else {
-        if (std::ranges::find(m_guilds, action->guild, &api::Guild::id) == m_guilds.end())
-          continue;
-        selectGuild(action->guild);
-      }
-      selectChannel(action->channel);
-      m_window.show();
-      m_window.invalidate();
+      else if (m_dmMode || m_guildId != action.guild)
+        selectGuild(action.guild);
+      selectChannel(action.channel);
     }
+    m_window.invalidate();
   }
 } // namespace app

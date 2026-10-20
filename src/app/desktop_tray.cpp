@@ -1,5 +1,6 @@
 #include "app/desktop_tray.h"
 
+#include "app/desktop_activation.h"
 #include "core/process/wake_event.h"
 #include "render/core/image_file_loader.h"
 #include "ui/style.h"
@@ -22,8 +23,7 @@ namespace app {
     constexpr auto menuInterface = "com.canonical.dbusmenu";
     constexpr auto watcherPath = "/StatusNotifierWatcher";
     constexpr int callDeadlineMs = 2000;
-    constexpr std::size_t maximumPendingEvents = 32, maximumActivationToken = 4096;
-    constexpr auto activationLifetime = std::chrono::seconds(5);
+    constexpr std::size_t maximumPendingEvents = 32;
     constexpr unsigned menuVersion = 4, menuRevision = 1;
     constexpr std::array labels{"", "Open", "Restart", "Close"};
     constexpr auto itemBody = R"XML(
@@ -112,8 +112,8 @@ namespace app {
     GDBusConnection* bus = nullptr;
     std::mutex mutex;
     std::deque<TrayEvent> events;
-    std::string icon, activationToken;
-    std::chrono::steady_clock::time_point activationAt;
+    std::string icon;
+    DesktopActivationToken activationToken;
     GVariant* pixmap = nullptr;
     bool available = false;
     struct Watcher {
@@ -171,8 +171,8 @@ namespace app {
     }
     void command(TrayCommand value) {
       TrayEvent event{.command = value};
-      if (value == TrayCommand::Open && std::chrono::steady_clock::now() - activationAt <= activationLifetime)
-        event.activationToken = std::exchange(activationToken, {});
+      if (value == TrayCommand::Open)
+        event.activationToken = activationToken.take();
       else
         activationToken.clear();
       emit(std::move(event));
@@ -195,8 +195,7 @@ namespace app {
         else if (method == "ProvideXdgActivationToken") {
           const char* token;
           g_variant_get(args, "(&s)", &token);
-          activationToken = std::strlen(token) <= maximumActivationToken ? token : "";
-          activationAt = std::chrono::steady_clock::now();
+          activationToken.assign(token);
         }
         g_dbus_method_invocation_return_value(invocation, nullptr);
         return;

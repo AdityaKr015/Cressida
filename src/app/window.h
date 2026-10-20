@@ -35,6 +35,8 @@ namespace app {
     void hide();
     void show(std::string activationToken = {});
     bool visible() const;
+    // Changes only when a hidden window needs a new native shell role.
+    std::uint64_t toplevelGeneration() const;
     void minimize();
     void toggleMaximized();
     bool maximized() const;

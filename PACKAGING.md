@@ -24,7 +24,10 @@ requires a Wayland session; there is no X11 window backend.
 
 The authoritative dependency checks are in [meson.build](meson.build). Package
 names vary between distributions: install the development headers and pkg-config
-metadata as well as the runtime libraries. Cressida uses neither Qt nor GTK.
+metadata as well as the runtime libraries. Cressida uses neither Qt nor GTK. The
+native activation regression fixture also uses Wayland server development headers
+and `wayland-server` through pkg-config; the application itself remains a Wayland
+client.
 
 ### Build tools
 

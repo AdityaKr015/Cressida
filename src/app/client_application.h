@@ -537,6 +537,7 @@ namespace app {
     void verifySettingsScrollbarGutters() const;
     void notifyMessage(const api::Message& message, const std::string& channel);
     void drainDesktopNotifications();
+    void desktopNoticeAction(DesktopNoticeAction action);
     bool extendedPreference(const std::string& action);
     std::string shortcutLabel(const std::string& action) const;
     bool shortcutKey(const Key& key);

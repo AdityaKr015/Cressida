@@ -67,10 +67,32 @@ namespace app {
       trayEvent({.available = true});
       activate({.action = Action::Close});
       require(!m_window.visible() && !m_window.active(), "The window close button hides and unfocuses the window");
-      m_trayDemoTimer.start(std::chrono::milliseconds(Style::animFast), [this] {
+      m_trayDemoTimer.start(std::chrono::milliseconds(Style::animFast), [this, require] {
+        const auto hiddenGeneration = m_window.toplevelGeneration();
         trayEvent({.command = TrayCommand::Open});
+        const auto restoredGeneration = m_window.toplevelGeneration();
+        require(restoredGeneration == hiddenGeneration + 1, "A genuinely hidden window recreates its shell role once");
+        require(!m_window.active(), "Restored surface has not yet received desktop focus");
+        trayEvent({.command = TrayCommand::Open});
+        desktopNoticeAction(
+            {.account = m_account.id, .guild = m_guildId, .channel = m_channelId, .generation = m_session}
+        );
+        require(
+            m_window.toplevelGeneration() == restoredGeneration,
+            "Tray and notification activation of an unfocused visible window must preserve its native role"
+        );
       });
     } else if (step == 1) {
+      const auto generation = m_window.toplevelGeneration();
+      trayEvent({.command = TrayCommand::Open, .activationToken = "offline-activation-token"});
+      trayEvent({.command = TrayCommand::Open});
+      desktopNoticeAction(
+          {.account = m_account.id, .guild = m_guildId, .channel = m_channelId, .generation = m_session}
+      );
+      require(
+          m_window.toplevelGeneration() == generation,
+          "Repeated activation of a presented window preserves its native role"
+      );
       require(
           m_trayHiddenTicks > 0 && m_connected && m_drafts.at(m_channelId) == "Draft retained while hidden",
           "Hidden windows keep the owning event loop, connection and draft alive"
@@ -92,7 +114,8 @@ namespace app {
       require(
           m_drafts.at(m_channelId) == "Draft retained while hidden", "Repeated hide and restore never clears the draft"
       );
-      std::clog << "Offline tray hide/remap, event-loop continuity, host loss, draft and restart replay passed\n";
+      std::clog << "Offline tray focus without remapping, hidden restore, notification activation, host loss, draft "
+                   "and restart replay passed\n";
       trayEvent({.command = TrayCommand::Close});
     }
     m_window.invalidate();
