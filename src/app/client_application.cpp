@@ -72,8 +72,14 @@ namespace app {
             && channel.id != selected
             && mentions(channel.id) == 0)
           continue;
-        const float height = channel.type == 4 ? layout::Sidebar::categoryHeight : layout::Sidebar::rowHeight,
-                    advance = channel.type == 4 ? layout::Sidebar::categoryHeight : layout::Sidebar::rowStep;
+        const bool direct =
+            channel.kind() == api::ChannelType::DirectMessage || channel.kind() == api::ChannelType::GroupDirectMessage;
+        const float height = channel.type == 4 ? layout::Sidebar::categoryHeight
+            : direct                           ? layout::DmSidebar::conversationHeight
+                                               : layout::Sidebar::rowHeight;
+        const float advance = channel.type == 4 ? layout::Sidebar::categoryHeight
+            : direct                            ? layout::DmSidebar::conversationStep
+                                                : layout::Sidebar::rowStep;
         rows.push_back({&channel, top, height, advance});
         top += advance;
       }
@@ -3377,9 +3383,7 @@ namespace app {
       for (const auto& row : visibleChannels) {
         const float y = channelTop + row.top - m_channelScroll;
         const auto& channel = *row.channel;
-        if (channel.type != 4
-            && y + (Style::space2Xl + Style::spaceXxs) > sidebarBottom
-            && m_unreadTimeline.mentions(channel.id) > 0) {
+        if (channel.type != 4 && y + row.height > sidebarBottom && m_unreadTimeline.mentions(channel.id) > 0) {
           mentionsBelow = std::min(1000000, mentionsBelow + m_unreadTimeline.mentions(channel.id));
           if (nextMention.empty())
             nextMention = channel.id;
@@ -3410,8 +3414,8 @@ namespace app {
             && (((m_dmMode || !m_userDirectory.muted(m_guildId)) && !channelMuted(channel.id)) || mentions > 0);
         const float rowX = layout::Sidebar::railWidth + layout::Sidebar::rowInset;
         const float rowWidth = sidebarWidth - layout::Sidebar::rowInset * 2;
-        const bool over = hovered(rowX, y, rowWidth, layout::Sidebar::rowHeight)
-            && (m_dmMode || (sidebarResizeAvailable() && !m_resizingSidebar));
+        const bool over =
+            hovered(rowX, y, rowWidth, row.height) && (m_dmMode || (sidebarResizeAvailable() && !m_resizingSidebar));
         const float hoverShift = !m_dmMode && over ? Style::spaceXs : 0;
         constexpr float channelHoverTint = .06F;
         const auto rowSurface = m_dmMode ? (selected   ? raised
@@ -3421,10 +3425,10 @@ namespace app {
             : selected                   ? raised
                                          : background;
         if (selected || over)
-          rectangle(root, rowX, y, rowWidth, layout::Sidebar::rowHeight, rowSurface, Style::surfaceRadius);
+          rectangle(root, rowX, y, rowWidth, row.height, rowSurface, Style::surfaceRadius);
         if (unread && !selected)
           rectangle(
-              root, layout::Sidebar::unreadX, y + (layout::Sidebar::rowHeight - layout::Sidebar::unreadHeight) / 2,
+              root, layout::Sidebar::unreadX, y + (row.height - layout::Sidebar::unreadHeight) / 2,
               layout::Sidebar::unreadWidth, layout::Sidebar::unreadHeight, foreground, Style::radiusXs
           );
         if (m_dmMode) {
@@ -3456,15 +3460,15 @@ namespace app {
             );
           }
           channelIcon(
-              root, x + hoverShift, y + (layout::Sidebar::rowHeight - size) / 2, size, channel,
-              selected ? accent : muted, rowSurface
+              root, x + hoverShift, y + (row.height - size) / 2, size, channel, selected ? accent : muted, rowSurface
           );
         }
-        m_hits.push_back({rowX, y, rowWidth, layout::Sidebar::rowHeight, Action::Channel, channel.id});
+        m_hits.push_back({rowX, y, rowWidth, row.height, Action::Channel, channel.id});
         const bool pinned = m_dmMode && m_userDirectory.pinnedDm(channel.id);
         const bool showPin = m_dmMode && (pinned || over);
         const float badgeWidth = countBadge(
-            root, chatLeft() - (Style::spaceXl - Style::spaceXxs) - (showPin ? 26 : 0), y + Style::spaceSm, mentions
+            root, chatLeft() - (Style::spaceXl - Style::spaceXxs) - (showPin ? 26 : 0),
+            y + (row.height - layout::CountBadge::height) / 2, mentions
         );
         if (m_dmMode) {
           const float right =
@@ -3523,16 +3527,17 @@ namespace app {
                                     : layout::Sidebar::iconSize + Style::spaceCompact)
               + hoverShift;
           const float labelRight = rowX + rowWidth - layout::Sidebar::rowInset;
+          const float labelWidth = std::max(0.0F, labelRight - labelX - (badgeWidth ? badgeWidth + Style::spaceSm : 0));
+          const auto weight = selected || unread ? FontWeight::SemiBold : FontWeight::Normal;
+          const auto metrics =
+              m_window.target().renderer().measureText(channel.name, Style::fontSizeBody, weight, labelWidth, 1);
           label(
-              root, labelX, y + Style::spaceSm,
-              std::max(0.0F, labelRight - labelX - (badgeWidth ? badgeWidth + Style::spaceSm : 0)), channel.name,
-              Style::fontSizeBody, selected || over || unread ? foreground : muted,
-              selected || unread ? FontWeight::SemiBold : FontWeight::Normal
+              root, labelX, y + (row.height - (metrics.bottom - metrics.top)) / 2, labelWidth, channel.name,
+              Style::fontSizeBody, selected || over || unread ? foreground : muted, weight
           );
         }
         m_contextTargets.push_back(
-            {rowX, y, rowWidth, layout::Sidebar::rowHeight, m_dmMode ? Action::ConversationMenu : Action::ChannelMenu,
-             channel.id}
+            {rowX, y, rowWidth, row.height, m_dmMode ? Action::ConversationMenu : Action::ChannelMenu, channel.id}
         );
       }
       if (mentionsBelow > 0) {
@@ -5625,9 +5630,8 @@ namespace app {
       if (row.channel->id == id) {
         const float sceneHeight = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
         const float listTop = m_dmMode ? layout::DmSidebar::channelsTop : 142;
-        const auto view = std::max(
-            layout::Sidebar::rowStep, layout::accountFrame(sceneHeight, chatLeft()).y - layout::Floating::gap - listTop
-        );
+        const auto view =
+            std::max(row.advance, layout::accountFrame(sceneHeight, chatLeft()).y - layout::Floating::gap - listTop);
         m_channelScroll = std::clamp(m_channelScroll, std::max(0.0F, row.top - view + row.advance), row.top);
         break;
       }

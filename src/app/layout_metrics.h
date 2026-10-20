@@ -176,7 +176,7 @@ namespace app::layout {
     static constexpr float minimumConversation = 360;
     static constexpr float resizeSlop = Style::spaceXs;
     static constexpr float categoryHeight = 24;
-    static constexpr float rowHeight = 34;
+    static constexpr float rowHeight = Style::spaceWide;
     static constexpr float rowGap = Style::spaceXs;
     static constexpr float rowStep = rowHeight + rowGap;
     static constexpr float rowInset = Style::spaceMd;
@@ -204,6 +204,8 @@ namespace app::layout {
     static constexpr int minimumHeight = Style::windowMinimumHeight;
   };
   struct DmSidebar {
+    static constexpr float conversationHeight = Style::space2Xl + Style::spaceXxs;
+    static constexpr float conversationStep = conversationHeight + Style::spaceXs;
     static constexpr float inset = Style::spaceLg;
     static constexpr float searchTop = Window::titlebarHeight + Style::spaceLg;
     static constexpr float searchHeight = Style::controlHeight;
