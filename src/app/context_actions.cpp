@@ -1,3 +1,4 @@
+#include "app/automod_message.h"
 #include "app/client_application.h"
 #include "app/system_message.h"
 #include "app/theme.h"
@@ -205,11 +206,12 @@ namespace app {
           && (message->type == 0 || message->type == 19)
           && !(message->flags & 64))
         add(Action::EditMessage, "Edit Message");
-      if (!message->deleted && message->type != 7)
+      if (!message->deleted && message->type != 7 && message->type != autoModerationActionType)
         add(Action::Reply, "Reply");
       const auto selected = std::ranges::find(m_channels, m_channelId, &api::Channel::id);
       if (!message->deleted
           && message->type != 7
+          && message->type != autoModerationActionType
           && !m_dmMode
           && selected != m_channels.end()
           && (selected->type == 0 || selected->type == 5))
@@ -728,6 +730,20 @@ namespace app {
   }
   bool ClientApplication::startInteraction(api::Interaction action) {
     using Kind = api::InteractionKind;
+    if (action.kind == Kind::AutoModerationFeedback) {
+      const auto message = std::ranges::find(m_messages, action.message, &api::Message::id);
+      if (action.channel != m_channelId
+          || action.guild != m_guildId
+          || message == m_messages.end()
+          || message->deleted
+          || message->type != autoModerationActionType
+          || autoModerationField(autoModerationEmbed(*message), "decision_id") != action.customId
+          || !autoModerationEmbed(*message)
+          || autoModerationEmbed(*message)->description != action.content) {
+        m_status = "This AutoMod alert is no longer available.";
+        return false;
+      }
+    }
     if (!action.message.empty()
         && m_messageLog.known(action.channel, action.message)
         && (action.kind == Kind::AddReaction
@@ -1118,6 +1134,8 @@ namespace app {
             root, x + Style::spaceXl, y + 76, width - Style::spaceGroup,
             m_dialogAction && m_dialogAction->kind == api::InteractionKind::DeleteMessage
                 ? "This permanently deletes the message."
+                : m_dialogAction && m_dialogAction->kind == api::InteractionKind::AutoModerationFeedback
+                ? "Send this AutoMod decision and its flagged content to Discord to report a problem?"
                 : "This changes your Discord relationship with this user.",
             Style::fontSizeBody, foreground, FontWeight::Normal, 2
         );
@@ -1132,10 +1150,11 @@ namespace app {
       );
       button(
           root, {x + width - 130, y + height - 52, 106, 32, m_dialogPending ? Action::None : Action::SubmitDialog, {}},
-          m_dialogPending                       ? "Saving…"
-              : m_dialogKind == "thread-create" ? "Create Thread"
-              : m_dialogKind == "confirm"       ? "Confirm"
-                                                : "Save",
+          m_dialogPending                                                                              ? "Saving…"
+              : m_dialogAction && m_dialogAction->kind == api::InteractionKind::AutoModerationFeedback ? "Send report"
+              : m_dialogKind == "thread-create"                                                        ? "Create Thread"
+              : m_dialogKind == "confirm"                                                              ? "Confirm"
+                                                                                                       : "Save",
           true
       );
     }
@@ -1550,6 +1569,11 @@ namespace app {
     case Action::CancelReply:
       m_replies.erase(m_channelId);
       focusControl("composer");
+      break;
+    case Action::AutoModActions:
+    case Action::AutoModJump:
+    case Action::AutoModReport:
+      autoModerationAction(hit);
       break;
     case Action::ToggleReplyMention:
       if (m_replies.contains(m_channelId))

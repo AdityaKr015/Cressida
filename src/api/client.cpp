@@ -1815,6 +1815,7 @@ namespace api {
         Json pendingReadStates;
         const char* method = nullptr;
         std::optional<InteractionRequest> interaction;
+        bool autoModerationFeedbackSubmitted = false;
         std::optional<UserSettingsHttpRequest> accountRequest;
         std::string guildMfaAuthorization;
         Json accessGuildSnapshot;
@@ -2162,6 +2163,33 @@ namespace api {
           path = interaction->path;
           body = interaction->body;
           method = interaction->method.c_str();
+          if (command.interaction->kind == InteractionKind::AutoModerationFeedback) {
+            auto identity = request(token, "/users/@me?with_analytics_token=true", nullptr, transfer, cooldown);
+            if (!identity) {
+              event.error = identity.error().message;
+              event.unauthorized = identity.error().unauthorized;
+              break;
+            }
+            const auto analytics = identity->find("analytics_token");
+            const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch()
+            )
+                                 .count();
+            const auto feedback = analytics != identity->end() && analytics->is_string()
+                ? autoModerationFeedbackBody(*command.interaction, analytics->get_ref<const std::string&>(), now)
+                : std::nullopt;
+            if (!feedback) {
+              event.error = "Could not prepare AutoMod feedback. Try again.";
+              break;
+            }
+            auto submitted = request(token, "/science", &*feedback, transfer, cooldown, {}, "POST");
+            if (!submitted) {
+              event.error = submitted.error().message;
+              event.unauthorized = submitted.error().unauthorized;
+              break;
+            }
+            autoModerationFeedbackSubmitted = true;
+          }
           if (command.interaction->kind == InteractionKind::GuildNotifications) {
             {
               std::lock_guard lock(m_mutex);
@@ -2408,7 +2436,9 @@ namespace api {
         default:
           continue;
         }
-        auto response = event.error.empty()
+        auto response = autoModerationFeedbackSubmitted && !command.interaction->markAutoModerationFeedback
+            ? std::expected<Json, Failure>(Json::object())
+            : event.error.empty()
             ? request(
                   command.operation == Operation::GifSearch ? std::string{} : token, path,
                   ((interaction
@@ -2423,6 +2453,10 @@ namespace api {
                   command.operation == Operation::UserSettings
               )
             : std::expected<Json, Failure>(std::unexpected(Failure{event.error, event.unauthorized}));
+        // The issue itself is already delivered. The permission-dependent alert
+        // marker is supplementary, like Discord's fire-and-forget marker update.
+        if (autoModerationFeedbackSubmitted && !response)
+          response = Json::object();
         while (response && pendingReadStates.is_array() && !pendingReadStates.empty()) {
           auto reads = Json::array();
           const auto count = std::min<std::size_t>(100, pendingReadStates.size());

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "api/models.h"
+#include "app/layout_metrics.h"
 #include "app/syntax_highlight.h"
 #include "ui/style.h"
 
@@ -15,10 +16,12 @@ namespace app {
     bool bold = false, italic = false, underline = false, strike = false, code = false, spoiler = false,
          mention = false, emoji = false;
     bool historical = false;
+    bool hoverLink = false, muted = false;
     float size = Style::fontSizeBody;
     std::string link;
     CodeToken syntax = CodeToken::Plain;
     std::string userMention;
+    std::size_t linkId = 0;
   };
   struct MessageRun {
     std::string text, image;
@@ -58,6 +61,14 @@ namespace app {
     bool spoiler = false;
   };
   struct MessageLayout {
+    struct AutoModeration {
+      float authorTop;
+      std::size_t contentStart, contentEnd;
+      std::string matched;
+      float actionsTop;
+      layout::AutoModerationActions actions;
+    };
+    std::optional<AutoModeration> autoModeration;
     struct EditedMarker {
       float x, y, width, height, size;
     };
@@ -93,6 +104,12 @@ namespace app {
       const MessageOptions& options = {}
   );
   using MessageMeasure = std::function<float(std::string_view, const MessageStyle&)>;
+  struct MessageLinkArea {
+    float x, y, width, height;
+    std::size_t first, last, group;
+    std::string url;
+  };
+  std::vector<MessageLinkArea> messageLinkAreas(const MessageLayout& layout);
   MessageLayout layoutReplyPreview(
       const api::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
       const MessageOptions& options = {}

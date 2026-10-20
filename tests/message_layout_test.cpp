@@ -1,5 +1,7 @@
+#include "app/automod_message.h"
 #include "app/discord_timestamp.h"
 #include "app/emoji_catalog.h"
+#include "app/layout_metrics.h"
 #include "app/message_layout.h"
 #include "app/message_log_layout.h"
 #include "app/reply_preview.h"
@@ -7,6 +9,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <ranges>
 #include <stdexcept>
 
@@ -19,6 +22,113 @@ int main(int argc, char** argv) {
     const app::MessageMeasure editMeasure = [](std::string_view text, const app::MessageStyle& style) {
       return static_cast<float>(text.size()) * style.size * .5F;
     };
+    const auto alerts = api::parseMessages(nlohmann::json::parse(R"JSON([{
+      "id":"9201","channel_id":"101","type":24,"author":{"id":"11","username":"Maya"},
+      "embeds":[{"type":"auto_moderation_message","description":"A blocked phrase in context",
+        "fields":[{"name":"rule_name","value":"Flagged words"},
+          {"name":"channel_id","value":"102"},{"name":"decision_id","value":"opaque-id"},
+          {"name":"keyword","value":"blocked"},{"name":"keyword_matched_content","value":"blocked"},
+          {"name":"decision_outcome","value":"blocked"}]}]
+    }])JSON"));
+    const auto alert = app::layoutRichMessage(alerts.front(), 500, editMeasure);
+    require(
+        alert.autoModeration.has_value() && alert.boxes.empty(),
+        "AutoMod has dedicated system presentation instead of a generic embed"
+    );
+    require(
+        alert.plainText.starts_with("AutoMod has blocked a message")
+            && alert.plainText.contains("Maya")
+            && alert.plainText.contains("Rule: Flagged words")
+            && !alert.plainText.contains("decision_id")
+            && !alert.plainText.contains("opaque-id")
+            && !alert.plainText.contains("keyword_matched_content"),
+        "AutoMod presents human-readable details without exposing transport fields"
+    );
+    require(
+        alert.autoModeration->matched == "blocked" && alerts.front().content.empty(),
+        "AutoMod retains matching metadata without rewriting protocol content"
+    );
+    require(
+        app::autoModerationJump(alerts.front()) == std::pair{std::string("102"), std::string("9201")},
+        "Surrounding navigation anchors the source timeline to the alert snowflake, including blocked messages"
+    );
+    const auto footer = app::layout::autoModerationActions(200, {40, 120, 80});
+    require(
+        footer.height > app::layout::AutoModeration::actionHeight,
+        "AutoMod footer controls wrap as complete actions at narrow widths"
+    );
+    for (const auto& frame : footer.controls)
+      require(
+          frame.x >= 0 && frame.x + frame.width <= 200 && frame.y + frame.height <= footer.height,
+          "All three AutoMod footer actions remain inside the measured bounds"
+      );
+    require(
+        std::ranges::any_of(
+            alert.runs, [](const auto& run) { return run.text == "Maya" && run.style.userMention == "11"; }
+        ),
+        "AutoMod keeps the affected author as an independent profile target"
+    );
+    auto unavailableAlert = alerts.front();
+    unavailableAlert.embeds.clear();
+    require(
+        app::layoutRichMessage(unavailableAlert, 500, editMeasure).plainText.contains("Flagged content unavailable"),
+        "Missing AutoMod snapshots have an explicit readable fallback"
+    );
+    api::Message previewMessage;
+    previewMessage.embeds.push_back(
+        {.title = "One long linked title wraps over several words",
+         .description = "Small embed description",
+         .url = "https://example.com/article",
+         .provider = "Example"}
+    );
+    const auto preview = app::layoutRichMessage(previewMessage, 230, editMeasure, Style::fontSizePage);
+    const auto linkAreas = app::messageLinkAreas(preview);
+    require(
+        !linkAreas.empty()
+            && std::ssize(linkAreas)
+                < std::ranges::count_if(preview.runs, [](const auto& run) { return !run.style.link.empty(); }),
+        "Multiword embed links use one continuous hit region per line, including spaces"
+    );
+    for (const auto& run : preview.runs) {
+      require(
+          run.style.size <= app::layout::Embed::titleSize, "Embed typography is bounded independently of chat text size"
+      );
+      if (!run.style.link.empty()) {
+        require(
+            run.style.hoverLink && !app::messageMarkup(run.text, run.style).contains("<u>"),
+            "Embed links have no resting underline"
+        );
+        auto hovered = run.style;
+        hovered.underline = true;
+        require(
+            app::messageMarkup(run.text, hovered).contains("<u>"),
+            "Hover adds the link underline without changing wire text"
+        );
+      }
+    }
+    for (const auto& area : linkAreas) {
+      require(area.group == linkAreas.front().group, "Wrapped lines retain one logical link identity");
+      const auto& first = preview.runs[area.first];
+      const auto& last = preview.runs[area.last];
+      require(
+          area.x == first.x && area.x + area.width == last.x + last.width,
+          "Link regions span from the first to last glyph, including inter-word gaps"
+      );
+    }
+    const auto separatedLinks =
+        app::layoutMessage("[first](https://example.com) plain [second](https://example.com)", 500, editMeasure);
+    const auto separatedAreas = app::messageLinkAreas(separatedLinks);
+    require(
+        separatedAreas.size() == 2 && separatedAreas[0].group != separatedAreas[1].group,
+        "Separate links sharing a URL do not share a hover group across unrelated text"
+    );
+    const auto adjacentLinks = app::messageLinkAreas(
+        app::layoutMessage("[first](https://example.com) [second](https://example.com)", 500, editMeasure)
+    );
+    require(
+        adjacentLinks.size() == 2 && adjacentLinks[0].group != adjacentLinks[1].group,
+        "Distinct adjacent Markdown links retain separate identities even when their URL matches"
+    );
     const auto singleBreak = app::layoutMessage("first\nsecond", 500, editMeasure);
     const float lineStep = singleBreak.runs.back().y - singleBreak.runs.front().y;
     for (const auto& [input, expected] :

@@ -2,6 +2,7 @@
 
 #include "api/emoji.h"
 #include "api/models.h"
+#include "app/automod_message.h"
 #include "app/discord_link.h"
 #include "app/discord_timestamp.h"
 #include "app/layout_metrics.h"
@@ -23,13 +24,47 @@ namespace app {
       result = "<b>" + result + "</b>";
     if (style.italic)
       result = "<i>" + result + "</i>";
-    if (style.underline || !style.link.empty())
+    if (style.underline || (!style.link.empty() && !style.hoverLink))
       result = "<u>" + result + "</u>";
     if (style.strike)
       result = "<s>" + result + "</s>";
     if (style.code)
       result = "<tt>" + result + "</tt>";
     return result;
+  }
+  std::vector<MessageLinkArea> messageLinkAreas(const MessageLayout& layout) {
+    std::vector<MessageLinkArea> areas;
+    const MessageRun* previous = nullptr;
+    std::size_t group = 0;
+    for (std::size_t i = 0; i < layout.runs.size(); ++i) {
+      const auto& run = layout.runs[i];
+      if (run.style.link.empty() || !run.style.userMention.empty() || run.channelChip) {
+        previous = nullptr;
+        continue;
+      }
+      bool continuous = previous
+          && previous->style.link == run.style.link
+          && previous->style.linkId == run.style.linkId
+          && previous->style.spoiler == run.style.spoiler;
+      if (continuous) {
+        const auto end = previous->offset + previous->text.size();
+        continuous = end <= run.offset
+            && run.offset <= layout.plainText.size()
+            && std::string_view(layout.plainText).substr(end, run.offset - end).find_first_not_of(" \t\r\n")
+                == std::string_view::npos;
+      }
+      if (!continuous)
+        ++group;
+      if (continuous && !areas.empty() && areas.back().group == group && areas.back().y == run.y) {
+        auto& area = areas.back();
+        area.width = std::max(area.x + area.width, run.x + run.width) - area.x;
+        area.height = std::max(area.height, run.height);
+        area.last = i;
+      } else
+        areas.push_back({run.x, run.y, run.width, run.height, i, i, group, run.style.link});
+      previous = &run;
+    }
+    return areas;
   }
   namespace {
     // MD4C handles Markdown nesting/escaping; these tokens preserve Discord's
@@ -115,6 +150,7 @@ namespace app {
       float width, x = 0, y = 0, indent = 0, lineHeight = 22, fontSize = 14;
       MessageMeasure measure;
       MessageStyle style;
+      std::size_t linkSequence = 0;
       std::vector<MessageStyle> styles;
       std::vector<unsigned> lists;
       std::vector<std::size_t> quotes;
@@ -606,6 +642,7 @@ namespace app {
       case MD_SPAN_A: {
         const auto& href = static_cast<MD_SPAN_A_DETAIL*>(detail)->href;
         l.style.link.assign(href.text, href.size);
+        l.style.linkId = ++l.linkSequence;
         break;
       }
       default:
@@ -816,6 +853,81 @@ namespace app {
       const api::Message& message, float width, const MessageMeasure& measure, float fontSize,
       const MessageOptions& options
   ) {
+    if (message.type == autoModerationActionType) {
+      MessageLayout result;
+      const auto* embed = autoModerationEmbed(message);
+      const auto field = [&](std::string_view name) { return autoModerationField(embed, name); };
+      const auto literal = [](std::string_view value) {
+        std::string escaped;
+        for (const char c : value) {
+          if (std::string_view("\\`*_{}[]<>()#+-.!|~").contains(c))
+            escaped += '\\';
+          escaped += c;
+        }
+        return escaped;
+      };
+      float y = 0;
+      const auto append = [&](std::string_view text, float x, float size, bool muted = false) {
+        auto block =
+            layoutMessage(text, std::max(Style::space2Xl, width - x), measure, size, message.mentions, options);
+        const auto offset = result.plainText.size();
+        result.plainText += block.plainText;
+        for (auto& run : block.runs) {
+          run.x += x;
+          run.y += y;
+          run.offset += offset;
+          run.style.muted = muted;
+          result.runs.push_back(std::move(run));
+        }
+        y += block.height;
+      };
+      const auto outcome = field("decision_outcome");
+      std::string heading = outcome == "blocked" ? "**AutoMod** has blocked a message"
+          : outcome == "flagged"                 ? "**AutoMod** has flagged a message"
+          : outcome == "deleted"                 ? "**AutoMod** has deleted a message"
+                                                 : "**AutoMod** flagged a message";
+      const std::string channel(field("channel_id"));
+      if (api::validSnowflake(channel))
+        heading += " in <#" + channel + ">";
+      append(heading, 0, layout::AutoModeration::bodySize);
+      y += layout::AutoModeration::gap;
+      const float authorTop = y;
+      const auto authorStart = result.runs.size();
+      append(
+          "**" + literal(oneLineReplyText(message.author)) + "**", layout::AutoModeration::indent,
+          layout::AutoModeration::bodySize
+      );
+      for (auto i = authorStart; i < result.runs.size(); ++i)
+        result.runs[i].style.userMention = message.authorId;
+      const auto contentStart = result.plainText.size();
+      append(
+          embed && !embed->description.empty() ? embed->description : "Flagged content unavailable",
+          layout::AutoModeration::indent, layout::AutoModeration::bodySize
+      );
+      const auto contentEnd = result.plainText.size();
+      std::string detail;
+      if (!field("keyword").empty())
+        detail = "Keyword: " + std::string(field("keyword"));
+      if (!field("rule_name").empty()) {
+        if (!detail.empty())
+          detail += " · ";
+        detail += "Rule: " + std::string(field("rule_name"));
+      }
+      if (!detail.empty())
+        append(literal(detail), layout::AutoModeration::indent, layout::AutoModeration::detailSize, true);
+      y = std::max(y, authorTop + layout::AutoModeration::avatarSize) + layout::AutoModeration::gap;
+      const auto actions = layout::autoModerationActions(
+          width,
+          {measure("Actions", {.size = layout::AutoModeration::actionSize}),
+           measure("Jump to Surrounding", {.size = layout::AutoModeration::actionSize}),
+           measure("Report Issues", {.size = layout::AutoModeration::actionSize})}
+      );
+      result.autoModeration = MessageLayout::AutoModeration{authorTop,  contentStart,
+                                                            contentEnd, std::string(field("keyword_matched_content")),
+                                                            y,          actions};
+      result.height = y + actions.height;
+      return result;
+    }
     auto content = std::string_view(message.content);
     const auto first = content.find_first_not_of(" \r\n\t"), last = content.find_last_not_of(" \r\n\t");
     const auto trimmed = first == std::string_view::npos ? std::string_view{} : content.substr(first, last - first + 1);
@@ -958,7 +1070,11 @@ namespace app {
       result.height = std::max(result.height, atY + editedHeight);
     }
     float y = result.height;
-    auto append = [&](std::string_view text, float x, float atY, float available, MessageStyle style = {}) {
+    std::size_t nextLinkId = 1;
+    for (const auto& run : result.runs)
+      nextLinkId = std::max(nextLinkId, run.style.linkId + 1);
+    auto append = [&](std::string_view text, float x, float atY, float available, MessageStyle style = {},
+                      bool scaleWithMessage = true) {
       auto block = layoutMessage(
           text, available,
           [&](std::string_view part, const MessageStyle& original) {
@@ -967,18 +1083,28 @@ namespace app {
             merged.size = original.size;
             return measure(part, merged);
           },
-          style.size * fontSize / 14, {}, options
+          scaleWithMessage ? style.size * fontSize / Style::fontSizeBody : style.size, {}, options
       );
       const auto offset = result.plainText.size();
       result.plainText += block.plainText;
+      const auto inheritedLink = nextLinkId++;
+      std::map<std::size_t, std::size_t> links;
       for (auto& run : block.runs) {
         run.x += x;
         run.y += atY;
         run.offset += offset;
         run.style.bold |= style.bold;
         run.style.spoiler |= style.spoiler;
-        if (run.style.link.empty())
+        run.style.hoverLink |= style.hoverLink;
+        if (run.style.link.empty()) {
           run.style.link = style.link;
+          run.style.linkId = inheritedLink;
+        } else {
+          const auto [entry, inserted] = links.try_emplace(run.style.linkId, nextLinkId);
+          if (inserted)
+            ++nextLinkId;
+          run.style.linkId = entry->second;
+        }
         result.runs.push_back(std::move(run));
       }
       for (auto& box : block.boxes) {
@@ -1214,45 +1340,57 @@ namespace app {
           continue;
         }
       }
-      const float start = y, cardWidth = std::min(width, 480.0F);
+      const float start = y, cardWidth = std::min(width, layout::Embed::maximumWidth);
       const auto box = result.boxes.size();
       result.boxes.push_back({0, start, cardWidth, 0, false, {}, true, embed.color});
-      y += 12;
+      y += layout::Embed::verticalPadding;
       const bool video = embed.type == "video" || embed.provider == "YouTube";
       const bool thumbnail = !video
           && embed.type != "article"
           && !embed.thumbnail.url.empty()
           && embed.image.url.empty()
-          && cardWidth >= 200;
-      const float contentWidth = std::max(32.0F, cardWidth - 32 - (thumbnail ? 88 : 0));
+          && cardWidth >= layout::Embed::thumbnailMinimumWidth;
+      const float contentWidth = std::max(
+          Style::space2Xl, cardWidth - layout::Embed::padding * 2 - (thumbnail ? layout::Embed::thumbnailReserve : 0)
+      );
+      const auto embedText = [&](std::string_view text, MessageStyle style, float available) {
+        style.hoverLink = true;
+        return append(text, layout::Embed::padding, y, available, style, false);
+      };
       if (!embed.provider.empty())
-        y += append(embed.provider, 16, y, contentWidth, {.size = 11}) + 4;
+        y += embedText(embed.provider, {.size = layout::Embed::detailSize}, contentWidth) + layout::Embed::gap;
       if (!embed.author.empty())
-        y += append(embed.author, 16, y, contentWidth, {.bold = true, .size = 12}) + 4;
+        y +=
+            embedText(embed.author, {.bold = true, .size = layout::Embed::bodySize}, contentWidth) + layout::Embed::gap;
       if (!embed.title.empty())
-        y += append(embed.title, 16, y, contentWidth, {.bold = true, .size = 16, .link = embed.url}) + 6;
+        y += embedText(embed.title, {.bold = true, .size = layout::Embed::titleSize, .link = embed.url}, contentWidth)
+            + layout::Embed::gap;
       if (!embed.description.empty() && !video)
-        y += append(embed.description, 16, y, contentWidth) + 6;
+        y += embedText(embed.description, {.size = layout::Embed::bodySize}, contentWidth) + layout::Embed::gap;
       for (const auto& field : embed.fields) {
-        y += append(field.name, 16, y, contentWidth, {.bold = true}) + 2;
-        y += append(field.value, 16, y, contentWidth) + 8;
+        y += embedText(field.name, {.bold = true, .size = layout::Embed::bodySize}, contentWidth) + Style::spaceXxs;
+        y += embedText(field.value, {.size = layout::Embed::bodySize}, contentWidth) + Style::spaceSm;
       }
       if (thumbnail) {
-        picture(embed.thumbnail, cardWidth - 88, start + Style::spaceMd, 72, 72, embed.url);
-        y = std::max(y, start + 84);
+        picture(
+            embed.thumbnail, cardWidth - layout::Embed::thumbnailReserve, start + layout::Embed::verticalPadding,
+            layout::Embed::thumbnailSize, layout::Embed::thumbnailSize, embed.url
+        );
+        y = std::max(y, start + layout::Embed::thumbnailSize + layout::Embed::verticalPadding);
       }
       if (!embed.image.url.empty() || (!thumbnail && !embed.thumbnail.url.empty())) {
-        y += 4;
+        y += layout::Embed::gap;
         y += picture(
-            embed.image.url.empty() ? embed.thumbnail : embed.image, 16, y, cardWidth - Style::space2Xl, 280, embed.url
+            embed.image.url.empty() ? embed.thumbnail : embed.image, layout::Embed::padding, y,
+            cardWidth - layout::Embed::padding * 2, Style::embedImageMaximumHeight, embed.url
         );
         result.pictures.back().video = video;
       }
       if (!embed.footer.empty()) {
-        y += 8;
-        y += append(embed.footer, 16, y, cardWidth - 32, {.size = 11});
+        y += Style::spaceSm;
+        y += embedText(embed.footer, {.size = layout::Embed::detailSize}, cardWidth - layout::Embed::padding * 2);
       }
-      y += 12;
+      y += layout::Embed::verticalPadding;
       result.boxes[box].height = y - start;
     }
     if (!message.stickers.empty()) {

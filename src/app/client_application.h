@@ -66,6 +66,7 @@ namespace app {
     static constexpr int floatingReplayFrames = 8;
     static constexpr int dmHomeReplayFrames = 24;
     static constexpr int composerReplyReplayFrames = 10;
+    static constexpr int embedReplayFrames = 12;
     enum class Action {
       Settings,
       DmPage,
@@ -95,6 +96,9 @@ namespace app {
       TogglePresence,
       SaveCustomStatus,
       None,
+      AutoModActions,
+      AutoModJump,
+      AutoModReport,
       ImagePan,
       PlayVideo,
       PauseVideo,
@@ -361,8 +365,10 @@ namespace app {
     void applyHistory(api::Event& event);
     void demoHistoryStep();
     void demoRoleStep();
-    void drawJoinNotice(Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width);
+    void drawSystemNotice(Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width);
     void demoJoinStep();
+    void demoEmbedStep();
+    void autoModerationAction(const Hit& hit);
     void deleteMessages(const std::string& channel, const std::vector<std::string>& ids);
     void clearMessageLog(bool deletions = true, bool edits = true);
     void forgetMessageLog(const std::string& channel, const std::string& id, bool deletions, bool edits);

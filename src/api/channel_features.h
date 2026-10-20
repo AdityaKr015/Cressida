@@ -7,6 +7,7 @@
 namespace api {
   inline constexpr std::uint64_t viewChannel = 1ULL << 10, manageChannel = 1ULL << 4, managePermissions = 1ULL << 28;
   inline constexpr std::uint64_t manageThreads = 1ULL << 34;
+  inline constexpr std::uint64_t manageMessages = 1ULL << 13;
   std::optional<std::uint64_t> permissionBits(std::string_view decimal);
   // Modify VIEW_CHANNEL only, retaining arbitrarily higher, unknown permission bits.
   std::string withViewPermission(std::string decimal, bool enabled);

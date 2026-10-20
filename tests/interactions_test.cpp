@@ -14,6 +14,71 @@ int main() {
   using Kind = InteractionKind;
   using nlohmann::json;
   try {
+    const auto feedback = interactionRequest(
+        {.kind = Kind::AutoModerationFeedback,
+         .channel = "101",
+         .message = "9201",
+         .guild = "1",
+         .customId = "decision-1"}
+    );
+    require(
+        feedback
+            && feedback->method == "POST"
+            && feedback->path == "/guilds/1/auto-moderation/alert-action"
+            && feedback->body == json{{"channel_id", "101"}, {"message_id", "9201"}, {"alert_action_type", 4}},
+        "Explicit AutoMod feedback uses Discord's fixed alert-action route and submit-feedback type"
+    );
+    const Interaction feedbackAction{
+        .kind = Kind::AutoModerationFeedback,
+        .channel = "101",
+        .message = "9201",
+        .guild = "1",
+        .content = "Flagged content",
+        .customId = "decision-1"
+    };
+    const auto feedbackBody = autoModerationFeedbackBody(feedbackAction, "offline-analytics-token", 123);
+    require(
+        feedbackBody
+            && (*feedbackBody)["token"] == "offline-analytics-token"
+            && (*feedbackBody)["events"][0]["type"] == "guild_automod_feedback"
+            && (*feedbackBody)["events"][0]["properties"]["feedback_type"] == "BUG"
+            && (*feedbackBody)["events"][0]["properties"]["decision_id"] == "decision-1"
+            && (*feedbackBody)["events"][0]["properties"]["content"] == "Flagged content",
+        "Explicit AutoMod issue reports carry the selected decision and flagged content in one bounded event"
+    );
+    require(
+        !autoModerationFeedbackBody(feedbackAction, "", 123),
+        "Missing analytics identity cannot send an unassociated report"
+    );
+    auto oversizedFeedback = feedbackAction;
+    oversizedFeedback.content.resize(maxAutoModerationContentBytes + 1);
+    require(
+        !autoModerationFeedbackBody(oversizedFeedback, "offline-token", 123) && !interactionRequest(oversizedFeedback),
+        "Oversized AutoMod reports fail before any request"
+    );
+    for (const auto& invalid :
+         {Interaction{
+              .kind = Kind::AutoModerationFeedback,
+              .channel = "../users",
+              .message = "9201",
+              .guild = "1",
+              .customId = "decision-1"
+          },
+          Interaction{
+              .kind = Kind::AutoModerationFeedback,
+              .channel = "101",
+              .message = "bad",
+              .guild = "1",
+              .customId = "decision-1"
+          },
+          Interaction{
+              .kind = Kind::AutoModerationFeedback,
+              .channel = "101",
+              .message = "9201",
+              .guild = "",
+              .customId = "decision-1"
+          }})
+      require(!interactionRequest(invalid), "Malformed AutoMod report identities never become requests");
     const auto folder = interactionRequest(
         {.kind = Kind::EditGuildFolder, .folderChange = GuildFolderChange{.folder = "0", .name = "Orbit", .color = 0}}
     );

@@ -362,10 +362,55 @@ namespace api {
       };
     return result;
   }
+  std::optional<nlohmann::json>
+  autoModerationFeedbackBody(const Interaction& action, std::string_view analyticsToken, std::int64_t timestamp) {
+    constexpr std::size_t maxAnalyticsTokenBytes = 8192;
+    if (action.kind != InteractionKind::AutoModerationFeedback
+        || !validSnowflake(action.guild)
+        || !validSnowflake(action.channel)
+        || !validSnowflake(action.message)
+        || action.customId.empty()
+        || action.customId.size() > maxAutoModerationDecisionBytes
+        || action.content.size() > maxAutoModerationContentBytes
+        || analyticsToken.empty()
+        || analyticsToken.size() > maxAnalyticsTokenBytes
+        || timestamp < 0)
+      return {};
+    return nlohmann::json{
+        {"token", analyticsToken},
+        {"events",
+         nlohmann::json::array(
+             {{{"type", "guild_automod_feedback"},
+               {"properties",
+                {{"feedback_type", "BUG"},
+                 {"decision_id", action.customId},
+                 {"message_id", action.message},
+                 {"content", action.content},
+                 {"client_track_timestamp", timestamp},
+                 {"client_send_timestamp", timestamp}}}}}
+         )}
+    };
+  }
   std::optional<InteractionRequest> interactionRequest(const Interaction& action) {
     using Kind = InteractionKind;
     InteractionRequest request;
     switch (action.kind) {
+    case Kind::AutoModerationFeedback:
+      if (!validSnowflake(action.guild)
+          || !validSnowflake(action.channel)
+          || !validSnowflake(action.message)
+          || action.customId.empty()
+          || action.customId.size() > maxAutoModerationDecisionBytes
+          || action.content.size() > maxAutoModerationContentBytes)
+        return {};
+      request.path = "/guilds/" + action.guild + "/auto-moderation/alert-action";
+      request.method = "POST";
+      request.body = {
+          {"message_id", action.message},
+          {"channel_id", action.channel},
+          {"alert_action_type", autoModerationSubmitFeedback}
+      };
+      break;
     case Kind::GuildNotifications: {
       constexpr auto visibility = guildOptInChannelsOn | guildOptInChannelsOff;
       if (!validSnowflake(action.guild)

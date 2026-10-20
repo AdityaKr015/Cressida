@@ -1,5 +1,6 @@
 #include "app/client_application.h"
 
+#include "app/automod_message.h"
 #include "app/member_list_layout.h"
 #include "app/message_group.h"
 #include "app/message_layout.h"
@@ -404,6 +405,8 @@ namespace app {
       }
       if (m_demo && m_demoOverlay == "join-cycle")
         demoJoinStep();
+      if (m_demo && m_demoOverlay.starts_with("embed-cycle") && m_demoInteractionStep < embedReplayFrames)
+        demoEmbedStep();
       if (m_demo && m_demoOverlay == "sidebar-cycle")
         sidebarDemoFrame();
       if (m_demo && m_demoOverlay == "mentions-cycle") {
@@ -1168,6 +1171,7 @@ namespace app {
                    : m_demo && view && std::string_view(view) == "dm-compose-cycle"        ? 16
                    : m_demo && view && std::string_view(view).starts_with("dm-home-cycle") ? dmHomeReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("reply-cycle")   ? composerReplyReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("embed-cycle")   ? embedReplayFrames
                    : m_demo && view && std::string_view(view) == "chat-preload-cycle"      ? 10
                    : m_demo && view && std::string_view(view) == "join-cycle"              ? 4
                    : m_demo && view && std::string_view(view) == "deleted-cycle"           ? 3
@@ -1277,6 +1281,8 @@ namespace app {
       throw std::runtime_error("Channel invite replay did not finish");
     if (m_demoOverlay.starts_with("floating-cycle") && m_demoInteractionStep != floatingReplayFrames)
       throw std::runtime_error("Floating layout and radius replay did not complete");
+    if (m_demoOverlay.starts_with("embed-cycle") && m_demoInteractionStep != embedReplayFrames)
+      throw std::runtime_error("AutoMod and embed link replay did not complete");
     if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
       throw std::runtime_error("Typing indicator replay did not finish");
     if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
@@ -2281,6 +2287,36 @@ namespace app {
           m_channelHistoryState.clear();
           m_channelCacheOrder.clear();
           m_roleDirectory.apply({.guilds = {{.guild = m_guildId, .owner = m_account.id}}});
+        } else if (view.starts_with("embed-cycle") || view == "embeds" || view == "embeds-light") {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_guildChannels[m_guildId] = m_channels;
+          m_roleDirectory.apply({false, {{.guild = m_guildId, .owner = m_account.id}}});
+          m_preferences.messageSize = Style::fontSizeHeader;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9201","channel_id":"101","type":24,"timestamp":"2026-10-20T06:54:00Z",
+             "author":{"id":"11","username":"Maya"},
+             "embeds":[{"type":"auto_moderation_message","description":"A blocked phrase in context",
+               "fields":[{"name":"rule_name","value":"Block flagged words"},
+                 {"name":"channel_id","value":"102"},{"name":"decision_id","value":"opaque-decision"},
+                 {"name":"keyword","value":"blocked"},{"name":"keyword_matched_content","value":"blocked"},
+                 {"name":"decision_outcome","value":"blocked"}]}]},
+            {"id":"9202","channel_id":"101","timestamp":"2026-10-20T10:44:00Z",
+             "author":{"id":"12","username":"Noah","bot":true},
+             "embeds":[{"type":"rich","title":"Message Deleted","color":16733525,
+               "description":"**Author:** Maya\n**Channel:** <#102>\n**Content:** An ordinary message.",
+               "footer":{"text":"Today at 10:44"}}]},
+            {"id":"9203","channel_id":"101","timestamp":"2026-10-20T10:45:00Z",
+             "author":{"id":"11","username":"Maya"},
+             "embeds":[{"type":"article","provider":{"name":"GitHub"},
+               "title":"GitHub - repository preview with a continuous wrapped link title",
+               "url":"https://example.com/preview","description":"A compact description below the linked title."}]}
+          ])JSON"));
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
         } else if (view.starts_with("embed-components")) {
           m_demoOverlay = view;
           m_showMembers = false;
@@ -3655,6 +3691,8 @@ namespace app {
               || cached.fonts != renderer.textMetricsGeneration()
               || cached.replySource != reply) {
             auto displayed = message;
+            if (message.type == autoModerationActionType)
+              displayed.author = userName(message.authorId, message.author);
             for (const auto& member : m_members)
               if (!member.user.id.empty())
                 displayed.mentions.try_emplace(member.user.id, member.user.name);
@@ -3723,15 +3761,15 @@ namespace app {
           const float bodyHeight = m_messageEdit && m_messageEdit->message == message.id
               ? messageEditHeight(textWidth)
               : std::max(22.0F, cached.layout.height);
-          const float height = blockedMessage(message) ? 36
-              : message.type == 7                      ? std::max(22.0F, cached.layout.height)
+          const float height = blockedMessage(message)                        ? 36
+              : message.type == 7 || message.type == autoModerationActionType ? std::max(22.0F, cached.layout.height)
                   + (i + 1 == m_messages.size()  ? 0
                          : m_preferences.compact ? std::min(8, m_preferences.messageGroupSpacing)
                                                  : m_preferences.messageGroupSpacing)
                   + (!m_preferences.showReactions || message.reactions.empty()
                          ? 0
                          : 6 + reactionStrip(nullptr, message, 0, 0, textWidth, true))
-                                  : bodyHeight
+                                                                              : bodyHeight
                   + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
                                       m_preferences.compact, m_preferences.messageGroupSpacing,
                                       i + 1 == m_messages.size())
@@ -3989,9 +4027,9 @@ namespace app {
                   std::max(0.0F, hoverBottom - hoverTop), color
               );
             };
-            if (message.type == 7) {
+            if (message.type == 7 || message.type == autoModerationActionType) {
               drawJumpHighlight();
-              drawJoinNotice(*content, message, *layouts[i], y, textWidth);
+              drawSystemNotice(*content, message, *layouts[i], y, textWidth);
             } else {
               if (message.flags & 64) {
                 rectangle(
@@ -4283,7 +4321,36 @@ namespace app {
                     }
                   }
                 }
+                const auto linkAreas = messageLinkAreas(layout);
+                std::vector<std::size_t> hoveredLinks;
+                for (const auto& area : linkAreas) {
+                  const auto& run = layout.runs[area.first];
+                  if (run.style.spoiler && !spoilersVisible(message.id))
+                    continue;
+                  const Hit hit{
+                      left + layout::Chat::inset + layout::Chat::authorGutter + area.x,
+                      top + bodyY + area.y,
+                      area.width,
+                      area.height,
+                      Action::OpenUrl,
+                      area.url
+                  };
+                  if (hit.contains(m_pointerX, m_pointerY))
+                    hoveredLinks.push_back(area.group);
+                  m_hits.push_back(hit);
+                }
+                std::size_t runIndex = 0;
                 for (const auto& run : layout.runs) {
+                  auto style = run.style;
+                  if (style.hoverLink && !style.link.empty())
+                    for (const auto& area : linkAreas)
+                      if (area.first <= runIndex
+                          && runIndex <= area.last
+                          && std::ranges::find(hoveredLinks, area.group) != hoveredLinks.end()) {
+                        style.underline = true;
+                        break;
+                      }
+                  ++runIndex;
                   const float rx = 50 + run.x, ry = bodyY + run.y;
                   const bool hidden = run.style.spoiler && !spoilersVisible(message.id);
                   if (hidden) {
@@ -4313,8 +4380,8 @@ namespace app {
                   }
                   if (run.image.empty())
                     label(
-                        *content, rx, ry, std::max(1.0F, run.width + Style::spaceXxs),
-                        messageMarkup(run.text, run.style), run.style.size,
+                        *content, rx, ry, std::max(1.0F, run.width + Style::spaceXxs), messageMarkup(run.text, style),
+                        run.style.size,
                         run.style.historical                               ? muted
                             : run.style.syntax != CodeToken::Plain         ? syntaxColor(run.style.syntax)
                             : run.style.link.empty() && !run.style.mention ? foreground
@@ -4329,7 +4396,7 @@ namespace app {
                         {left + Style::spaceXl + rx, top + ry, run.width, run.height, Action::UserProfile,
                          run.style.userMention}
                     );
-                  else if (!run.style.link.empty())
+                  else if (!run.style.link.empty() && run.channelChip)
                     m_hits.push_back(
                         {left + Style::spaceXl + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link}
                     );
@@ -4452,7 +4519,7 @@ namespace app {
                   {bodyWidth - 62 - toolbarWidth, y - Style::spaceXs, 28, 26, Action::CopyMessage, message.id}, "copy",
                   "Copy text"
               );
-              if (!message.deleted && message.type != 7)
+              if (!message.deleted && message.type != 7 && message.type != autoModerationActionType)
                 iconButton(
                     *content, {bodyWidth - 156, y - Style::spaceXs, 28, 26, Action::Reply, message.id},
                     "corner-up-left", "Reply"

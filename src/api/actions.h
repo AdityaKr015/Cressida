@@ -53,8 +53,12 @@ namespace api {
     LeaveGuild,
     MoveGuild,
     EditGuildFolder,
-    GuildPrivacy
+    GuildPrivacy,
+    AutoModerationFeedback
   };
+  inline constexpr int autoModerationSubmitFeedback = 4;
+  inline constexpr std::size_t maxAutoModerationDecisionBytes = 128;
+  inline constexpr std::size_t maxAutoModerationContentBytes = 16 * 1024;
   struct Interaction {
     InteractionKind kind = InteractionKind::AddReaction;
     std::string channel, message, user, emoji, text, guild;
@@ -87,7 +91,10 @@ namespace api {
     std::uint64_t notificationFlagsMask = 0;
     std::optional<api::GuildPrivacy> guildPrivacy;
     std::optional<GuildFolderChange> folderChange;
+    bool markAutoModerationFeedback = false;
   };
+  std::optional<nlohmann::json>
+  autoModerationFeedbackBody(const Interaction& action, std::string_view analyticsToken, std::int64_t timestamp);
   struct InteractionRequest {
     std::string path, method;
     nlohmann::json body;

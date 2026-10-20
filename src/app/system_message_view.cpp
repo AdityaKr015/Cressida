@@ -1,3 +1,4 @@
+#include "app/automod_message.h"
 #include "app/client_application.h"
 #include "app/system_message.h"
 #include "app/theme.h"
@@ -8,17 +9,71 @@
 #include <stdexcept>
 
 namespace app {
-  void ClientApplication::drawJoinNotice(
+  void ClientApplication::drawSystemNotice(
       Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width
   ) {
     using namespace theme;
     const float absoluteX = chatLeft() + 74, absoluteY = m_messageViewportTop + y;
     const bool over = hovered(chatLeft() + Style::spaceXl, absoluteY, width + 50, layout.height);
-    glyph(parent, 8, y + Style::spaceXxs, Style::glyphSizeLarge, "arrow-right", success);
+    const auto& automod = layout.autoModeration;
+    glyph(
+        parent, Style::spaceSm, y + Style::spaceXxs, Style::glyphSizeLarge, automod ? "shield-check" : "arrow-right",
+        automod ? accent : success
+    );
+    if (automod) {
+      avatar(
+          parent, layout::Chat::authorGutter, y + automod->authorTop, layout::AutoModeration::avatarSize,
+          message.avatar, userName(message.authorId, message.author)
+      );
+    }
     m_messageText[message.id] = layout.plainText;
     m_hits.push_back({absoluteX, absoluteY, width, layout.height, Action::SelectMessage, message.id});
+    if (automod) {
+      Hit hit{
+          absoluteX,
+          absoluteY + automod->authorTop,
+          layout::AutoModeration::avatarSize,
+          layout::AutoModeration::avatarSize,
+          Action::UserProfile,
+          message.authorId
+      };
+      m_hits.push_back(hit);
+      hit.action = Action::UserMenu;
+      m_contextTargets.push_back(std::move(hit));
+    }
     for (const auto& run : layout.runs) {
       const float x = 50 + run.x, top = y + run.y;
+      if (automod
+          && !automod->matched.empty()
+          && run.offset < automod->contentEnd
+          && run.offset + run.text.size() > automod->contentStart) {
+        for (auto at = layout.plainText.find(automod->matched, automod->contentStart);
+             at != std::string::npos && at + automod->matched.size() <= automod->contentEnd;
+             at = layout.plainText.find(automod->matched, at + automod->matched.size())) {
+          const auto from = std::max(at, run.offset),
+                     to = std::min(at + automod->matched.size(), run.offset + run.text.size());
+          if (to <= from || !run.image.empty())
+            continue;
+          const auto measure = [&](std::string_view text) {
+            return m_window.target()
+                .renderer()
+                .measureText(
+                    messageMarkup(text, run.style), run.style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {},
+                    TextEllipsize::End, true
+                )
+                .width;
+          };
+          rectangle(
+              parent, x + measure(std::string_view(run.text).substr(0, from - run.offset)), top,
+              measure(std::string_view(run.text).substr(from - run.offset, to - from)), run.height,
+              withAlpha(accent, Style::textHighlightAlpha), Style::radiusXs
+          );
+        }
+      }
+      if (run.channelChip) {
+        drawChannelLink(parent, run, message.id, x, top, absoluteX + run.x, absoluteY + run.y);
+        continue;
+      }
       if (m_selectedMessage == message.id && m_selectedText == layout.plainText && m_chatEdit.selected()) {
         const auto from = std::max(std::min(m_chatEdit.caret, m_chatEdit.anchor), run.offset);
         const auto to = std::min(std::max(m_chatEdit.caret, m_chatEdit.anchor), run.offset + run.text.size());
@@ -35,25 +90,30 @@ namespace app {
           const float offset = run.image.empty() ? measure(std::string_view(run.text).substr(0, from - run.offset)) : 0;
           const float length =
               run.image.empty() ? measure(std::string_view(run.text).substr(from - run.offset, to - from)) : run.width;
-          rectangle(parent, x + offset, top, length, run.height, withAlpha(accent, .3F), Style::radiusXs);
+          rectangle(
+              parent, x + offset, top, length, run.height, withAlpha(accent, Style::textHighlightAlpha), Style::radiusXs
+          );
         }
       }
       if (!run.image.empty()) {
         if (!emojiImage(parent, x, top, run.width, run.image))
           label(parent, x, top, run.width, "…", run.style.size, foreground);
-      } else if (run.style.mention)
+      } else if ((!automod && run.style.mention) || !run.style.userMention.empty())
         roleLabel(
-            parent, x, top, run.width + Style::spaceXxs, run.text, run.style.size, foreground, FontWeight::Normal,
-            message.authorId, "join:" + message.id, over, message.memberRoles
+            parent, x, top, run.width + Style::spaceXxs, run.text, run.style.size, foreground,
+            run.style.bold ? FontWeight::Bold : FontWeight::Normal, automod ? run.style.userMention : message.authorId,
+            "system:" + message.id, over,
+            automod && run.style.userMention != message.authorId ? std::nullopt : message.memberRoles
         );
       else
         label(
-            parent, x, top, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size, muted,
-            FontWeight::Normal, 1, true
+            parent, x, top, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
+            automod && !run.style.muted ? foreground : muted, FontWeight::Normal, 1, true
         );
       m_textAreas.push_back({run, message.id, absoluteX + run.x, absoluteY + run.y});
-      if (run.style.mention && !message.authorId.empty()) {
-        Hit hit{absoluteX + run.x, absoluteY + run.y, run.width, run.height, Action::UserProfile, message.authorId};
+      const auto& user = automod ? run.style.userMention : message.authorId;
+      if ((run.style.mention || !run.style.userMention.empty()) && !user.empty()) {
+        Hit hit{absoluteX + run.x, absoluteY + run.y, run.width, run.height, Action::UserProfile, user};
         const float bottom = std::min(m_messageViewportBottom, hit.y + hit.height);
         hit.y = std::max(m_messageViewportTop, hit.y);
         hit.height = std::max(0.0F, bottom - hit.y);
@@ -63,12 +123,57 @@ namespace app {
       }
     }
     if (!layout.runs.empty() && message.timestamp.size() >= 16) {
-      const auto& last = layout.runs.back();
+      const auto headerEnd = automod
+          ? std::ranges::find_if(layout.runs, [&](const auto& run) { return run.y >= automod->authorTop; })
+          : layout.runs.end();
+      const auto& last = *(headerEnd == layout.runs.begin() ? headerEnd : std::prev(headerEnd));
       label(
           parent, 50 + last.x + last.width + Style::spaceCompact, y + last.y + Style::spaceXs,
           message.deleted ? 120 : 36, message.timestamp.substr(11, 5) + (message.deleted ? " · Deleted" : ""),
           Style::fontSizeDetail, message.deleted ? theme::danger : muted
       );
+    }
+    if (automod) {
+      const std::array<std::pair<std::string_view, Action>, 3> actions{
+          {{"Actions", Action::AutoModActions},
+           {"Jump to Surrounding", Action::AutoModJump},
+           {"Report Issues", Action::AutoModReport}}
+      };
+      for (std::size_t i = 0; i < actions.size(); ++i) {
+        const auto& frame = automod->actions.controls[i];
+        const auto& [caption, action] = actions[i];
+        bool enabled = !message.deleted;
+        if (action == Action::AutoModJump) {
+          const auto target = autoModerationJump(message);
+          enabled &= target && !channelMention(m_guildId, target->first).link.empty();
+        } else if (action == Action::AutoModReport)
+          enabled &= !autoModerationField(autoModerationEmbed(message), "decision_id").empty();
+        const float localX = layout::Chat::authorGutter + frame.x;
+        const float localY = y + automod->actionsTop + frame.y;
+        const Hit hit{absoluteX + frame.x, absoluteY + automod->actionsTop + frame.y, frame.width,
+                      frame.height,        enabled ? action : Action::None,           message.id};
+        const bool hovered = enabled && hit.contains(m_pointerX, m_pointerY);
+        if (hovered)
+          rectangle(parent, localX, localY, frame.width, frame.height, raised, Style::controlRadius);
+        const auto color = enabled ? accent : muted;
+        float captionX = localX + layout::AutoModeration::actionPadding;
+        if (i == 0) {
+          glyph(
+              parent, captionX, localY + (frame.height - layout::AutoModeration::actionGlyph) / 2,
+              layout::AutoModeration::actionGlyph, "shield-check", color
+          );
+          captionX += layout::AutoModeration::actionGlyph + Style::spaceXs;
+        }
+        const auto metrics =
+            m_window.target().renderer().measureText(std::string(caption), layout::AutoModeration::actionSize);
+        label(
+            parent, captionX, localY + (frame.height - (metrics.bottom - metrics.top)) / 2,
+            frame.width - (captionX - localX) - layout::AutoModeration::actionPadding,
+            messageMarkup(caption, {.underline = hovered}), layout::AutoModeration::actionSize, color,
+            FontWeight::Normal, 1, true
+        );
+        m_hits.push_back(hit);
+      }
     }
     reactionStrip(&parent, message, 50, y + std::max(22.0F, layout.height) + 6, width, true);
   }
@@ -134,6 +239,194 @@ namespace app {
           "Join notices survive compact mode and sidebar resizing"
       );
       std::clog << "Offline server join replay passed\n";
+    }
+    m_window.invalidate();
+  }
+  void ClientApplication::autoModerationAction(const Hit& hit) {
+    const auto message = std::ranges::find(m_messages, hit.id, &api::Message::id);
+    if (message == m_messages.end() || message->deleted || message->type != autoModerationActionType)
+      return;
+    if (hit.action == Action::AutoModActions) {
+      auto target = hit;
+      target.action = Action::UserMenu;
+      target.id = message->authorId;
+      m_contextTargets.push_back(target);
+      openContext(target.x + target.width / 2, target.y + target.height / 2);
+    } else if (hit.action == Action::AutoModJump) {
+      const auto target = autoModerationJump(*message);
+      if (target && !channelMention(m_guildId, target->first).link.empty())
+        jumpToMessage(target->first, target->second);
+    } else if (hit.action == Action::AutoModReport) {
+      if (autoModerationField(autoModerationEmbed(*message), "decision_id").empty())
+        return;
+      closeContext();
+      m_dialogKind = "confirm";
+      m_dialogTitle = "Report an AutoMod issue?";
+      m_dialogText.clear();
+      m_dialogError.clear();
+      m_dialogPending = false;
+      m_dialogAction = api::Interaction{
+          .kind = api::InteractionKind::AutoModerationFeedback,
+          .channel = m_channelId,
+          .message = message->id,
+          .guild = m_guildId,
+          .revision = ++m_dialogGeneration,
+          .content = autoModerationEmbed(*message)->description,
+          .customId = std::string(autoModerationField(autoModerationEmbed(*message), "decision_id")),
+          .markAutoModerationFeedback = (selectedChannelPermissions().value_or(0) & api::manageMessages) != 0
+      };
+    }
+    m_window.invalidate();
+  }
+  void ClientApplication::demoEmbedStep() {
+    const auto require = [](bool value, const char* reason) {
+      if (!value)
+        throw std::runtime_error(reason);
+    };
+    const auto step = m_demoInteractionStep++;
+    std::clog << "Offline embed replay step " << step << '\n';
+    if (step == embedReplayFrames - 1) {
+      require(m_channelId == "102", "Jump to Surrounding navigates to the cached source channel");
+      std::clog << "Offline AutoMod footer, compact embeds and continuous link hover replay passed\n";
+      return;
+    }
+    const auto click = [&](Action action) {
+      const auto found = std::ranges::find(m_hits, action, &Hit::action);
+      require(found != m_hits.end() && found->height > 0, "The actual AutoMod action control is visible");
+      const float x = found->x + found->width / 2;
+      const float y = found->y + found->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight;
+      m_window.motion(x, y);
+      m_window.click(x, y, 1);
+      m_window.released();
+    };
+    const auto& alert = m_messageLayouts.at("9201").layout;
+    require(
+        alert.autoModeration
+            && alert.plainText.starts_with("AutoMod")
+            && !alert.plainText.contains("decision_id")
+            && !alert.plainText.contains("opaque-decision"),
+        "The parsed AutoMod fixture paints its dedicated notice instead of raw embed metadata"
+    );
+    if (step == 9) {
+      require(
+          alert.plainText.contains("Flagged content unavailable"),
+          "Hiding embeds retains an explicit AutoMod summary without raw fields"
+      );
+      m_preferences.showEmbeds = true;
+      m_messageLayouts.clear();
+      m_window.setUiScale(1);
+      m_messageScroll = 0;
+      m_window.invalidate();
+      return;
+    }
+    if (step == 10) {
+      click(Action::AutoModJump);
+      m_window.invalidate();
+      return;
+    }
+    if (step == 3) {
+      require(m_contextOpen && m_contextUser == "11", "Actions opens the affected user's native context menu");
+      closeContext();
+      m_window.invalidate();
+      return;
+    }
+    if (step == 5 || step == 6) {
+      require(
+          m_dialogKind == "confirm"
+              && m_dialogAction
+              && m_dialogAction->kind == api::InteractionKind::AutoModerationFeedback,
+          "Report Issues opens a native confirmation tied to the actual alert"
+      );
+      if (step == 5)
+        click(Action::SubmitDialog);
+      const auto request = *m_dialogAction;
+      m_dialogPending = true;
+      api::Event event{.operation = api::Operation::Interaction, .interaction = request};
+      if (step == 5)
+        event.error = "Offline simulated feedback failure";
+      interactionResult(event);
+      if (step == 5)
+        require(
+            !m_dialogKind.empty() && m_dialogError == event.error && !m_dialogPending,
+            "Failed reports retain the confirmation and show a retryable error"
+        );
+      else {
+        require(m_dialogKind.empty(), "Only a successful report acknowledgement closes the confirmation");
+        m_window.motion(0, 0);
+        m_window.setUiScale(1.5F);
+      }
+      m_window.invalidate();
+      return;
+    }
+    const auto& preview = m_messageLayouts.at("9203").layout;
+    const auto areas = messageLinkAreas(preview);
+    require(!areas.empty(), "The preview has a linked title");
+    require(
+        std::ranges::count_if(
+            m_hits,
+            [](const auto& hit) { return hit.action == Action::OpenUrl && hit.id == "https://example.com/preview"; }
+        ) == std::ssize(areas),
+        "Actual embed hit targets span complete rendered lines instead of individual words"
+    );
+    const auto hasText = [&](std::string_view expected, float size) {
+      bool found = false;
+      const auto inspect = [&](auto&& self, const Node& node) -> void {
+        if (node.type() == NodeType::Text) {
+          const auto& text = static_cast<const TextNode&>(node);
+          found |= text.text() == expected && text.fontSize() == size;
+        }
+        for (const auto& child : node.children())
+          self(self, *child);
+      };
+      inspect(inspect, *m_scene);
+      return found;
+    };
+    for (const auto& run : preview.runs) {
+      require(run.style.size <= layout::Embed::titleSize, "Chat font changes do not enlarge embed text");
+      if (run.style.link.empty())
+        continue;
+      auto style = run.style;
+      style.underline = step == 1;
+      require(
+          hasText(messageMarkup(run.text, style), run.style.size),
+          "Rendered linked title glyphs underline together only while their logical link is hovered"
+      );
+    }
+    if (step == 0) {
+      const auto region = std::ranges::find_if(areas, [](const auto& area) { return area.last > area.first; });
+      require(region != areas.end(), "The fixture has multiple linked words on one line");
+      const auto& first = preview.runs[region->first];
+      const auto& second = preview.runs[region->first + 1];
+      const auto target = std::ranges::find_if(m_textAreas, [&](const auto& area) {
+        return area.message == "9203" && area.run.offset == first.offset;
+      });
+      require(target != m_textAreas.end(), "The native preview text is mounted");
+      const float gapX = target->x + (first.width + second.x - first.x) / 2;
+      const float gapY = target->y + first.height / 2;
+      require(
+          std::ranges::any_of(
+              m_hits,
+              [&](const auto& hit) {
+                return hit.action == Action::OpenUrl && hit.id == region->url && hit.contains(gapX, gapY);
+              }
+          ),
+          "Whitespace between linked words remains inside the actual click target"
+      );
+      m_window.motion(gapX, gapY + m_window.titlebarHeight() - layout::Window::titlebarHeight);
+    } else if (step == 1) {
+      m_window.motion(0, 0);
+      m_preferences.messageSize = Style::fontSizePage;
+      m_messageLayouts.clear();
+    } else if (step == 2) {
+      click(Action::AutoModActions);
+    } else if (step == 4) {
+      click(Action::AutoModReport);
+    } else if (step == 7) {
+      m_preferences.compact = true;
+      m_messageLayouts.clear();
+    } else if (step == 8) {
+      m_preferences.showEmbeds = false;
+      m_messageLayouts.clear();
     }
     m_window.invalidate();
   }

@@ -3,6 +3,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -195,6 +196,52 @@ namespace app::layout {
     static constexpr float iconInset = Style::spaceMd;
     static constexpr float iconSize = badgeSize - iconInset * 2;
   };
+  struct Embed {
+    static constexpr float maximumWidth = Style::embedMaximumWidth;
+    static constexpr float padding = Style::spaceLg;
+    static constexpr float verticalPadding = Style::spaceMd;
+    static constexpr float gap = Style::spaceXs;
+    static constexpr float bodySize = Style::fontSizeDescription;
+    static constexpr float titleSize = Style::fontSizeBody;
+    static constexpr float detailSize = Style::fontSizeMini;
+    static constexpr float thumbnailSize = Style::embedThumbnailSize;
+    static constexpr float thumbnailReserve = thumbnailSize + padding;
+    static constexpr float thumbnailMinimumWidth = thumbnailReserve * 2 + Style::spaceXl;
+  };
+  struct AutoModeration {
+    static constexpr float avatarSize = Style::space2Xl;
+    static constexpr float indent = avatarSize + Style::spaceSm;
+    static constexpr float gap = Style::spaceSm;
+    static constexpr float bodySize = Style::fontSizeBody;
+    static constexpr float detailSize = Style::fontSizeDescription;
+    static constexpr float actionSize = Style::fontSizeDetail;
+    static constexpr float actionHeight = Style::spaceXl;
+    static constexpr float actionPadding = Style::spaceXs;
+    static constexpr float actionGap = Style::spaceMd;
+    static constexpr float actionGlyph = Style::baseGlyphSize;
+  };
+  struct AutoModerationActions {
+    std::array<Frame, 3> controls;
+    float height;
+  };
+  inline AutoModerationActions autoModerationActions(float width, const std::array<float, 3>& captions) {
+    AutoModerationActions result{};
+    float x = 0, y = 0;
+    for (std::size_t i = 0; i < captions.size(); ++i) {
+      const float controlWidth = std::min(
+          width,
+          captions[i] + AutoModeration::actionPadding * 2 + (i == 0 ? AutoModeration::actionGlyph + Style::spaceXs : 0)
+      );
+      if (x > 0 && x + controlWidth > width) {
+        x = 0;
+        y += AutoModeration::actionHeight;
+      }
+      result.controls[i] = {x, y, controlWidth, AutoModeration::actionHeight};
+      x += controlWidth + AutoModeration::actionGap;
+    }
+    result.height = y + AutoModeration::actionHeight;
+    return result;
+  }
   struct Tooltip {
     static constexpr float maximumWidth = 480;
     static constexpr float horizontalPadding = Style::spaceDense;

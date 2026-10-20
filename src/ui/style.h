@@ -18,6 +18,7 @@ namespace Style {
   inline constexpr float emphasizedBorderWidth = 3.0F;
   inline constexpr float focusRingWidth = 2.0F;
   inline constexpr float disabledOutlineAlpha = 0.5F;
+  inline constexpr float textHighlightAlpha = 0.3F;
 
   inline constexpr float spaceXs = 4.0F;
   inline constexpr float spaceSm = 8.0F;
@@ -32,6 +33,9 @@ namespace Style {
   inline constexpr float space2Xl = 32.0F;
   inline constexpr float spaceSection = 40.0F;
   inline constexpr float spaceGroup = 48.0F;
+  inline constexpr float embedMaximumWidth = 480.0F;
+  inline constexpr float embedThumbnailSize = 72.0F;
+  inline constexpr float embedImageMaximumHeight = 280.0F;
 
   inline constexpr float cardPadding = 14.0F;
   inline constexpr float panelPadding = 14.0F;
