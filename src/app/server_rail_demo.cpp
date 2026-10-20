@@ -3,7 +3,9 @@
 
 #include <iostream>
 #include <linux/input-event-codes.h>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace app {
   void ClientApplication::demoFolderAnimationStep() {
@@ -106,6 +108,131 @@ namespace app {
       );
       std::clog << "Offline folder surfaces, compact headers, sliding positions, clipped hits, reversal, reduced "
                    "motion and removal passed\n";
+    }
+    m_window.invalidate();
+  }
+  void ClientApplication::demoRailDragStep() {
+    using R = layout::ServerRail;
+    const auto require = [](bool ok, const char* reason) {
+      if (!ok)
+        throw std::runtime_error(reason);
+    };
+    const auto hit = [&](Action action, const std::string& id) -> Hit {
+      const auto at = std::ranges::find_if(m_hits, [&](const auto& h) { return h.action == action && h.id == id; });
+      require(at != m_hits.end(), "Drag replay has a rendered source and destination");
+      return *at;
+    };
+    const auto motion = [&](float x, float y) {
+      m_window.motion(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight);
+    };
+    const auto drag = [&](Action action, const std::string& source, Action destination, const std::string& target,
+                          float fraction) {
+      m_demoRailMove.reset();
+      const auto from = hit(action, source), to = hit(destination, target);
+      motion(from.x + from.width / 2, from.y + from.height / 2);
+      m_window.click(m_pointerX, m_pointerY + m_window.titlebarHeight() - layout::Window::titlebarHeight, BTN_LEFT);
+      require(m_railDrag && !m_railDrag->active, "Press arms a drag without navigating or toggling");
+      motion(to.x + to.width / 2, to.y + to.height * fraction);
+      require(
+          m_railDrag && m_railDrag->active && m_railDrag->drop, "Movement past Style's threshold picks a drop target"
+      );
+    };
+    const auto reset = [&] {
+      finishRailDrag(true);
+      m_folders = {{"10", "Hangouts", 0x8F80D4, {"1", "2"}}, {{}, {}, 0, {"3"}}};
+      m_guildLayout.folders = m_folders;
+      m_openFolders = {"10"};
+      m_folderMotion.clear();
+    };
+    const auto acknowledge = [&](bool anonymous = false) {
+      require(m_demoRailMove.has_value(), "Release records one typed organization operation");
+      const nlohmann::json snapshot{
+          {"settings",
+           anonymous ? "CgIYKnIkCgoKCAEAAAAAAAAACgoKCAIAAAAAAAAACgoKCAMAAAAAAAAA"
+                     : "CgIYKnIkChYKEAEAAAAAAAAAAgAAAAAAAAASAggKCgoKCAMAAAAAAAAA"}
+      };
+      const auto patch = api::guildRailPatch(snapshot, *m_demoRailMove);
+      api::Event event;
+      event.interaction =
+          api::Interaction{.kind = api::InteractionKind::ReorderGuilds, .guild = "1", .railMove = m_demoRailMove};
+      event.interaction->stateRevision = m_guildLayoutRevision;
+      event.layout = api::parseGuildLayout(patch);
+      serverMenuInteractionResult(event);
+    };
+    const auto step = m_demoInteractionStep++;
+    if (step == 0) {
+      drag(Action::Guild, "3", Action::Folder, "10", 0.5F);
+      require(m_folders.front().guildIds.size() == 2, "A hover cannot mutate the account organization");
+      m_openFolders.erase("10");
+      saveExpandedFolders();
+      m_folderMotion.finish();
+      tickRailDrag();
+      m_railDrag->hover = FolderMotion::Clock::now() - std::chrono::milliseconds(Style::animSlow);
+      tickRailDrag();
+      require(m_openFolders.contains("10"), "Hovering a closed destination opens it through the owning-loop clock");
+    } else if (step == 1) {
+      require(m_railDrag && m_railDrag->active, "Drag capture survives a scene rebuild");
+      m_window.released();
+      require(m_demoRailMove->placement == api::RailPlacement::Into, "Middle drops group servers");
+      acknowledge();
+      require(
+          m_folders.front().guildIds == std::vector<std::string>{"1", "2", "3"}, "Acknowledged drops update membership"
+      );
+      reset();
+    } else if (step == 2) {
+      drag(Action::Folder, "10", Action::Guild, "3", 1 - R::dropEdgeFraction / 2);
+      m_window.released();
+      acknowledge();
+    } else if (step == 3) {
+      require(
+          m_folders.back().id == "10" && hit(Action::Guild, "3").y < hit(Action::Folder, "10").y,
+          "A folder drag moves the complete block and its rendered hits"
+      );
+      drag(Action::Folder, "10", Action::Guild, "3", R::dropEdgeFraction / 2);
+      onKey({.symbol = XKB_KEY_Escape});
+      m_window.released();
+      require(!m_railDrag && !m_demoRailMove, "Escape cancels without submitting a drop");
+      reset();
+    } else if (step == 4) {
+      drag(Action::Guild, "2", Action::Guild, "1", R::dropEdgeFraction / 2);
+    } else if (step == 5) {
+      m_window.released();
+      acknowledge();
+      require(m_folders.front().guildIds == std::vector<std::string>{"2", "1"}, "Edge drops reorder within a folder");
+      reset();
+    } else if (step == 6) {
+      drag(Action::Guild, "1", Action::Guild, "3", 1 - R::dropEdgeFraction / 2);
+      m_window.released();
+      acknowledge();
+      require(
+          m_folders.back().id.empty() && m_folders.back().guildIds == std::vector<std::string>{"1"},
+          "Dragging out creates a correctly positioned standalone server"
+      );
+    } else if (step == 7) {
+      m_folders = {{{}, {}, 0, {"1"}}, {{}, {}, 0, {"2"}}, {{}, {}, 0, {"3"}}};
+      m_guildLayout.folders = m_folders;
+      m_folderMotion.clear();
+    } else if (step == 8) {
+      drag(Action::Guild, "3", Action::Guild, "1", 0.5F);
+      m_window.released();
+      acknowledge(true);
+      require(
+          !m_folders.front().id.empty() && m_folders.front().guildIds == std::vector<std::string>{"1", "3"},
+          "A central server drop creates a folder through the same versioned writer"
+      );
+      m_openFolders.insert(m_folders.front().id);
+      m_preferences.reducedMotion = true;
+    } else if (step == 9) {
+      drag(Action::Guild, "2", Action::Folder, m_folders.front().id, 0.5F);
+      windowFocusChanged(false);
+      m_window.released();
+      require(!m_demoRailMove && !m_railDrag, "Focus loss cancels the drag without a request");
+      drag(Action::Guild, "2", Action::Folder, m_folders.front().id, 0.5F);
+      ++m_guildLayoutRevision;
+      m_window.released();
+      require(!m_demoRailMove, "Organization changes invalidate an in-flight drag");
+      std::clog
+          << "Offline native server/folder dragging, grouping, extraction, order, capture and cancellation passed\n";
     }
     m_window.invalidate();
   }

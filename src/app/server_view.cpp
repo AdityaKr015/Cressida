@@ -39,6 +39,7 @@ namespace app {
     m_guildTooltipBounds = {};
     if (!sidebarResizeAvailable()
         || m_resizingSidebar
+        || (m_railDrag && m_railDrag->active)
         || m_dragDraft
         || m_dragMessage
         || (!m_window.active() && !m_demo))
@@ -163,16 +164,23 @@ namespace app {
       );
       if (step != 3) {
         const auto texture = playing ? moving.texture.id : m_images.at(guild.icon).texture.id;
+        const auto target = std::ranges::find_if(m_hits, [&](const auto& hit) {
+          return hit.action == Action::Guild && hit.id == guild.id;
+        });
+        require(target != m_hits.end(), "Hover replay has a measured server hit");
+        const auto rendered = [&](auto&& self, const Node& node, float x, float y) -> bool {
+          x += node.x();
+          y += node.y();
+          if (node.type() == NodeType::Image
+              && x == target->x
+              && y == target->y
+              && node.width() == layout::Avatar::rail
+              && static_cast<const ImageNode&>(node).textureId() == texture)
+            return true;
+          return std::ranges::any_of(node.children(), [&](const auto& child) { return self(self, *child, x, y); });
+        };
         require(
-            std::ranges::any_of(
-                m_scene->children(),
-                [&](const auto& node) {
-                  return node->type() == NodeType::Image
-                      && node->x() == layout::ServerRail::iconX
-                      && node->y() == layout::ServerRail::top + i * layout::ServerRail::step
-                      && static_cast<const ImageNode&>(*node).textureId() == texture;
-                }
-            ),
+            std::ranges::any_of(m_scene->children(), [&](const auto& node) { return rendered(rendered, *node, 0, 0); }),
             "Idle server icons use their still image and switch back immediately when the pointer leaves"
         );
       }

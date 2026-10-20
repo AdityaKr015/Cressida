@@ -879,6 +879,182 @@ namespace api {
     return {{"settings", encode64(field(14, updated))}, {"required_data_version", version}};
   }
 
+  bool validRailMove(const GuildRailMove& move) {
+    try {
+      const auto source = settingsId(move.source, move.sourceFolder);
+      const auto target = settingsId(move.target, move.targetFolder);
+      return (!move.sourceFolder || source <= std::numeric_limits<std::int64_t>::max())
+          && (!move.targetFolder || target <= std::numeric_limits<std::int64_t>::max())
+          && !(move.source == move.target && move.sourceFolder == move.targetFolder)
+          && (move.placement == RailPlacement::Before
+              || move.placement == RailPlacement::After
+              || (move.placement == RailPlacement::Into && !move.sourceFolder));
+    } catch (...) {
+      return false;
+    }
+  }
+  nlohmann::json guildRailPatch(const nlohmann::json& snapshot, const GuildRailMove& move) {
+    if (!validRailMove(move))
+      throw std::runtime_error("Invalid server drag target");
+    auto layout = parseGuildLayout(snapshot);
+    const auto find = [&](const std::string& id, bool folder) {
+      return std::ranges::find_if(layout.folders, [&](const auto& entry) {
+        return folder ? entry.id == id : std::ranges::find(entry.guildIds, id) != entry.guildIds.end();
+      });
+    };
+    // Validate the entire raw snapshot through the existing bounded organization
+    // reader before editing. This also rejects duplicate IDs and malformed fields.
+    const auto source = find(move.source, move.sourceFolder);
+    std::string validationGuild = move.source;
+    if (move.sourceFolder) {
+      if (source == layout.folders.end() || source->guildIds.empty())
+        throw std::runtime_error("The dragged folder no longer exists");
+      validationGuild = source->guildIds.front();
+    }
+    const auto validation = guildMovePatch(snapshot, validationGuild, source == layout.folders.end() ? "" : source->id);
+    (void)validation;
+    const auto bytes = organizationSnapshot(snapshot);
+    const auto version = organizationVersion(bytes);
+    const auto group = nestedField(bytes, 14).value_or("");
+    struct Record {
+      GuildFolder folder;
+      std::string bytes;
+    };
+    struct Part {
+      std::string raw;
+      bool folder;
+    };
+    std::vector<Record> records;
+    std::vector<Part> parts;
+    Wire input(group);
+    while (!input.bytes.empty()) {
+      const auto before = input.bytes;
+      input.next();
+      parts.push_back({std::string(before.substr(0, before.size() - input.bytes.size())), input.field == 1});
+      if (input.field == 1)
+        records.push_back({layout.folders.at(records.size()), std::string(input.data)});
+    }
+    // Old snapshots may keep servers solely in guild_positions. Materialize
+    // only an involved anchor; leave unrelated position-only records untouched.
+    for (const auto& id : layout.positions)
+      if (((!move.sourceFolder && id == move.source) || (!move.targetFolder && id == move.target))
+          && std::ranges::none_of(records, [&](const auto& entry) {
+               return std::ranges::find(entry.folder.guildIds, id) != entry.folder.guildIds.end();
+             }))
+        records.push_back({{.guildIds = {id}}, fixedId(1, settingsId(id))});
+    const auto locate = [&](const std::string& id, bool folder) {
+      return std::ranges::find_if(records, [&](const auto& entry) {
+        return folder ? entry.folder.id == id
+                      : std::ranges::find(entry.folder.guildIds, id) != entry.folder.guildIds.end();
+      });
+    };
+    auto from = locate(move.source, move.sourceFolder), to = locate(move.target, move.targetFolder);
+    if (from == records.end() || to == records.end())
+      throw std::runtime_error("The dragged server or destination no longer exists");
+    if (move.sourceFolder && from == to)
+      throw std::runtime_error("A folder cannot be moved into itself");
+    if (from == to && move.targetFolder && move.placement == RailPlacement::Into && from->folder.guildIds.size() == 1)
+      return {{"settings", encode64(field(14, group))}, {"required_data_version", version}};
+    const auto setMembers = [&](Record& entry, std::vector<std::string> members) {
+      std::string retained;
+      Wire fields(entry.bytes);
+      while (!fields.bytes.empty()) {
+        const auto before = fields.bytes;
+        fields.next();
+        if (fields.field != 1)
+          retained += before.substr(0, before.size() - fields.bytes.size());
+      }
+      for (const auto& id : members)
+        retained += fixedId(1, settingsId(id));
+      entry.bytes = std::move(retained);
+      entry.folder.guildIds = std::move(members);
+    };
+    Record moving;
+    if (move.sourceFolder) {
+      moving = std::move(*from);
+      records.erase(from);
+    } else {
+      moving = {{.guildIds = {move.source}}, fixedId(1, settingsId(move.source))};
+      if (from->folder.id.empty() && from->folder.guildIds.size() == 1) {
+        moving = std::move(*from); // Retain opaque fields on a standalone tile.
+        records.erase(from);
+      } else {
+        auto remaining = from->folder.guildIds;
+        std::erase(remaining, move.source);
+        setMembers(*from, std::move(remaining));
+        if (from->folder.guildIds.empty())
+          records.erase(from);
+      }
+    }
+    to = locate(move.target, move.targetFolder);
+    if (to == records.end())
+      throw std::runtime_error("The drop target disappeared");
+    if (move.placement == RailPlacement::Into && !move.targetFolder && to->folder.id.empty()) {
+      // Dropping a server onto a standalone server creates a folder. Allocate a
+      // fresh ID from the current snapshot, never from a stale rendered layout.
+      constexpr std::size_t maximumFolders = 1000;
+      if (records.size() >= maximumFolders)
+        throw std::runtime_error("Too many server folders");
+      std::uint64_t id = 1;
+      while (std::ranges::find(layout.folders, std::to_string(id), &GuildFolder::id) != layout.folders.end())
+        ++id;
+      to->folder.id = std::to_string(id);
+      to->bytes += field(2, numericField(1, id));
+    }
+    if (!move.sourceFolder
+        && (move.placement == RailPlacement::Into || (!move.targetFolder && !to->folder.id.empty()))) {
+      constexpr std::size_t maximumFolderServers = 100;
+      if (to->folder.guildIds.size() >= maximumFolderServers)
+        throw std::runtime_error("The destination folder already holds 100 servers");
+      auto members = to->folder.guildIds;
+      auto at = std::ranges::find(members, move.target);
+      if (move.placement == RailPlacement::Into)
+        at = members.end();
+      else if (move.placement == RailPlacement::After)
+        ++at;
+      members.insert(at, move.source);
+      setMembers(*to, std::move(members));
+    } else if (!move.targetFolder && to->folder.id.empty() && to->folder.guildIds.size() > 1) {
+      // Be tolerant of legacy anonymous groups containing several servers. Split
+      // only the target group, preserving its metadata on the first remainder.
+      const auto index = static_cast<std::size_t>(to - records.begin());
+      auto members = to->folder.guildIds;
+      auto at = std::ranges::find(members, move.target);
+      const auto split = static_cast<std::size_t>(at - members.begin()) + (move.placement == RailPlacement::After);
+      std::vector<Record> replacement;
+      if (split) {
+        auto first = *to;
+        setMembers(first, {members.begin(), members.begin() + split});
+        replacement.push_back(std::move(first));
+      }
+      replacement.push_back(std::move(moving));
+      if (split < members.size()) {
+        Record tail = split ? Record{} : *to;
+        setMembers(tail, {members.begin() + split, members.end()});
+        replacement.push_back(std::move(tail));
+      }
+      records.erase(records.begin() + index);
+      records.insert(records.begin() + index, replacement.begin(), replacement.end());
+    } else {
+      if (move.placement == RailPlacement::After)
+        ++to;
+      records.insert(to, std::move(moving));
+    }
+    // Reuse existing folder slots while leaving all non-folder wire fields in
+    // place. Extra records append; deprecated guild_positions stays byte-identical.
+    std::string updated;
+    std::size_t index = 0;
+    for (const auto& part : parts) {
+      if (!part.folder)
+        updated += part.raw;
+      else if (index < records.size())
+        updated += field(1, records[index++].bytes);
+    }
+    while (index < records.size())
+      updated += field(1, records[index++].bytes);
+    return {{"settings", encode64(field(14, updated))}, {"required_data_version", version}};
+  }
+
   bool validFolderChange(const GuildFolderChange& change) {
     try {
       if (settingsId(change.folder, true) > std::numeric_limits<std::int64_t>::max()

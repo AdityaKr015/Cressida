@@ -172,6 +172,77 @@ int main() {
           [&] { api::guildFolderPatch(fixture(name), {.folder = "0", .name = "Changed"}); },
           "Folder edits reject ambiguous snapshots through the shared organization validator"
       );
+    const auto rail = [&](api::GuildRailMove move) {
+      return api::parseGuildLayout(api::guildRailPatch(snapshot, move));
+    };
+    const auto reordered = rail({"101", "999", false, false, api::RailPlacement::After});
+    require(
+        reordered.folders[0].guildIds == std::vector<std::string>{"999", "101"}
+            && reordered.positions == original.positions,
+        "Dragging inside a folder reorders members without losing deprecated positions"
+    );
+    const auto cross = rail({"101", "7", false, true, api::RailPlacement::Into});
+    require(
+        cross.folders[0].guildIds == std::vector<std::string>{"999"}
+            && cross.folders[1].guildIds == std::vector<std::string>{"202", "101"},
+        "Dropping onto a folder moves one server"
+    );
+    const auto outside = rail({"101", "7", false, true, api::RailPlacement::After});
+    require(
+        outside.folders[2].id.empty() && outside.folders[2].guildIds == std::vector<std::string>{"101"},
+        "Dropping beside a folder extracts a standalone server at that boundary"
+    );
+    const auto block = rail({"0", "303", true, false, api::RailPlacement::After});
+    require(
+        block.folders.back().id == "0" && block.folders.back().guildIds == original.folders.front().guildIds,
+        "Dragging a folder moves its entire membership past a standalone server"
+    );
+    const auto grouped = rail({"404", "303", false, false, api::RailPlacement::Into});
+    require(
+        !grouped.folders.back().id.empty() && grouped.folders.back().guildIds == std::vector<std::string>{"303", "404"},
+        "Dropping onto a standalone server creates a folder using a position-only server"
+    );
+    const auto loose = rail({"404", "303", false, false, api::RailPlacement::Before});
+    require(
+        loose.folders[2].guildIds == std::vector<std::string>{"404"}, "Standalone servers support relative ordering"
+    );
+    require(
+        api::guildRailPatch(snapshot, {"202", "7", false, true, api::RailPlacement::Into})["settings"]
+            == fixtures.at("noop"),
+        "Dropping the sole server into its own folder is byte-identical"
+    );
+    const auto freshFolder = rail({"202", "303", false, false, api::RailPlacement::Into});
+    require(
+        freshFolder.folders.back().id != "7"
+            && freshFolder.folders.back().guildIds == std::vector<std::string>{"303", "202"},
+        "New folders do not reuse IDs removed during the same operation"
+    );
+    rejects(
+        [&] { api::guildRailPatch(fixture("full_folder"), {"101", "7", false, true, api::RailPlacement::Into}); },
+        "Rail grouping enforces the same server-per-folder limit"
+    );
+    const auto opaque = api::guildRailPatch(snapshot, {"7", "0", true, true, api::RailPlacement::Before});
+    require(
+        opaque["settings"]
+            == api::guildFolderPatch(snapshot, {.folder = "7", .position = api::FolderPosition::Top})["settings"],
+        "Folder dragging preserves every opaque field exactly like the existing writer"
+    );
+    for (const auto& move : std::vector<api::GuildRailMove>{
+             {"101", "99", false, true, api::RailPlacement::Into},
+             {"101", "101"},
+             {"0", "101", true, false},
+             {"0", "7", true, true, api::RailPlacement::Into},
+             {"01", "303"},
+             {"101", "303", false, false, static_cast<api::RailPlacement>(99)}
+         })
+      rejects(
+          [&] { api::guildRailPatch(snapshot, move); }, "Invalid, stale and self-referential drag targets fail closed"
+      );
+    for (const auto name : {"duplicate_guild", "duplicate_folder", "malformed_fixed", "missing_version"})
+      rejects(
+          [&] { api::guildRailPatch(fixture(name), {"101", "7", false, true, api::RailPlacement::Into}); },
+          "Drag writes validate fresh versions and complete snapshots"
+      );
     const auto moved = api::guildMovePatch(snapshot, "101", "7");
     require(
         moved["settings"] == fixtures.at("move") && moved["required_data_version"] == 42,

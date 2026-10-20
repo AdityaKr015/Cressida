@@ -222,7 +222,9 @@ namespace app {
   }
   void ClientApplication::updateCursor() {
     std::uint32_t shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
-    if (m_resizingSidebar)
+    if (m_railDrag && m_railDrag->active)
+      shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRABBING;
+    else if (m_resizingSidebar)
       shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_COL_RESIZE;
     else if (m_dragImage)
       shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_GRABBING;

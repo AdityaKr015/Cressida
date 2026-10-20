@@ -333,6 +333,27 @@ namespace app {
     static std::string initial(const std::string& name);
     FolderMotion::Clock::time_point folderMotionTime() const;
     void demoFolderAnimationStep();
+    void demoRailDragStep();
+    bool beginRailDrag(const Hit& hit);
+    bool railDragMotion();
+    bool tickRailDrag();
+    void finishRailDrag(bool cancel = false);
+    void drawRailDrag(Node& root);
+    struct RailDrag {
+      Hit source;
+      float x, y;
+      std::uint64_t revision;
+      bool active = false;
+      std::optional<api::GuildRailMove> drop;
+      Hit target{};
+      FolderMotion::Clock::time_point tick = FolderMotion::Clock::now(), hover = tick;
+      std::string hoverFolder;
+    };
+    std::optional<RailDrag> m_railDrag;
+    std::vector<Hit> m_railTargets;
+    std::optional<api::GuildRailMove> m_demoRailMove;
+    bool m_railSaving = false;
+    float m_railBottom = 0;
     void guildListEvent(api::Event& event);
     void guildLayoutEvent(api::Event& event);
     void channelSnapshotEvent(api::Event& event);

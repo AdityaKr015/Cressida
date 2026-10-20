@@ -23,6 +23,7 @@ namespace app {
       return;
     }
     saveSelection();
+    finishRailDrag(true);
     finishSidebarResize();
     closeContext();
     closeSelectDropdown();

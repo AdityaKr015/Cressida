@@ -352,6 +352,8 @@ namespace app {
         demoChannelMenuStep();
       if (m_demo && m_demoOverlay.starts_with("typing-cycle"))
         demoTypingStep();
+      if (m_demo && m_demoOverlay.starts_with("rail-drag") && m_demoInteractionStep < 10)
+        demoRailDragStep();
       if (m_demo && m_demoOverlay.starts_with("folder-animation") && m_demoInteractionStep < 9)
         demoFolderAnimationStep();
       if (m_demo && m_demoOverlay == "folder-menu-cycle")
@@ -796,6 +798,11 @@ namespace app {
       m_pointerX = x;
       y += layout::Window::titlebarHeight - m_window.titlebarHeight();
       m_pointerY = y;
+      if (railDragMotion()) {
+        updateCursor();
+        m_window.invalidate();
+        return;
+      }
       if (m_resizingSidebar) {
         if (!sidebarResizeAvailable())
           finishSidebarResize();
@@ -824,6 +831,7 @@ namespace app {
         positionChatSelection(x, y);
     };
     m_window.released = [this] {
+      finishRailDrag();
       finishSidebarResize();
       videoRelease();
       m_controlInput.pointerButton(
@@ -833,6 +841,7 @@ namespace app {
       updateCursor();
     };
     m_window.pointerLeft = [this] {
+      finishRailDrag(true);
       finishSidebarResize();
       m_controlInput.pointerLeave();
       m_pointerX = m_pointerY = -1000;
@@ -902,6 +911,8 @@ namespace app {
       for (auto it = m_hits.rbegin(); it != m_hits.rend(); ++it) {
         if (it->contains(x, y)) {
           const auto hit = *it;
+          if (beginRailDrag(hit))
+            return;
           activate(hit);
           return;
         }
@@ -911,6 +922,7 @@ namespace app {
       m_window.invalidate();
     };
     m_window.contextClick = [this](float x, float y) {
+      finishRailDrag(true);
       if (m_videoExpanded)
         return;
       y += layout::Window::titlebarHeight - m_window.titlebarHeight();
@@ -926,6 +938,7 @@ namespace app {
       const bool active = m_scrolling.tick();
       if (m_preferences.reducedMotion || settingsVisible() || (!m_demo && !m_window.active()))
         m_folderMotion.finish();
+      const bool railDrag = tickRailDrag();
       const bool folders = m_folderMotion.tick(folderMotionTime());
       if (m_showMembers && !forumView() && !m_dmMode && !m_demo && !m_guildId.empty() && !m_channelId.empty()) {
         const int page = layout::MemberListLayout(m_members, m_memberCount).indexAt(m_memberScroll) / 100 * 100;
@@ -935,10 +948,12 @@ namespace app {
         }
       }
       return active
+          || railDrag
           || folders
           || (m_window.active() && (m_roleMotion.active() || (m_typingVisible && !m_preferences.reducedMotion)));
     };
     m_window.zoom = [this](float delta) {
+      finishRailDrag(true);
       closeSelectDropdown();
       finishSidebarResize();
       if (!m_viewImage.empty()) {
@@ -1272,6 +1287,7 @@ namespace app {
                    : m_demo && view && std::string_view(view) == "server-settings-cycle"             ? 42
                    : m_demo && view && std::string_view(view).starts_with("floating-cycle")   ? floatingReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("typing-cycle")     ? typingReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("rail-drag")        ? 10
                    : m_demo && view && std::string_view(view).starts_with("folder-animation") ? 9
                    : m_demo && view && std::string_view(view) == "folder-menu-cycle"          ? 13
                    : m_demo && view && std::string_view(view) == "server-menu-cycle"          ? 20
@@ -1370,6 +1386,8 @@ namespace app {
       throw std::runtime_error("Image viewer menu replay did not complete");
     if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
       throw std::runtime_error("Typing indicator replay did not finish");
+    if (m_demoOverlay.starts_with("rail-drag") && m_demoInteractionStep != 10)
+      throw std::runtime_error("Rail drag replay did not finish");
     if (m_demoOverlay.starts_with("folder-animation") && m_demoInteractionStep != 9)
       throw std::runtime_error("Folder animation replay did not finish");
     if (m_demoOverlay == "folder-menu-cycle" && m_demoInteractionStep != 13)
@@ -1855,7 +1873,10 @@ namespace app {
             || view == "channel-delete"
             || view == "channel-move-confirm")
           prepareChannelMenuDemo(view);
-        if (view.starts_with("folder-animation") || view == "folders-open" || view == "folders-closed") {
+        if (view.starts_with("rail-drag")
+            || view.starts_with("folder-animation")
+            || view == "folders-open"
+            || view == "folders-closed") {
           m_folderMotion.clear();
           if (view.ends_with("light"))
             m_preferences.theme = "light";
@@ -1863,7 +1884,7 @@ namespace app {
             m_openFolders.clear();
           else
             m_openFolders = {"10"};
-          if (view.starts_with("folder-animation")) {
+          if (view.starts_with("rail-drag") || view.starts_with("folder-animation")) {
             m_demoOverlay = view;
             m_demoInteractionStep = 0;
           }
@@ -3418,6 +3439,25 @@ namespace app {
           const float x = layout::Sidebar::railWidth
               + layout::Sidebar::rowInset * 2
               + (channel.isThread() ? layout::Sidebar::threadIconSize : 0);
+          if (channel.isThread()) {
+            auto branch = std::make_unique<Node>();
+            branch->setPosition(x - layout::Sidebar::threadIconSize + hoverShift, y);
+            branch->setSize(layout::Sidebar::threadBranchWidth, layout::Sidebar::threadBranchHeight);
+            branch->setClipChildren(true);
+            branch->setHitTestVisible(false);
+            auto curve = std::make_unique<RectNode>();
+            curve->setPosition(0, -layout::Sidebar::threadBranchHeight);
+            curve->setSize(layout::Sidebar::threadBranchWidth * 2, layout::Sidebar::threadBranchHeight * 2);
+            curve->setStyle(
+                {.border = muted,
+                 .fillMode = FillMode::None,
+                 .radius = {0, 0, 0, Style::scaledRadiusSm()},
+                 .borderWidth = layout::Sidebar::threadBranchStroke}
+            );
+            curve->setHitTestVisible(false);
+            branch->addChild(std::move(curve));
+            root.addChild(std::move(branch));
+          }
           channelIcon(
               root, x + hoverShift, y + (layout::Sidebar::rowHeight - size) / 2, size, channel,
               selected ? accent : muted, rowSurface
@@ -6819,6 +6859,10 @@ namespace app {
   }
 
   void ClientApplication::onKey(const Key& key) {
+    if (m_railDrag && key.symbol == XKB_KEY_Escape) {
+      finishRailDrag(true);
+      return;
+    }
     finishSidebarResize();
     if (!m_shortcutCapture.empty() && shortcutKey(key))
       return;

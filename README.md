@@ -60,7 +60,7 @@ can remember your sign-in. Signing out removes the saved login.
 
 ## Current limitations
 
-Voice/video calls, arbitrary file uploads and drag-and-drop are not available yet.
+Voice/video calls, arbitrary file uploads and file drag-and-drop are not available yet.
 Image uploads are supported. Some Discord controls and settings remain incomplete.
 
 ## Contributing

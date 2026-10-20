@@ -161,6 +161,8 @@ namespace app {
     }
   }
   void ClientApplication::windowFocusChanged(bool focused) {
+    if (!focused)
+      finishRailDrag(true);
     if (!focused
         || !m_connected
         || m_channelId.empty()

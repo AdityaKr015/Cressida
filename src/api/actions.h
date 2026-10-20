@@ -53,6 +53,7 @@ namespace api {
     LeaveGuild,
     MoveGuild,
     EditGuildFolder,
+    ReorderGuilds,
     GuildPrivacy,
     AutoModerationFeedback
   };
@@ -91,6 +92,7 @@ namespace api {
     std::uint64_t notificationFlagsMask = 0;
     std::optional<api::GuildPrivacy> guildPrivacy;
     std::optional<GuildFolderChange> folderChange;
+    std::optional<GuildRailMove> railMove;
     bool markAutoModerationFeedback = false;
   };
   std::optional<nlohmann::json>

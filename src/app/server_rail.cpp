@@ -24,6 +24,8 @@ namespace app {
   }
   void ClientApplication::drawServerRail(Node& root, float bottom) {
     using R = layout::ServerRail;
+    m_railTargets.clear();
+    m_railBottom = bottom;
     std::map<std::string, int> mentions;
     for (const auto& [channel, guild] : m_unreadGuilds)
       if (!guild.empty())
@@ -148,8 +150,11 @@ namespace app {
         if (hit.height > 0) {
           if (context)
             m_contextTargets.push_back(std::move(hit));
-          else
+          else {
+            if (hit.action == Action::Guild || hit.action == Action::Folder)
+              m_railTargets.push_back(hit);
             m_hits.push_back(std::move(hit));
+          }
         }
       };
       if (row.dm) {
@@ -254,5 +259,6 @@ namespace app {
       addHit({R::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::Guild, guild.id});
       addHit({R::iconX, y, layout::Avatar::rail, layout::Avatar::rail, Action::GuildMenu, guild.id}, true);
     }
+    drawRailDrag(root);
   }
 } // namespace app

@@ -7,6 +7,8 @@
 
 namespace app {
   void ClientApplication::resetGuildBootstrap() {
+    finishRailDrag(true);
+    m_railSaving = false;
     m_folderMotion.clear();
     ++m_guildLayoutRevision;
     m_guildLayout = {};

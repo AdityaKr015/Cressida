@@ -455,6 +455,12 @@ namespace api {
       request.path = "/users/@me/settings-proto/1";
       request.method = "PATCH";
       break;
+    case Kind::ReorderGuilds:
+      if (!validSnowflake(action.guild) || !action.railMove || !validRailMove(*action.railMove))
+        return {};
+      request.path = "/users/@me/settings-proto/1";
+      request.method = "PATCH";
+      break;
     case Kind::EditGuildFolder:
       if (!action.folderChange || !validFolderChange(*action.folderChange))
         return {};

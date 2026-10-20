@@ -97,6 +97,25 @@ int main() {
         interactionRequest({.kind = Kind::MoveGuild, .text = "0", .guild = "101"}).has_value(),
         "The valid zero-ID folder remains a usable server destination"
     );
+    const auto reorder = interactionRequest(
+        {.kind = Kind::ReorderGuilds,
+         .guild = "101",
+         .railMove = GuildRailMove{"101", "7", false, true, RailPlacement::Into}}
+    );
+    require(
+        reorder
+            && reorder->method == "PATCH"
+            && reorder->path == "/users/@me/settings-proto/1"
+            && reorder->body.is_null(),
+        "Rail drops use the fixed versioned settings route without a body until the fresh read"
+    );
+    require(
+        !interactionRequest({.kind = Kind::ReorderGuilds, .guild = "101"})
+            && !interactionRequest(
+                {.kind = Kind::ReorderGuilds, .guild = "101", .railMove = GuildRailMove{"../101", "7"}}
+            ),
+        "Untyped and malformed rail drops never queue a request"
+    );
     const auto reaction =
         interactionRequest({.kind = Kind::AddReaction, .channel = "10", .message = "20", .emoji = "❤️"});
     require(

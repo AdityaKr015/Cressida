@@ -452,9 +452,12 @@ namespace app {
         && action.kind != Kind::MarkGuildRead
         && action.kind != Kind::MoveGuild
         && action.kind != Kind::EditGuildFolder
+        && action.kind != Kind::ReorderGuilds
         && action.kind != Kind::LeaveGuild
         && action.kind != Kind::GuildPrivacy)
       return false;
+    if (action.kind == Kind::ReorderGuilds)
+      m_railSaving = false;
     const bool dialog = serverMenuDialogResult(event);
     if (!event.error.empty()) {
       if (!dialog)
@@ -487,7 +490,7 @@ namespace app {
           m_unreadChannels.erase(channel);
       }
     } else if (
-        (action.kind == Kind::MoveGuild || action.kind == Kind::EditGuildFolder)
+        (action.kind == Kind::MoveGuild || action.kind == Kind::EditGuildFolder || action.kind == Kind::ReorderGuilds)
         && action.stateRevision == m_guildLayoutRevision
     ) {
       ++m_guildLayoutRevision;

@@ -13,6 +13,15 @@ namespace api {
     std::optional<std::uint32_t> color;
     std::optional<FolderPosition> position;
   };
+  enum class RailPlacement { Before, After, Into };
+  struct GuildRailMove {
+    std::string source, target;
+    bool sourceFolder = false, targetFolder = false;
+    RailPlacement placement = RailPlacement::Before;
+    bool operator==(const GuildRailMove&) const = default;
+  };
+  bool validRailMove(const GuildRailMove& move);
+  nlohmann::json guildRailPatch(const nlohmann::json& snapshot, const GuildRailMove& move);
   bool validFolderChange(const GuildFolderChange& change);
   nlohmann::json guildFolderPatch(const nlohmann::json& snapshot, const GuildFolderChange& change);
   // Empty folderId removes the server from its folder. A newFolderName creates

@@ -767,7 +767,7 @@ namespace app {
       action.stateRevision = m_userDirectory.notificationRevision(action.channel);
     if (action.kind == Kind::GuildNotifications)
       action.stateRevision = m_userDirectory.guildNotificationRevision(action.guild);
-    if (action.kind == Kind::MoveGuild || action.kind == Kind::EditGuildFolder)
+    if (action.kind == Kind::MoveGuild || action.kind == Kind::EditGuildFolder || action.kind == Kind::ReorderGuilds)
       action.stateRevision = m_guildLayoutRevision;
     const auto key = interactionKey(action);
     if (m_pendingInteractions.contains(key))

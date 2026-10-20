@@ -233,6 +233,16 @@ int main() {
         app::desktopMessagePreview(message, names) == "`<@43>` \\<@43> [Spoiler] @Bob <Admin>",
         "Notification mentions preserve code, escapes and spoiler privacy"
     );
+    message.content = "<:LUL:1407474360729468989> <a:dance:123> 🎉";
+    require(
+        app::desktopMessagePreview(message, names) == ":LUL: :dance: 🎉",
+        "Desktop custom emoji use readable colon names while Unicode stays intact"
+    );
+    message.content = "`<:LUL:123>` \\<:LUL:123> ||<a:secret:456>|| <:bad-name:123> <:bad:0>";
+    require(
+        app::desktopMessagePreview(message, names) == "`<:LUL:123>` \\<:LUL:123> [Spoiler] <:bad-name:123> <:bad:0>",
+        "Emoji previews preserve code, escapes, malformed tokens and spoiler privacy"
+    );
     message.type = 1;
     require(
         app::desktopMessagePreview(message, names) == "Alice added Bob <Admin>.",

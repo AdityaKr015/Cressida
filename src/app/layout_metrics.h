@@ -190,6 +190,9 @@ namespace app::layout {
     static constexpr float accountOffset(float size) { return (accountHeight - size) / 2; }
     static constexpr float iconSize = 20;
     static constexpr float threadIconSize = Style::baseGlyphSize;
+    static constexpr float threadBranchWidth = threadIconSize - Style::spaceXs;
+    static constexpr float threadBranchHeight = rowHeight / 2;
+    static constexpr float threadBranchStroke = Style::borderWidth;
     static constexpr float lockSize = 8;
     static constexpr float lockOffset = iconSize - lockSize;
     static constexpr float panelPreferredWidth = 380;
@@ -540,6 +543,10 @@ namespace app::layout {
     static constexpr float folderGlyphSize = Style::glyphSizeMedium;
     static constexpr float folderChildStep = Avatar::rail + Style::spaceCompact;
     static constexpr float folderGap = Style::spaceSm;
+    static constexpr float dropEdgeFraction = 0.25F;
+    static constexpr float dropStroke = Style::borderWidth * 2;
+    static constexpr float autoScrollEdge = Avatar::rail / 2;
+    static constexpr float autoScrollSpeed = (Avatar::rail + Style::spaceMd) * 1000 / Style::animNormal;
     struct FolderFrame {
       float headerHeight, childrenHeight, height;
     };
