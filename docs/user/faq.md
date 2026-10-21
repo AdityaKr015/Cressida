@@ -6,16 +6,16 @@ description:
 
 ## What works today?
 
-| Area          | Current support                                                |
-| ------------- | -------------------------------------------------------------- |
-| Platforms     | Linux with Wayland. No X11 window backend.                     |
-| Messaging     | Text chat, replies, DMs, threads and forum conversations.      |
-| Rich content  | Markdown, embeds, custom emoji, GIFs and stickers.             |
-| Uploads       | Pasted images.                                                 |
-| Media viewing | Image galleries and native received-video playback.            |
-| Profiles      | Rich profiles and a profile panel in one-to-one DMs.           |
-| Appearance    | Dark, Light and System modes; bundled and custom palettes.     |
-| Desktop       | Tray, notification activation and reuse of the running window. |
+| Area          | Current support                                                          |
+| ------------- | ------------------------------------------------------------------------ |
+| Platforms     | Linux with Wayland. No X11 window backend.                               |
+| Messaging     | Text chat, replies, DMs, threads and forum conversations.                |
+| Rich content  | Markdown, embeds, custom emoji, GIFs and stickers.                       |
+| Uploads       | Pasted images.                                                           |
+| Media viewing | Image galleries and native received-video playback.                      |
+| Profiles      | Rich profiles, equipped cosmetics and a profile panel in one-to-one DMs. |
+| Appearance    | Dark, Light and System modes; bundled and custom palettes.               |
+| Desktop       | Tray, notification activation and reuse of the running window.           |
 
 ## What is not supported yet?
 

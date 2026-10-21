@@ -44,7 +44,7 @@ namespace app {
     if (automod) {
       avatar(
           parent, layout::Chat::authorGutter, y + automod->authorTop, layout::AutoModeration::avatarSize,
-          message.avatar, userName(message.authorId, message.author)
+          message.avatar, userName(message.authorId, message.author), message.authorId
       );
     }
     m_messageText[message.id] = layout.plainText;

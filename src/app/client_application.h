@@ -71,6 +71,7 @@ namespace app {
     static constexpr int floatingReplayFrames = 8;
     static constexpr int dmHomeReplayFrames = 24;
     static constexpr int dmProfileReplayFrames = 13;
+    static constexpr int cosmeticsReplayFrames = 13;
     static constexpr int composerReplyReplayFrames = 10;
     static constexpr int embedReplayFrames = 12;
     static constexpr int markdownReplayFrames = 5;
@@ -384,6 +385,8 @@ namespace app {
     bool dmInteractionResult(const api::Event& event);
     void prepareDmHomeDemo(const std::string& view);
     void demoDmHomeStep();
+    void prepareCosmeticsDemo(const std::string& view);
+    void demoCosmeticsStep();
     void selectChannel(std::string id);
     void clearTyping();
     void typingEvent(const api::Event& event);
@@ -538,10 +541,33 @@ namespace app {
     );
     bool image(Node& parent, float x, float y, float size, const std::string& path, float radius);
     bool emojiImage(Node& parent, float x, float y, float size, const std::string& path);
-    void avatar(Node& parent, float x, float y, float size, const std::string& path, const std::string& name);
+    void avatar(
+        Node& parent, float x, float y, float size, const std::string& path, const std::string& name,
+        const std::string& user = {}, const std::string& decoration = {}, std::optional<layout::Frame> hoverRegion = {}
+    );
+    enum class NameplatePlacement { Conversation, Member, Account };
+    void drawNameplate(
+        Node& parent, const layout::Frame& frame, const std::string& user, const std::string& guild,
+        NameplatePlacement placement = NameplatePlacement::Conversation, bool selected = false
+    );
+    void drawProfileCosmetics(
+        Node& parent, const layout::Frame& frame, const api::UserProfile& profile, bool foreground,
+        float radius = Style::radiusXl
+    );
+    bool cosmeticHovered(const Node& parent, const layout::Frame& region) const;
+    void drawAvatarDecoration(
+        Node& parent, float x, float y, float size, const std::string& path, const layout::Frame& hoverRegion
+    );
+    void demoCosmeticsHoverStep();
+    struct CosmeticClock {
+      std::uint64_t frame = 0;
+      std::chrono::steady_clock::time_point start{};
+    };
+    std::map<std::string, CosmeticClock> m_cosmeticClocks;
     bool picture(
         Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
-        bool placeholder = false, bool videoPoster = false, ImageFitMode fit = ImageFitMode::Cover
+        bool placeholder = false, bool videoPoster = false, ImageFitMode fit = ImageFitMode::Cover,
+        std::optional<std::chrono::milliseconds> animationTime = {}
     );
     void glyph(Node& parent, float x, float y, float size, const std::string& name, Color color);
     void iconButton(Node& parent, Hit hit, const std::string& icon, const std::string& tooltip, bool selected = false);

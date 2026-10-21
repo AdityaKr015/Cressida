@@ -35,6 +35,8 @@ namespace app {
         {"cressida", "General", "CRESSIDA",
          "messages deleted edited history logger memory expressions emoji image links name badges server tags role "
          "colors gradients animation"},
+        {"cosmetics", "Profile cosmetics", "CRESSIDA",
+         "avatar decorations nameplates profile effects frames banners backgrounds colors"},
         {"themes", "Themes", "CRESSIDA", "theme palette catppuccin rose pine gruvbox custom toml colors dark light"},
         {"account", "My Account", "ACCOUNT"},
         {"profile", "Profiles", "ACCOUNT"},
@@ -871,6 +873,32 @@ namespace app {
     };
     if (drawUserAccountSettings(form)) {
     } else if (drawUserSettingsLists(form)) {
+    } else if (m_settingsPage == "cosmetics") {
+      section("Profile cosmetics");
+      toggle(
+          "Avatar decorations", m_preferences.showAvatarDecorations, "avatar_decorations",
+          "Show decorative frames around user avatars."
+      );
+      toggle(
+          "Nameplates", m_preferences.showNameplates, "nameplates",
+          "Show equipped backgrounds behind users in lists and the account area."
+      );
+      toggle(
+          "Profile effects", m_preferences.showProfileEffects, "profile_effects",
+          "Show equipped visual effects inside profiles."
+      );
+      toggle(
+          "Profile frames", m_preferences.showProfileFrames, "profile_frames",
+          "Show equipped borders around profile cards."
+      );
+      toggle(
+          "Profile banners", m_preferences.showProfileBanners, "profile_banners",
+          "Show banner images at the top of profiles."
+      );
+      toggle(
+          "Profile colors", m_preferences.showProfileThemes, "profile_themes",
+          "Use each profile’s chosen background colors."
+      );
     } else if (m_settingsPage == "cressida") {
       section("Names & roles");
       toggle(
@@ -1411,7 +1439,7 @@ namespace app {
       );
       toggle(
           "Animate avatars", m_preferences.animateAvatars, "animate_avatars",
-          "Play animated profile and server images when reduced motion is off."
+          "Play animated avatars, profile cosmetics and server images when reduced motion is off."
       );
       toggle(
           "Automatically play GIFs", m_preferences.autoplayGifs, "autoplay_gifs",

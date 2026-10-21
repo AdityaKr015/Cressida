@@ -417,8 +417,24 @@ namespace app::layout {
     static constexpr float top = Window::titlebarHeight + Style::spaceXs;
     static constexpr float belowAnchor = 38;
   };
+  struct Cosmetics {
+    static Frame profileFrameBody(const Frame& bounds, float overflowHorizontal) {
+      return {bounds.x - overflowHorizontal, bounds.y, bounds.width + overflowHorizontal * 2, bounds.height};
+    }
+    static Frame profileFrameOuter(const Frame& body, float overflowTop, float overflowBottom) {
+      return {body.x, body.y - overflowTop, body.width, body.height + overflowTop + overflowBottom};
+    }
+    static bool responsiveFrameRail(const Frame& body) {
+      return body.height > 0 && body.width / body.height <= Style::profileFrameResponsiveAspect;
+    }
+    static Frame avatarDecoration(float x, float y, float size) {
+      const float extent = size * Style::avatarDecorationScale;
+      return {x + (size - extent) / 2, y + (size - extent) / 2, extent, extent};
+    }
+  };
   struct Profile {
-    static constexpr float width = 370;
+    static constexpr float radius = Style::radiusXl + Style::radiusSm;
+    static constexpr float width = Style::profileCardWidth;
     static constexpr float inset = 18;
     static constexpr float maximumBioHeight = 63;
     static constexpr float compactHeight = 510;

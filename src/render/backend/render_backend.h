@@ -66,6 +66,7 @@ struct RenderImageDraw {
   float textureHeight = 0.0F;
   Mat3 transform = Mat3::identity();
   ImageScrim scrim{};
+  ImageClip roundedClip{};
 };
 
 struct RenderGlyphDraw {

@@ -644,7 +644,10 @@ namespace app {
       if (i == m_completionSelected || over)
         rectangle(*list, 0, rowY, width - 18, 34, raised, Style::controlRadius);
       if (item.kind == CompletionItem::Member)
-        avatar(*list, 8, rowY + (Style::spaceXs + Style::borderWidth), layout::Avatar::compact, item.image, item.name);
+        avatar(
+            *list, 8, rowY + (Style::spaceXs + Style::borderWidth), layout::Avatar::compact, item.image, item.name,
+            item.kind == CompletionItem::Member ? item.id : ""
+        );
       else if (item.kind == CompletionItem::Emoji) {
         if (!item.image.empty())
           emojiImage(*list, 8, rowY + (Style::spaceXs + Style::borderWidth), 24, item.image);

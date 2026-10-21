@@ -1627,6 +1627,13 @@ namespace api {
     std::string token;
     std::string authenticatedUser;
     std::uint64_t activeSession = 0;
+    struct CachedCosmetic {
+      CosmeticProduct product;
+      std::chrono::steady_clock::time_point retry{};
+    };
+    constexpr std::size_t maximumCosmeticProducts = 256;
+    constexpr auto cosmeticRetryDelay = std::chrono::minutes(1);
+    std::map<std::string, CachedCosmetic> cosmeticProducts;
     struct PendingGuildMfa {
       GuildSettingsRequest request;
       std::string ticket;
@@ -2870,6 +2877,35 @@ namespace api {
               if (event.profile->user.id != command.interaction->user)
                 throw std::runtime_error("Unexpected profile identity");
               event.account = event.profile->user;
+              const auto hydrate = [&](const std::string& sku) -> CosmeticProduct {
+                if (!validSnowflake(sku) || stop.stop_requested())
+                  return {};
+                auto at = cosmeticProducts.find(sku);
+                if (at != cosmeticProducts.end() && at->second.retry > std::chrono::steady_clock::now())
+                  return at->second.product;
+                if (at == cosmeticProducts.end()) {
+                  if (cosmeticProducts.size() >= maximumCosmeticProducts)
+                    cosmeticProducts.erase(cosmeticProducts.begin());
+                  at = cosmeticProducts.emplace(sku, CachedCosmetic{}).first;
+                }
+                at->second.retry = std::chrono::steady_clock::now() + cosmeticRetryDelay;
+                auto product = request(token, "/collectibles-products/" + sku, nullptr, transfer, cooldown);
+                if (product) {
+                  at->second.product = parseCosmeticProduct(*product, sku);
+                  at->second.retry = std::chrono::steady_clock::time_point::max();
+                }
+                return at->second.product;
+              };
+              if (event.profile->effect) {
+                const auto product = hydrate(event.profile->effect->sku);
+                if (product.effect)
+                  event.profile->effect = product.effect;
+              }
+              if (event.profile->frame) {
+                const auto product = hydrate(event.profile->frame->sku);
+                if (product.frame)
+                  event.profile->frame = product.frame;
+              }
             }
             break;
           case Operation::AccountSettings:

@@ -18,8 +18,17 @@ namespace app {
     const auto& user = m_dialogAccount;
     const bool own = user.id == m_account.id;
     const int relation = m_userDirectory.relationship(user.id);
-    const float width = std::min(layout::Profile::width, w - Style::spaceXl), inset = layout::Profile::inset,
-                inner = width - inset * 2;
+    const auto* frame =
+        m_preferences.showProfileFrames && !profile.privateProfile && profile.frame && profile.frame->innerWidth > 0
+        ? &*profile.frame
+        : nullptr;
+    const float sideRatio = frame ? frame->overflowHorizontal / frame->innerWidth : 0;
+    const float width = std::min(layout::Profile::width, (w - Style::spaceXl) / (1 + sideRatio * 2)),
+                inset = layout::Profile::inset, inner = width - inset * 2;
+    const float frameScale = frame ? width / frame->innerWidth : 0;
+    const float frameTop = frame ? frame->overflowTop * frameScale : 0;
+    const float frameBottom = frame ? frame->overflowBottom * frameScale : 0;
+    const float frameSide = width * sideRatio;
     const auto measure = [&](std::string_view text, const MessageStyle& style) {
       return m_window.target()
           .renderer()
@@ -74,17 +83,20 @@ namespace app {
     const float roleHeight =
         chips.empty() ? 0 : chipY + (Style::spaceXl + Style::spaceXxs) - roleTop + (shown < roles.size() ? 30 : 0);
     const float bodyHeight = std::max(20.0F, roleTop + roleHeight);
-    const float height =
-        std::min(h - layout::Profile::viewportReserve, bodyStart + bodyHeight + layout::Profile::footerHeight);
+    const float height = std::min(
+        h - layout::Profile::viewportReserve - frameTop - frameBottom,
+        bodyStart + bodyHeight + layout::Profile::footerHeight
+    );
     const float x = std::clamp(
         m_profileAnchorX < 0           ? (w - width) / 2
             : m_profileAnchorX < w / 2 ? m_profileAnchorX + Style::spaceLg
                                        : m_profileAnchorX - width - 16,
-        12.0F, std::max(12.0F, w - width - 12)
+        Style::spaceMd + frameSide, std::max(Style::spaceMd + frameSide, w - width - Style::spaceMd - frameSide)
     );
     const float y = std::clamp(
-        m_profileAnchorY < 0 ? (h - height) / 2 : m_profileAnchorY - layout::Profile::anchorOffset, 44.0F,
-        std::max(44.0F, h - height - 12)
+        m_profileAnchorY < 0 ? (h - height) / 2 : m_profileAnchorY - layout::Profile::anchorOffset,
+        Style::controlHeightLg + frameTop,
+        std::max(Style::controlHeightLg + frameTop, h - height - Style::spaceMd - frameBottom)
     );
     const float viewport = std::max(1.0F, height - bodyStart - layout::Profile::footerHeight);
     m_scrolling.limit(m_profileScroll, bodyHeight - viewport);
@@ -95,22 +107,28 @@ namespace app {
         root, x - Style::spaceXxs, y + Style::spaceXs, width + Style::spaceXs, height + Style::spaceXxs,
         Color{0, 0, 0, 0.3F}, 17
     );
-    const auto bodyColor = profile.theme ? lerpColor(sidebar, rgbHex((*profile.theme)[1]), 0.15F) : sidebar;
-    rectangle(root, x, y, width, height, lerpColor(bodyColor, muted, 0.2F), 15);
+    drawProfileCosmetics(root, {x, y, width, height}, profile, false, layout::Profile::radius);
+    const auto bodyColor = m_preferences.showProfileThemes && profile.theme
+        ? lerpColor(sidebar, rgbHex((*profile.theme)[1]), Style::profileThemeBlend)
+        : sidebar;
+    rectangle(root, x, y, width, height, lerpColor(bodyColor, muted, 0.2F), layout::Profile::radius);
     rectangle(
         root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, height - Style::spaceXxs,
-        bodyColor, 14
+        bodyColor, layout::Profile::radius - Style::borderWidth
     );
     m_hits.push_back(m_dialogBounds);
-    const auto bannerColor = profile.accent ? rgbHex(*profile.accent)
-        : profile.theme                     ? rgbHex((*profile.theme)[0])
-                                            : lerpColor(accent, panel, 0.4F);
+    const auto bannerColor = profile.accent                ? rgbHex(*profile.accent)
+        : m_preferences.showProfileThemes && profile.theme ? rgbHex((*profile.theme)[0])
+                                                           : lerpColor(accent, panel, 0.4F);
     // Clip the banner in its own rounded frame; the avatar remains outside it.
     picture(
         root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, bannerHeight + Style::spaceMd,
-        profile.banner, 14
+        m_preferences.showProfileBanners ? profile.banner : "", 14
     );
-    if (profile.banner.empty() || !m_images.contains(profile.banner) || !m_images.at(profile.banner).texture.valid())
+    if (!m_preferences.showProfileBanners
+        || profile.banner.empty()
+        || !m_images.contains(profile.banner)
+        || !m_images.at(profile.banner).texture.valid())
       rectangle(
           root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, bannerHeight + Style::spaceMd,
           bannerColor, 14
@@ -120,14 +138,8 @@ namespace app {
     const auto name = userName(user.id, user.name);
     avatar(
         root, x + Style::spaceRelaxed, y + bannerHeight - (Style::space2Xl + Style::spaceXxs), layout::Avatar::profile,
-        user.avatar, name
+        user.avatar, name, user.id, profile.decoration, layout::Frame{x, y, width, height}
     );
-    if (!profile.decoration.empty())
-      picture(
-          root, x + (Style::spaceSm + Style::borderWidth),
-          y + bannerHeight - ((Style::spaceSection + Style::spaceXs) + Style::borderWidth), 106, 106,
-          profile.decoration, 0, false, false, ImageFitMode::Contain
-      );
     auto presence = std::make_unique<Node>();
     presence->setPosition(x + 87, y + bannerHeight + (Style::space2Xl - Style::spaceXxs));
     presence->setScale(1.8F);
@@ -274,7 +286,7 @@ namespace app {
       float textX = 0;
       for (const auto& friendUser : profile.mutualFriends) {
         rectangle(*body, textX - Style::spaceXxs, my - Style::spaceXxs, 26, 26, bodyColor, 13);
-        avatar(*body, textX, my, 22, friendUser.avatar, friendUser.name);
+        avatar(*body, textX, my, 22, friendUser.avatar, friendUser.name, friendUser.id);
         textX += Style::spaceLg;
       }
       if (textX)
@@ -366,6 +378,7 @@ namespace app {
                       : "Message",
         true, false, true
     );
+    drawProfileCosmetics(root, {x, y, width, height}, profile, true, layout::Profile::radius);
   }
 
   bool ClientApplication::profileAction(const Hit& hit) {

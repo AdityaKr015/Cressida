@@ -27,6 +27,7 @@ namespace api {
     std::optional<bool> ignored;
     std::optional<Account> account;
     std::optional<UserCustomStatus> customStatus;
+    UserCosmetics cosmetics;
   };
   struct UserUpdates {
     bool reset = false;
@@ -34,6 +35,7 @@ namespace api {
     std::map<std::string, bool> mutedChannels;
     std::map<std::string, ChannelNotification> notifications;
     bool relationshipsReset = false;
+    std::map<std::string, std::map<std::string, UserCosmetics>> guildCosmetics;
     std::map<std::string, GuildNotification> guildNotifications;
   };
 
@@ -47,6 +49,7 @@ namespace api {
     std::string name(const std::string& user, const std::string& fallback) const;
     std::string status(const std::string& user, const std::string& fallback = "offline") const;
     UserCustomStatus customStatus(const std::string& user) const;
+    UserCosmetics cosmetics(const std::string& user, const std::string& guild = {}) const;
     int relationship(const std::string& user) const;
     bool ignored(const std::string& user) const;
     std::vector<Account> relatedUsers() const;
@@ -62,6 +65,8 @@ namespace api {
     std::optional<GuildTag> guildTag(const std::string& user, const std::optional<GuildTag>& fallback = {}) const;
 
   private:
+    std::map<std::string, UserCosmetics> m_cosmetics;
+    std::map<std::string, std::map<std::string, UserCosmetics>> m_guildCosmetics;
     std::map<std::string, std::string> m_names, m_statuses, m_globalStatuses;
     std::map<std::string, std::map<std::string, std::string>> m_guildStatuses;
     std::map<std::string, UserCustomStatus> m_customStatuses, m_globalCustomStatuses;

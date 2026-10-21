@@ -211,6 +211,24 @@ namespace app {
       result.roleColors = value.value("role_colors", true);
       result.animateRoleColors = value.value("animate_role_colors", true);
       result.showGuildTags = value.value("guild_tags", true);
+      result.showAvatarDecorations = !value.contains("avatar_decorations")
+          || !value["avatar_decorations"].is_boolean()
+          || value["avatar_decorations"].get<bool>();
+      result.showNameplates =
+          !value.contains("nameplates") || !value["nameplates"].is_boolean() || value["nameplates"].get<bool>();
+      result.showProfileEffects = !value.contains("profile_effects")
+          || !value["profile_effects"].is_boolean()
+          || value["profile_effects"].get<bool>();
+      result.showProfileFrames = !value.contains("profile_frames")
+          || !value["profile_frames"].is_boolean()
+          || value["profile_frames"].get<bool>();
+      result.showProfileBanners = !value.contains("profile_banners")
+          || !value["profile_banners"].is_boolean()
+          || value["profile_banners"].get<bool>();
+      result.showProfileThemes = !value.contains("profile_themes")
+          || !value["profile_themes"].is_boolean()
+          || value["profile_themes"].get<bool>();
+
       result.reducedMotion = value.value("reduced_motion", false);
       result.animateEmoji = value.value("animate_emoji", true);
       result.animateAvatars = value.value("animate_avatars", true);
@@ -338,6 +356,13 @@ namespace app {
           {"role_colors", preferences.roleColors},
           {"animate_role_colors", preferences.animateRoleColors},
           {"guild_tags", preferences.showGuildTags},
+          {"avatar_decorations", preferences.showAvatarDecorations},
+          {"nameplates", preferences.showNameplates},
+          {"profile_effects", preferences.showProfileEffects},
+          {"profile_frames", preferences.showProfileFrames},
+          {"profile_banners", preferences.showProfileBanners},
+          {"profile_themes", preferences.showProfileThemes},
+
           {"reduced_motion", preferences.reducedMotion},
           {"animate_emoji", preferences.animateEmoji},
           {"animate_avatars", preferences.animateAvatars},

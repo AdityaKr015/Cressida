@@ -488,7 +488,7 @@ namespace app {
       dmButton(*content, {x, rowY, buttonWidth, 26, Action::DmAction, command}, title, primary);
     };
     const auto person = [&](const api::Account& user, const std::string& subtitle, float rowY, float textWidth) {
-      avatar(*content, 8, rowY + Style::spaceDense, 36, user.avatar, user.name);
+      avatar(*content, 8, rowY + Style::spaceDense, 36, user.avatar, user.name, user.id);
       statusBadge(*content, 34, rowY + (Style::space2Xl + Style::spaceXs), userStatus(user.id), panel);
       label(
           *content, 56, rowY + Style::spaceDense, textWidth, userName(user.id, user.name), Style::fontSizeBody,

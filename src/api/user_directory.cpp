@@ -93,6 +93,8 @@ namespace api {
     }
     if (update.reset) {
       m_accounts.clear();
+      m_cosmetics.clear();
+      m_guildCosmetics.clear();
       m_statuses.clear();
       m_customStatuses.clear();
       m_relationships.clear();
@@ -106,6 +108,9 @@ namespace api {
     for (const auto& [id, user] : update.users) {
       if (!validSnowflake(id))
         continue;
+      if ((user.cosmetics.decoration || user.cosmetics.nameplate)
+          && (m_cosmetics.contains(id) || m_cosmetics.size() < maxUsers))
+        mergeCosmetics(m_cosmetics[id], user.cosmetics);
       if (user.account && (m_accounts.contains(id) || m_accounts.size() < maxUsers))
         m_accounts[id] = *user.account;
       if (user.nickname || user.relationship || user.ignored)
@@ -130,6 +135,15 @@ namespace api {
         m_relationships[id] = *user.relationship;
       if (user.guildTag && (m_tags.contains(id) || m_tags.size() < maxUsers))
         m_tags[id] = *user.guildTag;
+    }
+    for (const auto& [guild, users] : update.guildCosmetics) {
+      if (!validSnowflake(guild)
+          || (!m_guildCosmetics.contains(guild) && m_guildCosmetics.size() >= maximumPresenceGuilds))
+        continue;
+      auto& target = m_guildCosmetics[guild];
+      for (const auto& [id, patch] : users)
+        if (validSnowflake(id) && (target.contains(id) || target.size() < maxUsers))
+          mergeCosmetics(target[id], patch);
     }
     for (const auto& [id, muted] : update.mutedChannels)
       if (validSnowflake(id) && (m_mutedChannels.contains(id) || m_mutedChannels.size() < maxUsers))
@@ -264,6 +278,8 @@ namespace api {
     }
     auto recordTag = [&](const nlohmann::json& user) {
       const auto id = text(user, "id");
+      if (validSnowflake(id) && (changes.users.contains(id) || changes.users.size() < maxUsers))
+        mergeCosmetics(changes.users[id].cosmetics, parseUserCosmetics(user));
       if (validSnowflake(id)
           && user.contains("username")
           && (changes.users.size() < maxUsers || changes.users.contains(id)))
@@ -465,8 +481,72 @@ namespace api {
       presence(data);
     else if (type == "USER_GUILD_SETTINGS_UPDATE")
       notificationSettings(data);
+    const auto recordMember = [&](const nlohmann::json& member, const std::string& guild) {
+      if (!member.is_object() || !validSnowflake(guild))
+        return;
+      const auto user = member.find("user");
+      if (user == member.end() || !user->is_object())
+        return;
+      const auto id = text(*user, "id");
+      if (!validSnowflake(id))
+        return;
+      recordTag(*user);
+      auto patch = parseUserCosmetics(member);
+      if (type == "GUILD_MEMBER_REMOVE")
+        patch = {.decoration = "", .nameplate = ""};
+      if ((patch.decoration || patch.nameplate)
+          && changes.guildCosmetics.size() < maximumPresenceGuilds
+          && changes.guildCosmetics[guild].size() < maxUsers)
+        mergeCosmetics(changes.guildCosmetics[guild][id], patch);
+    };
+    const auto members = [&](const nlohmann::json& payload) {
+      const auto guild = text(payload, "guild_id").empty() ? text(payload, "id") : text(payload, "guild_id");
+      recordMember(payload, guild);
+      if (const auto list = payload.find("members"); list != payload.end() && list->is_array())
+        for (const auto& member : *list)
+          recordMember(member, guild);
+      if (const auto ops = payload.find("ops"); ops != payload.end() && ops->is_array())
+        for (const auto& op : *ops) {
+          if (const auto list = op.find("items"); list != op.end() && list->is_array())
+            for (const auto& item : *list)
+              if (item.contains("member"))
+                recordMember(item["member"], guild);
+          if (op.contains("item") && op["item"].contains("member"))
+            recordMember(op["item"]["member"], guild);
+        }
+    };
+    members(data);
+    if (const auto guilds = data.find("guilds"); guilds != data.end() && guilds->is_array())
+      for (const auto& guild : *guilds)
+        if (guild.is_object())
+          members(guild);
+    const auto recipients = [&](const nlohmann::json& channel) {
+      if (const auto list = channel.find("recipients"); list != channel.end() && list->is_array())
+        for (const auto& user : *list)
+          recordTag(user);
+    };
+    recipients(data);
+    if (const auto list = data.find("private_channels"); list != data.end() && list->is_array())
+      for (const auto& channel : *list)
+        if (channel.is_object())
+          recipients(channel);
     apply(changes);
     return changes;
+  }
+  UserCosmetics UserDirectory::cosmetics(const std::string& user, const std::string& guild) const {
+    UserCosmetics result;
+    if (const auto at = m_cosmetics.find(user); at != m_cosmetics.end())
+      result = at->second;
+    if (const auto at = m_guildCosmetics.find(guild); at != m_guildCosmetics.end())
+      if (const auto member = at->second.find(user); member != at->second.end()) {
+        if (member->second.decoration && !member->second.decoration->empty())
+          result.decoration = member->second.decoration;
+        if (member->second.nameplate && !member->second.nameplate->empty()) {
+          result.nameplate = member->second.nameplate;
+          result.nameplatePalette = member->second.nameplatePalette;
+        }
+      }
+    return result;
   }
   std::vector<Account> UserDirectory::relatedUsers() const {
     std::vector<Account> result;

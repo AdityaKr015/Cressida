@@ -208,7 +208,7 @@ namespace app {
       const bool enabled = !m_dialogPending && (selected || m_dmCreateRecipients.size() < 9);
       if (selected || hovered(x + Style::spaceMd, top + row, width - 30, 46))
         rectangle(*viewport, 0, row, width - 30, 46, selected ? raised : panel, Style::radiusMd);
-      avatar(*viewport, 8, row + 7, layout::Avatar::member, user.avatar, user.name);
+      avatar(*viewport, 8, row + 7, layout::Avatar::member, user.avatar, user.name, user.id);
       statusBadge(*viewport, 30, row + 28, userStatus(user.id), selected ? raised : background);
       label(
           *viewport, 48, row + 7, width - 104, m_userDirectory.name(user.id, user.name), Style::fontSizeCaption,

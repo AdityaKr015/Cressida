@@ -159,7 +159,10 @@ namespace app {
       };
       if (row.dm) {
         const auto& dm = *row.dm;
-        avatar(*node, R::iconX, py, layout::Avatar::rail, dm.icon, channelName(dm));
+        avatar(
+            *node, R::iconX, py, layout::Avatar::rail, dm.icon, channelName(dm),
+            dm.type == 1 && !dm.recipients.empty() ? dm.recipients.front().id : ""
+        );
         if (dm.type == 1 && !dm.recipients.empty() && m_unreadTimeline.mentions(dm.id) == 0)
           statusBadge(
               *node, R::iconX + layout::Avatar::rail - Style::spaceMd - Style::spaceXxs,

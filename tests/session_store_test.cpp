@@ -41,6 +41,27 @@ int main() {
   };
   try {
     {
+      app::SessionStore store(std::filesystem::path(directory) / "cosmetics.json");
+      app::Preferences prefs;
+      bool app::Preferences::* fields[] = {
+          &app::Preferences::showAvatarDecorations, &app::Preferences::showNameplates,
+          &app::Preferences::showProfileEffects,    &app::Preferences::showProfileFrames,
+          &app::Preferences::showProfileBanners,    &app::Preferences::showProfileThemes
+      };
+      for (const auto field : fields)
+        require(prefs.*field, "Cosmetic display defaults on");
+      for (const auto field : fields) {
+        prefs.*field = false;
+        store.savePreferences("123", prefs);
+        const auto loaded = store.preferences("123");
+        for (const auto check : fields)
+          require(
+              loaded.*check == prefs.*check && store.preferences("456").*check,
+              "Individual cosmetic choices persist without changing another account"
+          );
+      }
+    }
+    {
       const auto mediaPath = std::filesystem::path(directory) / "media-preferences.json";
       app::SessionStore store(mediaPath);
       require(!store.preferences("123").randomizeMediaFilenames, "Filename randomization defaults off");

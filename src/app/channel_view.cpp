@@ -238,7 +238,12 @@ namespace app {
       const auto& user = *recipient;
       const float size = layout::DmProfile::headerAvatar;
       const float top = layout::ChannelHeader::centerY - size / 2;
-      avatar(root, nameX, top, size, user.avatar, userName(user.id, user.name));
+      avatar(
+          root, nameX, top, size, user.avatar, userName(user.id, user.name), user.id, "",
+          layout::Frame{
+              nameX, layout::Window::titlebarHeight, std::max(0.0F, icons - nameX), layout::ChannelHeader::height
+          }
+      );
       statusBadge(
           root, nameX + size - Style::spaceMd, top + size - Style::spaceMd, userStatus(user.id), background, user.id,
           channel->id

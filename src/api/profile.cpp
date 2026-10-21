@@ -1,6 +1,7 @@
 #include "api/profile.h"
 
 #include "api/role_styles.h"
+#include "api/user_directory.h"
 
 #include <algorithm>
 #include <charconv>
@@ -12,6 +13,7 @@
 namespace api {
   namespace {
     using Json = nlohmann::json;
+    constexpr std::size_t maximumProfileCollectibles = 16;
     std::string text(const Json& value, const char* key, std::size_t limit = 1024) {
       const auto at = value.find(key);
       return at != value.end() && at->is_string() && at->get_ref<const std::string&>().size() <= limit
@@ -76,6 +78,27 @@ namespace api {
       if (profile.contains("pronouns") && profile["pronouns"].is_string())
         result.user.pronouns = text(profile, "pronouns", 160);
       banner(profile, guild);
+      if (const auto items = profile.find("collectibles");
+          items != profile.end() && items->is_array() && items->size() <= maximumProfileCollectibles) {
+        for (const auto& item : *items) {
+          if (!item.is_object() || !item.contains("type") || !item["type"].is_number_integer())
+            continue;
+          if (const auto expiry = item.find("expires_at"); expiry != item.end() && !expiry->is_null()) {
+            if (!expiry->is_string())
+              continue;
+            const auto deadline = muteDeadline(expiry->get_ref<const std::string&>());
+            if (!deadline || *deadline <= std::chrono::system_clock::now())
+              continue;
+          }
+          const auto sku = text(item, "sku_id", 20);
+          if (!validSnowflake(sku))
+            continue;
+          if (item["type"] == 1)
+            result.effect = ProfileEffect{.sku = sku};
+          if (item["type"] == 3)
+            result.frame = ProfileFrame{.sku = sku};
+        }
+      }
       if (!guild && profile.contains("accent_color"))
         if (auto parsed = color(profile["accent_color"]))
           result.accent = parsed;
@@ -90,11 +113,7 @@ namespace api {
     banner(user, false);
     if (value.contains("user_profile"))
       metadata(value["user_profile"], false);
-    if (user.contains("avatar_decoration_data") && user["avatar_decoration_data"].is_object()) {
-      const auto asset = text(user["avatar_decoration_data"], "asset", 64);
-      if (hash(asset))
-        result.decoration = "/avatar-decoration-presets/" + asset + ".png?size=160";
-    }
+    result.decoration = result.user.cosmetics.decoration.value_or("");
     if (result.user.guildTag) {
       result.guildTag = result.user.guildTag->tag;
       result.guildBadge = result.user.guildTag->badge;
@@ -117,6 +136,9 @@ namespace api {
           if (hash(avatar))
             result.user.avatar =
                 "/guilds/" + result.guild + "/users/" + result.user.id + "/avatars/" + avatar + ".png?size=128";
+          const auto cosmetics = parseUserCosmetics(member);
+          if (cosmetics.decoration && !cosmetics.decoration->empty())
+            result.decoration = *cosmetics.decoration;
           const auto nick = text(member, "nick", 128);
           if (!nick.empty())
             result.user.name = nick;

@@ -698,6 +698,8 @@ namespace app {
         demoRoleStep();
       if (m_demo && m_demoOverlay.starts_with("dm-profile-cycle") && m_demoInteractionStep < dmProfileReplayFrames)
         demoDmProfileStep();
+      if (m_demo && m_demoOverlay.starts_with("cosmetics-cycle") && m_demoInteractionStep < cosmeticsReplayFrames)
+        demoCosmeticsStep();
       if (m_demo && m_demoOverlay == "profile-card-cycle")
         demoProfileStep();
       if (m_demo && m_demoOverlay == "channel-cycle")
@@ -1405,6 +1407,7 @@ namespace app {
                    : m_demo && view && std::string_view(view) == "forum-cycle"                ? 12
                    : m_demo && view && std::string_view(view) == "thread-cycle"               ? 10
                    : m_demo && view && std::string_view(view) == "guild-tag-cycle"            ? 10
+                   : m_demo && view && std::string_view(view).starts_with("cosmetics-cycle")  ? cosmeticsReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("dm-profile-cycle") ? dmProfileReplayFrames
                    : m_demo && view && std::string_view(view) == "profile-card-cycle"         ? 8
                    : m_demo && view && std::string_view(view) == "role-style-cycle"           ? 7
@@ -1517,6 +1520,8 @@ namespace app {
       throw std::runtime_error("Mention highlighting replay did not complete");
     if (m_demoOverlay == "forum-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Forum replay did not complete");
+    if (m_demoOverlay.starts_with("cosmetics-cycle") && m_demoInteractionStep != cosmeticsReplayFrames)
+      throw std::runtime_error("Cosmetic replay did not complete");
     if (m_demoOverlay.starts_with("dm-profile-cycle") && m_demoInteractionStep != dmProfileReplayFrames)
       throw std::runtime_error("DM profile replay did not finish");
     if (m_demoOverlay == "thread-cycle" && m_demoInteractionStep != 10)
@@ -2812,6 +2817,8 @@ namespace app {
             || view.starts_with("dm-pins")
         ) {
           prepareDmHomeDemo(view);
+        } else if (view.starts_with("cosmetics")) {
+          prepareCosmeticsDemo(view);
         } else if (view.starts_with("dm-profile")) {
           prepareDmProfileDemo(view);
         } else if (view == "dm-presence") {
@@ -3135,7 +3142,7 @@ namespace app {
 
   bool ClientApplication::picture(
       Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
-      bool placeholder, bool videoPoster, ImageFitMode fit
+      bool placeholder, bool videoPoster, ImageFitMode fit, std::optional<std::chrono::milliseconds> animationTime
   ) {
     if (path.empty() || (m_demo && !m_images.contains(path)))
       return false;
@@ -3222,19 +3229,26 @@ namespace app {
       const bool emojiAnimation = path.find("/emojis/") != std::string::npos;
       const bool avatarAnimation =
           path.find("/avatars/") != std::string::npos || path.find("/icons/") != std::string::npos;
-      const bool autoplay = emojiAnimation ? m_preferences.animateEmoji
-          : avatarAnimation                ? m_preferences.animateAvatars
-                                           : m_preferences.autoplayGifs;
-      const bool playing = (m_demo || m_window.active())
+      const bool cosmeticAnimation = path.contains("/avatar-decoration-presets/")
+          || path.contains("/collectibles-shop/")
+          || path.contains("/assets/profile_effects/")
+          || path.contains("/assets/content/");
+      const bool autoplay = cosmeticAnimation ? m_preferences.animateAvatars
+          : emojiAnimation                    ? m_preferences.animateEmoji
+          : avatarAnimation                   ? m_preferences.animateAvatars
+                                              : m_preferences.autoplayGifs;
+      const bool playing = !path.contains("passthrough=false")
+          && (m_demo || m_window.active())
           && !m_preferences.reducedMotion
-          && (autoplay || (!emojiAnimation && !avatarAnimation && hovered(gx, gy, width, height)))
+          && (autoplay || (!emojiAnimation && !avatarAnimation && !cosmeticAnimation && hovered(gx, gy, width, height)))
           && (m_viewImage.empty() || path == m_viewImage);
       if (playing) {
         if (cached.playingDraw + 1 < m_animationDraw)
           cached.animationStart = now;
         cached.playingDraw = m_animationDraw;
       }
-      const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - cached.animationStart);
+      const auto elapsed =
+          animationTime.value_or(std::chrono::duration_cast<std::chrono::milliseconds>(now - cached.animationStart));
       const auto& animation = *cached.animation;
       const auto frame = playing || cached.playingDraw == m_animationDraw ? animation.frameAt(elapsed) : 0;
       if (frame != cached.animationFrame) {
@@ -3267,14 +3281,30 @@ namespace app {
   }
 
   void ClientApplication::avatar(
-      Node& parent, float x, float y, float size, const std::string& path, const std::string& name
+      Node& parent, float x, float y, float size, const std::string& path, const std::string& name,
+      const std::string& requestedUser, const std::string& decoration, std::optional<layout::Frame> hoverRegion
   ) {
-    if (image(parent, x, y, size, path, size / 2))
-      return;
-    rectangle(parent, x, y, size, size, raised, size / 2);
-    label(
-        parent, x + size * 0.28F, y + size * 0.17F, size * 0.7F, initial(name), size * 0.45F, accent,
-        FontWeight::SemiBold
+    if (!image(parent, x, y, size, path, size / 2)) {
+      rectangle(parent, x, y, size, size, raised, size / 2);
+      label(
+          parent, x + size * 0.28F, y + size * 0.17F, size * 0.7F, initial(name), size * 0.45F, accent,
+          FontWeight::SemiBold
+      );
+    }
+    auto user = requestedUser;
+    if (user.empty()) {
+      const auto marker = path.find("/users/");
+      const auto avatar = path.find("/avatars/");
+      const auto start = marker != std::string::npos ? marker + std::string_view("/users/").size()
+          : avatar != std::string::npos              ? avatar + std::string_view("/avatars/").size()
+                                                     : std::string::npos;
+      if (start != std::string::npos)
+        user = path.substr(start, path.find('/', start) - start);
+    }
+    const auto cosmetics = m_userDirectory.cosmetics(user, m_dmMode ? "" : m_guildId);
+    drawAvatarDecoration(
+        parent, x, y, size, decoration.empty() ? cosmetics.decoration.value_or("") : decoration,
+        hoverRegion.value_or(layout::Frame{x, y, size, size})
     );
   }
 
@@ -3605,9 +3635,16 @@ namespace app {
               layout::Sidebar::unreadWidth, layout::Sidebar::unreadHeight, foreground, Style::radiusXs
           );
         if (m_dmMode) {
+          if (channel.type == 1 && !channel.recipients.empty())
+            drawNameplate(
+                root, {rowX, y, rowWidth, row.height}, channel.recipients.front().id, "",
+                NameplatePlacement::Conversation, selected
+            );
           avatar(
               root, 99, y + (row.height - layout::Avatar::dm) / 2, layout::Avatar::dm, channel.icon,
-              channelName(channel)
+              channelName(channel),
+              channel.type == 1 && !channel.recipients.empty() ? channel.recipients.front().id : "", "",
+              layout::Frame{rowX, y, rowWidth, row.height}
           );
           if (channel.type == 1 && !channel.recipients.empty())
             statusBadge(
@@ -3763,7 +3800,13 @@ namespace app {
           root, {account.x, account.y, account.width, account.height},
           hovered(account.x, account.y, account.width, account.height) ? panel : background
       );
-      avatar(root, account.avatarX, account.avatarY, layout::Avatar::account, m_account.avatar, m_account.name);
+      drawNameplate(
+          root, {account.x, account.y, account.width, account.height}, m_account.id, "", NameplatePlacement::Account
+      );
+      avatar(
+          root, account.avatarX, account.avatarY, layout::Avatar::account, m_account.avatar, m_account.name,
+          m_account.id, "", layout::Frame{account.x, account.y, account.width, account.height}
+      );
       rectangle(
           root, account.avatarX + layout::Avatar::account - layout::Sidebar::accountStatusSize + Style::borderWidth,
           account.avatarY + layout::Avatar::account - layout::Sidebar::accountStatusSize + Style::borderWidth,
@@ -4445,10 +4488,13 @@ namespace app {
                                ? 12
                                : 0)
                 );
-                avatar(*content, 0, y + Style::borderWidth, layout::Avatar::chat, message.avatar, author);
                 float groupBottom = originalY + heights[i];
                 for (std::size_t next = i + 1; next < m_messages.size() && continuations[next]; ++next)
                   groupBottom += heights[next];
+                avatar(
+                    *content, 0, y + Style::borderWidth, layout::Avatar::chat, message.avatar, author, message.authorId,
+                    "", layout::Frame{0, y, bodyWidth - Style::spaceGroup, std::max(0.0F, groupBottom - y)}
+                );
                 roleLabel(
                     *content, 50, y, nameMax, author, Style::fontSizeCaption, foreground, FontWeight::SemiBold,
                     message.authorId, "message:" + message.id,
@@ -5215,11 +5261,16 @@ namespace app {
                     *members, Style::spaceMd, rowY, memberWidth - Style::spaceXl, layout::Members::rowHitHeight, panel,
                     Style::radiusMd
                 );
+              drawNameplate(
+                  *members, {Style::spaceMd, rowY, memberWidth - Style::spaceXl, layout::Members::rowHitHeight},
+                  member.user.id, m_dmMode ? "" : m_guildId, NameplatePlacement::Member
+              );
               const auto name = userName(member.user.id, member.user.name);
               const auto status = m_dmMode ? userStatus(member.user.id) : member.status;
               avatar(
                   *members, 16, rowY + (Style::spaceXs + Style::borderWidth), layout::Avatar::small, member.user.avatar,
-                  name
+                  name, member.user.id, "",
+                  layout::Frame{Style::spaceMd, rowY, memberWidth - Style::spaceXl, layout::Members::rowHitHeight}
               );
               statusBadge(
                   *members, 38, rowY + ((Style::spaceXl + Style::spaceXxs) + Style::borderWidth), status,
@@ -6338,13 +6389,16 @@ namespace app {
         cached.animation = std::move(asset.animation);
         cached.animationFrame = 0;
         cached.animationStart = {};
+        const bool mipmap = asset.path.starts_with("/media/v1/collectibles-shop/")
+            && asset.path.ends_with("/static")
+            && (!cached.animation || cached.animation->frames.size() == 1);
         const auto pixels =
             cached.animation ? cached.animation->pixels(0, m_animationPixels) : std::span<const std::uint8_t>{};
         cached.texture = !pixels.empty()
             ? m_window.context().textureManager().loadFromRgba(
-                  pixels.data(), cached.animation->width, cached.animation->height
+                  pixels.data(), cached.animation->width, cached.animation->height, mipmap
               )
-            : m_window.context().textureManager().loadFromEncodedBytes(asset.bytes.data(), asset.bytes.size());
+            : m_window.context().textureManager().loadFromEncodedBytes(asset.bytes.data(), asset.bytes.size(), mipmap);
       }
       cached.bytes = std::move(asset.bytes);
       cached.retry = std::chrono::steady_clock::now() + std::chrono::seconds(60);

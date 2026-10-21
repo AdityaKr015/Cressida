@@ -47,7 +47,8 @@ namespace api {
         value.contains("premium_type") && value["premium_type"].is_number_integer()
             ? std::optional(std::clamp(value["premium_type"].get<int>(), 0, 3))
             : std::nullopt,
-        parseGuildTag(value)
+        parseGuildTag(value),
+        parseUserCosmetics(value)
     };
   }
 
@@ -402,6 +403,9 @@ namespace api {
             "clan-badges/",
             "role-icons/",
             "avatar-decoration-presets/",
+            "media/v1/collectibles-shop/",
+            "assets/profile_effects/",
+            "assets/content/",
             "discovery-splashes/",
             "clan-banners/",
             "stickers/",

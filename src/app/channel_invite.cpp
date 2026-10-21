@@ -586,7 +586,7 @@ namespace app {
             rectangle(*list, 0, rowY, rowWidth, 46, sidebar, Style::radiusMd);
           avatar(
               *list, 4, rowY + (Style::spaceCompact + Style::borderWidth), layout::Avatar::small, recipient.avatar,
-              recipient.name
+              recipient.name, recipient.user
           );
           if (!recipient.user.empty())
             statusBadge(

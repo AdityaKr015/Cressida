@@ -38,6 +38,35 @@ Use the available message text and spacing settings to adjust reading comfort.
 Compact mode changes the conversation's presentation. Appearance settings are
 saved per account.
 
+## Profile cosmetics
+
+Open **Cressida > Profile cosmetics** to control each type separately:
+
+- **Avatar decorations** show equipped frames around user avatars in chat,
+  conversation lists, member lists and profiles.
+- **Nameplates** show equipped backgrounds and their palette colors behind users
+  in conversation and member lists and the account area. Artwork keeps its
+  original colors in both light and dark mode.
+- **Profile effects** show equipped visual effects inside a profile.
+- **Profile frames** show equipped borders around full profiles and the DM
+  profile panel.
+- **Profile banners** show banner images at the top of profiles.
+- **Profile colors** use the profile's chosen background colors.
+
+Each switch defaults on and is saved separately for your account. These are
+local display preferences; changing them does not change anyone's equipped
+cosmetics. Missing or unavailable artwork leaves the ordinary profile visible.
+
+Avatar decorations and nameplates animate while you hover over that user's row,
+message or profile. A profile popup's avatar decoration keeps animating while
+the popup is open, even when the pointer moves away. Other copies stay still.
+Reduced motion uses still artwork. Turning off **Animate avatars** also keeps
+cosmetic artwork still. Profile effects stay inside the profile's rounded edges.
+
+Profile frames follow the card's size, with side borders clipped to the profile
+and decorative top and bottom pieces placed around it. Server profiles inherit
+global cosmetics unless they supply a replacement for that category.
+
 ## Motion
 
 Use the reduced motion setting to make supported transitions settle immediately,

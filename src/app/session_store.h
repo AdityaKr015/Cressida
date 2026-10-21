@@ -18,6 +18,13 @@ namespace app {
     bool emojiImageLinks = false;
     bool roleColors = true, animateRoleColors = true;
     bool showGuildTags = true;
+    bool showAvatarDecorations = true;
+    bool showNameplates = true;
+    bool showProfileEffects = true;
+    bool showProfileFrames = true;
+    bool showProfileBanners = true;
+    bool showProfileThemes = true;
+
     float channelSidebarWidth = layout::Sidebar::preferredWidth;
     bool logDeletedMessages = false, logEditHistory = false;
     std::string fontFamily;

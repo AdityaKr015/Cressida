@@ -24,6 +24,13 @@ public:
   [[nodiscard]] float borderWidth() const noexcept { return m_borderWidth; }
   [[nodiscard]] ImageFitMode fitMode() const noexcept { return m_fitMode; }
   [[nodiscard]] const ImageScrim& scrim() const noexcept { return m_scrim; }
+  [[nodiscard]] const ImageClip& roundedClip() const noexcept { return m_roundedClip; }
+  void setRoundedClip(const ImageClip& clip) {
+    if (m_roundedClip == clip)
+      return;
+    m_roundedClip = clip;
+    markPaintDirty();
+  }
   [[nodiscard]] bool monochromeTint() const noexcept { return m_monochromeTint; }
   [[nodiscard]] bool alphaMaskTint() const noexcept { return m_alphaMaskTint; }
   [[nodiscard]] int textureWidth() const noexcept { return m_textureWidth; }
@@ -113,6 +120,7 @@ private:
   float m_borderWidth = 0.0F;
   ImageFitMode m_fitMode = ImageFitMode::Stretch;
   ImageScrim m_scrim{};
+  ImageClip m_roundedClip{};
   int m_textureWidth = 0;
   int m_textureHeight = 0;
 };

@@ -72,9 +72,12 @@ namespace app {
     m_dmProfile.request.reset();
     m_dmProfile.error = event.error;
     if (event.error.empty()) {
-      if (event.profile && event.profile->user.id == action.user && event.profile->guild.empty())
+      if (event.profile && event.profile->user.id == action.user && event.profile->guild.empty()) {
         m_dmProfile.data = event.profile;
-      else
+        api::UserUpdates update;
+        update.users[action.user].cosmetics = event.profile->user.cosmetics;
+        m_userDirectory.apply(update);
+      } else
         m_dmProfile.error = "This profile is unavailable.";
     }
     m_window.invalidate();
@@ -187,7 +190,13 @@ namespace app {
             + P::inset
     );
     m_scrolling.limit(m_dmProfile.scroll, std::max(0.0F, bodyHeight - viewport));
-    floatingPanel(root, frame, theme::background);
+    drawProfileCosmetics(root, frame, profile, false);
+    floatingPanel(
+        root, frame,
+        m_preferences.showProfileThemes && profile.theme
+            ? lerpColor(theme::background, rgbHex((*profile.theme)[1]), Style::profileThemeBlend)
+            : theme::background
+    );
     auto clip = std::make_unique<Node>();
     clip->setPosition(frame.x, frame.y);
     clip->setSize(frame.width, viewport);
@@ -211,18 +220,17 @@ namespace app {
         m_hits.push_back(std::move(target));
     };
     const auto bannerColor = profile.accent ? rgbHex(*profile.accent) : theme::accent;
-    if (!picture(*body, 0, 0, frame.width, P::bannerHeight, profile.banner, 0, false))
+    if (!m_preferences.showProfileBanners
+        || !picture(*body, 0, 0, frame.width, P::bannerHeight, profile.banner, 0, false))
       rectangle(*body, 0, 0, frame.width, P::bannerHeight, bannerColor);
     rectangle(
         *body, P::inset - P::gap / 2, P::avatarTop - P::gap / 2, P::avatarSize + P::gap, P::avatarSize + P::gap,
         theme::background, (P::avatarSize + P::gap) / 2
     );
-    avatar(*body, P::inset, P::avatarTop, P::avatarSize, user.avatar, name);
-    if (!profile.decoration.empty())
-      picture(
-          *body, P::inset - P::gap, P::avatarTop - P::gap, P::avatarSize + P::gap * 2, P::avatarSize + P::gap * 2,
-          profile.decoration, 0, false, false, ImageFitMode::Contain
-      );
+    avatar(
+        *body, P::inset, P::avatarTop, P::avatarSize, user.avatar, name, user.id, profile.decoration,
+        layout::Frame{0, 0, frame.width, bodyHeight}
+    );
     auto presence = std::make_unique<Node>();
     presence->setPosition(
         P::inset + P::avatarSize - Style::spaceMd * P::statusScale,
@@ -347,5 +355,6 @@ namespace app {
       bar->update(viewport, bodyHeight, m_dmProfile.scroll);
       root.addChild(std::move(owned));
     }
+    drawProfileCosmetics(root, frame, profile, true);
   }
 } // namespace app

@@ -388,7 +388,7 @@ namespace app {
       preview->setSize(textWidth, previewHeight);
       preview->setClipChildren(true);
       rectangle(*preview, 0, 0, textWidth, previewHeight, background, Style::surfaceRadius);
-      avatar(*preview, 12, 12, layout::Avatar::small, message->avatar, message->author);
+      avatar(*preview, 12, 12, layout::Avatar::small, message->avatar, message->author, message->authorId);
       label(
           *preview, 54, 12, textWidth - 66, userName(message->authorId, message->author), Style::fontSizeCaption,
           foreground, FontWeight::SemiBold

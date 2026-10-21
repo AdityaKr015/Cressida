@@ -20,6 +20,19 @@ namespace Style {
   inline constexpr float disabledOutlineAlpha = 0.5F;
   inline constexpr float textHighlightAlpha = 0.3F;
   inline constexpr float mutedChannelOpacity = 0.55F;
+  inline constexpr float avatarDecorationScale = 1.2F;
+  inline constexpr float nameplateAccountStartOpacity = 0.10F;
+  inline constexpr float nameplateAccountDarkEndOpacity = 0.40F;
+  inline constexpr float nameplateAccountLightEndOpacity = 0.30F;
+  inline constexpr float nameplateRowMiddleOpacity = 0.08F;
+  inline constexpr float nameplateRowEndOpacity = 0.20F;
+  inline constexpr float nameplateRowHoverEndOpacity = 0.30F;
+  inline constexpr float nameplateRowSelectedEndOpacity = 0.50F;
+  inline constexpr float nameplateGradientStart = 0.20F;
+  inline constexpr float nameplateGradientMiddle = 0.50F;
+  inline constexpr float profileThemeBlend = 0.15F;
+  inline constexpr float profileCardWidth = 300.0F;
+  inline constexpr float profileFrameResponsiveAspect = 300.0F / 480.0F;
 
   inline constexpr float spaceXs = 4.0F;
   inline constexpr float spaceSm = 8.0F;

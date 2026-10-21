@@ -114,7 +114,7 @@ int main() {
         "Global reads never apply unrelated guild fields"
     );
     require(
-        global.decoration == "/avatar-decoration-presets/" + hash + ".png?size=160"
+        global.decoration == api::collectibleAsset("123")
             && global.guildTag == "MOON"
             && global.guildBadge == "/guild-tag-badges/1/" + hash + ".png?size=32",
         "Decorations and guild tags produce fixed CDN paths"

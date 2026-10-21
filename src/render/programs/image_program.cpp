@@ -67,6 +67,9 @@ uniform vec2 u_size;
 uniform float u_radius;
 uniform vec4 u_border_color;
 uniform float u_border_width;
+uniform int u_clip_enabled;
+uniform vec4 u_clip_rect;
+uniform float u_clip_radius;
 uniform int u_scrim_enabled;
 uniform vec2 u_scrim_direction;
 uniform vec4 u_scrim_stops;
@@ -107,6 +110,13 @@ void main() {
     vec2 centered = v_local - u_size * 0.5;
     float outer_distance = rounded_rect_distance(centered, u_size * 0.5, radius);
     float outer_coverage = 1.0 - smoothstep(-aa, aa, outer_distance);
+    if (u_clip_enabled != 0) {
+        vec2 clip_size = max(u_clip_rect.zw, vec2(0.0));
+        float clip_radius = clamp(u_clip_radius, 0.0, min(clip_size.x, clip_size.y) * 0.5);
+        vec2 clip_centered = v_local - u_clip_rect.xy - clip_size * 0.5;
+        float clip_distance = rounded_rect_distance(clip_centered, clip_size * 0.5, clip_radius);
+        outer_coverage *= 1.0 - smoothstep(-aa, aa, clip_distance);
+    }
     if (outer_coverage <= 0.0) {
         discard;
     }
@@ -178,6 +188,9 @@ void ImageProgram::ensureInitialized() {
   m_fitModeLocation = glGetUniformLocation(m_program.id(), "u_fit_mode");
   m_samplerLocation = glGetUniformLocation(m_program.id(), "u_texture");
   m_transformLocation = glGetUniformLocation(m_program.id(), "u_transform");
+  m_clipEnabledLocation = glGetUniformLocation(m_program.id(), "u_clip_enabled");
+  m_clipRectLocation = glGetUniformLocation(m_program.id(), "u_clip_rect");
+  m_clipRadiusLocation = glGetUniformLocation(m_program.id(), "u_clip_radius");
   m_scrimEnabledLocation = glGetUniformLocation(m_program.id(), "u_scrim_enabled");
   m_scrimDirectionLocation = glGetUniformLocation(m_program.id(), "u_scrim_direction");
   m_scrimStopsLocation = glGetUniformLocation(m_program.id(), "u_scrim_stops");
@@ -195,6 +208,9 @@ void ImageProgram::ensureInitialized() {
       || m_alphaMaskLocation < 0
       || m_opacityLocation < 0
       || m_radiusLocation < 0
+      || m_clipEnabledLocation < 0
+      || m_clipRectLocation < 0
+      || m_clipRadiusLocation < 0
       || m_borderColorLocation < 0
       || m_borderWidthLocation < 0
       || m_texSizeLocation < 0
@@ -223,6 +239,7 @@ void ImageProgram::destroy() {
   m_alphaMaskLocation = -1;
   m_opacityLocation = -1;
   m_radiusLocation = -1;
+  m_clipEnabledLocation = m_clipRectLocation = m_clipRadiusLocation = -1;
   m_borderColorLocation = -1;
   m_borderWidthLocation = -1;
   m_texSizeLocation = -1;
@@ -243,7 +260,8 @@ void ImageProgram::abandon() noexcept { m_program.abandon(); }
 void ImageProgram::draw(
     TextureId texture, float surfaceWidth, float surfaceHeight, float width, float height, const Color& tint,
     bool monochromeTint, bool alphaMaskTint, float opacity, float radius, const Color& borderColor, float borderWidth,
-    int fitMode, float textureWidth, float textureHeight, const Mat3& transform, const ImageScrim& scrim
+    int fitMode, float textureWidth, float textureHeight, const Mat3& transform, const ImageScrim& scrim,
+    const ImageClip& clip
 ) const {
   if (!m_program.isValid() || texture == 0 || width <= 0.0F || height <= 0.0F) {
     return;
@@ -270,6 +288,9 @@ void ImageProgram::draw(
   glUniform2f(m_texSizeLocation, textureWidth, textureHeight);
   glUniform1i(m_fitModeLocation, fitMode);
   glUniformMatrix3fv(m_transformLocation, 1, GL_FALSE, transform.m.data());
+  glUniform1i(m_clipEnabledLocation, clip.enabled ? 1 : 0);
+  glUniform4f(m_clipRectLocation, clip.x, clip.y, clip.width, clip.height);
+  glUniform1f(m_clipRadiusLocation, clip.radius);
   glUniform1i(m_scrimEnabledLocation, scrim.enabled ? 1 : 0);
   glUniform2f(
       m_scrimDirectionLocation, scrim.direction == GradientDirection::Horizontal ? 1.0F : 0.0F,

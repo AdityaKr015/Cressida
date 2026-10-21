@@ -80,7 +80,7 @@ namespace app {
           {x + Style::spaceSm, y + (Style::spaceLg + Style::borderWidth), 30, 30, Action::DmAction, "close-request"},
           "arrow-left", "Back to requests"
       );
-    avatar(root, x + (narrow ? 48 : 16), y + Style::spaceRelaxed, layout::Avatar::dm, user.avatar, name);
+    avatar(root, x + (narrow ? 48 : 16), y + Style::spaceRelaxed, layout::Avatar::dm, user.avatar, name, user.id);
     label(
         root, x + (narrow ? 86 : 56), y + (Style::spaceXl + Style::borderWidth), width - (narrow ? 132 : 102), name,
         Style::fontSizeBody, foreground, FontWeight::SemiBold
@@ -147,7 +147,7 @@ namespace app {
     content->setClipChildren(true);
     content->setTextScrollOffset(-m_dmPreviewScroll);
     float rowY = std::max(0.0F, viewport - total) - m_dmPreviewScroll;
-    avatar(*content, 0, rowY, layout::Avatar::request, user.avatar, name);
+    avatar(*content, 0, rowY, layout::Avatar::request, user.avatar, name, user.id);
     label(*content, 0, rowY + 88, inner, name, Style::fontSizeProfile, foreground, FontWeight::SemiBold);
     label(
         *content, 0, rowY + 119, inner, user.username.empty() ? name : '@' + user.username, Style::fontSizeBody, muted
@@ -202,7 +202,10 @@ namespace app {
         const auto author =
             message.authorId == user.id || message.authorId.empty() ? name : userName(message.authorId, message.author);
         const auto face = message.avatar.empty() ? user.avatar : message.avatar;
-        avatar(*content, 0, rowY + Style::spaceXxs, layout::Avatar::member, face, author);
+        avatar(
+            *content, 0, rowY + Style::spaceXxs, layout::Avatar::member, face, author,
+            message.authorId.empty() ? user.id : message.authorId
+        );
         label(
             *content, 46, rowY + Style::borderWidth, std::max(1.0F, inner - 94), author, Style::fontSizeCaption,
             foreground, FontWeight::SemiBold

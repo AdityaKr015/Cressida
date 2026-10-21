@@ -26,7 +26,7 @@ public:
       bool monochromeTint, bool alphaMaskTint, float opacity, float radius = 0.0F,
       const Color& borderColor = {0.0F, 0.0F, 0.0F, 0.0F}, float borderWidth = 0.0F, int fitMode = 0,
       float textureWidth = 0.0F, float textureHeight = 0.0F, const Mat3& transform = Mat3::identity(),
-      const ImageScrim& scrim = {}
+      const ImageScrim& scrim = {}, const ImageClip& clip = {}
   ) const;
 
 private:
@@ -46,6 +46,9 @@ private:
   GLint m_transformLocation = -1;
   GLint m_monochromeLocation = -1;
   GLint m_alphaMaskLocation = -1;
+  GLint m_clipEnabledLocation = -1;
+  GLint m_clipRectLocation = -1;
+  GLint m_clipRadiusLocation = -1;
   GLint m_scrimEnabledLocation = -1;
   GLint m_scrimDirectionLocation = -1;
   GLint m_scrimStopsLocation = -1;

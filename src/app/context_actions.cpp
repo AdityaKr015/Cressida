@@ -1365,7 +1365,12 @@ namespace app {
     } else if (action.kind == Kind::UserProfile && dialog) {
       m_dialogAccount = event.account;
       if (event.profile) {
-        m_profileCard = *event.profile;
+        {
+          m_profileCard = *event.profile;
+          api::UserUpdates update;
+          update.users[event.profile->user.id].cosmetics = event.profile->user.cosmetics;
+          m_userDirectory.apply(update);
+        }
         if (m_profileCard.roles
             && !m_profileCard.guild.empty()
             && !m_roleDirectory.memberships(m_profileCard.guild, m_profileCard.user.id)) {

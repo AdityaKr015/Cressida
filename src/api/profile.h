@@ -18,6 +18,8 @@ namespace api {
     std::vector<Account> mutualFriends;
     std::optional<int> mutualFriendCount, mutualGuildCount;
     bool privateProfile = false;
+    std::optional<ProfileEffect> effect;
+    std::optional<ProfileFrame> frame;
   };
   // Whitelist presentation data only. Authentication/analytics fields never
   // leave the REST worker, and all image paths are fixed Discord CDN routes.

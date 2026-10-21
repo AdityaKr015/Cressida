@@ -55,6 +55,13 @@ namespace app {
         {"reduced_motion", &Preferences::reducedMotion},
         {"animate_emoji", &Preferences::animateEmoji},
         {"animate_avatars", &Preferences::animateAvatars},
+        {"avatar_decorations", &Preferences::showAvatarDecorations},
+        {"nameplates", &Preferences::showNameplates},
+        {"profile_effects", &Preferences::showProfileEffects},
+        {"profile_frames", &Preferences::showProfileFrames},
+        {"profile_banners", &Preferences::showProfileBanners},
+        {"profile_themes", &Preferences::showProfileThemes},
+
         {"developer_mode", &Preferences::developerMode},
         {"desktop_decorations", &Preferences::desktopDecorations},
         {"convert_emoticons", &Preferences::convertEmoticons},

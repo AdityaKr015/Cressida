@@ -83,6 +83,13 @@ constexpr bool operator==(const ImageScrim& lhs, const ImageScrim& rhs) noexcept
   return lhs.enabled == rhs.enabled && lhs.direction == rhs.direction && lhs.stops == rhs.stops;
 }
 
+// A rounded mask in the image's local coordinates, independent of its artwork bounds.
+struct ImageClip {
+  float x = 0, y = 0, width = 0, height = 0, radius = 0;
+  bool enabled = false;
+  bool operator==(const ImageClip&) const = default;
+};
+
 struct RoundedRectStyle {
   Color fill{};
   Color border{};

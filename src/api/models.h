@@ -1,5 +1,5 @@
 #pragma once
-
+#include "api/cosmetics.h"
 #include "api/stickers.h"
 
 #include <cstdint>
@@ -26,6 +26,7 @@ namespace api {
     std::string username, displayName, bio, pronouns;
     std::optional<int> premiumType;
     std::optional<GuildTag> guildTag;
+    UserCosmetics cosmetics;
   };
 
   struct Presence {

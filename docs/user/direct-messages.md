@@ -20,6 +20,7 @@ In a one-to-one DM, the right panel shows the recipient's profile. It can
 include:
 
 - A banner, avatar and presence indicator.
+- Equipped avatar decorations, profile effects, frames and profile colors.
 - Display name, username, pronouns and server tag.
 - Custom status, mutual friend/server counts and account creation date.
 - A biography and a **View Full Profile** button.
@@ -31,6 +32,9 @@ Cressida hides the optional panel to keep room for the conversation.
 Profile information depends on what is available to your account. Private or
 unavailable profiles keep a basic identity visible. If loading fails, use the
 offered retry action.
+
+You can disable each type of [profile cosmetic](appearance.md#profile-cosmetics)
+separately without hiding the profile panel.
 
 ## Group conversations
 
