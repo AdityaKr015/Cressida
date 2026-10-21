@@ -706,9 +706,10 @@ namespace api {
   }
   bool Client::send(
       const std::string& id, std::string content, std::vector<Upload> uploads, std::optional<MessageReference> reply,
-      std::vector<std::string> stickers
+      std::vector<std::string> stickers, std::string nonce
   ) {
     if (!validSnowflake(id)
+        || (!nonce.empty() && !validSnowflake(nonce))
         || !validStickerIds(stickers)
         || (content.empty() && uploads.empty() && stickers.empty())
         || content.size() > 8000
@@ -719,6 +720,7 @@ namespace api {
     Command command{Operation::Send, m_session, id, std::move(content), {}, std::move(uploads)};
     command.reply = std::move(reply);
     command.stickers = std::move(stickers);
+    command.nonce = std::move(nonce);
     return enqueue(std::move(command));
   }
   bool Client::interact(api::Interaction action) {
@@ -1756,6 +1758,8 @@ namespace api {
       Event event{.operation = command.operation, .session = command.session, .resource = command.resource};
       if (command.operation == Operation::BootstrapSettings)
         event.operation = Operation::Layout;
+      if (command.operation == Operation::Send)
+        event.nonce = command.nonce;
       event.history = command.history;
       event.threadQuery = command.threadQuery;
       event.channelQuery = command.channelQuery;
@@ -2436,7 +2440,7 @@ namespace api {
           break;
         case Operation::Send:
           path = "/channels/" + command.resource + "/messages";
-          body = messageBody(command.content, command.reply, command.stickers);
+          body = messageBody(command.content, command.reply, command.stickers, command.nonce);
           if (!command.uploads.empty()) {
             body["attachments"] = Json::array();
             for (std::size_t i = 0; i < command.uploads.size(); ++i)

@@ -801,6 +801,14 @@ namespace api {
           {id(item), text(item, "channel_id"), std::move(author), std::move(content), text(item, "timestamp")}
       );
       parseMessagePatch(item).apply(result.back());
+      if (const auto nonce = item.find("nonce"); nonce != item.end()) {
+        if (nonce->is_string())
+          result.back().nonce = nonce->get<std::string>();
+        else if (nonce->is_number_unsigned())
+          result.back().nonce = std::to_string(nonce->get<std::uint64_t>());
+        else if (nonce->is_number_integer() && nonce->get<std::int64_t>() >= 0)
+          result.back().nonce = std::to_string(nonce->get<std::int64_t>());
+      }
       if (result.back().type != 7
           && result.back().content.empty()
           && result.back().attachments.empty()

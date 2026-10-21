@@ -83,14 +83,16 @@ namespace app {
   }
   // Each message retains its own content, actions and selection. Only the author
   // header and inter-message spacing are shared by a short consecutive run.
-  inline bool continuesMessageGroup(const api::Message& previous, const api::Message& current) {
+  inline bool continuesMessageGroup(const api::Message& previous, const api::Message& current, bool pending = false) {
+    // Pending rows use the account profile until server profile fields arrive.
+    // Confirmed messages retain the stricter display-name and avatar checks.
+    constexpr auto pendingClockSkew = std::chrono::seconds{2};
     if (previous.deleted
         || current.deleted
         || previous.authorId.empty()
         || previous.authorId != current.authorId
         || previous.channelId != current.channelId
-        || previous.author != current.author
-        || previous.avatar != current.avatar
+        || (!pending && (previous.author != current.author || previous.avatar != current.avatar))
         || previous.webhookId != current.webhookId
         || previous.applicationId != current.applicationId
         || (previous.type != api::defaultMessageType && previous.type != api::replyMessageType)
@@ -103,7 +105,7 @@ namespace app {
     const auto before = messageTime(previous.timestamp), after = messageTime(current.timestamp);
     return before
         && after
-        && *after >= *before
+        && (*after >= *before || (pending && *before - *after <= pendingClockSkew))
         && *after - *before < std::chrono::minutes{7}
     && std::chrono::floor<std::chrono::days>(*before) == std::chrono::floor<std::chrono::days>(*after);
   }

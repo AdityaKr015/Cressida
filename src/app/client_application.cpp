@@ -541,6 +541,8 @@ namespace app {
           && m_demoOverlay.starts_with("image-menu")
           && m_demoInteractionStep < (m_demoOverlay.starts_with("image-menu-cycle") ? imageMenuReplayFrames : 2))
         demoImageMenuStep();
+      if (m_demo && m_demoOverlay.starts_with("outgoing-cycle") && m_demoInteractionStep < outgoingReplayFrames)
+        demoOutgoingStep();
       if (m_demo && m_demoOverlay == "sidebar-cycle")
         sidebarDemoFrame();
       if (m_demo && m_demoOverlay == "mentions-cycle") {
@@ -1088,7 +1090,7 @@ namespace app {
         insert(std::move(bytes));
         return;
       }
-      if (!m_connected || m_demo || m_sending || m_channelId.empty() || !m_fieldFocused)
+      if (!m_connected || m_demo || m_channelId.empty() || !m_fieldFocused)
         return;
       api::Upload upload{
           "pasted-image-"
@@ -1357,8 +1359,9 @@ namespace app {
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest
-            ? (m_demo && view && std::string_view(view).starts_with("chat-links-cycle") ? chatLinkReplayFrames
-                   : m_demo && view && std::string_view(view) == "attachment-cycle"     ? attachmentReplayFrames
+            ? (m_demo && view && std::string_view(view).starts_with("outgoing-cycle")         ? outgoingReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("chat-links-cycle") ? chatLinkReplayFrames
+                   : m_demo && view && std::string_view(view) == "attachment-cycle"           ? attachmentReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("window-controls-cycle")
                    ? windowControlsReplayFrames
                    : m_demo && view && std::string_view(view) == "tray-cycle"               ? trayReplayFrames
@@ -1502,6 +1505,8 @@ namespace app {
       throw std::runtime_error("Media gallery replay did not complete");
     if (m_demoOverlay.starts_with("image-menu-cycle") && m_demoInteractionStep != imageMenuReplayFrames)
       throw std::runtime_error("Image viewer menu replay did not complete");
+    if (m_demoOverlay.starts_with("outgoing-cycle") && m_demoInteractionStep != outgoingReplayFrames)
+      throw std::runtime_error("Outgoing message replay did not complete");
     if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
       throw std::runtime_error("Typing indicator replay did not finish");
     if (m_demoOverlay.starts_with("rail-drag") && m_demoInteractionStep != 10)
@@ -1562,7 +1567,15 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
-        if (view == "tray-cycle") {
+        if (view.starts_with("outgoing-cycle")) {
+          m_demoOverlay = view;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          m_messages.clear();
+          m_drafts[m_channelId].clear();
+          m_showMembers = false;
+          m_history.restoreLatest(m_messages, true);
+        } else if (view == "tray-cycle") {
           m_demoOverlay = view;
           m_drafts[m_channelId].clear();
         } else if (view.starts_with("image-menu")) {
@@ -3171,7 +3184,8 @@ namespace app {
       bool placeholder, bool videoPoster, ImageFitMode fit, std::optional<std::chrono::milliseconds> animationTime,
       ImageUse use
   ) {
-    if (path.empty() || (m_demo && !m_images.contains(path)))
+    const auto* localImage = draftImage(path);
+    if (path.empty() || (m_demo && !localImage && !m_images.contains(path)))
       return false;
     auto global = [&](const Node* node) {
       std::pair<float, float> pos{};
@@ -3195,6 +3209,19 @@ namespace app {
       }
     if (gx + width <= clipLeft || gx >= clipRight || gy + height <= clipTop || gy >= clipBottom)
       return false;
+    if (localImage) {
+      if (!localImage->texture.valid())
+        return false;
+      auto node = std::make_unique<ImageNode>();
+      node->setPosition(x, y);
+      node->setSize(width, height);
+      node->setTextureId(localImage->texture.id);
+      node->setTextureSize(localImage->texture.width, localImage->texture.height);
+      node->setFitMode(fit);
+      node->setRadius(Style::scaledShapeRadius(radius, width, height));
+      parent.addChild(std::move(node));
+      return true;
+    }
     std::string stillIcon;
     if (path.find("/icons/") != std::string::npos) {
       if (const auto gif = path.find(".gif", path.rfind('/')); gif != std::string::npos) {
@@ -3962,8 +3989,19 @@ namespace app {
         content->setPosition(left + Style::spaceXl, top);
         content->setSize(bodyWidth - Style::spaceGroup, std::max(0.0F, bottom - top));
         content->setClipChildren(true);
+        std::vector<api::Message> outgoingTimeline;
+        const auto* rows = &m_messages;
+        for (const auto& [_, pending] : m_pendingSends)
+          if (pending.preview.channelId == m_channelId && pending.confirmed.empty() && m_history.atLatest()) {
+            if (rows == &m_messages) {
+              outgoingTimeline = m_messages;
+              rows = &outgoingTimeline;
+            }
+            outgoingTimeline.push_back(pending.preview);
+          }
+        const auto& timeline = *rows;
         std::vector<float> heights;
-        std::vector<bool> continuations(m_messages.size(), false);
+        std::vector<bool> continuations(timeline.size(), false);
         std::vector<const MessageLayout*> layouts;
         const auto ownRoles =
             m_dmMode ? std::optional<std::vector<std::string>>{} : m_roleDirectory.memberships(m_guildId, m_account.id);
@@ -3972,17 +4010,20 @@ namespace app {
         const float introHeight = channelIntro(nullptr, 0, 0, textWidth);
         const auto continues = [&](std::size_t i) {
           return i > 0
-              && !blockedMessage(m_messages[i - 1])
-              && !blockedMessage(m_messages[i])
-              && continuesMessageGroup(m_messages[i - 1], m_messages[i]);
+              && !blockedMessage(timeline[i - 1])
+              && !blockedMessage(timeline[i])
+              && continuesMessageGroup(
+                     timeline[i - 1], timeline[i],
+                     timeline[i].id.starts_with("pending:") && m_pendingSends.contains(timeline[i].nonce)
+              );
         };
-        for (std::size_t i = 0; i < m_messages.size(); ++i)
+        for (std::size_t i = 0; i < timeline.size(); ++i)
           continuations[i] = (!unreadIndex || i != *unreadIndex) && continues(i);
         std::map<std::string_view, const api::Message*> replySources;
-        for (const auto& message : m_messages)
+        for (const auto& message : timeline)
           replySources.emplace(message.id, &message);
-        for (std::size_t i = 0; i < m_messages.size(); ++i) {
-          const auto& message = m_messages[i];
+        for (std::size_t i = 0; i < timeline.size(); ++i) {
+          const auto& message = timeline[i];
           auto& cached = m_messageLayouts[message.id];
           const auto& renderer = m_window.target().renderer();
           auto reply = message.reply;
@@ -4071,7 +4112,7 @@ namespace app {
               : std::max(22.0F, cached.layout.height);
           const float height = blockedMessage(message)                        ? 36
               : message.type == 7 || message.type == autoModerationActionType ? std::max(22.0F, cached.layout.height)
-                  + (i + 1 == m_messages.size()  ? 0
+                  + (i + 1 == timeline.size()    ? 0
                          : m_preferences.compact ? std::min(8, m_preferences.messageGroupSpacing)
                                                  : m_preferences.messageGroupSpacing)
                   + (!m_preferences.showReactions || message.reactions.empty()
@@ -4080,13 +4121,15 @@ namespace app {
                                                                               : bodyHeight
                   + messageRowPadding(continuations[i], i + 1 < continuations.size() && continuations[i + 1],
                                       m_preferences.compact, m_preferences.messageGroupSpacing,
-                                      i + 1 == m_messages.size())
+                                      i + 1 == timeline.size())
                   + (message.reply ? layout::Reply::step : 0)
                   + messageFooterHeight(messageButtons(nullptr, message, 0, 0, textWidth),
                                         reactionStrip(nullptr, message, 0, 0, textWidth),
                                         threadStrip(nullptr, message, 0, 0, textWidth));
           layouts.push_back(&cached.layout);
-          heights.push_back(height);
+          const auto pending = m_pendingSends.find(message.nonce);
+          const bool failed = pending != m_pendingSends.end() && !pending->second.error.empty();
+          heights.push_back(height + (failed ? layout::Chat::pendingStatusHeight : 0));
         }
         float totalHeight = timelineTopPadding + timelineBottomPadding + introHeight;
         for (const auto height : heights)
@@ -4101,10 +4144,10 @@ namespace app {
             && !m_unreadTimeline.positionPending()) {
           std::vector<TimelineAnchor::Row> positions;
           float rowY = (bottom - totalHeight) + m_messageScroll + timelineTopPadding + introHeight;
-          for (std::size_t i = 0; i < m_messages.size(); ++i) {
+          for (std::size_t i = 0; i < timeline.size(); ++i) {
             if (unreadIndex && i == *unreadIndex)
               rowY += unreadHeight;
-            positions.push_back({m_messages[i].id, rowY});
+            positions.push_back({timeline[i].id, rowY});
             rowY += heights[i];
           }
           if (const auto correction = m_timelineAnchor.correction(positions, m_messageScroll))
@@ -4115,10 +4158,10 @@ namespace app {
         if (!m_seekMessage.empty() && !m_loadingMessages) {
           bool foundTarget = false;
           float preceding = timelineTopPadding + introHeight;
-          for (std::size_t i = 0; i < m_messages.size(); ++i) {
+          for (std::size_t i = 0; i < timeline.size(); ++i) {
             if (unreadIndex && i == *unreadIndex)
               preceding += unreadHeight;
-            if (m_messages[i].id == m_seekMessage) {
+            if (timeline[i].id == m_seekMessage) {
               foundTarget = true;
               m_scrolling.stop(m_messageScroll);
               m_messageScroll = std::clamp(
@@ -4201,8 +4244,11 @@ namespace app {
           channelIntro(content.get(), 50, y, textWidth);
           y += introHeight;
         }
-        for (std::size_t i = 0; i < m_messages.size(); ++i) {
-          const auto& message = m_messages[i];
+        for (std::size_t i = 0; i < timeline.size(); ++i) {
+          const auto& message = timeline[i];
+          const auto pending = m_pendingSends.find(message.nonce);
+          const bool local = message.id.starts_with("pending:") && pending != m_pendingSends.end();
+          const bool failed = local && !pending->second.error.empty();
           const bool editing = m_messageEdit && m_messageEdit->message == message.id;
           if (unreadIndex && i == *unreadIndex) {
             if (y + unreadHeight >= 0 && y < bottom - top) {
@@ -4246,15 +4292,22 @@ namespace app {
           const float originalY = y;
           m_messageTops[message.id] = top + y;
           if (y + heights[i] >= 0 && y <= bottom - top) {
+            auto rowNode = std::make_unique<Node>();
+            auto* messageContent = rowNode.get();
+            rowNode->setSize(content->width(), content->height());
+            if (local)
+              rowNode->setOpacity(Style::mutedChannelOpacity);
+            content->addChild(std::move(rowNode));
             const auto firstHit = m_hits.size();
             const auto rowTop = std::max(top, top + y), rowBottom = std::min(bottom, top + y + heights[i]);
-            m_contextTargets.push_back(
-                {left + Style::spaceXl, rowTop, bodyWidth - Style::spaceGroup, std::max(0.0F, rowBottom - rowTop),
-                 Action::MessageMenu, message.id}
-            );
+            if (!local)
+              m_contextTargets.push_back(
+                  {left + Style::spaceXl, rowTop, bodyWidth - Style::spaceGroup, std::max(0.0F, rowBottom - rowTop),
+                   Action::MessageMenu, message.id}
+              );
             if (blockedMessage(message)) {
               label(
-                  *content, 50, y + (Style::spaceCompact + Style::borderWidth), textWidth,
+                  *messageContent, 50, y + (Style::spaceCompact + Style::borderWidth), textWidth,
                   m_userDirectory.ignored(message.authorId) ? "Ignored message — click to show"
                                                             : "Blocked message — click to show",
                   Style::fontSizeDescription, muted
@@ -4268,27 +4321,28 @@ namespace app {
             }
             const float bottomGap = messageRowPadding(
                 true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact,
-                m_preferences.messageGroupSpacing, i + 1 == m_messages.size()
+                m_preferences.messageGroupSpacing, i + 1 == timeline.size()
             );
             // Tags sit above the header baseline. The following group's margin
             // belongs to neither message's hover background or action target.
             const float hoverTop = std::max(top, top + y - (continuations[i] || message.type == 7 ? 0 : 4));
             // Even zero group spacing must leave the next header's upper edge
             // to that message, so a pointer can never highlight both rows.
-            const bool nextHeader = i + 1 < m_messages.size()
+            const bool nextHeader = i + 1 < timeline.size()
                 && !continuations[i + 1]
-                && m_messages[i + 1].type != 7
-                && !blockedMessage(m_messages[i + 1]);
+                && timeline[i + 1].type != 7
+                && !blockedMessage(timeline[i + 1]);
             const bool nextContinuation = i + 1 < continuations.size() && continuations[i + 1];
             // Give the last line a little breathing room without covering a
             // continuation or closing the gap before the next author header.
             const float hoverPadding = continuations[i] || nextContinuation ? 0.0F
-                : i + 1 == m_messages.size()                                ? 4.0F
-                                             : std::min(4.0F, std::max(0.0F, bottomGap - (nextHeader ? 6.0F : 2.0F)));
+                : i + 1 == timeline.size()                                  ? 4.0F
+                                           : std::min(4.0F, std::max(0.0F, bottomGap - (nextHeader ? 6.0F : 2.0F)));
             const float hoverRowBottom =
                 y + heights[i] - std::max(bottomGap, nextHeader ? Style::spaceXs : 0.0F) + hoverPadding;
             const float hoverBottom = std::min(bottom, top + hoverRowBottom);
-            const bool messageHovered = !editing
+            const bool messageHovered = !local
+                && !editing
                 && m_dialogKind.empty()
                 && !m_contextOpen
                 && !m_emojiMenu
@@ -4314,7 +4368,7 @@ namespace app {
             if (message.deleted) {
               const auto red = theme::danger;
               const float gap = messageRowPadding(
-                  true, false, m_preferences.compact, m_preferences.messageGroupSpacing, i + 1 == m_messages.size()
+                  true, false, m_preferences.compact, m_preferences.messageGroupSpacing, i + 1 == timeline.size()
               );
               const float bandTop = std::max(top, top + y - Style::spaceXxs);
               const float bandBottom = std::min(bottom, top + y + heights[i] - gap + 2);
@@ -4338,15 +4392,15 @@ namespace app {
             };
             if (message.type == 7 || message.type == autoModerationActionType) {
               drawJumpHighlight();
-              drawSystemNotice(*content, message, *layouts[i], y, textWidth);
+              drawSystemNotice(*messageContent, message, *layouts[i], y, textWidth);
             } else {
               if (message.flags & 64) {
                 rectangle(
-                    *content, 0, y - (Style::spaceXxs + Style::borderWidth), bodyWidth - Style::spaceGroup,
+                    *messageContent, 0, y - (Style::spaceXxs + Style::borderWidth), bodyWidth - Style::spaceGroup,
                     heights[i] - Style::spaceXs, lerpColor(background, accent, .06F), Style::radiusMd
                 );
                 rectangle(
-                    *content, 0, y - (Style::spaceXxs + Style::borderWidth), 3, heights[i] - Style::spaceXs,
+                    *messageContent, 0, y - (Style::spaceXxs + Style::borderWidth), 3, heights[i] - Style::spaceXs,
                     lerpColor(background, accent, .6F), Style::radiusXs
                 );
               }
@@ -4358,7 +4412,7 @@ namespace app {
                 const float tint = (theme::lightTheme ? .10F : .07F) + (over ? .03F : 0.0F);
                 const float bottomGap = messageRowPadding(
                     true, i + 1 < continuations.size() && continuations[i + 1], m_preferences.compact,
-                    m_preferences.messageGroupSpacing, i + 1 == m_messages.size()
+                    m_preferences.messageGroupSpacing, i + 1 == timeline.size()
                 );
                 const float inkHeight = std::max(continuations[i] ? 0.0F : 41.0F, heights[i] - bottomGap);
                 const float bandTop = std::max(top, top + y - Style::spaceXxs);
@@ -4524,14 +4578,15 @@ namespace app {
                                : 0)
                 );
                 float groupBottom = originalY + heights[i];
-                for (std::size_t next = i + 1; next < m_messages.size() && continuations[next]; ++next)
+                for (std::size_t next = i + 1; next < timeline.size() && continuations[next]; ++next)
                   groupBottom += heights[next];
                 avatar(
-                    *content, 0, y + Style::borderWidth, layout::Avatar::chat, message.avatar, author, message.authorId,
-                    "", layout::Frame{0, y, bodyWidth - Style::spaceGroup, std::max(0.0F, groupBottom - y)}
+                    *messageContent, 0, y + Style::borderWidth, layout::Avatar::chat, message.avatar, author,
+                    message.authorId, "",
+                    layout::Frame{0, y, bodyWidth - Style::spaceGroup, std::max(0.0F, groupBottom - y)}
                 );
                 roleLabel(
-                    *content, 50, y, nameMax, author, Style::fontSizeCaption, foreground, FontWeight::SemiBold,
+                    *messageContent, 50, y, nameMax, author, Style::fontSizeCaption, foreground, FontWeight::SemiBold,
                     message.authorId, "message:" + message.id,
                     y + (Style::spaceLg + Style::spaceXxs) >= 0
                         && y < bottom - top
@@ -4543,14 +4598,15 @@ namespace app {
                 );
                 const float tagUsed = m_preferences.showGuildTags && tagFits
                     ? drawGuildTag(
-                          *content, 50 + authorWidth + Style::spaceXs, y - Style::spaceXxs,
+                          *messageContent, 50 + authorWidth + Style::spaceXs, y - Style::spaceXxs,
                           headerWidth - authorWidth - roleSpace - 4, authorTag
                       )
                     : 0;
                 const float roleUsed =
                     m_preferences.showRoleIcons && !m_dmMode && headerWidth - authorWidth - tagUsed >= 22
                     ? drawRoleIcon(
-                          *content, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId, message.memberRoles
+                          *messageContent, 50 + authorWidth + tagUsed + 4, y, m_guildId, message.authorId,
+                          message.memberRoles
                       )
                     : 0;
                 if (!message.authorId.empty()) {
@@ -4558,12 +4614,14 @@ namespace app {
                   const auto avatarH =
                       std::max(0.0F, std::min(bottom, top + y + (Style::spaceSection + Style::borderWidth)) - avatarY);
                   const auto nameWidth = authorWidth;
-                  m_contextTargets.push_back(
-                      {left + Style::spaceXl, avatarY, 40, avatarH, Action::UserMenu, message.authorId}
-                  );
-                  m_contextTargets.push_back(
-                      {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
-                  );
+                  if (!local)
+                    m_contextTargets.push_back(
+                        {left + Style::spaceXl, avatarY, 40, avatarH, Action::UserMenu, message.authorId}
+                    );
+                  if (!local)
+                    m_contextTargets.push_back(
+                        {left + 74, avatarY, nameWidth, std::min(18.0F, avatarH), Action::UserMenu, message.authorId}
+                    );
                   m_hits.push_back(
                       {left + Style::spaceXl, avatarY, 40, avatarH, Action::UserProfile, message.authorId}
                   );
@@ -4575,7 +4633,7 @@ namespace app {
                 const float timestampAvailable = 50 + textWidth - timestampX;
                 if (!timestamp.empty() && timestampAvailable > 0)
                   label(
-                      *content, timestampX, y + (Style::spaceXxs + Style::borderWidth),
+                      *messageContent, timestampX, y + (Style::spaceXxs + Style::borderWidth),
                       std::min(timestampWidth + Style::spaceXxs, timestampAvailable), timestamp, Style::fontSizeDetail,
                       message.deleted ? theme::danger : muted
                   );
@@ -4583,7 +4641,7 @@ namespace app {
                 const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
                 const auto metrics = m_window.target().renderer().measureText(timestamp, Style::fontSizeFine);
                 label(
-                    *content, 0,
+                    *messageContent, 0,
                     y
                         + layout::Chat::centeredTextTop(
                             continuationLineCenter, metrics.top, metrics.inkTop, metrics.inkBottom
@@ -4594,28 +4652,28 @@ namespace app {
               const float bodyY = y + (continuation ? 0 : 18);
               const float bodyHeight = editing ? messageEditHeight(textWidth) : layout.height;
               const float componentHeight =
-                  messageButtons(content.get(), message, 50, bodyY + bodyHeight + Style::spaceCompact, textWidth);
+                  messageButtons(messageContent, message, 50, bodyY + bodyHeight + Style::spaceCompact, textWidth);
               const float reactionHeight = reactionStrip(
-                  content.get(), message, 50, bodyY + bodyHeight + Style::spaceCompact + componentHeight, textWidth
+                  messageContent, message, 50, bodyY + bodyHeight + Style::spaceCompact + componentHeight, textWidth
               );
               threadStrip(
-                  content.get(), message, 50,
+                  messageContent, message, 50,
                   bodyY + bodyHeight + Style::spaceCompact + componentHeight + reactionHeight, textWidth
               );
               if (editing)
-                drawMessageEdit(*content, 50, bodyY, textWidth);
+                drawMessageEdit(*messageContent, 50, bodyY, textWidth);
               else {
                 m_messageText[message.id] = layout.plainText;
                 m_hits.push_back({left + 74, top + bodyY, textWidth, layout.height, Action::SelectMessage, message.id});
                 for (const auto& card : layout.forwards) {
                   const float cardY = bodyY + card.y;
                   rectangle(
-                      *content, 50, cardY + (Style::spaceXl - Style::spaceXxs), 3, card.height - 22,
+                      *messageContent, 50, cardY + (Style::spaceXl - Style::spaceXxs), 3, card.height - 22,
                       lerpColor(background, muted, .4F), 1.5F
                   );
-                  glyph(*content, 50, cardY + Style::spaceXxs, Style::glyphSizeSmall, "corner-up-right", muted);
+                  glyph(*messageContent, 50, cardY + Style::spaceXxs, Style::glyphSizeSmall, "corner-up-right", muted);
                   label(
-                      *content, 70, cardY + Style::spaceXxs, textWidth - Style::spaceRelaxed, "Forwarded",
+                      *messageContent, 70, cardY + Style::spaceXxs, textWidth - Style::spaceRelaxed, "Forwarded",
                       Style::fontSizeDescription, muted
                   );
                   const float footerY = cardY + card.height - 19;
@@ -4641,8 +4699,9 @@ namespace app {
                   if (!time.empty())
                     source += (source.empty() ? "" : " · ") + time;
                   if (!source.empty()) {
-                    const auto footerHeight =
-                        label(*content, 62, footerY, textWidth - Style::spaceMd, source, Style::fontSizeMini, muted);
+                    const auto footerHeight = label(
+                        *messageContent, 62, footerY, textWidth - Style::spaceMd, source, Style::fontSizeMini, muted
+                    );
                     const float linkTop = std::max(top, top + footerY),
                                 linkBottom = std::min(bottom, top + footerY + footerHeight);
                     if (origin && linkBottom > linkTop)
@@ -4655,7 +4714,7 @@ namespace app {
                 // Card backgrounds precede nested code/quote decoration.
                 for (const auto& box : layout.boxes) {
                   if (box.divider) {
-                    rectangle(*content, 50 + box.x, bodyY + box.y, box.width, box.height, raised);
+                    rectangle(*messageContent, 50 + box.x, bodyY + box.y, box.width, box.height, raised);
                     continue;
                   }
                   if (!box.link.empty()) {
@@ -4667,7 +4726,7 @@ namespace app {
                             box.link};
                     const bool hidden = box.spoiler && !spoilersVisible(message.id);
                     rectangle(
-                        *content, 50 + box.x, bodyY + box.y, box.width, box.height,
+                        *messageContent, 50 + box.x, bodyY + box.y, box.width, box.height,
                         hidden                                                      ? raised
                             : !box.disabled && hit.contains(m_pointerX, m_pointerY) ? raised
                                                                                     : panel,
@@ -4682,28 +4741,28 @@ namespace app {
                   }
                   if (box.inlineCode) {
                     rectangle(
-                        *content, 50 + box.x, bodyY + box.y + continuationTextOffset, box.width, box.height,
+                        *messageContent, 50 + box.x, bodyY + box.y + continuationTextOffset, box.width, box.height,
                         withAlpha(muted, .2F), Style::radiusSm
                     );
                     rectangle(
-                        *content, 51 + box.x, bodyY + box.y + continuationTextOffset + Style::borderWidth,
+                        *messageContent, 51 + box.x, bodyY + box.y + continuationTextOffset + Style::borderWidth,
                         box.width - Style::spaceXxs, box.height - Style::spaceXxs, panel, Style::radiusXs
                     );
                     continue;
                   }
                   rectangle(
-                      *content, 50 + box.x, bodyY + box.y, box.width, box.height,
+                      *messageContent, 50 + box.x, bodyY + box.y, box.width, box.height,
                       box.quote       ? muted
                           : box.embed ? sidebar
                                       : panel,
                       box.quote ? 0 : Style::radiusMd
                   );
                   if (box.embed && box.embedAccent)
-                    rectangle(*content, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
+                    rectangle(*messageContent, 50 + box.x, bodyY + box.y, 3, box.height, rgbHex(box.color), 1);
                   if (!box.code.empty()) {
                     if (messageHovered) {
                       iconButton(
-                          *content,
+                          *messageContent,
                           {50 + box.x + box.width - 26, bodyY + box.y + Style::spaceXs, 22, 22, Action::CopyCode,
                            box.code},
                           "copy", "Copy code"
@@ -4729,8 +4788,8 @@ namespace app {
                 if (!spoilersVisible(message.id))
                   for (const auto& area : messageSpoilerAreas(layout)) {
                     rectangle(
-                        *content, layout::Chat::authorGutter + area.x, bodyY + area.y, area.width, area.height, raised,
-                        Style::radiusSm
+                        *messageContent, layout::Chat::authorGutter + area.x, bodyY + area.y, area.width, area.height,
+                        raised, Style::radiusSm
                     );
                     m_hits.push_back(
                         {left + layout::Chat::inset + layout::Chat::authorGutter + area.x, top + bodyY + area.y,
@@ -4749,7 +4808,9 @@ namespace app {
                   if (hidden)
                     continue;
                   if (run.channelChip) {
-                    drawChannelLink(*content, run, message.id, rx, ry, left + layout::Chat::inset + rx, top + ry);
+                    drawChannelLink(
+                        *messageContent, run, message.id, rx, ry, left + layout::Chat::inset + rx, top + ry
+                    );
                     continue;
                   }
                   if (m_selectedMessage == message.id && m_selectedText == layout.plainText && m_chatEdit.selected()) {
@@ -4763,12 +4824,14 @@ namespace app {
                       const auto length = run.image.empty()
                           ? measure(std::string_view(run.text).substr(from - run.offset, to - from), run.style)
                           : run.width;
-                      rectangle(*content, rx + offset, ry, length, run.height, withAlpha(accent, .3F), Style::radiusXs);
+                      rectangle(
+                          *messageContent, rx + offset, ry, length, run.height, withAlpha(accent, .3F), Style::radiusXs
+                      );
                     }
                   }
                   if (run.image.empty())
                     label(
-                        *content, rx, ry + continuationTextOffset, std::max(1.0F, run.width + Style::spaceXxs),
+                        *messageContent, rx, ry + continuationTextOffset, std::max(1.0F, run.width + Style::spaceXxs),
                         messageMarkup(run.text, style, false), run.style.size,
                         run.style.historical || run.style.muted            ? muted
                             : run.style.syntax != CodeToken::Plain         ? syntaxColor(run.style.syntax)
@@ -4776,8 +4839,8 @@ namespace app {
                                                                            : accent,
                         FontWeight::Normal, 1, true
                     );
-                  else if (!emojiImage(*content, rx, ry, run.width, run.image))
-                    label(*content, rx, ry, 22, "…", Style::fontSizeBody, muted);
+                  else if (!emojiImage(*messageContent, rx, ry, run.width, run.image))
+                    label(*messageContent, rx, ry, 22, "…", Style::fontSizeBody, muted);
                   m_textAreas.push_back({run, message.id, left + Style::spaceXl + rx, top + ry});
                   if (!run.style.userMention.empty())
                     m_hits.push_back(
@@ -4790,21 +4853,23 @@ namespace app {
                     );
                 }
                 drawMessageStrikes(
-                    *content, layout, layout::Chat::authorGutter, bodyY + continuationTextOffset, foreground,
+                    *messageContent, layout, layout::Chat::authorGutter, bodyY + continuationTextOffset, foreground,
                     spoilersVisible(message.id)
                 );
                 if (layout.edited) {
                   const auto& marker = *layout.edited;
                   label(
-                      *content, 50 + marker.x, bodyY + marker.y + continuationTextOffset,
+                      *messageContent, 50 + marker.x, bodyY + marker.y + continuationTextOffset,
                       marker.width + Style::spaceXxs, "(edited)", marker.size, muted
                   );
                 }
                 for (const auto& pic : layout.pictures) {
                   if (pic.spoiler && !spoilersVisible(message.id)) {
-                    rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, raised, Style::radiusMd);
+                    rectangle(
+                        *messageContent, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, raised, Style::radiusMd
+                    );
                     label(
-                        *content, 50 + pic.x + Style::spaceMd, bodyY + pic.y + Style::spaceMd,
+                        *messageContent, 50 + pic.x + Style::spaceMd, bodyY + pic.y + Style::spaceMd,
                         pic.width - Style::spaceXl, "Spoiler", Style::fontSizeDescription, muted
                     );
                     m_hits.push_back(
@@ -4816,16 +4881,16 @@ namespace app {
                   if (pic.sticker) {
                     const float sx = left + 74 + pic.x, sy = top + bodyY + pic.y;
                     const bool loaded = picture(
-                        *content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 0, false, false,
-                        ImageFitMode::Contain
+                        *messageContent, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, 0, false,
+                        false, ImageFitMode::Contain
                     );
                     if (!loaded) {
                       glyph(
-                          *content, 50 + pic.x + (pic.width - Style::space2Xl) / 2, bodyY + pic.y + Style::spaceXl,
-                          Style::glyphSizeDisplay, "sticker", muted
+                          *messageContent, 50 + pic.x + (pic.width - Style::space2Xl) / 2,
+                          bodyY + pic.y + Style::spaceXl, Style::glyphSizeDisplay, "sticker", muted
                       );
                       label(
-                          *content, 50 + pic.x + Style::spaceXs, bodyY + pic.y + 64, pic.width - Style::spaceSm,
+                          *messageContent, 50 + pic.x + Style::spaceXs, bodyY + pic.y + 64, pic.width - Style::spaceSm,
                           pic.sticker->name, Style::fontSizeDescription, muted, FontWeight::Normal, 2
                       );
                     }
@@ -4836,23 +4901,28 @@ namespace app {
                   if (!pic.videoSource.empty()) {
                     m_videoPosters[pic.videoSource] = pic.media.url;
                     drawVideo(
-                        *content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.videoSource, pic.media.url
+                        *messageContent, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.videoSource,
+                        pic.media.url
                     );
                     continue;
                   }
                   if (pic.video)
-                    rectangle(*content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, Style::radiusMd);
+                    rectangle(
+                        *messageContent, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, panel, Style::radiusMd
+                    );
                   picture(
-                      *content, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, Style::radiusMd, true
+                      *messageContent, 50 + pic.x, bodyY + pic.y, pic.width, pic.height, pic.media.url, Style::radiusMd,
+                      true
                   );
                   const float px = left + 74 + pic.x, py = top + bodyY + pic.y;
                   if (pic.video) {
                     rectangle(
-                        *content, 50 + pic.x + pic.width / 2 - 25, bodyY + pic.y + pic.height / 2 - Style::spaceRelaxed,
-                        50, 40, hovered(px, py, pic.width, pic.height) ? accent : panel, 10
+                        *messageContent, 50 + pic.x + pic.width / 2 - 25,
+                        bodyY + pic.y + pic.height / 2 - Style::spaceRelaxed, 50, 40,
+                        hovered(px, py, pic.width, pic.height) ? accent : panel, 10
                     );
                     label(
-                        *content, 50 + pic.x + pic.width / 2 - 7, bodyY + pic.y + pic.height / 2 - 11, 24, "▶",
+                        *messageContent, 50 + pic.x + pic.width / 2 - 7, bodyY + pic.y + pic.height / 2 - 11, 24, "▶",
                         Style::fontSizeHeader, foreground
                     );
                     m_hits.push_back({px, py, pic.width, pic.height, Action::OpenUrl, pic.link});
@@ -4885,11 +4955,11 @@ namespace app {
                           std::ranges::find(m_gifFavorites, gif.url, &api::Gif::url) != m_gifFavorites.end();
                       m_gifTargets[gif.url] = gif;
                       rectangle(
-                          *content, 50 + pic.x + pic.width - 36, bodyY + pic.y + Style::spaceXs, 30, 30, sidebar,
+                          *messageContent, 50 + pic.x + pic.width - 36, bodyY + pic.y + Style::spaceXs, 30, 30, sidebar,
                           Style::hoverRadius
                       );
                       iconButton(
-                          *content,
+                          *messageContent,
                           {50 + pic.x + pic.width - 36, bodyY + pic.y + Style::spaceXs, 30, 30,
                            m_pendingGifFavorites.contains(gif.url) ? Action::None : Action::FavoriteGif, gif.url},
                           favorite ? "star-filled" : "star", favorite ? "Remove GIF from favorites" : "Favorite GIF",
@@ -4903,28 +4973,51 @@ namespace app {
             if (messageHovered) {
               const float toolbarWidth = message.deleted ? 64 : message.type == 7 ? 94 : 124;
               rectangle(
-                  *content, bodyWidth - 66 - toolbarWidth, y - Style::spaceSm, toolbarWidth, 34, panel,
+                  *messageContent, bodyWidth - 66 - toolbarWidth, y - Style::spaceSm, toolbarWidth, 34, panel,
                   Style::hoverRadius
               );
               iconButton(
-                  *content,
+                  *messageContent,
                   {bodyWidth - 62 - toolbarWidth, y - Style::spaceXs, 28, 26, Action::CopyMessage, message.id}, "copy",
                   "Copy text"
               );
               if (!message.deleted && message.type != 7 && message.type != autoModerationActionType)
                 iconButton(
-                    *content, {bodyWidth - 156, y - Style::spaceXs, 28, 26, Action::Reply, message.id},
+                    *messageContent, {bodyWidth - 156, y - Style::spaceXs, 28, 26, Action::Reply, message.id},
                     "corner-up-left", "Reply"
                 );
               if (!message.deleted)
                 iconButton(
-                    *content, {bodyWidth - 126, y - Style::spaceXs, 28, 26, Action::AddReaction, message.id},
+                    *messageContent, {bodyWidth - 126, y - Style::spaceXs, 28, 26, Action::AddReaction, message.id},
                     "mood-smile", "Add reaction"
                 );
               iconButton(
-                  *content, {bodyWidth - 96, y - Style::spaceXs, 28, 26, Action::MessageMenu, message.id}, "dots",
-                  "More actions"
+                  *messageContent, {bodyWidth - 96, y - Style::spaceXs, 28, 26, Action::MessageMenu, message.id},
+                  "dots", "More actions"
               );
+            }
+            if (failed) {
+              const float statusY = originalY + heights[i] - layout::Chat::pendingStatusHeight;
+              const float restoreWidth = Style::spaceSection * 3;
+              label(
+                  *content, layout::Chat::authorGutter, statusY + Style::spaceSm,
+                  std::max(0.0F, textWidth - restoreWidth - Style::spaceMd), "Not confirmed",
+                  Style::fontSizeDescription, muted
+              );
+              button(
+                  *content,
+                  {layout::Chat::authorGutter + std::max(0.0F, textWidth - restoreWidth), statusY, restoreWidth,
+                   Style::controlHeightSm, Action::RestoreOutgoing, message.nonce},
+                  "Restore"
+              );
+              if (hovered(
+                      left + Style::spaceXl, top + statusY, bodyWidth - Style::spaceGroup,
+                      layout::Chat::pendingStatusHeight
+                  )) {
+                m_tooltip = pending->second.error;
+                m_tooltipX = m_pointerX;
+                m_tooltipY = top + statusY;
+              }
             }
             for (auto index = firstHit; index < m_hits.size(); ++index) {
               auto& hit = m_hits[index];
@@ -4937,7 +5030,7 @@ namespace app {
         }
         const bool loadingConversation =
             m_loadingMessages || (m_channelId.empty() && (m_dmMode ? m_loadingPrivate : m_loadingChannels));
-        if (m_messages.empty() && loadingConversation) {
+        if (timeline.empty() && loadingConversation) {
           // Match the timeline's geometry without presenting fake text or actions.
           // Stable widths avoid reshuffling the skeleton on unrelated repaints.
           const auto nameColor = lerpColor(background, muted, 0.23F);
@@ -4969,7 +5062,7 @@ namespace app {
             }
             rowY += (Style::spaceXl + Style::borderWidth) + count * 20 + (m_preferences.compact ? 12 : 22);
           }
-        } else if (m_messages.empty() && introHeight <= 0) {
+        } else if (timeline.empty() && introHeight <= 0) {
           label(
               *content, 18, 36, bodyWidth - 88,
               m_channelId.empty() ? "Make yourself at home." : "The conversation starts here.", Style::fontSizeFeature,
@@ -4983,11 +5076,11 @@ namespace app {
         }
         std::vector<TimelineAnchor::Row> visibleAnchors;
         float rowY = (bottom - totalHeight) + m_messageScroll + timelineTopPadding + introHeight;
-        for (std::size_t i = 0; i < m_messages.size(); ++i) {
+        for (std::size_t i = 0; i < timeline.size(); ++i) {
           if (unreadIndex && i == *unreadIndex)
             rowY += unreadHeight;
           if (rowY + heights[i] > top && rowY < bottom)
-            visibleAnchors.push_back({m_messages[i].id, rowY});
+            visibleAnchors.push_back({timeline[i].id, rowY});
           rowY += heights[i];
         }
         m_timelineAnchor.remember(std::move(visibleAnchors), m_messageScroll);
@@ -5222,14 +5315,8 @@ namespace app {
         const auto actionY =
             composerY + composerHeight - ((Style::spaceSection - Style::spaceXxs) + Style::borderWidth);
         iconButton(
-            root,
-            {left + (Style::space2Xl - Style::spaceXxs),
-             actionY,
-             32,
-             32,
-             m_sending ? Action::None : Action::PasteClipboard,
-             {}},
-            m_sending ? "loader" : "clipboard-plus", m_sending ? "Sending…" : "Paste from clipboard"
+            root, {left + (Style::space2Xl - Style::spaceXxs), actionY, 32, 32, Action::PasteClipboard, {}},
+            "clipboard-plus", "Paste from clipboard"
         );
         iconButton(
             root, {left + bodyWidth - 62, actionY, 32, 32, Action::ToggleEmoji, {}}, "mood-smile", "Emoji",
@@ -6094,13 +6181,7 @@ namespace app {
   }
 
   void ClientApplication::refresh() {
-    if (forumView()
-        || m_demo
-        || !m_connected
-        || m_channelId.empty()
-        || m_loadingMessages
-        || m_sending
-        || !m_history.atLatest())
+    if (forumView() || m_demo || !m_connected || m_channelId.empty() || m_loadingMessages || !m_history.atLatest())
       return;
     loadHistory(api::HistoryDirection::Latest);
   }
@@ -6305,7 +6386,7 @@ namespace app {
   void ClientApplication::send() {
     if (!canSendToThread())
       return;
-    if (m_demo || !m_connected || m_channelId.empty() || m_sending)
+    if ((m_demo && !m_demoOverlay.starts_with("outgoing-cycle")) || !m_connected || m_channelId.empty())
       return;
     const auto& draft = m_drafts[m_channelId];
     std::vector<api::Upload> uploads;
@@ -6318,12 +6399,11 @@ namespace app {
       m_window.invalidate();
       return;
     }
-    const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
     auto content = m_emojiCatalog.messageContent(
         m_preferences.convertEmoticons ? convertMessageEmoticons(draft) : draft, m_dmMode ? "" : m_guildId,
         m_account.premiumType.value_or(0), m_preferences.emojiImageLinks
     );
-    std::vector<std::string> stickerIds, selectedStickerIds;
+    std::vector<std::string> stickerIds;
     for (const auto& selected : m_draftStickers[m_channelId]) {
       auto sticker = selected;
       for (const auto& [_, values] : m_stickers)
@@ -6345,20 +6425,8 @@ namespace app {
           content += '\n';
         content += api::stickerImageLink(sticker);
       }
-      selectedStickerIds.push_back(sticker.id);
     }
-    if (!m_client.send(m_channelId, content, std::move(uploads), reply, std::move(stickerIds))) {
-      m_status = "Messages can contain up to 2,000 characters. Please try again.";
-    } else {
-      m_pendingDraft = draft;
-      m_pendingStickerIds = std::move(selectedStickerIds);
-      m_pendingReply = reply;
-      m_pendingAttachments.clear();
-      for (const auto& image : m_attachments[m_channelId])
-        m_pendingAttachments.push_back(image.key);
-      m_sending = true;
-      m_status = "Sending…";
-    }
+    queueOutgoing(std::move(content), std::move(uploads), std::move(stickerIds), m_draftStickers[m_channelId]);
     m_window.invalidate();
   }
 
@@ -6540,7 +6608,6 @@ namespace app {
         m_live = false;
         m_connected = false;
         m_connecting = false;
-        m_sending = false;
         m_guildChannels.clear();
         clearThreads();
         clearChatPreload();
@@ -6567,7 +6634,6 @@ namespace app {
           for (auto& image : images)
             m_window.context().textureManager().unload(image.texture);
         m_attachments.clear();
-        m_pendingAttachments.clear();
         m_edit = {};
         m_selectedText.clear();
         m_selectedMessage.clear();
@@ -6955,6 +7021,8 @@ namespace app {
         }
       } else if (event.operation == api::Operation::MessageCreate) {
         typingEvent(event);
+        for (auto& message : event.messages)
+          confirmOutgoing(message);
         std::erase_if(event.messages, [&](const auto& message) {
           return m_dismissedEphemeral.contains(message.id) || m_messageLog.known(event.resource, message.id);
         });
@@ -7023,74 +7091,11 @@ namespace app {
       } else if (event.operation == api::Operation::MessageDelete) {
         deleteMessages(event.resource, event.removed);
       } else if (event.operation == api::Operation::Send) {
-        m_sending = false;
-        if (event.error.empty()) {
-          for (auto& message : event.messages)
-            if (m_pendingReply
-                && message.reply
-                && !message.reply->available
-                && message.reply->message == m_pendingReply->message
-                && event.resource == m_pendingReply->channel) {
-              message.reply = m_pendingReply;
-              message.reply->available = true;
-            }
-          if (!m_sentGif && !m_sentSticker && m_drafts[event.resource] == m_pendingDraft) {
-            m_drafts[event.resource].clear();
-            if (m_pendingReply
-                && m_replies.contains(event.resource)
-                && m_replies[event.resource].message == m_pendingReply->message)
-              m_replies.erase(event.resource);
-          }
-          if (event.resource == m_channelId)
-            m_edit.clamp(m_drafts[event.resource]);
-          if ((m_sentGif || m_sentSticker)
-              && m_pendingReply
-              && m_replies.contains(event.resource)
-              && m_replies[event.resource].message == m_pendingReply->message)
-            m_replies.erase(event.resource);
-          std::erase_if(m_attachments[event.resource], [&](auto& image) {
-            if (std::ranges::find(m_pendingAttachments, image.key) == m_pendingAttachments.end())
-              return false;
-            m_window.context().textureManager().unload(image.texture);
-            return true;
-          });
-          if (event.resource == m_channelId) {
-            m_scrolling.stop(m_messageScroll);
-            m_messageScroll = 0;
-            m_timelineAnchor.reset();
-            if (!m_history.atLatest()) {
-              m_history.reset();
-              m_adoptedChatPreload.reset();
-              m_messages.clear();
-              m_messageLayouts.clear();
-              loadHistory(api::HistoryDirection::Latest);
-            }
-            for (auto& message : event.messages) {
-              if (m_messageLog.known(event.resource, message.id))
-                continue;
-              m_liveChanges[message.id] = message;
-              upsertMessage(std::move(message));
-            }
-          }
-          m_status.clear();
-        }
-        if (event.error.empty()) {
-          for (const auto& id : m_pendingStickerIds)
-            m_sessionStore.recordSticker(m_account.id, id);
-          if (!m_pendingStickerIds.empty()) {
-            m_recentStickers = m_sessionStore.frequentStickers(m_account.id);
-            ++m_stickerRevision;
-          }
-          std::erase_if(m_draftStickers[event.resource], [&](const auto& sticker) {
-            return std::ranges::find(m_pendingStickerIds, sticker.id) != m_pendingStickerIds.end();
-          });
-        }
-        m_pendingStickerIds.clear();
-        m_sentSticker = false;
-        m_pendingDraft.clear();
-        m_sentGif = false;
-        m_pendingReply.reset();
-        m_pendingAttachments.clear();
+        if (event.unauthorized)
+          m_status = event.error;
+        outgoingResult(event);
+        m_window.invalidate();
+        continue;
       }
       if (event.operation == api::Operation::Acknowledge && !event.error.empty()) {
         m_unreadTimeline.failed(event.resource, event.messageId);
@@ -7193,7 +7198,7 @@ namespace app {
   void ClientApplication::insert(std::string text) {
     if (!m_connected && !m_showTokenEntry)
       return;
-    if (!m_fieldFocused || m_connecting || (m_connected && (m_demo || m_sending || m_channelId.empty())))
+    if (!m_fieldFocused || m_connecting || (m_connected && (m_demo || m_channelId.empty())))
       return;
     if (!g_utf8_validate(text.data(), text.size(), nullptr))
       return;
@@ -7345,7 +7350,7 @@ namespace app {
         m_edit.clamp(field);
         if (m_edit.selected()) {
           m_window.copy(m_edit.selection(field));
-          if ((key.symbol == XKB_KEY_x || key.symbol == XKB_KEY_X) && !m_sending)
+          if ((key.symbol == XKB_KEY_x || key.symbol == XKB_KEY_X))
             m_edit.replace(field, {});
         }
       } else if (!m_fieldFocused && m_chatEdit.selected() && !m_selectedText.empty())
@@ -7381,7 +7386,7 @@ namespace app {
         beginLogin();
       return;
     }
-    if (!m_fieldFocused || m_connecting || (m_connected && (m_demo || m_sending)))
+    if (!m_fieldFocused || m_connecting || (m_connected && (m_demo)))
       return;
     auto& field = m_connected ? m_drafts[m_channelId] : m_token;
     m_edit.clamp(field);
@@ -7879,17 +7884,10 @@ namespace app {
     case Action::SendGif:
       if (!canSendToThread())
         break;
-      if (const auto gif = m_gifTargets.find(hit.id);
-          gif != m_gifTargets.end() && !m_demo && !m_sending && !m_channelId.empty()) {
-        const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
-        if (m_client.send(m_channelId, gif->second.url, {}, reply)) {
-          m_sending = m_sentGif = true;
-          m_pendingDraft.clear();
-          m_pendingAttachments.clear();
-          m_pendingReply = reply;
-          m_status = "Sending GIF…";
+      if (const auto gif = m_gifTargets.find(hit.id); gif != m_gifTargets.end() && !m_demo && !m_channelId.empty()) {
+        if (queueOutgoing(gif->second.url, {}, {}, {}, false, gif->second))
           closeGifPicker();
-        } else
+        else
           m_gifError = "Could not send this GIF. Check the connection.";
       }
       break;
@@ -7898,6 +7896,9 @@ namespace app {
       focusControl("composer");
       if (!m_demo)
         pasteControl("composer", hit.id);
+      break;
+    case Action::RestoreOutgoing:
+      restoreOutgoing(hit.id);
       break;
     case Action::Send:
       send();
@@ -7948,13 +7949,12 @@ namespace app {
       openDraftAttachment(hit.id);
       break;
     case Action::RemoveAttachment:
-      if (!m_sending)
-        std::erase_if(m_attachments[m_channelId], [&](auto& image) {
-          if (image.key != hit.id)
-            return false;
-          m_window.context().textureManager().unload(image.texture);
-          return true;
-        });
+      std::erase_if(m_attachments[m_channelId], [&](auto& image) {
+        if (image.key != hit.id)
+          return false;
+        m_window.context().textureManager().unload(image.texture);
+        return true;
+      });
       break;
     case Action::SignOut:
       m_desktopNotifications.clear();
@@ -7983,7 +7983,6 @@ namespace app {
       m_connected = false;
       m_demo = false;
       m_connecting = false;
-      m_sending = false;
       m_live = false;
       m_dmMode = false;
       m_dmPage.clear();
@@ -8035,7 +8034,6 @@ namespace app {
         for (auto& image : images)
           m_window.context().textureManager().unload(image.texture);
       m_attachments.clear();
-      m_pendingAttachments.clear();
       m_edit = {};
       m_selectedText.clear();
       m_selectedMessage.clear();
@@ -8043,7 +8041,6 @@ namespace app {
       m_draftMentionNames.clear();
       m_guildId.clear();
       m_channelId.clear();
-      m_pendingDraft.clear();
       m_status.clear();
       m_fieldFocused = true;
       m_showTokenEntry = false;

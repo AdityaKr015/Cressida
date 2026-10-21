@@ -87,6 +87,7 @@ namespace app {
     );
   }
   ClientApplication::~ClientApplication() {
+    clearOutgoing();
     m_trayStartupTimer.stop();
     m_trayDemoTimer.stop();
     closeSelectDropdown();
@@ -695,6 +696,7 @@ namespace app {
                 : id == "composer"     ? !m_demo
                     || m_demoOverlay == "sidebar-cycle"
                     || m_demoOverlay == "inline-edit-cycle"
+                    || m_demoOverlay.starts_with("outgoing-cycle")
                     || m_demoOverlay.starts_with("reply-cycle")
                     || m_demoOverlay.starts_with("chat-links-cycle")
                     || m_demoOverlay.starts_with("autocomplete")

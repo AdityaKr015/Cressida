@@ -214,6 +214,18 @@ namespace app {
     return true;
   }
   const ClientApplication::DraftImage* ClientApplication::draftImage(std::string_view path) const {
+    if (path.starts_with("pending-attachment:")) {
+      const auto suffix = path.substr(std::string_view("pending-attachment:").size());
+      const auto separator = suffix.find(':');
+      if (separator == std::string_view::npos)
+        return nullptr;
+      const auto pending = m_pendingSends.find(std::string(suffix.substr(0, separator)));
+      if (pending == m_pendingSends.end() || pending->second.preview.channelId != m_channelId)
+        return nullptr;
+      const auto& images = pending->second.images;
+      const auto image = std::ranges::find(images, suffix.substr(separator + 1), &DraftImage::key);
+      return image == images.end() ? nullptr : &*image;
+    }
     if (!path.starts_with(draftImagePrefix))
       return nullptr;
     const auto draft = m_attachments.find(m_channelId);
@@ -367,7 +379,7 @@ namespace app {
   }
   void ClientApplication::drawImageViewer(Node& root, float w, float h) {
     const auto* draft = draftImage(m_viewImage);
-    if (m_viewImage.starts_with(draftImagePrefix) && !draft) {
+    if ((m_viewImage.starts_with(draftImagePrefix) || m_viewImage.starts_with("pending-attachment:")) && !draft) {
       // A send acknowledgement or removal can release this texture while the
       // viewer is open. Resolve it from the draft on each frame; never own it twice.
       closeImageViewer();

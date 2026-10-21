@@ -283,6 +283,7 @@ namespace api {
     bool deleted = false;
     std::optional<ForwardedMessage> forwarded;
     std::vector<Sticker> stickers;
+    std::string nonce;
   };
 
   struct MessagePatch {

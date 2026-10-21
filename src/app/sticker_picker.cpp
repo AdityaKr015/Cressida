@@ -13,7 +13,7 @@ namespace app {
   using namespace theme;
 
   void ClientApplication::clearStickers() {
-    m_stickerTab = m_stickerInfo = m_sentSticker = false;
+    m_stickerTab = m_stickerInfo = false;
     m_stickers.clear();
     m_loadedStickerSources.clear();
     m_loadingStickerSources.clear();
@@ -24,7 +24,6 @@ namespace app {
     m_inspectedSticker.reset();
     m_stickerSection = "all";
     m_stickerFilter.clear();
-    m_pendingStickerIds.clear();
     m_draftStickers.clear();
     ++m_stickerRevision;
   }
@@ -207,7 +206,7 @@ namespace app {
       std::erase_if(m_draftStickers[m_channelId], [&](const auto& sticker) { return sticker.id == hit.id; });
     } else if (hit.action == Action::SendSticker) {
       const auto target = m_stickerTargets.find(hit.id);
-      if (target == m_stickerTargets.end() || !canSendToThread() || m_sending || m_channelId.empty())
+      if (target == m_stickerTargets.end() || !canSendToThread() || m_channelId.empty())
         return;
       const auto sticker = target->second;
       const auto reason = stickerRestriction(sticker);
@@ -237,18 +236,12 @@ namespace app {
       const auto reply = m_replies.contains(m_channelId) ? std::optional(m_replies.at(m_channelId)) : std::nullopt;
       if (m_demo)
         return;
-      if (m_client.send(
-              m_channelId, link ? api::stickerImageLink(sticker) : "", {}, reply,
-              link ? std::vector<std::string>{} : std::vector{sticker.id}
-          )) {
-        m_sending = m_sentSticker = true;
-        m_pendingStickerIds = {sticker.id};
-        m_pendingDraft.clear();
-        m_pendingAttachments.clear();
-        m_pendingReply = reply;
-        m_status = "Sending sticker…";
+      if (queueOutgoing(
+              link ? api::stickerImageLink(sticker) : "", {},
+              link ? std::vector<std::string>{} : std::vector{sticker.id}, {sticker}, false
+          ))
         closeEmojiPicker();
-      } else
+      else
         m_stickerErrors["send"] = "Could not send this sticker. Check the connection.";
     }
   }

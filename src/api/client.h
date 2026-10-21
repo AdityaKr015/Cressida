@@ -187,7 +187,7 @@ namespace api {
     bool promotePreload(const std::string& channel, const HistoryQuery& query);
     bool send(
         const std::string& channelId, std::string content, std::vector<Upload> uploads = {},
-        std::optional<MessageReference> reply = {}, std::vector<std::string> stickers = {}
+        std::optional<MessageReference> reply = {}, std::vector<std::string> stickers = {}, std::string nonce = {}
     );
     bool interact(api::Interaction action);
     bool profile();
@@ -238,6 +238,7 @@ namespace api {
       std::shared_ptr<RestReadIntent> readIntent;
       std::chrono::steady_clock::time_point queuedAt = std::chrono::steady_clock::now();
       std::vector<std::string> stickers;
+      std::string nonce;
     };
     struct PreloadRead {
       std::uint64_t session;

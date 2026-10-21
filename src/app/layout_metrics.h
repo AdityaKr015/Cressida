@@ -235,6 +235,7 @@ namespace app::layout {
   struct Chat {
     static constexpr auto jumpHighlightDuration = std::chrono::seconds{2};
     static constexpr float jumpHighlightOpacity = .18F;
+    static constexpr float pendingStatusHeight = Style::controlHeightSm + Style::spaceXs;
     static constexpr float inset = 24;
     static constexpr float avatarSize = 40;
     static constexpr float authorGutter = 50;

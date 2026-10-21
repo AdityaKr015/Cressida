@@ -35,6 +35,43 @@ int main() {
     next.content = "Second";
     next.timestamp = "2026-10-17T09:42:00Z";
     require(app::continuesMessageGroup(first, next), "Consecutive ordinary messages share the author header");
+    auto pending = next;
+    pending.id = "pending:123";
+    pending.author = "Account display name";
+    pending.avatar = "account-avatar";
+    require(
+        !app::continuesMessageGroup(first, pending) && app::continuesMessageGroup(first, pending, true),
+        "Pending follow-ups group by account identity before server profile fields arrive"
+    );
+    auto recent = first;
+    recent.timestamp = "2026-10-17T09:41:00.999Z";
+    pending.timestamp = "2026-10-17T09:41:00.998Z";
+    require(
+        app::continuesMessageGroup(recent, pending, true),
+        "Small local clock differences do not split a pending follow-up"
+    );
+    pending.timestamp = "2026-10-17T09:40:00Z";
+    require(
+        !app::continuesMessageGroup(recent, pending, true),
+        "Large reversed timestamp gaps retain a separate pending header"
+    );
+    pending.timestamp = "2026-10-17T09:48:00Z";
+    require(
+        !app::continuesMessageGroup(first, pending, true), "Pending messages retain the normal seven-minute boundary"
+    );
+    pending.timestamp = next.timestamp;
+    pending.reply = api::MessageReference{.message = "99", .channel = first.channelId};
+    require(!app::continuesMessageGroup(first, pending, true), "A pending reply always retains its own header");
+    pending.reply.reset();
+    pending.authorId = "12";
+    require(!app::continuesMessageGroup(first, pending, true), "Pending grouping cannot merge different authors");
+    pending = first;
+    pending.timestamp = "2026-10-18T00:00:00.001Z";
+    recent.timestamp = "2026-10-17T23:59:59.999Z";
+    require(
+        !app::continuesMessageGroup(recent, pending, true),
+        "Pending messages retain a header across a calendar-day boundary"
+    );
     next.timestamp = "2026-10-17T09:47:59.999Z";
     require(app::continuesMessageGroup(first, next), "Short runs can continue just below the seven-minute boundary");
     next.timestamp = "2026-10-17T09:48:00Z";

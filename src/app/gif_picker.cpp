@@ -29,7 +29,7 @@ namespace app {
     m_gifRequestedQuery.clear();
     m_gifError.clear();
     m_gifFavoriteError.clear();
-    m_loadingGifs = m_loadingGifFavorites = m_gifFavoritesLoaded = m_gifFavoritesDirty = m_sentGif = false;
+    m_loadingGifs = m_loadingGifFavorites = m_gifFavoritesLoaded = m_gifFavoritesDirty = false;
     m_gifFavoritesTab = false;
     m_gifScroll = 0;
   }

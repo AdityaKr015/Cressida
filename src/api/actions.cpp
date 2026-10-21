@@ -345,15 +345,22 @@ namespace api {
     return result;
   }
   nlohmann::json messageBody(
-      const std::string& content, const std::optional<MessageReference>& reply, const std::vector<std::string>& stickers
+      const std::string& content, const std::optional<MessageReference>& reply,
+      const std::vector<std::string>& stickers, std::string_view nonce
   ) {
     if (!validStickerIds(stickers))
       throw std::invalid_argument("Invalid sticker IDs");
+    if (!nonce.empty() && !validSnowflake(std::string(nonce)))
+      throw std::invalid_argument("Invalid message nonce");
     nlohmann::json result{
         {"content", content},
         {"allowed_mentions",
          {{"parse", nlohmann::json::array({"users", "roles", "everyone"})}, {"replied_user", reply && reply->mention}}}
     };
+    if (!nonce.empty()) {
+      result["nonce"] = nonce;
+      result["enforce_nonce"] = true;
+    }
     if (!stickers.empty())
       result["sticker_ids"] = stickers;
     if (reply && validSnowflake(reply->message) && validSnowflake(reply->channel))

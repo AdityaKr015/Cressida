@@ -13,6 +13,17 @@ composer and no control has focus, pressing a key focuses it and applies that
 key to your draft. Shortcuts, Tab navigation and Escape keep their usual
 actions. Open dialogs, pickers, settings and editors keep their own focus.
 
+Messages appear in the conversation immediately in a dimmed state, including
+local image previews. They use normal colors once delivery is confirmed. You can
+keep typing and send another message while an earlier one is pending. Pending
+follow-ups share the previous message group and do not repeat your avatar.
+
+If delivery cannot be confirmed, the pending message shows **Not confirmed**.
+Choose **Restore** to move its text, attachments and reply back to an empty
+composer. Your newer draft is kept until you clear it. Cressida does not retry
+automatically, since a delayed confirmation could mean the message already
+arrived. Pending messages are kept for the current session only.
+
 ## Reply to someone
 
 Hover a message and choose **Reply**. The composer shows who you are replying

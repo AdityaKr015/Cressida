@@ -30,6 +30,7 @@ class Handler(BaseHTTPRequestHandler):
             assert payload["message_reference"] == {"message_id": "20", "channel_id": "10", "fail_if_not_exists": True}
             assert payload["allowed_mentions"]["replied_user"] is False
             assert payload["allowed_mentions"]["parse"] == ["users", "roles", "everyone"]
+            assert payload["nonce"] == "123456789" and payload["enforce_nonce"] is True
             assert "flags" not in payload
             assert len(payload["attachments"]) == 2
             for index, extension in enumerate(("png", "jpg")):

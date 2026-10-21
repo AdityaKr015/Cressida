@@ -269,6 +269,26 @@ int main() {
         "New messages allow normal user, role and everyone mentions without silent-message flags"
     );
     MessageReference reply{"20", "10", "7", "Friend", "Original"};
+    const auto identified = messageBody(mentions, reply, {}, "12345");
+    require(
+        identified["nonce"] == "12345"
+            && identified["enforce_nonce"] == true
+            && identified["allowed_mentions"] == normal["allowed_mentions"],
+        "Outgoing correlation preserves normal mention handling"
+    );
+    require(
+        !normal.contains("nonce") && !normal.contains("enforce_nonce"),
+        "Non-send payloads do not acquire a request identity"
+    );
+    const auto echoes = parseMessages(
+        json::array(
+            {{{"id", "91"}, {"nonce", "12345"}}, {{"id", "92"}, {"nonce", 12346}}, {{"id", "93"}, {"nonce", nullptr}}}
+        )
+    );
+    require(
+        echoes.size() == 3 && echoes[0].nonce == "12345" && echoes[1].nonce == "12346" && echoes[2].nonce.empty(),
+        "String and numeric nonce echoes are normalized"
+    );
     auto body = messageBody(mentions, reply);
     require(
         body["message_reference"]["message_id"] == "20"

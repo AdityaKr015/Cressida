@@ -49,7 +49,9 @@ int main(int argc, char** argv) {
         if (!generated.insert(upload.filename).second)
           throw std::runtime_error("Every attachment receives an independent random name");
     }
-    auto body = api::messageBody("first\nsecond 🌿 <@7> <@&8> @everyone @here", api::MessageReference{"20", "10"});
+    auto body = api::messageBody(
+        "first\nsecond 🌿 <@7> <@&8> @everyone @here", api::MessageReference{"20", "10"}, {}, "123456789"
+    );
     body.update(
         json{
             {"content", "first\nsecond 🌿 <@7> <@&8> @everyone @here"},

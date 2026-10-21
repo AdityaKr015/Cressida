@@ -107,7 +107,7 @@ namespace api {
   createdDm(const nlohmann::json& response, const std::vector<std::string>& recipients, const std::string& self);
   nlohmann::json messageBody(
       const std::string& content, const std::optional<MessageReference>& reply = {},
-      const std::vector<std::string>& stickers = {}
+      const std::vector<std::string>& stickers = {}, std::string_view nonce = {}
   );
   std::string reactionKey(const Reaction& reaction);
   nlohmann::json decodeRestBody(long status, std::string_view bytes);

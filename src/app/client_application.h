@@ -144,6 +144,7 @@ namespace app {
       ToggleMembers,
       DmProfileRetry,
       Send,
+      RestoreOutgoing,
       PasteClipboard,
       ToggleEmoji,
       ToggleStickers,
@@ -963,20 +964,19 @@ namespace app {
     std::string m_emojiQuery, m_emojiSection = "all", m_emojiError, m_emojiHovered, m_emojiJump;
     Hit m_emojiBounds{};
     float m_emojiScroll = 0, m_emojiRailScroll = 0;
-    bool m_stickerTab = false, m_stickerInfo = false, m_sentSticker = false;
+    bool m_stickerTab = false, m_stickerInfo = false;
     std::map<std::string, std::vector<api::Sticker>> m_stickers;
     std::set<std::string> m_loadedStickerSources, m_loadingStickerSources;
     std::map<std::string, std::string> m_stickerErrors;
     std::vector<std::pair<std::string, std::vector<api::Sticker>>> m_stickerGroups;
     std::vector<std::string> m_recentStickers;
     std::string m_stickerSection = "all", m_stickerFilter;
-    std::vector<std::string> m_pendingStickerIds;
     std::map<std::string, std::vector<api::Sticker>> m_draftStickers;
     std::map<std::string, api::Sticker> m_stickerTargets;
     std::optional<api::Sticker> m_inspectedSticker;
     std::uint64_t m_stickerRevision = 0;
     bool m_gifMenu = false, m_gifFavoritesTab = false, m_loadingGifs = false, m_loadingGifFavorites = false,
-         m_gifFavoritesLoaded = false, m_gifFavoritesDirty = false, m_sentGif = false;
+         m_gifFavoritesLoaded = false, m_gifFavoritesDirty = false;
     std::string m_gifQuery, m_gifRequestedQuery, m_gifError, m_gifFavoriteError;
     std::vector<api::Gif> m_gifs, m_gifFavorites;
     std::map<std::string, api::Gif> m_gifTargets;
@@ -1037,7 +1037,6 @@ namespace app {
     std::uint64_t m_dialogGeneration = 0, m_pasteDialogGeneration = 0;
     std::set<std::string> m_pendingInteractions, m_revealedBlocked;
     std::map<std::string, api::MessageReference> m_replies;
-    std::optional<api::MessageReference> m_pendingReply;
     std::string m_reactionMessage, m_reactionChannel;
     struct ReactorPage {
       std::vector<api::Account> users;
@@ -1230,7 +1229,6 @@ namespace app {
     std::string m_guildId;
     std::string m_channelId;
     std::string m_status;
-    std::string m_pendingDraft;
     std::map<std::string, std::string> m_drafts;
     std::map<std::string, std::map<std::string, std::string>> m_draftMentionNames;
     struct DraftImage {
@@ -1239,7 +1237,29 @@ namespace app {
       std::string key;
     };
     std::map<std::string, std::vector<DraftImage>> m_attachments;
-    std::vector<std::string> m_pendingAttachments;
+    struct PendingSend {
+      api::Message preview;
+      std::string draft;
+      std::vector<DraftImage> images;
+      std::vector<api::Sticker> stickers;
+      std::map<std::string, std::string> mentions;
+      std::string confirmed, error;
+      bool completed = false, composer = false;
+    };
+    std::map<std::string, PendingSend> m_pendingSends;
+    bool queueOutgoing(
+        std::string content, std::vector<api::Upload> uploads = {}, std::vector<std::string> stickers = {},
+        std::vector<api::Sticker> previews = {}, bool consumeDraft = true, std::optional<api::Gif> gif = {}
+    );
+    void confirmOutgoing(api::Message& message);
+    void outgoingResult(api::Event& event);
+    void releaseOutgoing(PendingSend& pending);
+    void clearOutgoing();
+    void restoreOutgoing(const std::string& nonce);
+    void demoOutgoingStep();
+    static constexpr int outgoingReplayFrames = 12;
+    std::vector<std::string> m_demoOutgoingNonces;
+    std::uint32_t m_demoOutgoingTexture = 0;
     struct ViewerImage {
       std::string path, url;
       float width = 0, height = 0;
