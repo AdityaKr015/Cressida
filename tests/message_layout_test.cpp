@@ -783,6 +783,53 @@ int main(int argc, char** argv) {
         std::ranges::any_of(mentions.runs, [](const auto& run) { return run.style.mention && !run.style.bold; }),
         "Mention names cannot inject Markdown and receive mention styling"
     );
+    app::MessageOptions roleOptions{.roleMention = [](std::string_view id) {
+      return id == "50" ? "Nightwatch **literal**" : "";
+    }};
+    api::Message roleMessage;
+    roleMessage.content = "Hello <@&50>, <@50> and <@&51>. `<@&50>`";
+    roleMessage.mentions = {{"50", "Maya"}, {"51", "Wrong user alias"}};
+    const auto resolvedRoles = app::layoutRichMessage(roleMessage, 2400, editMeasure, 14, roleOptions);
+    require(
+        resolvedRoles.plainText.contains("@Nightwatch **literal**")
+            && resolvedRoles.plainText.contains("@Maya")
+            && resolvedRoles.plainText.contains("@unknown-role")
+            && resolvedRoles.plainText.contains("<@&50>"),
+        "Role mentions use their own resolver, preserve code and never borrow user aliases"
+    );
+    require(
+        std::ranges::any_of(
+            resolvedRoles.runs,
+            [](const auto& run) {
+              return run.text.contains("Nightwatch")
+                  && run.style.mention
+                  && !run.style.bold
+                  && run.style.userMention.empty();
+            }
+        ),
+        "Role names are literal highlighted text without user profile targets"
+    );
+    require(
+        app::layoutRichMessage(roleMessage, 2400, editMeasure).plainText.contains("@unknown-role"),
+        "Unavailable role directories keep an explicit fallback"
+    );
+    const auto roleReply = app::layoutReplyPreview(
+        {.author = "Maya", .content = "<@&50>", .available = true}, "Maya", 2400, editMeasure, roleOptions
+    );
+    require(
+        roleReply.plainText.contains("@Nightwatch **literal**"), "Reply previews resolve roles with the same server"
+    );
+    const std::array roleVersions{roleMessage};
+    const auto roleHistory = app::withEditHistory(resolvedRoles, roleVersions, 2400, editMeasure, 14, roleOptions);
+    require(
+        std::ranges::any_of(
+            roleHistory.runs,
+            [](const auto& run) {
+              return run.style.historical && run.text.contains("Nightwatch") && run.style.userMention.empty();
+            }
+        ),
+        "Retained edit history resolves role mentions without turning them into users"
+    );
     auto malformed = app::layoutMessage("<:broken:abc>", 400, measure);
     require(
         malformed.runs.size() == 1 && malformed.runs[0].image.empty() && malformed.runs[0].text == "<:broken:abc>",

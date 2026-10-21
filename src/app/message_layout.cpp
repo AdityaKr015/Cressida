@@ -575,6 +575,11 @@ namespace app {
                       : token.starts_with('#')                     ? "unknown-channel"
                       : token.starts_with("@&")                    ? "unknown-role"
                                                                    : "unknown-user";
+                  if (token.starts_with("@&")) {
+                    name = options && options->roleMention ? options->roleMention(id) : "";
+                    if (name.empty())
+                      name = "unknown-role";
+                  }
                   const auto previous = style;
                   style.mention = true;
                   style.link.clear();

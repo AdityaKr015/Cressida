@@ -4143,13 +4143,19 @@ namespace app {
                   {.emojiImageLinks = m_preferences.emojiImageLinks && m_preferences.showImages,
                    .compact = m_preferences.compact,
                    .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); },
-                   .channelMention = [this](auto guild, auto channel) { return channelMention(guild, channel); }}
+                   .channelMention = [this](auto guild, auto channel) { return channelMention(guild, channel); },
+                   .roleMention = [this](
+                                      auto role
+                                  ) { return m_roleDirectory.roleName(m_dmMode ? "" : m_guildId, std::string(role)); }}
               );
               cached.layout = withEditHistory(
                   std::move(cached.layout), versions, textWidth, measure, m_preferences.messageSize,
                   {.compact = m_preferences.compact,
                    .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); },
-                   .channelMention = [this](auto guild, auto channel) { return channelMention(guild, channel); }}
+                   .channelMention = [this](auto guild, auto channel) { return channelMention(guild, channel); },
+                   .roleMention = [this](
+                                      auto role
+                                  ) { return m_roleDirectory.roleName(m_dmMode ? "" : m_guildId, std::string(role)); }}
               );
             }
             cached.reply = reply
@@ -4158,7 +4164,11 @@ namespace app {
                       measure,
                       {.emojiImageLinks = m_preferences.emojiImageLinks,
                        .compact = true,
-                       .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); }}
+                       .unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); },
+                       .roleMention =
+                           [this](auto role) {
+                             return m_roleDirectory.roleName(m_dmMode ? "" : m_guildId, std::string(role));
+                           }}
                   )
                 : MessageLayout{};
             cached.replySource = std::move(reply);

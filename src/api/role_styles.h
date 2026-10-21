@@ -45,6 +45,7 @@ namespace api {
   public:
     void apply(const RoleUpdates& updates);
     std::vector<ColoredRole> allRoles(const std::string& guild) const;
+    std::string roleName(const std::string& guild, const std::string& role) const;
     std::optional<std::vector<std::string>> memberships(const std::string& guild, const std::string& user) const;
     std::string owner(const std::string& guild) const;
     std::optional<RoleColors> colors(

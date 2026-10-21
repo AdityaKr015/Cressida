@@ -53,7 +53,8 @@ namespace api {
           + "&roles="
           + (q.roles ? "true" : "false")
           + "&everyone="
-          + (q.everyone ? "true" : "false");
+          + (q.everyone ? "true" : "false")
+          + "&feature=notifications-inbox";
       if (!q.guild.empty())
         path += "&guild_id=" + q.guild;
       if (!q.before.empty())

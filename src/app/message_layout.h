@@ -98,6 +98,7 @@ namespace app {
       bool locked = false;
     };
     std::function<ChannelMention(std::string_view, std::string_view)> channelMention;
+    std::function<std::string(std::string_view)> roleMention;
   };
   MessageLayout layoutRichMessage(
       const api::Message& message, float width,

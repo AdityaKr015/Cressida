@@ -32,8 +32,10 @@ channel as read.
 
 **Older** loads the next page and **Newest** returns to recent mentions. Filters
 can limit results to the current server and include or exclude role mentions and
-everyone mentions. Muted conversations are hidden until **Include muted** is
-selected.
+everyone mentions. Mentions in muted conversations remain visible. **Include
+muted** applies only to the Unread tab. Role mentions display the role's name
+from the server where the message was sent, including in replies and saved
+messages.
 
 ## Bookmarks
 

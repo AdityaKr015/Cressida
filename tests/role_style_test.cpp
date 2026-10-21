@@ -14,7 +14,7 @@ int main() {
   };
   try {
     api::RoleDirectory directory;
-    auto solid = json{{"id", "50"}, {"position", 1}, {"color", 0xFF8844}};
+    auto solid = json{{"id", "50"}, {"name", "Nightwatch"}, {"position", 1}, {"color", 0xFF8844}};
     auto gradient = json{
         {"id", "60"},
         {"position", 2},
@@ -45,6 +45,13 @@ int main() {
          )}
     };
     directory.apply(api::parseRoleUpdates("READY", ready));
+    require(directory.roleName("1", "50") == "Nightwatch", "Mention names resolve directly from READY roles");
+    require(
+        directory.roleName("2", "50").empty()
+            && directory.roleName("", "50").empty()
+            && directory.roleName("1", "999").empty(),
+        "Unknown roles and other server contexts never borrow a role name"
+    );
     require(
         directory.colors("1", "11") == api::RoleColors{0xF05090, 0x50CCFF, {}},
         "Highest colored role wins over higher colorless roles; new colors override legacy color"
@@ -71,12 +78,17 @@ int main() {
     require(directory.colors("1", "11")->primary == 0xFF8844, "Partial member updates preserve roles");
     directory.apply(
         api::parseRoleUpdates(
-            "GUILD_ROLE_UPDATE", json{{"guild_id", "1"}, {"role", {{"id", "50"}, {"position", 1}, {"color", 0x2255AA}}}}
+            "GUILD_ROLE_UPDATE",
+            json{
+                {"guild_id", "1"}, {"role", {{"id", "50"}, {"name", "Moonwatch"}, {"position", 1}, {"color", 0x2255AA}}}
+            }
         )
     );
     require(directory.colors("1", "11")->primary == 0x2255AA, "Live role edits replace colors");
+    require(directory.roleName("1", "50") == "Moonwatch", "Live role edits refresh mention names");
     directory.apply(api::parseRoleUpdates("GUILD_ROLE_DELETE", json{{"guild_id", "1"}, {"role_id", "50"}}));
     require(!directory.colors("1", "11"), "Deleting the only colored role restores default color");
+    require(directory.roleName("1", "50").empty(), "Deleted roles cannot retain stale mention names");
     directory.apply(
         api::parseRoleUpdates(
             "GUILD_MEMBER_UPDATE", json{{"guild_id", "1"}, {"user_id", "12"}, {"roles", json::array()}}

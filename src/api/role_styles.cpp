@@ -247,6 +247,13 @@ namespace api {
     std::ranges::sort(result, higher);
     return result;
   }
+  std::string RoleDirectory::roleName(const std::string& guild, const std::string& role) const {
+    const auto server = m_guilds.find(guild);
+    if (server == m_guilds.end())
+      return {};
+    const auto found = server->second.roles.find(role);
+    return found == server->second.roles.end() ? "" : found->second.name;
+  }
   std::optional<std::vector<std::string>>
   RoleDirectory::memberships(const std::string& guild, const std::string& user) const {
     auto g = m_guilds.find(guild);

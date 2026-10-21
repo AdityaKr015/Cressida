@@ -1,5 +1,4 @@
 #include "app/client_application.h"
-#include "app/message_mentions.h"
 #include "app/notification_preview.h"
 #include "app/theme.h"
 #include "core/files/resource_paths.h"
@@ -167,11 +166,19 @@ namespace app {
       std::string guild;
       if (const auto at = m_unreadGuilds.find(event.resource); at != m_unreadGuilds.end())
         guild = at->second;
+      if (guild.empty())
+        for (const auto& server : m_guilds)
+          if (serverChannel(server.id, event.resource) || m_threads.find(server.id, event.resource)) {
+            guild = server.id;
+            break;
+          }
       const auto roles = m_roleDirectory.memberships(guild, m_account.id).value_or(std::vector<std::string>{});
-      const bool mentioned = std::ranges::any_of(event.messages, [&](const auto& message) {
-        return message.mentions.contains(m_account.id)
-            || (m_inboxEveryone && message.mentionEveryone)
-            || (m_inboxRoles && messageMentions(message, m_account.id, roles) && !message.mentionEveryone);
+      const bool mentioned = !m_account.id.empty() && std::ranges::any_of(event.messages, [&](const auto& message) {
+        const bool roleMention = m_inboxRoles && std::ranges::any_of(message.mentionRoles, [&](const auto& role) {
+                                   return std::ranges::find(roles, role) != roles.end();
+                                 });
+        return !message.deleted
+            && (message.mentions.contains(m_account.id) || (m_inboxEveryone && message.mentionEveryone) || roleMention);
       });
       if (mentioned) {
         ++m_inboxRevision;
@@ -409,9 +416,11 @@ namespace app {
       else
         m_inboxEveryone = !m_inboxEveryone;
       m_inboxUnreadPage = 0;
-      m_inboxTabs[0].pending.reset();
-      m_inboxTabs[0].loaded = false;
-      m_inboxTabs[0].page = {};
+      if (command != "muted") {
+        m_inboxTabs[0].pending.reset();
+        m_inboxTabs[0].loaded = false;
+        m_inboxTabs[0].page = {};
+      }
       m_inboxScroll = 0;
       requestInbox();
     } else if (command == "refresh" || command == "older" || command == "newest") {
@@ -623,7 +632,8 @@ namespace app {
     const float width = std::min(layout::Inbox::width, w - Style::spaceLg);
     const float x = w - width - Style::spaceSm, y = layout::Inbox::top;
     const float height = std::min(layout::Inbox::maximumHeight, h - y - Style::spaceSm);
-    const float filters = m_inboxFilters ? Style::controlHeightSm * 2 : 0;
+    const int filterCount = m_inboxTab == 1 ? 3 : m_inboxTab == 0 ? 2 : 1;
+    const float filters = m_inboxFilters ? Style::controlHeightSm * ((filterCount + 1) / 2) : 0;
     const float reminder = m_inboxRemindTarget.empty() ? 0 : Style::controlHeightSm * 2;
     const float top = y + layout::Inbox::header + layout::Inbox::tabs + filters + reminder;
     m_inboxViewport = std::max(0.0F, height - (top - y) - layout::Inbox::footer - Style::spaceSm);
@@ -675,10 +685,13 @@ namespace app {
             std::string(checked ? "✓ " : "") + name, false, checked
         );
       };
-      filter(0, "Include muted", "muted", m_inboxMuted);
-      filter(1, "Current server", "guild", m_inboxGuild && !m_dmMode);
-      filter(2, "Role mentions", "roles", m_inboxRoles);
-      filter(3, "Everyone mentions", "everyone", m_inboxEveryone);
+      filter(0, "Current server", "guild", m_inboxGuild && !m_dmMode);
+      if (m_inboxTab == 0)
+        filter(1, "Include muted", "muted", m_inboxMuted);
+      else if (m_inboxTab == 1) {
+        filter(1, "Role mentions", "roles", m_inboxRoles);
+        filter(2, "Everyone mentions", "everyone", m_inboxEveryone);
+      }
     }
     if (!m_inboxRemindTarget.empty()) {
       const auto ry = top - reminder;
@@ -711,7 +724,7 @@ namespace app {
     m_inboxVisibleUnread.clear();
     const auto append = [&](std::string channel, std::string id, std::string guild, const api::Message* message,
                             std::string summary = "", std::string due = "", std::string channelSummary = "") {
-      if (m_inboxTab < 2
+      if (m_inboxTab == 0
           && !m_inboxMuted
           && (channelMuted(channel) || (!guild.empty() && m_userDirectory.muted(guild))))
         return;
@@ -836,7 +849,8 @@ namespace app {
             {.unicodeEmoji = [this](std::string_view text) { return m_emojiCatalog.isUnicode(text); },
              .channelMention = [this, &row](
                                    std::string_view guild, std::string_view channel
-                               ) { return channelMention(guild.empty() ? row.guild : guild, channel); }}
+                               ) { return channelMention(guild.empty() ? row.guild : guild, channel); },
+             .roleMention = [this, &row](auto role) { return m_roleDirectory.roleName(row.guild, std::string(role)); }}
         );
       }
 
@@ -1240,6 +1254,20 @@ namespace app {
         event.inboxPage->saved.push_back(std::move(*record));
       inboxEvent(event);
     };
+    const auto sceneContains = [&](std::string_view text) {
+      const auto inspect = [&](auto&& self, const Node& node) -> bool {
+        if (node.type() == NodeType::Text && static_cast<const TextNode&>(node).text().contains(text))
+          return true;
+        return std::ranges::any_of(node.children(), [&](const auto& child) { return self(self, *child); });
+      };
+      return inspect(inspect, *m_scene);
+    };
+    const auto rolePage = [&] {
+      auto item = message();
+      item.channelId = "99003";
+      item.content = "A role mention: <@&99001>";
+      return api::InboxPage{.messages = {item}, .guilds = {{"99003", "99000"}}};
+    };
     const auto step = m_demoInteractionStep++;
     if (step == 0) {
       m_drafts[m_channelId] = "Keep this draft";
@@ -1482,6 +1510,99 @@ namespace app {
       response(2, {});
     } else if (step == 18) {
       require(m_inboxTabs[2].loaded && m_inboxTabs[2].error.empty(), "Retry recovers to the illustrated empty state");
+      m_roleDirectory.apply(
+          api::parseRoleUpdates(
+              "READY",
+              nlohmann::json{
+                  {"guilds",
+                   nlohmann::json::array(
+                       {{{"id", m_guildId},
+                         {"roles", nlohmann::json::array({{{"id", "99002"}, {"name", "Chatwatch"}}})}},
+                        {{"id", "99000"},
+                         {"roles", nlohmann::json::array({{{"id", "99001"}, {"name", "Inboxwatch"}}})}}}
+                   )}
+              }
+          )
+      );
+      api::GuildRoleUpdate membership;
+      membership.guild = m_guildId;
+      membership.members[m_account.id] = {"99002"};
+      m_roleDirectory.apply({false, {membership}});
+      m_messages.back().content = "Chat role <@&99002>";
+      m_messages.back().type = api::defaultMessageType;
+      m_messageLayouts.clear();
+      m_userDirectory.apply({.mutedChannels = {{"99003", true}}});
+      action("tab:1");
+      action("refresh");
+      response(0, rolePage());
+    } else if (step == 19) {
+      require(
+          !m_inboxMuted
+              && std::ranges::any_of(
+                  m_hits,
+                  [](const auto& hit) {
+                    return hit.action == Action::InboxAction && hit.id == "dismiss:90001" && hit.height > 0;
+                  }
+              ),
+          "Mentions in muted conversations remain available without the unread mute filter"
+      );
+      require(sceneContains("@Inboxwatch"), "An inbox role uses its own server instead of the selected chat");
+      require(
+          std::ranges::any_of(
+              m_messageLayouts, [](const auto& cached) { return cached.second.layout.plainText.contains("@Chatwatch"); }
+          ),
+          "Normal chat resolves roles through the shared message layout"
+      );
+      m_roleDirectory.apply(
+          api::parseRoleUpdates(
+              "GUILD_ROLE_UPDATE",
+              nlohmann::json{{"guild_id", "99000"}, {"role", {{"id", "99001"}, {"name", "Moonwatch"}}}}
+          )
+      );
+    } else if (step == 20) {
+      require(sceneContains("@Moonwatch") && !sceneContains("@Inboxwatch"), "Role renames refresh visible inbox cards");
+      action("filters");
+    } else if (step == 21) {
+      const auto filterVisible = [&](std::string_view id) {
+        return std::ranges::any_of(m_hits, [&](const auto& hit) {
+          return hit.action == Action::InboxAction && hit.id == id && hit.height > 0;
+        });
+      };
+      require(
+          filterVisible("roles") && filterVisible("everyone") && !filterVisible("muted"),
+          "Mentions exposes only applicable filters"
+      );
+      action("everyone");
+      response(0, rolePage());
+      auto item = message();
+      item.mentions.clear();
+      item.mentionRoles = {"99002"};
+      item.mentionEveryone = true;
+      api::Event live{.operation = api::Operation::MessageCreate, .resource = m_channelId, .messages = {item}};
+      inboxEvent(live);
+      require(
+          m_inboxTabs[0].pending.has_value(),
+          "A role mention refreshes the inbox even when its everyone mention is filtered out"
+      );
+      response(0, rolePage());
+      action("roles");
+      response(0, rolePage());
+      inboxEvent(live);
+      require(!m_inboxTabs[0].pending, "Excluded role and everyone mentions cannot trigger a refresh");
+      live.messages.front().mentions[m_account.id] = "Me";
+      live.messages.front().deleted = true;
+      inboxEvent(live);
+      require(!m_inboxTabs[0].pending, "Deleted mentions do not refresh account results");
+      live.messages.front().deleted = false;
+      inboxEvent(live);
+      require(m_inboxTabs[0].pending.has_value(), "Direct mentions refresh independently of role and everyone filters");
+      response(0, rolePage());
+      m_roleDirectory.apply(
+          api::parseRoleUpdates("GUILD_ROLE_DELETE", nlohmann::json{{"guild_id", "99000"}, {"role_id", "99001"}})
+      );
+      action("filters");
+    } else if (step == 22) {
+      require(sceneContains("@unknown-role") && !sceneContains("@Moonwatch"), "Deleted roles lose stale names");
     } else {
       clearInbox();
       require(

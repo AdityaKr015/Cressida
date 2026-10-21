@@ -46,15 +46,18 @@ int main() {
     );
     api::InboxQuery query;
     require(
-        api::inboxHttpRequest(query)->path == "/users/@me/mentions?limit=25&roles=true&everyone=true",
+        api::inboxHttpRequest(query)->path
+            == "/users/@me/mentions?limit=25&roles=true&everyone=true&feature=notifications-inbox",
         "Mentions use the account endpoint with explicit filters"
     );
     query.guild = "10";
     query.before = "999";
     query.roles = false;
     require(
-        api::inboxHttpRequest(query)->path.ends_with("&guild_id=10&before=999"),
-        "Mention pagination retains server scope"
+        api::inboxHttpRequest(query)->path
+            == "/users/@me/"
+               "mentions?limit=25&roles=false&everyone=true&feature=notifications-inbox&guild_id=10&before=999",
+        "Mention pagination retains inbox coverage, role filters and server scope"
     );
     query.guild = "../guild";
     require(!api::inboxHttpRequest(query), "Route components reject path injection");

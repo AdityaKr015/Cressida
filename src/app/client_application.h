@@ -528,7 +528,7 @@ namespace app {
     void updateInboxPreviews();
     void scheduleInboxReminders();
     void demoInboxStep();
-    static constexpr int inboxReplayFrames = 20;
+    static constexpr int inboxReplayFrames = 24;
 
     static constexpr int searchReplayFrames = 12;
     void jumpToMessage(const std::string& channel, const std::string& message);
