@@ -4179,8 +4179,8 @@ namespace app {
         }
         m_messageViewportTop = top;
         m_messageViewportBottom = bottom;
-        // Align stationary glyphs, then apply the exact scroll displacement in
-        // both moving and settled frames so the final frame cannot recoil.
+        // Keep fractional content geometry while aligning final glyph positions
+        // to physical pixels in both moving and settled frames.
         content->setTextScrollOffset(m_messageScroll);
         if (m_traceScroll)
           std::clog
@@ -6196,10 +6196,10 @@ namespace app {
               return node->clipChildren()
                   && node->x() == chatLeft() + Style::spaceXl
                   && node->y() == m_messageViewportTop
-                  && !node->textPixelSnap();
+                  && node->textScrollOffset() == m_messageScroll;
             }
         ),
-        "Scrollable text must keep fractional positioning even when animation has stopped"
+        "Scrolling panes preserve their logical displacement while text uses final pixel alignment"
     );
     auto visibleRow = [&]() -> TimelineAnchor::Row {
       for (const auto& message : m_messages) {

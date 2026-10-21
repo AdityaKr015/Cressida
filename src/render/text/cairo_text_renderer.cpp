@@ -1008,8 +1008,7 @@ void CairoTextRenderer::draw(
   const Mat3 localTranslation = Mat3::translation(x - inkOffX, baselineY - baselineLocal);
   const Mat3 baseWorld = textQuadTransform(transform * localTranslation, contentScale, pixelSnap, smoothScrollY);
 
-  // Align the static raster independently of a scrolling ancestor's exact
-  // displacement, retaining smooth movement with image/selection geometry.
+  // Align the final raster after all ancestor translations, including scrolling.
   // Emit one quad per tile. Tiles share the same X/width and abut on exact
   // buffer-pixel boundaries (pixelYOffset is an integer number of raster
   // pixels), so there is no seam between adjacent tiles even at fractional

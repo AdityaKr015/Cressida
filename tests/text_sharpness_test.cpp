@@ -218,7 +218,7 @@ namespace {
   }
 
   void verifyStaticPhase(Graphics& graphics, GlyphProgram& program) {
-    constexpr int width = 512, height = 256;
+    constexpr int width = 768, height = 256;
     glBindTexture(GL_TEXTURE_2D, graphics.output);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, graphics.output, 0);
@@ -226,30 +226,51 @@ namespace {
     GlyphBackend backend(program);
     CairoTextRenderer renderer;
     renderer.initialize(&backend, &backend.textureManager());
-    for (const float scale : {1.0F, 1.25F, 1.33F, 2.0F}) {
-      auto draw = [&](bool snap, std::optional<float> scroll) {
-        glClearColor(0, 0, 0, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
-        renderer.draw(
-            scale, width / scale, height / scale, 0, 0, "Small text: Il1, mW / gj", 14, rgba(1, 1, 1, 1),
-            Mat3::translation(12.25F, 81.37F), FontWeight::Normal, 0, 0, TextAlign::Start, {}, TextEllipsize::End,
-            false, snap, nullptr, scroll
-        );
-        std::vector<unsigned char> pixels(width * height * 4);
-        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-        return pixels;
-      };
-      // A stationary scroll pane must have the identical coverage as
-      // Noctalia's buffer-pixel-aligned text, even with fractional baselines.
-      const auto reference = draw(true, {});
-      const auto stationaryPane = draw(false, 0.0F);
-      if (reference != stationaryPane)
-        throw std::runtime_error("Stationary scrolling text differs from pixel-aligned reference text");
-      // Establish that the fixture exercises the original extra filtering,
-      // rather than accidentally placing all glyph quads at whole pixels.
-      if (reference == draw(false, {}))
-        throw std::runtime_error("Fractional-baseline fixture did not expose unaligned glyph filtering");
+    for (const float scale : {0.67F, 1.0F, 1.25F, 1.33F, 2.0F}) {
+      for (const float size : {11.0F, 14.0F}) {
+        for (const auto weight : {FontWeight::Normal, FontWeight::Bold}) {
+          const auto draw = [&](bool snap, std::optional<float> scroll, float offset = 0) {
+            glClearColor(0, 0, 0, 0);
+            glClear(GL_COLOR_BUFFER_BIT);
+            renderer.draw(
+                scale, width / scale, height / scale, 0, 0, "Small text: Il1, mW / gj", size, rgba(1, 1, 1, 1),
+                Mat3::translation(12.25F, 81.37F + offset), weight, 0, 0, TextAlign::Start, {}, TextEllipsize::End,
+                false, snap, nullptr, scroll
+            );
+            std::vector<unsigned char> pixels(width * height * 4);
+            glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            return pixels;
+          };
+          for (const float physicalOffset : {-1.0F, -0.75F, -0.5F, -0.25F, 0.0F, 0.25F, 0.5F, 0.75F, 1.0F}) {
+            const float offset = physicalOffset / scale;
+            const auto reference = draw(true, {}, offset);
+            const auto scrollingPane = draw(false, offset, offset);
+            if (reference != scrollingPane) {
+              int maximumDifference = 0;
+              for (std::size_t i = 0; i < reference.size(); ++i)
+                maximumDifference = std::max(maximumDifference, std::abs(int(reference[i]) - int(scrollingPane[i])));
+              std::cerr
+                  << "Glyph coverage changed by "
+                  << maximumDifference
+                  << " at scale "
+                  << scale
+                  << ", font size "
+                  << size
+                  << ", weight "
+                  << static_cast<int>(weight)
+                  << ", physical scroll "
+                  << physicalOffset
+                  << '\n';
+              throw std::runtime_error("Scrolling text must retain the coverage of the final pixel-aligned reference");
+            }
+          }
+          if (draw(true, {}) == draw(false, {}))
+            throw std::runtime_error("Fractional-baseline fixture did not expose legacy unaligned glyph filtering");
+        }
+      }
     }
+    if (glGetError() != GL_NO_ERROR)
+      throw std::runtime_error("Scrolled text coverage rendering leaves a GL error");
   }
 
 } // namespace

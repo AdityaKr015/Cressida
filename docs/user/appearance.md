@@ -38,6 +38,10 @@ Use the available message text and spacing settings to adjust reading comfort.
 Compact mode changes the conversation's presentation. Appearance settings are
 saved per account.
 
+Text aligns to the display's pixel grid at the current display scale and client
+zoom, including while scrolling. This happens automatically and keeps text sharp
+without changing the layout.
+
 ## Profile cosmetics
 
 Open **Cressida > Profile cosmetics** to control each type separately:

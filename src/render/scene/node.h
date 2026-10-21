@@ -126,12 +126,12 @@ public:
   // Promises that every node in this subtree paints within its own bounds (plus a small slack).
   // Lets the renderer skip subtrees entirely outside the active clip.
   void setPaintContained(bool paintContained);
-  // Descendants inherit false while a scrolling/animated pane moves. Leave
-  // glyph rasterization unchanged; only the final text quad translation varies.
+  // Descendants inherit this alignment preference. Explicit scroll metadata
+  // keeps scrolling text aligned to physical pixels throughout its motion.
   void setTextPixelSnap(bool enabled);
   // Signed vertical displacement of this pane's contents, in its parent's
-  // coordinates. Align the stationary text raster before applying this exact
-  // displacement, so scrolling stays continuous without softening its base.
+  // coordinates. Keep layout displacement fractional and align each final
+  // glyph quad to physical pixels, including when scrolling has settled.
   void setTextScrollOffset(float offset);
   void setHitTestVisible(bool hitTestVisible);
   void setHitTestOutset(const HitTestOutset& outset);

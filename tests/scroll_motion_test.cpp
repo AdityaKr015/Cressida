@@ -1,7 +1,9 @@
 #include "app/scroll_motion.h"
 #include "render/text/text_position.h"
 
+#include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 int main() {
@@ -82,55 +84,90 @@ int main() {
         fast == 112 && !fastFrames.tick(start + 3s) && !fastFrames.active(fast),
         "Repeated wheel input eventually stops scheduling frames"
     );
+    constexpr float pixelTolerance = 0.001F;
+    const auto pixelAligned = [](float coordinate, float scale) {
+      return std::abs(coordinate * scale - std::round(coordinate * scale)) < pixelTolerance;
+    };
     for (const float scale : {0.67F, 1.0F, 1.25F, 1.33F, 2.0F}) {
-      const auto beforeStop = textQuadTransform(Mat3::translation(0, 100.39F), scale, false);
-      const auto stopped = textQuadTransform(Mat3::translation(0, 100.4F), scale, false);
-      require(
-          stopped.m[7] >= beforeStop.m[7],
-          "The final text quad must not recoil when wheel animation stops at a fractional position"
-      );
-      // A whole-pixel label top still produces a fractional raster origin when
-      // Pango's measured baseline differs from its integer raster baseline.
-      // Snap that stationary phase, then add scrolling independently.
+      // A fractional layout baseline still needs a physical-pixel-aligned
+      // raster origin, including when an explicit scroll offset is zero.
       const auto baseline = Mat3::translation(10.37F, 20.43F);
       const auto staticText = textQuadTransform(baseline, scale, true);
       const auto unscrolled = textQuadTransform(baseline, scale, false, 0.0F);
       require(
-          staticText.m == unscrolled.m
-              && std::abs(unscrolled.m[6] * scale - std::round(unscrolled.m[6] * scale)) < 0.0001F
-              && std::abs(unscrolled.m[7] * scale - std::round(unscrolled.m[7] * scale)) < 0.0001F,
-          "An unscrolled pane must retain the same sharp raster origin as static text, including zoom below 100%"
+          staticText.m == unscrolled.m && pixelAligned(unscrolled.m[6], scale) && pixelAligned(unscrolled.m[7], scale),
+          "An unscrolled pane uses the same sharp raster origin as static text, including zoom below 100%"
+      );
+      require(
+          textQuadTransform(baseline, scale, false).m == baseline.m,
+          "A legacy unrestricted text transform stays fractional without an explicit scroll offset"
       );
       for (const float direction : {-1.0F, 1.0F}) {
         float previous = unscrolled.m[7];
-        for (const float distance : {0.02F, 0.17F, 0.39F, 0.4F}) {
+        for (const float distance :
+             {0.02F, 0.17F, 0.39F, 0.4F, 0.49F, 0.5F, 0.51F, 0.99F, 1.01F, 2.1F, 100.23F, 1000.25F}) {
           const float offset = direction * distance;
           auto moved = baseline;
           moved.m[7] += offset;
           const auto rendered = textQuadTransform(moved, scale, false, offset);
+          const auto reference = textQuadTransform(moved, scale, true);
           require(
-              std::abs(rendered.m[6] - unscrolled.m[6]) < 0.0001F
-                  && std::abs(rendered.m[7] - unscrolled.m[7] - offset) < 0.0001F
+              rendered.m == reference.m
+                  && pixelAligned(rendered.m[6], scale)
+                  && pixelAligned(rendered.m[7], scale)
+                  && std::abs((rendered.m[7] - moved.m[7]) * scale) <= 0.501F
                   && direction * (rendered.m[7] - previous) >= 0,
-              "Scroll-origin snapping must preserve fractional travel in both directions without a settling recoil"
+              "Moving and settled pane text stays aligned to the final physical pixel and never recoils"
           );
           previous = rendered.m[7];
         }
+
+        app::ScrollMotion settling;
+        float offset = 100;
+        settling.limit(offset, 200);
+        settling.scroll(offset, direction * 0.4F, false, start);
+        auto previousRaster =
+            textQuadTransform(Mat3::translation(baseline.m[6], baseline.m[7] + offset), scale, false, offset);
+        for (int milliseconds = 0; milliseconds <= 1000; milliseconds += 8) {
+          settling.tick(start + std::chrono::milliseconds(milliseconds));
+          const auto raster =
+              textQuadTransform(Mat3::translation(baseline.m[6], baseline.m[7] + offset), scale, false, offset);
+          require(
+              pixelAligned(raster.m[7], scale) && direction * (raster.m[7] - previousRaster.m[7]) >= 0,
+              "Physical text alignment remains monotonic while a fractional wheel target settles"
+          );
+          previousRaster = raster;
+        }
+        const auto restingRaster =
+            textQuadTransform(Mat3::translation(baseline.m[6], baseline.m[7] + offset), scale, false, offset);
+        require(
+            !settling.active(offset)
+                && std::abs(offset - (100 + direction * 0.4F)) < 0.0001F
+                && restingRaster.m == previousRaster.m,
+            "Settling preserves the fractional logical scroll target without changing the final text raster"
+        );
       }
       const auto rotated = baseline * Mat3::rotation(0.2F);
       require(
           textQuadTransform(rotated, scale, false, 0.0F).m == rotated.m,
-          "Scrolling text must preserve rotated transforms instead of snapping either axis"
+          "Scrolling text preserves rotated transforms instead of snapping either axis"
       );
       for (const float sign : {-1.0F, 1.0F}) {
         const float halfPixel = sign * 20.5F / scale;
-        const auto stationary = textQuadTransform(Mat3::translation(0, halfPixel), scale, false, 0.0F);
-        for (const float offset : {0.02F, 0.39F, 2.1F, 100.23F, 1000.25F}) {
-          const auto scrolled = textQuadTransform(Mat3::translation(0, halfPixel + offset), scale, false, offset);
+        const float expected = sign * 21.0F / scale;
+        for (const float coordinate :
+             {std::nextafter(halfPixel, -std::numeric_limits<float>::infinity()), halfPixel,
+              std::nextafter(halfPixel, std::numeric_limits<float>::infinity())}) {
+          const auto tie = textQuadTransform(Mat3::translation(0, coordinate), scale, false, 0.0F);
           require(
-              std::abs(scrolled.m[7] - stationary.m[7] - offset) < 0.0002F,
-              "Subtracting scroll offsets must not flip a stationary half-pixel tie and jump a whole pixel"
+              std::abs(tie.m[7] - expected) * scale < pixelTolerance,
+              "Float noise around positive and negative half-pixel ties cannot change the chosen physical pixel"
           );
+          for (const float declaredOffset : {0.02F, 0.39F, 2.1F, 100.23F, 1000.25F})
+            require(
+                textQuadTransform(Mat3::translation(0, coordinate), scale, false, declaredOffset).m == tie.m,
+                "Scroll bookkeeping cannot change the alignment of the final glyph origin"
+            );
         }
       }
     }
