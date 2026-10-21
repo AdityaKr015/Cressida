@@ -303,6 +303,16 @@ namespace app::layout {
     static constexpr float actionStep = 35;
     static constexpr float actionsReserve = 146;
   };
+  struct SearchMenu {
+    static constexpr float width = Style::spaceSection * 9;
+    static constexpr float rowHeight = Style::controlHeightLg + Style::spaceSm;
+    static constexpr float headingHeight = Style::space2Xl;
+    static constexpr float inset = Style::spaceSm;
+    static constexpr float textLeft = Style::spaceGroup;
+    static constexpr float iconSize = Style::glyphSizeLarge;
+    static constexpr float maximumHeight = rowHeight * 9 + headingHeight * 2 + inset;
+    static constexpr std::size_t maximumSuggestions = 50, maximumRecent = 5, maximumHistory = 20;
+  };
   struct Titlebar {
     static constexpr float height = Window::titlebarHeight;
     static constexpr float defaultButtonWidth = Style::windowButtonWidth;

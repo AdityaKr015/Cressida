@@ -32,6 +32,18 @@ keep their usual actions, and open overlays or editors take priority.
 | Escape          | Dismiss completion.                       |
 | Tab / Shift+Tab | Move between focusable native controls.   |
 
+## Message search
+
+| Shortcut    | Action                                         |
+| ----------- | ---------------------------------------------- |
+| Ctrl+F      | Open message search.                           |
+| Up / Down   | Highlight a search filter or value.            |
+| Enter / Tab | Accept the highlighted suggestion.             |
+| Enter       | Search when no suggestion is highlighted.      |
+| Escape      | Dismiss search suggestions and keep the query. |
+
+See [Search messages](chat.md#search-messages) for filters and examples.
+
 ## Image viewer
 
 | Shortcut     | Action                  |

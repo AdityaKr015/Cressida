@@ -3,6 +3,7 @@
 #include "api/assets.h"
 #include "api/client.h"
 #include "api/member_list_identity.h"
+#include "api/message_search.h"
 #include "app/autocomplete.h"
 #include "app/channel_invite.h"
 #include "app/channel_menu.h"
@@ -266,6 +267,8 @@ namespace app {
       ToggleChannelMute,
       ChannelPins,
       ChannelSearch,
+      SearchSuggestion,
+      ClearSearchHistory,
       CloseChannelPanel,
       ChannelPanelNext,
       ChannelPanelPrevious,
@@ -495,6 +498,19 @@ namespace app {
     bool channelEditClose();
     void requestChannelPage(bool next = false, bool previous = false);
     void searchChannel();
+    std::vector<api::Account> searchPeople() const;
+    std::vector<api::Channel> searchChannels() const;
+    api::MessageSearch resolvedMessageSearch() const;
+    std::vector<TextReplacement> searchReplacements(std::string_view value) const;
+    void updateSearchMenu();
+    void drawSearchMenu(Node& root, float width, float height);
+    void closeSearchMenu(bool dismiss = false);
+    bool searchMenuClick(float x, float y);
+    bool searchMenuKey(const Key& key);
+    void chooseSearchSuggestion(std::size_t index);
+    void rememberSearch();
+    void demoSearchStep();
+    static constexpr int searchReplayFrames = 12;
     void jumpToMessage(const std::string& channel, const std::string& message);
     void prepareChannelDemo(const std::string& view);
     void demoChannelStep();
@@ -1118,6 +1134,19 @@ namespace app {
     std::set<std::string> m_channelDetailRequests, m_channelDetailsLoaded;
     std::map<std::string, std::string> m_channelDetailErrors;
     std::string m_channelSearchText, m_channelPanel, m_channelPanelError;
+    struct SearchSuggestion {
+      std::string title, detail, insert, glyph = "search", avatar;
+      bool history = false, more = false;
+    };
+    std::vector<SearchSuggestion> m_searchSuggestions;
+    std::vector<std::pair<std::string, std::string>> m_searchHistory;
+    std::string m_searchInput, m_searchSnapshot, m_searchIdentity, m_searchDismissed;
+    std::optional<std::size_t> m_searchHistoryStart;
+    std::size_t m_searchReplaceBegin = 0, m_searchReplaceEnd = 0;
+    int m_searchSelected = -1;
+    bool m_searchMore = false;
+    Hit m_searchBounds{};
+    float m_searchScroll = 0, m_searchViewport = 0;
     std::optional<api::ChannelPageQuery> m_channelPageRequest, m_channelPageShown;
     api::ChannelPageResult m_channelPage;
     std::vector<std::string> m_pinCursors;

@@ -541,6 +541,8 @@ namespace app {
           && m_demoOverlay.starts_with("image-menu")
           && m_demoInteractionStep < (m_demoOverlay.starts_with("image-menu-cycle") ? imageMenuReplayFrames : 2))
         demoImageMenuStep();
+      if (m_demo && m_demoOverlay.starts_with("search-cycle") && m_demoInteractionStep < searchReplayFrames)
+        demoSearchStep();
       if (m_demo && m_demoOverlay.starts_with("outgoing-cycle") && m_demoInteractionStep < outgoingReplayFrames)
         demoOutgoingStep();
       if (m_demo && m_demoOverlay == "sidebar-cycle")
@@ -962,6 +964,8 @@ namespace app {
       if (overlayClick(x, y)) {
         return;
       }
+      if (searchMenuClick(x, y))
+        return;
       if (completionClick(x, y))
         return;
       if (fontPickerClick(x, y))
@@ -1147,6 +1151,11 @@ namespace app {
               << m_animateWheel
               << '\n';
       };
+      if (!m_searchInput.empty() && m_searchBounds.contains(m_pointerX, m_pointerY)) {
+        scroll(m_searchScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (m_selectRequest) {
         if (m_selectBounds.contains(m_pointerX, m_pointerY)) {
           scroll(m_selectScroll, delta);
@@ -1359,7 +1368,8 @@ namespace app {
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest
-            ? (m_demo && view && std::string_view(view).starts_with("outgoing-cycle")         ? outgoingReplayFrames
+            ? (m_demo && view && std::string_view(view).starts_with("search-cycle")           ? searchReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("outgoing-cycle")   ? outgoingReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("chat-links-cycle") ? chatLinkReplayFrames
                    : m_demo && view && std::string_view(view) == "attachment-cycle"           ? attachmentReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("window-controls-cycle")
@@ -1505,6 +1515,8 @@ namespace app {
       throw std::runtime_error("Media gallery replay did not complete");
     if (m_demoOverlay.starts_with("image-menu-cycle") && m_demoInteractionStep != imageMenuReplayFrames)
       throw std::runtime_error("Image viewer menu replay did not complete");
+    if (m_demoOverlay.starts_with("search-cycle") && m_demoInteractionStep != searchReplayFrames)
+      throw std::runtime_error("Search menu replay did not complete");
     if (m_demoOverlay.starts_with("outgoing-cycle") && m_demoInteractionStep != outgoingReplayFrames)
       throw std::runtime_error("Outgoing message replay did not complete");
     if (m_demoOverlay.starts_with("typing-cycle") && m_demoInteractionStep != typingReplayFrames)
@@ -1567,7 +1579,22 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
-        if (view.starts_with("outgoing-cycle")) {
+        if (view.starts_with("search-cycle")) {
+          m_demoOverlay = view;
+          m_channelPanel = "search";
+          m_focusedInput = "channel-search";
+          m_channelSearchText.clear();
+          m_searchHistory.clear();
+          m_messages = {{"90001", m_channelId, "Maya", "Search fixture", "2026-10-21T10:00:00Z", "11"}};
+          m_channels.push_back({.id = "202", .name = "design", .type = 0});
+          m_guildChannels[m_guildId] = m_channels;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          if (view.find("narrow") != std::string::npos) {
+            m_window.setUiScale(1.5F);
+            m_focusedInput = "channel-search-panel";
+          }
+        } else if (view.starts_with("outgoing-cycle")) {
           m_demoOverlay = view;
           if (view.ends_with("light"))
             m_preferences.theme = "light";
@@ -5566,6 +5593,7 @@ namespace app {
       m_reactorHoverTimer.stop();
     }
     drawCompletion(root, w, h);
+    drawSearchMenu(root, w, h);
     drawDialog(root, w, h);
     drawContext(root, w, h);
     drawGuildTooltip(root, w, h);
@@ -5998,6 +6026,7 @@ namespace app {
   }
 
   void ClientApplication::selectChannel(std::string id) {
+    closeSearchMenu();
     if (id != m_channelId)
       m_adoptedChatPreload.reset();
     if (id != m_chatPreloadChannel)
@@ -7236,6 +7265,8 @@ namespace app {
     if (selectDropdownKey(key))
       return;
     if (userAccountDialogKey(key))
+      return;
+    if (searchMenuKey(key))
       return;
     if (shortcutKey(key))
       return;

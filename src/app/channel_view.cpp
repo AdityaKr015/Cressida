@@ -57,6 +57,7 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::clearChannelFeatures() {
+    closeSearchMenu();
     m_pendingDiscordLink.reset();
     clearChatPreload();
     m_channelMuteTimer.stop();
@@ -540,13 +541,25 @@ namespace app {
     m_window.invalidate();
   }
   void ClientApplication::requestChannelPage(bool next, bool previous) {
-    if (m_demo || m_channelPageRequest || m_channelPanel.empty() || m_channelId.empty())
+    if ((m_demo && !m_demoOverlay.starts_with("search-cycle"))
+        || m_channelPageRequest
+        || m_channelPanel.empty()
+        || m_channelId.empty())
       return;
     api::ChannelPageQuery query;
     query.kind = m_channelPanel == "pins" ? api::ChannelPage::Pins : api::ChannelPage::Search;
     query.guild = m_guildId;
     query.channel = m_channelId;
     query.text = m_channelSearchText;
+    if (query.kind == api::ChannelPage::Search && !next && !previous) {
+      const auto search = resolvedMessageSearch();
+      if (!search) {
+        m_channelPanelError = search.error;
+        m_window.invalidate();
+        return;
+      }
+      query.text = search.canonical;
+    }
     query.request = ++m_channelFeatureSerial;
     if (m_channelPageShown && m_channelPageShown->kind == query.kind && (next || previous)) {
       query = *m_channelPageShown;
@@ -562,7 +575,10 @@ namespace app {
       }
     }
     m_channelPanelError.clear();
-    if (m_client.channelPage(query))
+    if (m_demo) {
+      m_channelPageShown = query;
+      m_channelPage = {};
+    } else if (m_client.channelPage(query))
       m_channelPageRequest = query;
     else
       m_channelPanelError = query.kind == api::ChannelPage::Search && query.text.empty()
@@ -573,9 +589,12 @@ namespace app {
   void ClientApplication::searchChannel() {
     if (m_channelId.empty())
       return;
+    closeSearchMenu(true);
     closeChannelPanel();
     m_channelPanel = "search";
     requestChannelPage();
+    if (m_channelPanelError.empty())
+      rememberSearch();
     m_window.invalidate();
   }
   void ClientApplication::drawChannelPanel(Node& root, float x, float y, float width, float height) {
@@ -646,6 +665,7 @@ namespace app {
           m_channelPageRequest               ? "Loading…"
               : !m_channelPanelError.empty() ? ""
               : m_channelPanel == "pins"     ? "No pinned messages."
+              : m_channelPageShown           ? "No messages found."
                                              : "Enter a search above.",
           Style::fontSizeCaption, muted
       );
@@ -1365,6 +1385,15 @@ namespace app {
         channelPermissionsFor(m_dialogKind.starts_with("channel-") ? m_channelEditOriginal.id : m_channelId)
             .value_or(0);
     switch (hit.action) {
+    case Action::SearchSuggestion:
+      chooseSearchSuggestion(std::stoul(hit.id));
+      break;
+    case Action::ClearSearchHistory: {
+      const auto scope = m_dmMode ? "dm:" + m_channelId : "guild:" + m_guildId;
+      std::erase_if(m_searchHistory, [&](const auto& entry) { return entry.first == scope; });
+      m_searchIdentity.clear();
+      break;
+    }
     case Action::DismissEphemeral:
       dismissEphemeral(hit.id);
       break;

@@ -1077,6 +1077,8 @@ namespace app {
     m_hoverReactionKey.clear();
     m_frequentReactions = {"❤️", "👍", "😂", "🔥"};
     m_replies.clear();
+    closeSearchMenu();
+    m_searchHistory.clear();
     clearOutgoing();
     m_reactionMessage.clear();
     m_reactionChannel.clear();

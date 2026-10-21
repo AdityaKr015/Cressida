@@ -1,5 +1,7 @@
 #include "api/channel_features.h"
 
+#include "api/message_search.h"
+
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -366,16 +368,17 @@ namespace api {
           + "/messages/pins?limit=50"
           + (q.before.empty() ? "" : "&before=" + encode(q.before));
     }
-    if (q.text.empty() || q.text.size() > 1024 || q.offset > 9975 || std::ranges::any_of(q.text, [](unsigned char c) {
-          return c < 32 || c == 127;
-        }))
+    const auto search = parseMessageSearch(q.text);
+    if (!search || q.offset > 9975)
       return {};
-    return (q.guild.empty() ? "/channels/" + q.channel : "/guilds/" + q.guild)
-        + "/messages/search?content="
-        + encode(q.text)
-        + "&offset="
-        + std::to_string(q.offset);
+    auto path = (q.guild.empty() ? "/channels/" + q.channel : "/guilds/" + q.guild) + "/messages/search?";
+    if (!search.content.empty())
+      path += "content=" + encode(search.content) + "&";
+    for (const auto& [key, value] : search.parameters)
+      path += key + "=" + encode(value) + "&";
+    return path + "offset=" + std::to_string(q.offset);
   }
+
   ChannelPageResult parseChannelPage(const nlohmann::json& value, const ChannelPageQuery& q) {
     ChannelPageResult out;
     if (!value.is_object())

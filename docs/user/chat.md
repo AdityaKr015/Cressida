@@ -24,6 +24,49 @@ composer. Your newer draft is kept until you clear it. Cressida does not retry
 automatically, since a delayed confirmation could mean the message already
 arrived. Pending messages are kept for the current session only.
 
+## Search messages
+
+Click the search field in the upper right or press **Ctrl+F**. The menu offers
+filters for people, channels, mentions and content types. Choose a filter, then
+pick a suggestion or type its value. Chosen people and channels display readable
+names in the field.
+
+| Filter      | Finds                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `from:`     | Messages sent by a person. Use `from:me` for your own messages.                           |
+| `in:`       | Messages in a channel. Use `in:here` for the current channel.                             |
+| `mentions:` | Messages that mention a person.                                                           |
+| `has:`      | Images, videos, GIFs, files, links, embeds, audio, stickers, polls or forwarded messages. |
+| `before:`   | Messages before a date.                                                                   |
+| `after:`    | Messages from a date onward.                                                              |
+| `during:`   | Messages on a specific date.                                                              |
+| `author:`   | Messages from `user`, `bot` or `webhook` authors.                                         |
+
+Combine filters with ordinary text, for example:
+
+```text
+release from:me in:announcements has:video
+```
+
+Filters also work on their own, such as `has:image`. Dates use `YYYY-MM-DD` in
+UTC. **More filters** offers date and author options. Use `has:-image` to
+exclude images, or another supported content type after the minus sign.
+
+Suggestions use people and channels currently loaded in the client. You can also
+enter an ID, or type an exact name. Put names containing spaces in double
+quotes, such as `from:"Alex Smith"`. If a name is ambiguous, choose a suggestion
+or use its ID. Search stays within the current server or DM.
+
+Use **Up** and **Down** to highlight a suggestion and **Enter** or **Tab** to
+accept it. Press **Enter** without a highlighted suggestion to search.
+**Escape** dismisses the menu while keeping your query. Open a result to jump to
+its message.
+
+Recent searches appear beneath the filters, separately for each server or DM.
+Choose one to restore it, or use the trash button beside **History** to clear
+that list. Search history lasts for the current session and is cleared on
+sign-out.
+
 ## Reply to someone
 
 Hover a message and choose **Reply**. The composer shows who you are replying

@@ -507,6 +507,8 @@ namespace app {
       m_detachedInputs.erase(stored);
     } else {
       auto field = std::make_unique<Input>();
+      if (id == "channel-search" || id == "channel-search-panel")
+        field->setTextPresenter([this](std::string_view text) { return searchReplacements(text); });
       if (id == "composer" || id == "message-edit")
         field->setTextPresenter([this](std::string_view text) { return composerReplacements(text); });
       field->setFontSize(Style::fontSizeBody);
@@ -518,6 +520,8 @@ namespace app {
       field->setSubmitOnEnter(id == "composer");
       field->setOnFocusGain([this, id] {
         m_focusedInput = id;
+        if (id == "channel-search" || id == "channel-search-panel")
+          m_searchDismissed.clear();
         m_fieldFocused = id == "composer" || id == "token";
         m_settingsField = id.starts_with("settings:") ? id.substr(9) : "";
       });
@@ -682,7 +686,7 @@ namespace app {
     input.setSubmitOnEnter(id == "composer" || id == "dialog" || id == "message-edit");
     if (input.value() != value)
       input.setValue(value);
-    if (id == "composer" || id == "message-edit")
+    if (id == "composer" || id == "message-edit" || id == "channel-search" || id == "channel-search-panel")
       input.refreshTextPresentation();
     input.setPlaceholder(placeholder);
     input.setFrameVisible(id != "composer");
