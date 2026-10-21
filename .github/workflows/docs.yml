@@ -1,0 +1,32 @@
+name: Documentation website
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**']
+  pull_request:
+    branches: [main]
+    paths: ['docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    uses: Ly-sec/Cressida/.github/workflows/checks.yml@website
+    with:
+      website-ref: website
+      docs-ref: ${{ github.sha }}
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: Ly-sec/Cressida/.github/workflows/pages.yml@website
+    with:
+      website-ref: website
+      docs-ref: ${{ github.event_name == 'push' && github.sha || 'main' }}

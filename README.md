@@ -67,6 +67,11 @@ Image uploads are supported. Some Discord controls and settings remain incomplet
 
 ## Contributing
 
+Read the [user documentation](docs/user/index.md) for installation, everyday use,
+themes and troubleshooting. Documentation lives under `docs/` on `main`; the
+website imports it during its build. See [the authoring guide](docs/README.md)
+to update or preview a page.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance.
 
 ## License

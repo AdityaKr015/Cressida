@@ -59,6 +59,13 @@ behavior, build commands or dependencies change, and preserve third-party notice
 For new features, describe the proposed behavior in an issue before starting a
 large implementation.
 
+User-facing guides live in [`docs/user/`](docs/user/) on `main`; navigation lives
+in `docs/sidebar.json`. Edit them alongside client changes, using relative `.md`
+links. The Astro/Starlight site lives on `website` and imports this documentation
+at build time. Documentation PRs run site checks without deploying. Only changes
+under `docs/` on `main`, any push to `website`, or an explicit manual run deploy
+the site. See [`docs/README.md`](docs/README.md) for authoring and local previews.
+
 CI checks formatting and automation, builds/tests glibc packages on x86_64 and
 aarch64 Linux, tests musl on x86_64 Alpine edge, and runs offline UI replays
 against the glibc package. All three checks contribute to `CI passed`.
