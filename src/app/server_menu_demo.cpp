@@ -271,14 +271,21 @@ namespace app {
       selectedRoles.roles = {
           {.id = m_guildId,
            .name = "@everyone",
-           .permissions = std::to_string(1ULL | api::manageChannel | (1ULL << 5) | (1ULL << 10) | (1ULL << 44))}
+           .permissions = std::to_string(1ULL | api::manageChannel | (1ULL << 5) | api::viewChannel | (1ULL << 44))},
+          {.id = "50", .name = "Channel access", .permissions = "0"}
       };
-      selectedRoles.members[m_account.id] = {};
+      // The inherited channel fixture denies everyone and grants this role access.
+      selectedRoles.members[m_account.id] = {"50"};
       api::GuildRoleUpdate backgroundRoles{.guild = background, .replaceRoles = true};
       backgroundRoles.owner = "11";
       backgroundRoles.roles = {{.id = background, .name = "@everyone", .permissions = "3072"}};
       backgroundRoles.members[m_account.id] = {};
       m_roleDirectory.apply({false, {selectedRoles, backgroundRoles}});
+      require(
+          (serverChannelPermissions(m_guildId, m_channelId).value_or(0) & api::viewChannel)
+              && (serverChannelPermissions(m_guildId, "103").value_or(0) & api::viewChannel),
+          "Server-menu filtering targets must be accessible before follow preferences are applied"
+      );
       api::Channel backgroundChannel{"201", "background-chat", 0};
       backgroundChannel.overwrites.emplace();
       backgroundChannel.lastMessageId = "9100";
