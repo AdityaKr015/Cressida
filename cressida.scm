@@ -25,6 +25,7 @@
   #:use-module (gnu packages markup) ;md4c
   #:use-module (gnu packages animation) ;rlottie
   #:use-module (gnu packages stb) ;stb-image-resize2
+  #:use-module (gnu packages compression) ;zstd:lib
   #:use-module (gnu packages cpp)) ;nlohmann-json, tomlplusplus
 
 (define source-checkout
@@ -52,11 +53,16 @@
           (add-after 'unpack 'use-system-wuffs
             (lambda _
               (delete-file-recursively "third_party")
+              ;; so meson wouldn't complain
               (substitute* "meson.build"
                 (("'src', 'third_party/wuffs'")
                  "'src'")
                 ((", 'third_party/wuffs/LICENSE-APACHE', 'third_party/wuffs/LICENSE-MIT'")
-                 ""))))
+                 ""))
+              ;; so tests wouldn't complain
+              (substitute* "tests/installation_test.py"
+                (("\\(\"LICENSE\", \"LICENSE-APACHE\", \"LICENSE-MIT\"\\)")
+                 "(\"LICENSE\",)"))))
 
           (add-before 'configure 'fix-native-controls-test
             (lambda _
@@ -113,6 +119,7 @@
                   mesa
                   mpv
                   nlohmann-json
+                  (list zstd "lib")
                   pango
                   rlottie
                   tomlplusplus))
