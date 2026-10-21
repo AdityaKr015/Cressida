@@ -9,6 +9,7 @@
 #include "app/message_mentions.h"
 #include "app/message_preferences.h"
 #include "app/reply_preview.h"
+#include "app/single_instance.h"
 #include "app/system_message.h"
 #include "app/theme.h"
 #include "core/deferred_call.h"
@@ -89,7 +90,8 @@ namespace app {
 
   } // namespace
 
-  ClientApplication::ClientApplication(bool demoMode, std::string token) : m_token(std::move(token)) {
+  ClientApplication::ClientApplication(bool demoMode, std::string token, SingleInstance* instance)
+      : m_instance(instance), m_token(std::move(token)) {
     const auto* trace = std::getenv("CRESSIDA_TRACE_SCROLL");
     m_traceScroll = trace && std::string_view(trace) == "1";
     const auto* animation = std::getenv("CRESSIDA_SCROLL_ANIMATION");
@@ -1281,6 +1283,20 @@ namespace app {
   }
 
   int ClientApplication::run(bool smokeTest, bool startMinimized) {
+    struct ReplayInstance {
+      SingleInstance*& target;
+      std::filesystem::path runtime;
+      std::unique_ptr<SingleInstance> server;
+      ~ReplayInstance() {
+        if (server)
+          target = nullptr;
+        server.reset();
+        if (!runtime.empty()) {
+          std::error_code ignored;
+          std::filesystem::remove_all(runtime, ignored);
+        }
+      }
+    } replayInstance{m_instance};
     if (ContextMenuControl::compiledEntrySize() != sizeof(ContextMenuControlEntry))
       throw std::runtime_error(
           "The renderer library is stale: its menu layout differs from the client. Run just rebuild."
@@ -1295,6 +1311,17 @@ namespace app {
       m_tray.start(paths::assetPath("cressida-tray.svg"));
     }
     const auto* view = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW");
+    if (m_demo && view && std::string_view(view) == "tray-cycle") {
+      char pattern[] = "/tmp/cressida-instance-replay-XXXXXX";
+      const char* runtime = ::mkdtemp(pattern);
+      if (!runtime)
+        throw std::runtime_error("Could not create the private instance replay directory.");
+      replayInstance.runtime = runtime;
+      replayInstance.server = std::make_unique<SingleInstance>(replayInstance.runtime);
+      if (replayInstance.server->claim() != SingleInstance::Launch::Owner)
+        throw std::runtime_error("The private instance replay must own its isolated socket.");
+      m_instance = replayInstance.server.get();
+    }
     const bool trayStartupDemo = m_demo && view && std::string_view(view).starts_with("tray-startup-");
     if ((!m_demo && startMinimized) || trayStartupDemo) {
       beginTrayStartup();
@@ -1388,7 +1415,8 @@ namespace app {
                                       : 1)
             : 0,
         m_assets.eventFd(), m_video.eventFd(), m_themes.eventFd(), m_filePicker.eventFd(), m_soundPreview.eventFd(),
-        m_desktopNotifications.eventFd(), m_tray.eventFd(), m_windowIcons.eventFd()
+        m_desktopNotifications.eventFd(), m_tray.eventFd(), m_windowIcons.eventFd(),
+        m_instance ? m_instance->eventFd() : -1
     );
     if (m_demoOverlay == "server-settings-commands-cycle" && m_demoInteractionStep != 12)
       throw std::runtime_error("Server command permissions replay did not finish");
@@ -6248,6 +6276,9 @@ namespace app {
   }
 
   void ClientApplication::tick() {
+    if (m_instance)
+      if (auto activation = m_instance->poll())
+        trayEvent({.command = TrayCommand::Open, .activationToken = std::move(*activation)});
     while (auto event = m_tray.poll())
       trayEvent(std::move(*event));
     if (m_demo && m_demoOverlay.starts_with("tray-") && !m_window.visible())

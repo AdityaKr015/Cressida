@@ -55,10 +55,11 @@
 #include <set>
 
 namespace app {
+  class SingleInstance;
 
   class ClientApplication : private SelectPopupContext {
   public:
-    ClientApplication(bool demo, std::string token);
+    ClientApplication(bool demo, std::string token, SingleInstance* instance = nullptr);
     ~ClientApplication();
     int run(bool smokeTest = false, bool startMinimized = false);
     bool restartRequested() const { return m_restartRequested; }
@@ -797,6 +798,7 @@ namespace app {
     void invalidateReactors(const std::string& channel, const std::string& message);
     void demoInteractionStep();
 
+    SingleInstance* m_instance = nullptr;
     Window m_window;
     WindowIcons m_windowIcons;
     std::optional<WindowIconRequest> m_windowIconRequest;

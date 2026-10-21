@@ -30,6 +30,8 @@ With a desktop tray available, closing the window keeps Cressida running. Use
 the tray's **Open**, **Restart** or **Close** menu; **Close** exits the application.
 Run `cressida --start-minimized` for a hidden tray startup. If no tray host appears
 within five seconds, the window opens normally.
+Launching `cressida` or its application-menu entry again opens or focuses the
+running client. Use `cressida --new-instance` (or `cressida -n`) for a separate client.
 
 ### Nix
 With Nix installed, run from this checkout:

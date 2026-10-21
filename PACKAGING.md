@@ -257,6 +257,21 @@ hidden in the tray. It opens the window if no tray host appears within five
 seconds. Cressida does not install or enable an autostart entry itself. Demo and
 smoke-test modes ignore this flag.
 
+Ordinary terminal and desktop-launcher starts reuse the running client, including
+a window hidden in the tray. Handoff happens before credentials, connections or
+graphics are initialized and preserves the existing conversation, settings and
+drafts. `--start-minimized` affects only the first launch; another launch requests
+Open. `cressida --new-instance` (short form `-n`) explicitly starts a separate
+client. Demo and smoke-test modes always run independently.
+
+Single-instance coordination uses a user-private `cressida` directory below
+`$XDG_RUNTIME_DIR`, with a lock and local activation socket. When the variable is
+unset, it uses `/run/user/UID`, or a private `/tmp/cressida-runtime-UID` directory
+when that runtime is absent. No D-Bus service or extra runtime dependency is
+required for handoff. Socket requests wake the native event loop even when the
+window is hidden. The lock is released on exit; stale sockets are recovered after
+abrupt termination. Runtime files should not be included in packages or user backups.
+
 ## User files
 
 | Kind | Default location |

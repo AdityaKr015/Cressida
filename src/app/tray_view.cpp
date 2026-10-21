@@ -1,4 +1,5 @@
 #include "app/client_application.h"
+#include "app/single_instance.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -162,9 +163,16 @@ namespace app {
             m_window.toplevelGeneration() == restoredGeneration,
             "Tray and notification activation of an unfocused visible window must preserve its native role"
         );
+        require(m_instance, "The tray replay owns an isolated activation socket");
+        SingleInstance launcher(m_instance->runtimeDirectory());
+        require(
+            launcher.claim("offline-visible-launch") == SingleInstance::Launch::Forwarded,
+            "Another launch queues activation for the visible client"
+        );
       });
     } else if (step == 1) {
       const auto generation = m_window.toplevelGeneration();
+      require(generation == 2, "Forwarded activation preserves the restored visible window's native role");
       trayEvent({.command = TrayCommand::Open, .activationToken = "offline-activation-token"});
       trayEvent({.command = TrayCommand::Open});
       desktopNoticeAction(
@@ -185,10 +193,20 @@ namespace app {
       require(!m_trayAvailable && m_window.visible(), "Losing the tray host restores a hidden window");
       trayEvent({.available = true});
       m_window.requestClose();
-      m_trayDemoTimer.start(std::chrono::milliseconds(Style::animFast), [this] {
-        trayEvent({.command = TrayCommand::Open});
+      m_trayDemoTimer.start(std::chrono::milliseconds(Style::animFast), [this, require] {
+        const auto generation = m_window.toplevelGeneration();
+        SingleInstance launcher(m_instance->runtimeDirectory());
+        require(
+            launcher.claim("offline-hidden-launch") == SingleInstance::Launch::Forwarded,
+            "Another launch targets the running hidden client"
+        );
+        require(
+            !m_window.visible() && m_window.toplevelGeneration() == generation,
+            "The launch packet is delivered through the owning event loop"
+        );
       });
     } else if (step == 3) {
+      require(m_window.toplevelGeneration() == 4, "A launch packet restores the hidden window exactly once");
       trayEvent({.command = TrayCommand::Restart});
       require(m_restartRequested, "Restart requests an orderly relaunch independently of window hiding");
       m_restartRequested = false;
