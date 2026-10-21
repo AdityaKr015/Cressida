@@ -305,19 +305,23 @@ namespace app {
       topic->setPosition(topicX, 58);
       topic->setSize(icons - topicX - Style::spaceMd, 24);
       topic->setClipChildren(true);
+      for (const auto& area : messageSpoilerAreas(preview))
+        if (area.y <= Style::radiusSm)
+          rectangle(*topic, area.x, Style::spaceXxs, area.width, area.height, raised, Style::radiusSm);
       for (const auto& run : preview.runs) {
         if (run.y > 3)
           continue;
         if (run.style.spoiler)
-          rectangle(*topic, run.x, 2, run.width, run.height, raised, Style::radiusSm);
+          continue;
         else if (!run.image.empty())
           emojiImage(*topic, run.x, 0, run.width, run.image);
         else
           label(
-              *topic, run.x, 2, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size, muted,
-              FontWeight::Normal, 1, true
+              *topic, run.x, 2, run.width + Style::spaceXxs, messageMarkup(run.text, run.style, false), run.style.size,
+              muted, FontWeight::Normal, 1, true
           );
       }
+      drawMessageStrikes(*topic, preview, 0, Style::spaceXxs, muted);
       root.addChild(std::move(topic));
       m_hits.push_back({topicX, 48, std::max(1.0F, icons - topicX - Style::spaceMd), 44, Action::ChannelInfo, {}});
     }
@@ -404,24 +408,46 @@ namespace app {
         Style::fontSizeDescription, muted
     );
     auto hitsBegin = m_hits.size();
+    for (const auto& area : messageSpoilerAreas(description))
+      if (area.y + area.height <= topicHeight)
+        rectangle(
+            *root, x + area.x, y + layout::ChannelIntro::descriptionTop + area.y, area.width, area.height, raised,
+            Style::radiusSm
+        );
+    const auto links = messageLinkAreas(description);
+    std::size_t runIndex = 0;
     for (const auto& run : description.runs) {
+      auto style = run.style;
+      style.linkHovered = messageLinkHovered(
+          links, runIndex++, m_pointerX - chatLeft() - Style::spaceXl - x,
+          m_pointerY - m_messageViewportTop - y - layout::ChannelIntro::descriptionTop
+      );
       if (run.y + run.height > topicHeight)
         continue;
       if (run.style.spoiler)
-        rectangle(*root, x + run.x, y + 142 + run.y, run.width, run.height, raised, Style::radiusSm);
+        continue;
       else if (!run.image.empty())
-        emojiImage(*root, x + run.x, y + 142 + run.y, run.width, run.image);
+        emojiImage(*root, x + run.x, y + layout::ChannelIntro::descriptionTop + run.y, run.width, run.image);
       else
         label(
-            *root, x + run.x, y + 142 + run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style),
-            run.style.size, run.style.link.empty() ? foreground : accent, FontWeight::Normal, 1, true
-        );
-      if (!run.style.link.empty() && !run.style.spoiler)
-        m_hits.push_back(
-            {chatLeft() + Style::spaceXl + x + run.x, m_messageViewportTop + y + 142 + run.y, run.width, run.height,
-             Action::OpenUrl, run.style.link}
+            *root, x + run.x, y + layout::ChannelIntro::descriptionTop + run.y, run.width + Style::spaceXxs,
+            messageMarkup(run.text, style, false), run.style.size,
+            run.style.muted              ? muted
+                : run.style.link.empty() ? foreground
+                                         : accent,
+            FontWeight::Normal, 1, true
         );
     }
+    drawMessageStrikes(
+        *root, description, x, y + layout::ChannelIntro::descriptionTop, foreground, false, {}, topicHeight
+    );
+    for (const auto& area : links)
+      if (!description.runs[area.first].style.spoiler && area.y + area.height <= topicHeight)
+        m_hits.push_back(
+            {chatLeft() + Style::spaceXl + x + area.x,
+             m_messageViewportTop + y + layout::ChannelIntro::descriptionTop + area.y, area.width, area.height,
+             Action::OpenUrl, area.url}
+        );
     float controlX = x;
     if (permissions & api::managePermissions) {
       button(*root, {controlX, y + controlsY, 181, 30, Action::AddChannelAccess, {}}, "Add members or roles");
@@ -1284,18 +1310,21 @@ namespace app {
     content->setPosition(x + Style::spaceXl, y + 74);
     content->setSize(width - Style::spaceGroup, viewport);
     content->setClipChildren(true);
+    for (const auto& area : messageSpoilerAreas(description))
+      rectangle(*content, area.x, area.y - m_channelDialogScroll, area.width, area.height, raised, Style::radiusSm);
     for (const auto& run : description.runs) {
       const float ry = run.y - m_channelDialogScroll;
       if (run.style.spoiler)
-        rectangle(*content, run.x, ry, run.width, run.height, raised, Style::radiusSm);
+        continue;
       else if (!run.image.empty())
         emojiImage(*content, run.x, ry, run.width, run.image);
       else
         label(
-            *content, run.x, ry, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
-            foreground, FontWeight::Normal, 1, true
+            *content, run.x, ry, run.width + Style::spaceXxs, messageMarkup(run.text, run.style, false), run.style.size,
+            run.style.muted ? muted : foreground, FontWeight::Normal, 1, true
         );
     }
+    drawMessageStrikes(*content, description, 0, -m_channelDialogScroll, foreground);
     if (m_channelEditOriginal.topic.value_or("").empty())
       label(*content, 0, -m_channelDialogScroll, width - 60, "No channel description.", Style::fontSizeBody, muted);
     const float roleY = std::max(30.0F, description.height) + 22 - m_channelDialogScroll;

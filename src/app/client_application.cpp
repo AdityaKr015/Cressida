@@ -460,6 +460,8 @@ namespace app {
         demoJoinStep();
       if (m_demo && m_demoOverlay.starts_with("embed-cycle") && m_demoInteractionStep < embedReplayFrames)
         demoEmbedStep();
+      if (m_demo && m_demoOverlay.starts_with("markdown-cycle") && m_demoInteractionStep < markdownReplayFrames)
+        demoMarkdownStep();
       if (m_demo
           && m_demoOverlay.starts_with("media-gallery-cycle")
           && m_demoInteractionStep < mediaGalleryReplayFrames)
@@ -1261,12 +1263,13 @@ namespace app {
                    : m_demo && view && std::string_view(view) == "attachment-cycle"     ? attachmentReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("window-controls-cycle")
                    ? windowControlsReplayFrames
-                   : m_demo && view && std::string_view(view) == "tray-cycle"              ? trayReplayFrames
-                   : m_demo && view && std::string_view(view) == "sticker-cycle"           ? 8
-                   : m_demo && view && std::string_view(view) == "dm-compose-cycle"        ? 16
-                   : m_demo && view && std::string_view(view).starts_with("dm-home-cycle") ? dmHomeReplayFrames
-                   : m_demo && view && std::string_view(view).starts_with("reply-cycle")   ? composerReplyReplayFrames
-                   : m_demo && view && std::string_view(view).starts_with("embed-cycle")   ? embedReplayFrames
+                   : m_demo && view && std::string_view(view) == "tray-cycle"               ? trayReplayFrames
+                   : m_demo && view && std::string_view(view) == "sticker-cycle"            ? 8
+                   : m_demo && view && std::string_view(view) == "dm-compose-cycle"         ? 16
+                   : m_demo && view && std::string_view(view).starts_with("dm-home-cycle")  ? dmHomeReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("reply-cycle")    ? composerReplyReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("embed-cycle")    ? embedReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("markdown-cycle") ? markdownReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("media-gallery-cycle")
                    ? mediaGalleryReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("image-menu-cycle")    ? imageMenuReplayFrames
@@ -1390,6 +1393,8 @@ namespace app {
       throw std::runtime_error("Floating layout and radius replay did not complete");
     if (m_demoOverlay.starts_with("embed-cycle") && m_demoInteractionStep != embedReplayFrames)
       throw std::runtime_error("AutoMod and embed link replay did not complete");
+    if (m_demoOverlay.starts_with("markdown-cycle") && m_demoInteractionStep != markdownReplayFrames)
+      throw std::runtime_error("Markdown replay did not complete");
     if (m_demoOverlay.starts_with("media-gallery-cycle") && m_demoInteractionStep != mediaGalleryReplayFrames)
       throw std::runtime_error("Media gallery replay did not complete");
     if (m_demoOverlay.starts_with("image-menu-cycle") && m_demoInteractionStep != imageMenuReplayFrames)
@@ -2448,6 +2453,22 @@ namespace app {
           m_channelHistoryState.clear();
           m_channelCacheOrder.clear();
           m_roleDirectory.apply({.guilds = {{.guild = m_guildId, .owner = m_account.id}}});
+        } else if (view.starts_with("markdown")) {
+          m_demoOverlay = view;
+          m_showMembers = false;
+          m_preferences.messageSize = Style::fontSizeBody;
+          m_preferences.spoilerMode = 0;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          m_messages = api::parseMessages(nlohmann::json::parse(R"JSON([
+            {"id":"9401","channel_id":"101","timestamp":"2026-10-21T10:45:00Z",
+             "author":{"id":"11","username":"Maya"},
+             "content":"[A linked phrase with spaces](https://example.com/markdown)\n||A hidden phrase **with bold words**||\n~~strike **through** several words~~\n__underlined text with spaces__\n-# A smaller line with **emphasis** and [a small link](https://example.com/small).\nBody size again."}
+          ])JSON"));
+          m_revealedSpoilers.clear();
+          m_messageLayouts.clear();
+          m_unreadTimeline.snapshot({});
+          m_unreadTimeline.positioned();
         } else if (view.starts_with("embed-cycle") || view == "embeds" || view == "embeds-light") {
           m_demoOverlay = view;
           m_showMembers = false;
@@ -4188,7 +4209,7 @@ namespace app {
                 std::string textMarkup;
                 for (const auto& run : previewRuns)
                   if (run.image.empty() && !run.style.emoji && (!run.style.spoiler || spoilersVisible(reply.message)))
-                    textMarkup += messageMarkup(run.text, run.style);
+                    textMarkup += messageMarkup(run.text, run.style, false);
                 const auto textMetrics = m_window.target().renderer().measureText(
                     textMarkup, Style::fontSizeDescription, FontWeight::Normal, 0, 1, TextAlign::Start, {},
                     TextEllipsize::End, true
@@ -4198,19 +4219,22 @@ namespace app {
                                                             : (metrics.top + metrics.bottom) / 2;
                 };
                 const float textCenter = inkCenter(textMetrics);
-                for (const auto& run : previewRuns) {
-                  if (run.style.spoiler && !spoilersVisible(reply.message)) {
+                if (!spoilersVisible(reply.message))
+                  for (const auto& area : messageSpoilerAreas(m_messageLayouts.at(message.id).reply))
                     rectangle(
-                        *previewNode, run.x, mediaTop, run.width, layout::Reply::avatarSize, raised, Style::radiusSm
+                        *previewNode, area.x, mediaTop, area.width, layout::Reply::avatarSize, raised, Style::radiusSm
                     );
-                  } else if (!run.image.empty()) {
+                for (const auto& run : previewRuns) {
+                  if (run.style.spoiler && !spoilersVisible(reply.message))
+                    continue;
+                  if (!run.image.empty()) {
                     if (!emojiImage(*previewNode, run.x, mediaTop, layout::Reply::avatarSize, run.image))
                       label(
                           *previewNode, run.x, mediaTop + Style::borderWidth, layout::Reply::avatarSize, "…",
                           Style::fontSizeDescription, muted
                       );
                   } else {
-                    const auto markup = messageMarkup(run.text, run.style);
+                    const auto markup = messageMarkup(run.text, run.style, false);
                     const auto metrics = m_window.target().renderer().measureText(
                         markup, run.style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {}, TextEllipsize::End, true
                     );
@@ -4221,6 +4245,10 @@ namespace app {
                     );
                   }
                 }
+                drawMessageStrikes(
+                    *previewNode, m_messageLayouts.at(message.id).reply, 0, 0, muted, spoilersVisible(reply.message),
+                    layout::Reply::height / 2 - textCenter
+                );
                 const float previewTop = std::max(top, top + y);
                 const float previewBottom = std::min(bottom, top + y + layout::Reply::height);
                 if (previewBottom > previewTop)
@@ -4446,7 +4474,6 @@ namespace app {
                   }
                 }
                 const auto linkAreas = messageLinkAreas(layout);
-                std::vector<std::size_t> hoveredLinks;
                 for (const auto& area : linkAreas) {
                   const auto& run = layout.runs[area.first];
                   if (run.style.spoiler && !spoilersVisible(message.id))
@@ -4459,31 +4486,30 @@ namespace app {
                       Action::OpenUrl,
                       area.url
                   };
-                  if (hit.contains(m_pointerX, m_pointerY))
-                    hoveredLinks.push_back(area.group);
                   m_hits.push_back(hit);
                 }
+                if (!spoilersVisible(message.id))
+                  for (const auto& area : messageSpoilerAreas(layout)) {
+                    rectangle(
+                        *content, layout::Chat::authorGutter + area.x, bodyY + area.y, area.width, area.height, raised,
+                        Style::radiusSm
+                    );
+                    m_hits.push_back(
+                        {left + layout::Chat::inset + layout::Chat::authorGutter + area.x, top + bodyY + area.y,
+                         area.width, area.height, Action::RevealSpoiler, message.id}
+                    );
+                  }
                 std::size_t runIndex = 0;
                 for (const auto& run : layout.runs) {
                   auto style = run.style;
-                  if (style.hoverLink && !style.link.empty())
-                    for (const auto& area : linkAreas)
-                      if (area.first <= runIndex
-                          && runIndex <= area.last
-                          && std::ranges::find(hoveredLinks, area.group) != hoveredLinks.end()) {
-                        style.underline = true;
-                        break;
-                      }
-                  ++runIndex;
+                  style.linkHovered = messageLinkHovered(
+                      linkAreas, runIndex++, m_pointerX - left - layout::Chat::inset - layout::Chat::authorGutter,
+                      m_pointerY - top - bodyY
+                  );
                   const float rx = 50 + run.x, ry = bodyY + run.y;
                   const bool hidden = run.style.spoiler && !spoilersVisible(message.id);
-                  if (hidden) {
-                    rectangle(*content, rx, ry, run.width, run.height, raised, Style::radiusSm);
-                    m_hits.push_back(
-                        {left + Style::spaceXl + rx, top + ry, run.width, run.height, Action::RevealSpoiler, message.id}
-                    );
+                  if (hidden)
                     continue;
-                  }
                   if (run.channelChip) {
                     drawChannelLink(*content, run, message.id, rx, ry, left + layout::Chat::inset + rx, top + ry);
                     continue;
@@ -4504,9 +4530,9 @@ namespace app {
                   }
                   if (run.image.empty())
                     label(
-                        *content, rx, ry, std::max(1.0F, run.width + Style::spaceXxs), messageMarkup(run.text, style),
-                        run.style.size,
-                        run.style.historical                               ? muted
+                        *content, rx, ry, std::max(1.0F, run.width + Style::spaceXxs),
+                        messageMarkup(run.text, style, false), run.style.size,
+                        run.style.historical || run.style.muted            ? muted
                             : run.style.syntax != CodeToken::Plain         ? syntaxColor(run.style.syntax)
                             : run.style.link.empty() && !run.style.mention ? foreground
                                                                            : accent,
@@ -4525,6 +4551,9 @@ namespace app {
                         {left + Style::spaceXl + rx, top + ry, run.width, run.height, Action::OpenUrl, run.style.link}
                     );
                 }
+                drawMessageStrikes(
+                    *content, layout, layout::Chat::authorGutter, bodyY, foreground, spoilersVisible(message.id)
+                );
                 if (layout.edited) {
                   const auto& marker = *layout.edited;
                   label(

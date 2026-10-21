@@ -236,10 +236,11 @@ namespace app {
             emojiImage(*line, run.x, run.y, run.width, run.image);
           else
             label(
-                *line, run.x, run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
-                muted, FontWeight::Normal, 1, true
+                *line, run.x, run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style, false),
+                run.style.size, muted, FontWeight::Normal, 1, true
             );
         }
+        drawMessageStrikes(*line, layout, 0, 0, muted);
         content->addChild(std::move(line));
       }
       float detailX = 14;

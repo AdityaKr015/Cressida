@@ -72,6 +72,7 @@ namespace app {
     static constexpr int dmProfileReplayFrames = 13;
     static constexpr int composerReplyReplayFrames = 10;
     static constexpr int embedReplayFrames = 12;
+    static constexpr int markdownReplayFrames = 5;
     static constexpr int mediaGalleryReplayFrames = 13;
     static constexpr int imageMenuReplayFrames = 13;
     static constexpr int trayReplayFrames = 4;
@@ -409,8 +410,13 @@ namespace app {
     void demoHistoryStep();
     void demoRoleStep();
     void drawSystemNotice(Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width);
+    void drawMessageStrikes(
+        Node& parent, const MessageLayout& message, float x, float y, Color color, bool showSpoilers = false,
+        std::optional<float> baseline = {}, std::optional<float> height = {}
+    );
     void demoJoinStep();
     void demoEmbedStep();
+    void demoMarkdownStep();
     void autoModerationAction(const Hit& hit);
     void deleteMessages(const std::string& channel, const std::vector<std::string>& ids);
     void clearMessageLog(bool deletions = true, bool edits = true);

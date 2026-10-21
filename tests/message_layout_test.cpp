@@ -96,12 +96,9 @@ int main(int argc, char** argv) {
           run.style.size <= app::layout::Embed::titleSize, "Embed typography is bounded independently of chat text size"
       );
       if (!run.style.link.empty()) {
-        require(
-            run.style.hoverLink && !app::messageMarkup(run.text, run.style).contains("<u>"),
-            "Embed links have no resting underline"
-        );
+        require(!app::messageMarkup(run.text, run.style).contains("<u>"), "Embed links have no resting underline");
         auto hovered = run.style;
-        hovered.underline = true;
+        hovered.linkHovered = true;
         require(
             app::messageMarkup(run.text, hovered).contains("<u>"),
             "Hover adds the link underline without changing wire text"
@@ -131,6 +128,101 @@ int main(int argc, char** argv) {
         adjacentLinks.size() == 2 && adjacentLinks[0].group != adjacentLinks[1].group,
         "Distinct adjacent Markdown links retain separate identities even when their URL matches"
     );
+    for (const auto content :
+         {"https://example.com", "[a link with spaces](https://example.com)",
+          "__[underlined link](https://example.com)__"}) {
+      const auto link = app::layoutMessage(content, 100, editMeasure);
+      const auto areas = app::messageLinkAreas(link);
+      require(!areas.empty(), "Ordinary message links expose hover regions");
+      for (std::size_t i = 0; i < link.runs.size(); ++i) {
+        const auto& run = link.runs[i];
+        if (run.style.link.empty())
+          continue;
+        require(!app::messageMarkup(run.text, run.style).contains("<u>"), "Links never underline at rest");
+        auto style = run.style;
+        style.linkHovered = app::messageLinkHovered(areas, i, areas.front().x, areas.front().y);
+        require(app::messageMarkup(run.text, style).contains("<u>"), "Hover underlines every line of the same link");
+        require(!app::messageLinkHovered(areas, i, -1, -1), "Leaving a link removes its hover state");
+      }
+    }
+    require(
+        app::messageMarkup("underlined", {.underline = true}).contains("<u>"),
+        "Explicit plain-text underline remains visible"
+    );
+    const auto maskedText = app::layoutMessage("||first **bold** last|| plain ||another secret||", 500, editMeasure);
+    const auto hiddenAreas = app::messageSpoilerAreas(maskedText);
+    require(hiddenAreas.size() == 2, "Each spoiler has one mask across words, spaces and nested emphasis");
+    for (const auto& area : hiddenAreas) {
+      require(area.last > area.first, "A multiword spoiler mask spans its individual text runs");
+      const auto& first = maskedText.runs[area.first];
+      const auto& last = maskedText.runs[area.last];
+      require(area.x == first.x && area.x + area.width == last.x + last.width, "Spoiler masks cover inter-word spaces");
+    }
+    const auto adjacentSpoilers = app::layoutMessage("||one||||two||", 500, editMeasure);
+    require(
+        app::messageSpoilerAreas(adjacentSpoilers).size() == 2, "Adjacent spoilers retain distinct span identities"
+    );
+    const auto wrappedSpoiler = app::layoutMessage("||first second third fourth||", 85, editMeasure);
+    const auto wrappedAreas = app::messageSpoilerAreas(wrappedSpoiler);
+    require(wrappedAreas.size() > 1, "A wrapping spoiler has one coherent mask per line");
+    for (const auto& area : wrappedAreas)
+      require(area.x >= 0 && area.x + area.width <= 85, "Wrapped masks stay inside the measured column");
+    const auto crossed = app::layoutMessage("~~ text abc ~~", 500, editMeasure);
+    require(crossed.plainText == " text abc \n", "Spaced strikethrough delimiters preserve enclosed text");
+    require(
+        std::ranges::all_of(crossed.runs, [](const auto& run) { return run.style.strike; }),
+        "Strikethrough includes spaces"
+    );
+    require(
+        std::ranges::any_of(
+            crossed.runs,
+            [](const auto& run) { return run.text == " " && app::messageMarkup(run.text, run.style).contains("<s>"); }
+        ),
+        "Strikethrough draws through its inter-word gaps"
+    );
+    const auto strikeAreas = app::messageStrikeAreas(crossed);
+    require(
+        strikeAreas.size() == 1
+            && strikeAreas.front().first == 0
+            && strikeAreas.front().last == crossed.runs.size() - 1,
+        "Strikethrough paints one continuous line across all words and spaces"
+    );
+    const auto nestedStrike = app::layoutMessage("~~strike **through** several words~~", 500, editMeasure);
+    require(app::messageStrikeAreas(nestedStrike).size() == 1, "Nested emphasis does not split the strike line");
+    const auto wrappedStrike = app::layoutMessage("~~strike through several words~~", 85, editMeasure);
+    require(app::messageStrikeAreas(wrappedStrike).size() > 1, "Wrapping creates one strike decoration per line");
+    for (const auto size : {Style::fontSizeBody, Style::fontSizePage}) {
+      const auto small =
+          app::layoutMessage("-# **small text** with `code` and more words\nnormal", 100, editMeasure, size);
+      require(small.plainText.starts_with("small text with code"), "Subtext removes only its leading syntax");
+      require(!small.plainText.contains("-#"), "Subtext markers never enter copied text");
+      require(
+          small.runs.back().style.size == size && !small.runs.back().style.muted,
+          "The next source line restores body typography"
+      );
+      for (const auto& run : small.runs) {
+        require(
+            small.plainText.substr(run.offset, run.text.size()) == run.text,
+            "Styled whitespace and subtext retain byte selection offsets"
+        );
+        if (run.text != "normal")
+          require(run.style.size < size && run.style.muted, "All wrapped subtext runs stay smaller and muted");
+      }
+      const auto one = app::layoutMessage("-# small", 500, editMeasure, size);
+      const auto ordinary = app::layoutMessage("small", 500, editMeasure, size);
+      require(one.height < ordinary.height, "Subtext uses a smaller measured line height");
+    }
+    for (const auto content :
+         {"`-# literal ~~strike~~ ||secret||`", "```\n-# literal ~~strike~~ ||secret||\n```",
+          "escaped \\~\\~literal\\~\\~", "inline -# literal"}) {
+      const auto literal = app::layoutMessage(content, 500, editMeasure);
+      require(
+          std::ranges::none_of(
+              literal.runs, [](const auto& run) { return run.style.strike || run.style.spoiler || run.style.muted; }
+          ),
+          "Code, escaped delimiters and inline prefixes retain literal text"
+      );
+    }
     const auto singleBreak = app::layoutMessage("first\nsecond", 500, editMeasure);
     const float lineStep = singleBreak.runs.back().y - singleBreak.runs.front().y;
     for (const auto& [input, expected] :

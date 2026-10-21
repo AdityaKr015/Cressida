@@ -287,18 +287,35 @@ namespace app {
             *body, P::inset + box.x, bioY + box.y, box.width, box.height, box.quote ? theme::muted : theme::panel,
             box.quote ? 0 : Style::radiusSm
         );
+      for (const auto& area : messageSpoilerAreas(bio))
+        rectangle(*body, P::inset + area.x, bioY + area.y, area.width, area.height, theme::raised, Style::radiusSm);
+      const auto links = messageLinkAreas(bio);
+      const bool bodyHovered = hovered(frame.x, frame.y, frame.width, viewport);
+      std::size_t runIndex = 0;
       for (const auto& run : bio.runs) {
+        auto style = run.style;
+        style.linkHovered =
+            bodyHovered
+            && messageLinkHovered(
+                links, runIndex, m_pointerX - frame.x - P::inset, m_pointerY - frame.y + m_dmProfile.scroll - bioY
+            );
+        ++runIndex;
         if (run.style.spoiler)
-          rectangle(*body, P::inset + run.x, bioY + run.y, run.width, run.height, theme::raised, Style::radiusSm);
-        else if (!run.image.empty())
+          continue;
+        if (!run.image.empty())
           emojiImage(*body, P::inset + run.x, bioY + run.y, run.width, run.image);
         else
           label(
-              *body, P::inset + run.x, bioY + run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style),
-              run.style.size, theme::foreground, FontWeight::Normal, 1, true
+              *body, P::inset + run.x, bioY + run.y, run.width + Style::spaceXxs, messageMarkup(run.text, style, false),
+              run.style.size,
+              run.style.muted              ? theme::muted
+                  : run.style.link.empty() ? theme::foreground
+                                           : theme::accent,
+              FontWeight::Normal, 1, true
           );
       }
-      for (const auto& link : messageLinkAreas(bio))
+      drawMessageStrikes(*body, bio, P::inset, bioY, theme::foreground);
+      for (const auto& link : links)
         if (!bio.runs[link.first].style.spoiler)
           hit(P::inset + link.x, bioY + link.y, link.width, link.height, Action::OpenUrl, link.url);
     }

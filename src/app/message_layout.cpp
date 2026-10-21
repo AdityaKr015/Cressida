@@ -16,7 +16,7 @@
 #include <pango/pango.h>
 
 namespace app {
-  std::string messageMarkup(std::string_view text, const MessageStyle& style) {
+  std::string messageMarkup(std::string_view text, const MessageStyle& style, bool inlineStrike) {
     auto* escaped = g_markup_escape_text(text.data(), text.size());
     std::string result = escaped;
     g_free(escaped);
@@ -24,9 +24,9 @@ namespace app {
       result = "<b>" + result + "</b>";
     if (style.italic)
       result = "<i>" + result + "</i>";
-    if (style.underline || (!style.link.empty() && !style.hoverLink))
+    if (style.link.empty() ? style.underline : style.linkHovered)
       result = "<u>" + result + "</u>";
-    if (style.strike)
+    if (style.strike && inlineStrike)
       result = "<s>" + result + "</s>";
     if (style.code)
       result = "<tt>" + result + "</tt>";
@@ -66,12 +66,88 @@ namespace app {
     }
     return areas;
   }
+  bool messageLinkHovered(const std::vector<MessageLinkArea>& areas, std::size_t run, float x, float y) {
+    const auto own =
+        std::ranges::find_if(areas, [&](const auto& area) { return area.first <= run && run <= area.last; });
+    return own != areas.end() && std::ranges::any_of(areas, [&](const auto& area) {
+             return area.group == own->group
+                 && x >= area.x
+                 && x < area.x + area.width
+                 && y >= area.y
+                 && y < area.y + area.height;
+           });
+  }
+  std::vector<MessageSpanArea> messageSpoilerAreas(const MessageLayout& layout) {
+    std::vector<MessageSpanArea> areas;
+    const MessageRun* previous = nullptr;
+    for (std::size_t i = 0; i < layout.runs.size(); ++i) {
+      const auto& run = layout.runs[i];
+      if (!run.style.spoiler) {
+        previous = nullptr;
+        continue;
+      }
+      bool continuous = previous && previous->style.spoilerId == run.style.spoilerId;
+      if (continuous) {
+        const auto end = previous->offset + previous->text.size();
+        continuous = end <= run.offset
+            && run.offset <= layout.plainText.size()
+            && std::string_view(layout.plainText).substr(end, run.offset - end).find_first_not_of(" \t\r\n")
+                == std::string_view::npos;
+      }
+      if (continuous
+          && !areas.empty()
+          && run.y < areas.back().y + areas.back().height
+          && run.y + run.height > areas.back().y
+          && run.x >= areas.back().x) {
+        auto& area = areas.back();
+        const float bottom = std::max(area.y + area.height, run.y + run.height);
+        area.width = std::max(area.x + area.width, run.x + run.width) - area.x;
+        area.y = std::min(area.y, run.y);
+        area.height = bottom - area.y;
+        area.last = i;
+      } else
+        areas.push_back({run.x, run.y, run.width, run.height, i, i});
+      previous = &run;
+    }
+    return areas;
+  }
+  std::vector<MessageSpanArea> messageStrikeAreas(const MessageLayout& layout) {
+    std::vector<MessageSpanArea> areas;
+    const MessageRun* previous = nullptr;
+    for (std::size_t i = 0; i < layout.runs.size(); ++i) {
+      const auto& run = layout.runs[i];
+      if (!run.style.strike) {
+        previous = nullptr;
+        continue;
+      }
+      const bool continuous = previous
+          && previous->style.strikeId == run.style.strikeId
+          && previous->style.spoiler == run.style.spoiler
+          && previous->style.spoilerId == run.style.spoilerId
+          && previous->offset + previous->text.size() == run.offset;
+      if (continuous
+          && !areas.empty()
+          && run.y < areas.back().y + areas.back().height
+          && run.y + run.height > areas.back().y
+          && run.x >= areas.back().x) {
+        auto& area = areas.back();
+        const float bottom = std::max(area.y + area.height, run.y + run.height);
+        area.width = std::max(area.x + area.width, run.x + run.width) - area.x;
+        area.y = std::min(area.y, run.y);
+        area.height = bottom - area.y;
+        area.last = i;
+      } else
+        areas.push_back({run.x, run.y, run.width, run.height, i, i});
+      previous = &run;
+    }
+    return areas;
+  }
   namespace {
     // MD4C handles Markdown nesting/escaping; these tokens preserve Discord's
     // double-underscore underline and spoilers without interpreting raw HTML.
-    constexpr std::string_view underline = "\uE000", spoiler = "\uE001";
+    constexpr std::string_view underline = "\uE000", spoiler = "\uE001", strike = "\uE004", subtext = "\uE005";
     std::string discordSyntax(std::string_view text, bool timestamps) {
-      std::vector<std::size_t> underscores, spoilers;
+      std::vector<std::size_t> underscores, spoilers, strikes;
       std::string fence;
       for (std::size_t i = 0; i < text.size();) {
         if (text[i] == '\\') {
@@ -97,6 +173,9 @@ namespace app {
         } else if (fence.empty() && text.substr(i, 2) == "||") {
           spoilers.push_back(i);
           i += 2;
+        } else if (fence.empty() && text.substr(i, 2) == "~~") {
+          strikes.push_back(i);
+          i += 2;
         } else
           ++i;
       }
@@ -104,6 +183,8 @@ namespace app {
         underscores.pop_back();
       if (spoilers.size() % 2)
         spoilers.pop_back();
+      if (strikes.size() % 2)
+        strikes.pop_back();
       std::string result;
       for (std::size_t i = 0; i < text.size();) {
         if (std::binary_search(underscores.begin(), underscores.end(), i)) {
@@ -112,6 +193,12 @@ namespace app {
         } else if (std::binary_search(spoilers.begin(), spoilers.end(), i)) {
           result += spoiler;
           i += 2;
+        } else if (std::binary_search(strikes.begin(), strikes.end(), i)) {
+          result += strike;
+          i += 2;
+        } else if ((i == 0 || text[i - 1] == '\n' || text[i - 1] == '\r') && text.substr(i).starts_with("-# ")) {
+          result += subtext;
+          i += 3;
         } else if (text[i] == '<') {
           const auto end = text.find('>', i);
           const auto token = end == std::string_view::npos ? std::string_view{} : text.substr(i + 1, end - i - 1);
@@ -140,7 +227,11 @@ namespace app {
       return text;
     }
     std::string restore(std::string text) {
-      for (auto [marker, original] : {std::pair{underline, std::string_view("__")}, {spoiler, std::string_view("||")}})
+      for (auto [marker, original] :
+           {std::pair{underline, std::string_view("__")},
+            {spoiler, std::string_view("||")},
+            {strike, std::string_view("~~")},
+            {subtext, std::string_view("-# ")}})
         for (auto pos = text.find(marker); pos != std::string::npos; pos = text.find(marker, pos + 2))
           text.replace(pos, marker.size(), original);
       return restoreEmoji(std::move(text));
@@ -151,6 +242,8 @@ namespace app {
       MessageMeasure measure;
       MessageStyle style;
       std::size_t linkSequence = 0;
+      std::size_t spoilerSequence = 0, activeSpoiler = 0;
+      std::size_t strikeSequence = 0, activeStrike = 0;
       std::vector<MessageStyle> styles;
       std::vector<unsigned> lists;
       std::vector<std::size_t> quotes;
@@ -158,7 +251,7 @@ namespace app {
       std::size_t codeBox = 0;
       std::string codeLanguage;
       std::optional<std::size_t> inlineBox;
-      bool underlineOn = false, spoilerOn = false;
+      bool underlineOn = false, spoilerOn = false, strikeOn = false, subtextOn = false;
       float emojiSize = 22;
       std::size_t lineStart = 0;
       std::size_t lineBoxStart = 0;
@@ -168,6 +261,21 @@ namespace app {
       std::string_view source;
       std::optional<std::size_t> sourceEnd;
       std::size_t semanticBreaks = 0, lastSourceBreaks = 0;
+      MessageStyle currentStyle() const {
+        auto current = style;
+        current.underline |= underlineOn;
+        current.strike |= strikeOn;
+        if (strikeOn)
+          current.strikeId = activeStrike;
+        current.spoiler |= spoilerOn;
+        if (spoilerOn)
+          current.spoilerId = activeSpoiler;
+        if (subtextOn) {
+          current.size *= layout::Markdown::subtextScale;
+          current.muted = true;
+        }
+        return current;
+      }
       std::optional<std::size_t> sourceOffset(const char* text, std::size_t size) const {
         const auto begin = reinterpret_cast<std::uintptr_t>(source.data());
         const auto at = reinterpret_cast<std::uintptr_t>(text);
@@ -236,7 +344,9 @@ namespace app {
         inlineBox.reset();
         x = indent + (style.code && !codeBlock ? 3 : 0);
         y += lineHeight;
-        lineHeight = fontSize + 8;
+        if (semantic)
+          subtextOn = false;
+        lineHeight = fontSize * (subtextOn ? layout::Markdown::subtextScale : 1) + layout::Markdown::lineGap;
         if (semantic) {
           output.plainText += "\n";
           ++semanticBreaks;
@@ -251,7 +361,7 @@ namespace app {
       ) {
         using Part = MessageRun::ChannelChip::Part;
         const float available = std::max(0.0F, width - indent);
-        auto current = style;
+        auto current = currentStyle();
         current.link = std::move(link);
         current.userMention.clear();
         current.mention = true;
@@ -313,14 +423,13 @@ namespace app {
         lineHeight = std::max(lineHeight, height);
       }
       void add(std::string text, std::string image = {}, bool unicodeEmoji = false) {
-        auto current = style;
-        current.underline |= underlineOn;
-        current.spoiler |= spoilerOn;
+        auto current = currentStyle();
         current.emoji = !image.empty() || unicodeEmoji;
+        const float inlineEmojiSize = emojiSize * (subtextOn ? layout::Markdown::subtextScale : 1);
         if (unicodeEmoji)
-          current.size = emojiSize;
-        const float size = image.empty() ? measure(text, current) : emojiSize;
-        const float height = image.empty() ? current.size + 8 : emojiSize;
+          current.size = inlineEmojiSize;
+        const float size = image.empty() ? measure(text, current) : inlineEmojiSize;
+        const float height = image.empty() ? current.size + layout::Markdown::lineGap : inlineEmojiSize;
         const bool inlineCode = current.code && !codeBlock;
         const float padding = inlineCode ? 3 : 0;
         if (x > indent + padding && x + size > width - (codeBlock ? 10 : padding))
@@ -342,12 +451,11 @@ namespace app {
         );
         output.plainText += output.runs.back().text;
         x += size;
-        lineHeight = std::max(lineHeight, current.emoji ? emojiSize + 8 : height);
+        lineHeight = std::max(lineHeight, current.emoji ? inlineEmojiSize + layout::Markdown::lineGap : height);
       }
       void plainWord(std::string_view word) {
         const float available = std::max(22.0F, width - indent - (codeBlock ? 10 : style.code ? 6 : 0));
-        auto current = style;
-        current.underline |= underlineOn;
+        auto current = currentStyle();
         if (measure(word, current) <= available) {
           add(std::string(word));
           return;
@@ -413,7 +521,22 @@ namespace app {
           }
           if (!literal && text.substr(pos).starts_with(spoiler)) {
             spoilerOn = !spoilerOn;
+            if (spoilerOn)
+              activeSpoiler = ++spoilerSequence;
             pos += spoiler.size();
+            continue;
+          }
+          if (!literal && text.substr(pos).starts_with(strike)) {
+            strikeOn = !strikeOn;
+            if (strikeOn)
+              activeStrike = ++strikeSequence;
+            pos += strike.size();
+            continue;
+          }
+          if (!literal && text.substr(pos).starts_with(subtext)) {
+            subtextOn = true;
+            lineHeight = fontSize * layout::Markdown::subtextScale + layout::Markdown::lineGap;
+            pos += subtext.size();
             continue;
           }
           if (text[pos] == '\n') {
@@ -491,15 +614,25 @@ namespace app {
                  && text[end] != '\t'
                  && text[end] != '<'
                  && (text[end] == ' ') == space
-                 && (literal || (!text.substr(end).starts_with(underline) && !text.substr(end).starts_with(spoiler))))
+                 && (literal
+                     || (!text.substr(end).starts_with(underline)
+                         && !text.substr(end).starts_with(spoiler)
+                         && !text.substr(end).starts_with(strike)
+                         && !text.substr(end).starts_with(subtext))))
             ++end;
           if (space) {
-            const auto length = measure(text.substr(pos, end - pos), style);
-            output.plainText += text.substr(pos, end - pos);
-            if (x + length > width)
+            const auto current = currentStyle();
+            const auto value = text.substr(pos, end - pos);
+            const auto length = measure(value, current);
+            if (x + length > width) {
+              output.plainText += value;
               newline();
-            else
+            } else if (current.spoiler || current.strike || current.underline || !current.link.empty())
+              add(std::string(value));
+            else {
+              output.plainText += value;
               x += length;
+            }
           } else
             word(text.substr(pos, end - pos));
           pos = end;
@@ -1095,7 +1228,6 @@ namespace app {
         run.offset += offset;
         run.style.bold |= style.bold;
         run.style.spoiler |= style.spoiler;
-        run.style.hoverLink |= style.hoverLink;
         if (run.style.link.empty()) {
           run.style.link = style.link;
           run.style.linkId = inheritedLink;
@@ -1387,7 +1519,6 @@ namespace app {
           Style::space2Xl, cardWidth - layout::Embed::padding * 2 - (thumbnail ? layout::Embed::thumbnailReserve : 0)
       );
       const auto embedText = [&](std::string_view text, MessageStyle style, float available) {
-        style.hoverLink = true;
         return append(text, layout::Embed::padding, y, available, style, false);
       };
       if (!embed.provider.empty())

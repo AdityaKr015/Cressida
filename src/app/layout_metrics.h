@@ -352,6 +352,12 @@ namespace app::layout {
     static constexpr float badgeTop = Style::spaceXs;
     static constexpr float iconInset = Style::spaceMd;
     static constexpr float iconSize = badgeSize - iconInset * 2;
+    static constexpr float descriptionTop = Style::spaceGroup * 3 - Style::spaceXxs;
+  };
+  struct Markdown {
+    static constexpr float subtextScale = Style::fontSizeDescription / Style::fontSizeBody;
+    static constexpr float lineGap = Style::spaceSm;
+    static constexpr float strikeThickness(float size) { return Style::borderWidth * size / Style::fontSizeBody; }
   };
   struct Embed {
     static constexpr float maximumWidth = Style::embedMaximumWidth;

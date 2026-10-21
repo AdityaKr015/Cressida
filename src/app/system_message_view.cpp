@@ -9,6 +9,27 @@
 #include <stdexcept>
 
 namespace app {
+  void ClientApplication::drawMessageStrikes(
+      Node& parent, const MessageLayout& message, float x, float y, Color color, bool showSpoilers,
+      std::optional<float> baseline, std::optional<float> height
+  ) {
+    for (const auto& area : messageStrikeAreas(message)) {
+      const auto& style = message.runs[area.first].style;
+      if (height && area.y + area.height > *height)
+        continue;
+      if (style.spoiler && !showSpoilers)
+        continue;
+      const auto metrics = m_window.target().renderer().measureText(
+          messageMarkup("x", style, false), style.size, FontWeight::Normal, 0, 1, TextAlign::Start, {},
+          TextEllipsize::End, true
+      );
+      const float thickness = layout::Markdown::strikeThickness(style.size);
+      const float center = (metrics.inkTop + metrics.inkBottom) / 2;
+      const float top = y + baseline.value_or(area.y - metrics.top) + center - thickness / 2;
+      rectangle(parent, x + area.x, top, area.width, thickness, style.muted ? theme::muted : color);
+      parent.children().back()->setHitTestVisible(false);
+    }
+  }
   void ClientApplication::drawSystemNotice(
       Node& parent, const api::Message& message, const MessageLayout& layout, float y, float width
   ) {
@@ -107,7 +128,7 @@ namespace app {
         );
       else
         label(
-            parent, x, top, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
+            parent, x, top, run.width + Style::spaceXxs, messageMarkup(run.text, run.style, false), run.style.size,
             automod && !run.style.muted ? foreground : muted, FontWeight::Normal, 1, true
         );
       m_textAreas.push_back({run, message.id, absoluteX + run.x, absoluteY + run.y});
@@ -122,6 +143,7 @@ namespace app {
         m_contextTargets.push_back(std::move(hit));
       }
     }
+    drawMessageStrikes(parent, layout, layout::Chat::authorGutter, y, automod ? foreground : muted);
     if (!layout.runs.empty() && message.timestamp.size() >= 16) {
       const auto headerEnd = automod
           ? std::ranges::find_if(layout.runs, [&](const auto& run) { return run.y >= automod->authorTop; })
@@ -278,6 +300,110 @@ namespace app {
     }
     m_window.invalidate();
   }
+  void ClientApplication::demoMarkdownStep() {
+    const auto require = [](bool value, const char* reason) {
+      if (!value)
+        throw std::runtime_error(reason);
+    };
+    const auto step = m_demoInteractionStep++;
+    const auto& message = m_messageLayouts.at("9401").layout;
+    const auto links = messageLinkAreas(message);
+    const auto spoilers = messageSpoilerAreas(message);
+    const auto strikes = messageStrikeAreas(message);
+    require(!links.empty() && !spoilers.empty() && !strikes.empty(), "The Markdown fixture contains all span types");
+    const auto textArea = [&](std::size_t index) {
+      const auto found = std::ranges::find_if(m_textAreas, [&](const auto& area) {
+        return area.message == "9401" && area.run.offset == message.runs[index].offset;
+      });
+      require(found != m_textAreas.end(), "The formatted text is mounted");
+      return *found;
+    };
+    const auto inspect = [&](auto&& self, const Node& node, float x, float y, auto&& predicate) -> bool {
+      x += node.x();
+      y += node.y();
+      if (predicate(node, x, y))
+        return true;
+      return std::ranges::any_of(node.children(), [&](const auto& child) {
+        return self(self, *child, x, y, predicate);
+      });
+    };
+    for (std::size_t i = 0; i < message.runs.size(); ++i) {
+      const auto& run = message.runs[i];
+      if (run.style.spoiler && !spoilersVisible("9401"))
+        continue;
+      auto style = run.style;
+      style.linkHovered = step == 1 && style.link == "https://example.com/markdown";
+      const auto markup = messageMarkup(run.text, style, false);
+      require(
+          inspect(
+              inspect, *m_scene, 0, 0,
+              [&](const Node& node, float, float) {
+                return node.type() == NodeType::Text
+                    && static_cast<const TextNode&>(node).text() == markup
+                    && static_cast<const TextNode&>(node).fontSize() == run.style.size;
+              }
+          ),
+          "Rendered Markdown retains its measured style and hover-only link underline"
+      );
+      if (run.style.muted)
+        require(run.style.size < m_preferences.messageSize, "Wrapped subtext stays smaller than body text");
+    }
+    for (const auto& area : strikes) {
+      const auto first = textArea(area.first);
+      require(
+          inspect(
+              inspect, *m_scene, 0, 0,
+              [&](const Node& node, float x, float y) {
+                return node.type() == NodeType::Rect
+                    && x == first.x
+                    && node.width() == area.width
+                    && node.height() == layout::Markdown::strikeThickness(first.run.style.size)
+                    && y >= first.y
+                    && y < first.y + first.run.height;
+              }
+          ),
+          "The scene paints one uninterrupted strike line across each span, including spaces and nested emphasis"
+      );
+    }
+    const auto reveal = std::ranges::find_if(m_hits, [](const auto& hit) {
+      return hit.action == Action::RevealSpoiler && hit.id == "9401";
+    });
+    if (step == 0) {
+      require(
+          std::ranges::count_if(
+              m_hits, [](const auto& hit) { return hit.action == Action::RevealSpoiler && hit.id == "9401"; }
+          ) == std::ssize(spoilers),
+          "Spoiler clicks cover complete line masks"
+      );
+      const auto gap = std::ranges::find_if(message.runs, [](const auto& run) {
+        return run.text == " " && run.style.link == "https://example.com/markdown";
+      });
+      require(gap != message.runs.end(), "The link contains a styled whitespace run");
+      const auto target = textArea(gap - message.runs.begin());
+      m_window.motion(
+          target.x + target.run.width / 2,
+          target.y + target.run.height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+      );
+    } else if (step == 1) {
+      require(reveal != m_hits.end(), "The spoiler exposes a continuous click target");
+      const float x = reveal->x + reveal->width / 2;
+      const float y = reveal->y + reveal->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight;
+      m_window.motion(x, y);
+      m_window.click(x, y, 1);
+      m_window.released();
+      m_window.motion(0, 0);
+    } else if (step == 2) {
+      require(
+          spoilersVisible("9401") && reveal == m_hits.end(), "Clicking the spoiler reveals its whole formatted span"
+      );
+      m_preferences.messageSize = Style::fontSizeHeader;
+      m_preferences.channelSidebarWidth = layout::Sidebar::maximumWidth - Style::spaceSection * 2;
+      m_messageLayouts.clear();
+      m_window.setUiScale(1.5F);
+    } else if (step == markdownReplayFrames - 1)
+      std::clog << "Offline Markdown hover, continuous spans and subtext replay passed\n";
+    m_window.invalidate();
+  }
   void ClientApplication::demoEmbedStep() {
     const auto require = [](bool value, const char* reason) {
       if (!value)
@@ -386,7 +512,7 @@ namespace app {
       if (run.style.link.empty())
         continue;
       auto style = run.style;
-      style.underline = step == 1;
+      style.linkHovered = step == 1;
       require(
           hasText(messageMarkup(run.text, style), run.style.size),
           "Rendered linked title glyphs underline together only while their logical link is hovered"

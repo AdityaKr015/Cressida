@@ -16,12 +16,14 @@ namespace app {
     bool bold = false, italic = false, underline = false, strike = false, code = false, spoiler = false,
          mention = false, emoji = false;
     bool historical = false;
-    bool hoverLink = false, muted = false;
+    bool linkHovered = false, muted = false;
     float size = Style::fontSizeBody;
     std::string link;
     CodeToken syntax = CodeToken::Plain;
     std::string userMention;
     std::size_t linkId = 0;
+    std::size_t spoilerId = 0;
+    std::size_t strikeId = 0;
   };
   struct MessageRun {
     std::string text, image;
@@ -109,11 +111,18 @@ namespace app {
     std::string url;
   };
   std::vector<MessageLinkArea> messageLinkAreas(const MessageLayout& layout);
+  bool messageLinkHovered(const std::vector<MessageLinkArea>& areas, std::size_t run, float x, float y);
+  struct MessageSpanArea {
+    float x, y, width, height;
+    std::size_t first, last;
+  };
+  std::vector<MessageSpanArea> messageSpoilerAreas(const MessageLayout& layout);
+  std::vector<MessageSpanArea> messageStrikeAreas(const MessageLayout& layout);
   MessageLayout layoutReplyPreview(
       const api::MessageReference& reply, std::string_view author, float width, const MessageMeasure& measure,
       const MessageOptions& options = {}
   );
-  std::string messageMarkup(std::string_view text, const MessageStyle& style);
+  std::string messageMarkup(std::string_view text, const MessageStyle& style, bool inlineStrike = true);
   MessageLayout layoutMessage(
       std::string_view content, float width, const MessageMeasure& measure, float fontSize = Style::fontSizeBody,
       const std::map<std::string, std::string>& mentions = {}, const MessageOptions& options = {}

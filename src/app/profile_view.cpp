@@ -226,25 +226,41 @@ namespace app {
               box.quote ? 0 : Style::controlRadius
           );
       }
+      if (!m_profileRevealSpoilers)
+        for (const auto& area : messageSpoilerAreas(bio)) {
+          rectangle(*text, area.x, area.y, area.width, area.height, raised, Style::radiusSm);
+          if (area.y < bioHeight)
+            bodyHit(area.x, area.y, area.width, std::min(area.height, bioHeight - area.y), Action::ProfileSpoiler);
+        }
+      const auto links = messageLinkAreas(bio);
+      const bool bodyHovered = hovered(x + inset, y + bodyStart, inner, viewport);
+      std::size_t runIndex = 0;
       for (const auto& run : bio.runs) {
+        auto style = run.style;
+        style.linkHovered = bodyHovered
+            && messageLinkHovered(
+                                links, runIndex, m_pointerX - x - inset, m_pointerY - y - bodyStart + m_profileScroll
+            );
+        ++runIndex;
         const bool hidden = run.style.spoiler && !m_profileRevealSpoilers;
-        if (hidden) {
-          rectangle(*text, run.x, run.y, run.width, run.height, raised, Style::radiusSm);
-          if (run.y < bioHeight)
-            bodyHit(run.x, run.y, run.width, std::min(run.height, bioHeight - run.y), Action::ProfileSpoiler);
-        } else if (!run.image.empty())
+        if (hidden)
+          continue;
+        if (!run.image.empty())
           emojiImage(*text, run.x, run.y, run.width, run.image);
         else
           label(
-              *text, run.x, run.y, run.width + Style::spaceXxs, messageMarkup(run.text, run.style), run.style.size,
+              *text, run.x, run.y, run.width + Style::spaceXxs, messageMarkup(run.text, style, false), run.style.size,
               run.style.syntax != CodeToken::Plain ? syntaxColor(run.style.syntax)
+                  : run.style.muted                ? muted
                   : run.style.link.empty()         ? foreground
                                                    : accent,
               FontWeight::Normal, 1, true
           );
-        if (!run.style.link.empty() && !hidden && run.y < bioHeight)
-          bodyHit(run.x, run.y, run.width, std::min(run.height, bioHeight - run.y), Action::OpenUrl, run.style.link);
       }
+      drawMessageStrikes(*text, bio, 0, 0, foreground, m_profileRevealSpoilers);
+      for (const auto& area : links)
+        if ((!bio.runs[area.first].style.spoiler || m_profileRevealSpoilers) && area.y < bioHeight)
+          bodyHit(area.x, area.y, area.width, std::min(area.height, bioHeight - area.y), Action::OpenUrl, area.url);
       if (bio.height > 72) {
         label(
             *body, 0, bioHeight + Style::spaceCompact, inner, m_profileExpanded ? "Show Less" : "View Full Bio",
