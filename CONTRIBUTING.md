@@ -59,8 +59,25 @@ behavior, build commands or dependencies change, and preserve third-party notice
 For new features, describe the proposed behavior in an issue before starting a
 large implementation.
 
-CI checks formatting and automation, builds/tests on x86_64 and aarch64 Linux,
-and runs offline UI replays. Maintainers can require `CI passed` and
+CI checks formatting and automation, builds/tests glibc packages on x86_64 and
+aarch64 Linux, tests musl on x86_64 Alpine edge, and runs offline UI replays
+against the glibc package. All three checks contribute to `CI passed`.
+The musl workflow can also be dispatched separately. To reproduce it with Docker:
+
+```sh
+docker run --rm --env CI_UID="$(id -u)" --env CI_GID="$(id -g)" \
+  --volume "$PWD:/workspace" --workdir /workspace \
+  alpine:edge /bin/sh .github/workflows/scripts/build-musl.sh
+```
+
+The helper installs Alpine dependencies and checksum-verified stb headers at the
+revision used by Nix, then builds and runs the native Meson suite as your UID.
+It uses `build-musl`, leaving existing build directories alone. Setup requires
+network access; tests use local fixtures. CI retains build and Meson logs for
+seven days, including failures. This covers dynamic musl builds, not static
+binary distribution.
+
+Maintainers can require `CI passed` and
 `PR description` in repository rules. The weekly flake updater opens draft PRs;
 enable **Allow GitHub Actions to create and approve pull requests** in Actions
 settings for it. Tag releases create drafts with source archives and checksums

@@ -99,12 +99,15 @@ int main(int argc, char** argv) {
     player.pause(false);
     require(pump([&] { return player.state().position > .1; }), "Explicit Play starts playback");
     player.render(graphics.fbo, 1280, 720, true);
-    glBindFramebuffer(GL_FRAMEBUFFER, graphics.fbo);
-    std::uint8_t top[4]{}, bottom[4]{};
-    glReadPixels(640, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, top);
-    glReadPixels(640, 704, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, bottom);
     require(
-        top[0] > 200 && top[2] < 40 && bottom[2] > 200 && bottom[0] < 40,
+        pump([&] {
+          // Playback time can advance before the asynchronous renderer supplies its first frame.
+          glBindFramebuffer(GL_FRAMEBUFFER, graphics.fbo);
+          std::uint8_t top[4]{}, bottom[4]{};
+          glReadPixels(640, 16, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, top);
+          glReadPixels(640, 704, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, bottom);
+          return top[0] > 200 && top[2] < 40 && bottom[2] > 200 && bottom[0] < 40;
+        }),
         "Render upright for ImageNode: texture row zero contains the video's red top half"
     );
     require(player.state().width == 1280 && player.state().height == 720, "Preserve original HD video dimensions");

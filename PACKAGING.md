@@ -16,9 +16,11 @@ Meson and Ninja build the client directly. Contributor checks are described in
 | Desktop entry | `dev.lysec.Cressida.desktop` |
 | Desktop icon | `dev.lysec.Cressida`, installed in `icons/hicolor/scalable/apps` |
 
-The configured CI targets are native `x86_64` and `aarch64` Linux. Other
-architectures and libc implementations have no dedicated CI coverage. Cressida
-requires a Wayland session; there is no X11 window backend.
+CI builds and tests native `x86_64` and `aarch64` Linux packages with glibc,
+plus an `x86_64` musl build in Alpine edge. Other targets have no dedicated
+coverage. The Alpine build links dynamically to its system libraries; it does
+not produce a portable static executable. Cressida requires a Wayland session;
+there is no X11 window backend.
 
 ## Dependencies
 

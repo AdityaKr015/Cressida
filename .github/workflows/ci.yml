@@ -63,10 +63,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  musl:
+    name: Alpine musl
+    uses: ./.github/workflows/ci-musl.yml
+
   required:
     name: CI passed
     if: always()
-    needs: [quality, build]
+    needs: [quality, build, musl]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -74,10 +78,12 @@ jobs:
         env:
           QUALITY: ${{ needs.quality.result }}
           BUILD: ${{ needs.build.result }}
+          MUSL: ${{ needs.musl.result }}
         run: |
           echo "Formatting and automation: $QUALITY"
           echo "Build and test: $BUILD"
-          if test "$QUALITY" != success || test "$BUILD" != success; then
+          echo "Alpine musl build and test: $MUSL"
+          if test "$QUALITY" != success || test "$BUILD" != success || test "$MUSL" != success; then
             echo "::error::A prerequisite job did not succeed. Open the formatting and build job logs for the underlying error."
             exit 1
           fi
