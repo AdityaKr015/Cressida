@@ -246,6 +246,11 @@ namespace app::layout {
     static constexpr float reactionTailGap = Style::spaceXs;
     static constexpr float maximumCompactGroupGap = Style::spaceSm;
     static constexpr float defaultGroupGap = Style::spaceLg;
+    static constexpr float minimumBodyHeight = Style::fontSizeBody + Style::spaceSm;
+    static constexpr float continuationTimestampWidth = Style::spaceSection + Style::spaceXxs;
+    static constexpr float centeredTextTop(float center, float logicalTop, float inkTop, float inkBottom) {
+      return center + logicalTop - (inkTop + inkBottom) / 2;
+    }
     static constexpr float timelineTop = 122;
     static constexpr float unreadTimelineTop = 166;
     static constexpr float minimumHistoryFetchDistance = 240;

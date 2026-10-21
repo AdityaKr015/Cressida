@@ -259,7 +259,7 @@ namespace app {
           );
         std::clog << "Offline final-message composer spacing check passed\n";
       }
-      if (m_demo && m_demoOverlay.starts_with("reply-grouping")) {
+      if (m_demo && m_demoOverlay.starts_with("reply-grouping") && m_demoInteractionStep < replyGroupingReplayFrames) {
         const auto require = [](bool value, const char* reason) {
           if (!value)
             throw std::runtime_error(reason);
@@ -300,7 +300,75 @@ namespace app {
               ),
               "Grouped replies and follow-ups retain separate message selection targets"
           );
-        std::clog << "Offline reply grouping, author headers, previews and selection check passed\n";
+        const auto step = m_demoInteractionStep++;
+        if (step > 0) {
+          const auto& message = m_messages[step == 1 ? 1 : 2];
+          const auto& formatted = m_messageLayouts.at(message.id).layout;
+          const auto selected = std::ranges::find_if(m_hits, [&](const auto& hit) {
+            return hit.action == Action::SelectMessage && hit.id == message.id;
+          });
+          require(selected != m_hits.end(), "The continuation retains its complete row hit region");
+          float highlightTop = 0, highlightBottom = 0, inkTop = 0, inkBottom = 0, timeCenter = 0;
+          bool hasInk = false, hasTime = false, hasHighlight = false;
+          const auto inspect = [&](auto&& self, const Node& node, float x, float y) -> void {
+            x += node.x();
+            y += node.y();
+            if (node.type() == NodeType::Rect
+                && x == chatLeft() + Style::spaceDense
+                && y <= selected->y + selected->height / 2
+                && y + node.height() >= selected->y + selected->height / 2) {
+              highlightTop = y;
+              highlightBottom = y + node.height();
+              hasHighlight = true;
+            }
+            if (node.type() == NodeType::Text) {
+              const auto& text = static_cast<const TextNode&>(node);
+              const auto metrics = m_window.target().renderer().measureText(
+                  text.text(), text.fontSize(), text.fontWeight(), 0, 1, TextAlign::Start, {}, TextEllipsize::End, true
+              );
+              const float first = y + metrics.inkTop, last = y + metrics.inkBottom;
+              for (const auto& run : formatted.runs)
+                if (text.text() == messageMarkup(run.text, run.style, false)
+                    && text.fontSize() == run.style.size
+                    && x == selected->x + run.x) {
+                  inkTop = hasInk ? std::min(inkTop, first) : first;
+                  inkBottom = hasInk ? std::max(inkBottom, last) : last;
+                  hasInk = true;
+                }
+              if (text.text() == message.timestamp.substr(11, 5) && text.fontSize() == Style::fontSizeFine) {
+                timeCenter = (first + last) / 2;
+                hasTime = true;
+              }
+            }
+            for (const auto& child : node.children())
+              self(self, *child, x, y);
+          };
+          inspect(inspect, *m_scene, 0, 0);
+          require(
+              hasHighlight && hasInk && hasTime, "Hover paints the actual continuation background, text and timestamp"
+          );
+          const float center = (highlightTop + highlightBottom) / 2;
+          const float tolerance = Style::borderWidth / Style::spaceXs;
+          require(
+              std::abs((inkTop + inkBottom) / 2 - center) < tolerance,
+              "Grouped text ink is vertically centered in its hover background"
+          );
+          require(
+              std::abs(timeCenter - center) < tolerance, "The continuation timestamp shares the text's visible center"
+          );
+        }
+        if (step + 1 < replyGroupingReplayFrames) {
+          const auto& next = m_messages[step == 0 ? 1 : 2];
+          const auto target = std::ranges::find_if(m_hits, [&](const auto& hit) {
+            return hit.action == Action::SelectMessage && hit.id == next.id;
+          });
+          require(target != m_hits.end(), "The next grouped hover row is mounted");
+          m_window.motion(
+              target->x + Style::spaceMd,
+              target->y + target->height / 2 + m_window.titlebarHeight() - layout::Window::titlebarHeight
+          );
+        }
+        std::clog << "Offline reply grouping, centered text and timestamp check passed\n";
       }
       if (m_demo && m_demoOverlay.starts_with("autocomplete-frequent")) {
         if (m_completionItems.size() < 3
@@ -1270,6 +1338,7 @@ namespace app {
                    : m_demo && view && std::string_view(view).starts_with("reply-cycle")    ? composerReplyReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("embed-cycle")    ? embedReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("markdown-cycle") ? markdownReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("reply-grouping") ? replyGroupingReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("media-gallery-cycle")
                    ? mediaGalleryReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("image-menu-cycle")    ? imageMenuReplayFrames
@@ -1395,6 +1464,8 @@ namespace app {
       throw std::runtime_error("AutoMod and embed link replay did not complete");
     if (m_demoOverlay.starts_with("markdown-cycle") && m_demoInteractionStep != markdownReplayFrames)
       throw std::runtime_error("Markdown replay did not complete");
+    if (m_demoOverlay.starts_with("reply-grouping") && m_demoInteractionStep != replyGroupingReplayFrames)
+      throw std::runtime_error("Grouped hover alignment replay did not complete");
     if (m_demoOverlay.starts_with("media-gallery-cycle") && m_demoInteractionStep != mediaGalleryReplayFrames)
       throw std::runtime_error("Media gallery replay did not complete");
     if (m_demoOverlay.starts_with("image-menu-cycle") && m_demoInteractionStep != imageMenuReplayFrames)
@@ -4104,11 +4175,12 @@ namespace app {
             const bool nextContinuation = i + 1 < continuations.size() && continuations[i + 1];
             // Give the last line a little breathing room without covering a
             // continuation or closing the gap before the next author header.
-            const float hoverPadding = nextContinuation ? 0.0F
-                : i + 1 == m_messages.size()            ? 4.0F
+            const float hoverPadding = continuations[i] || nextContinuation ? 0.0F
+                : i + 1 == m_messages.size()                                ? 4.0F
                                              : std::min(4.0F, std::max(0.0F, bottomGap - (nextHeader ? 6.0F : 2.0F)));
-            const float hoverBottom =
-                std::min(bottom, top + y + heights[i] - std::max(bottomGap, nextHeader ? 4.0F : 0.0F) + hoverPadding);
+            const float hoverRowBottom =
+                y + heights[i] - std::max(bottomGap, nextHeader ? Style::spaceXs : 0.0F) + hoverPadding;
+            const float hoverBottom = std::min(bottom, top + hoverRowBottom);
             const bool messageHovered = !editing
                 && m_dialogKind.empty()
                 && !m_contextOpen
@@ -4259,6 +4331,55 @@ namespace app {
                 y += layout::Reply::step;
               }
               const bool continuation = continuations[i];
+              const auto& layout = *layouts[i];
+              float continuationTextOffset = 0;
+              float continuationLineCenter = (m_preferences.messageSize + Style::spaceSm) / 2;
+              if (continuation) {
+                const bool textOnly = !editing
+                    && layout.pictures.empty()
+                    && std::ranges::all_of(layout.boxes, [](const auto& box) { return box.inlineCode; })
+                    && std::ranges::all_of(
+                        layout.runs,
+                        [](const auto& run) { return run.image.empty() && !run.style.emoji && !run.channelChip; }
+                    )
+                    && std::abs(heights[i] - bottomGap - std::max(layout::Chat::minimumBodyHeight, layout.height))
+                        <= std::numeric_limits<float>::epsilon() * heights[i];
+                bool hasInk = false, hasFirstLineInk = false;
+                float inkTop = 0, inkBottom = 0, firstTop = 0, firstBottom = 0;
+                const float firstLineBottom =
+                    layout.runs.empty() ? 0 : layout.runs.front().y + layout.runs.front().height;
+                for (const auto& run : layout.runs) {
+                  if (!run.image.empty()
+                      || run.style.emoji
+                      || run.channelChip
+                      || (run.style.spoiler && !spoilersVisible(message.id)))
+                    continue;
+                  auto inkStyle = run.style;
+                  inkStyle.underline = false;
+                  inkStyle.linkHovered = false;
+                  const auto metrics = m_window.target().renderer().measureText(
+                      messageMarkup(run.text, inkStyle, false), run.style.size, FontWeight::Normal, 0, 1,
+                      TextAlign::Start, {}, TextEllipsize::End, true
+                  );
+                  if (metrics.inkBottom <= metrics.inkTop)
+                    continue;
+                  const float first = run.y + metrics.inkTop - metrics.top;
+                  const float last = run.y + metrics.inkBottom - metrics.top;
+                  inkTop = hasInk ? std::min(inkTop, first) : first;
+                  inkBottom = hasInk ? std::max(inkBottom, last) : last;
+                  hasInk = true;
+                  if (run.y < firstLineBottom) {
+                    firstTop = hasFirstLineInk ? std::min(firstTop, first) : first;
+                    firstBottom = hasFirstLineInk ? std::max(firstBottom, last) : last;
+                    hasFirstLineInk = true;
+                  }
+                }
+                if (textOnly && hasInk)
+                  continuationTextOffset =
+                      layout::Chat::centeredTextTop((hoverRowBottom - y) / 2, 0, inkTop, inkBottom);
+                if (hasFirstLineInk)
+                  continuationLineCenter = (firstTop + firstBottom) / 2 + continuationTextOffset;
+              }
               if (!continuation) {
                 const auto author = userName(message.authorId, message.author);
                 const auto authorTag = m_userDirectory.guildTag(message.authorId, message.authorTag);
@@ -4350,9 +4471,16 @@ namespace app {
                   );
               } else if (messageHovered) {
                 const std::string timestamp = message.timestamp.size() >= 16 ? message.timestamp.substr(11, 5) : "";
-                label(*content, 0, y + Style::spaceXs, 42, timestamp, Style::fontSizeFine, muted);
+                const auto metrics = m_window.target().renderer().measureText(timestamp, Style::fontSizeFine);
+                label(
+                    *content, 0,
+                    y
+                        + layout::Chat::centeredTextTop(
+                            continuationLineCenter, metrics.top, metrics.inkTop, metrics.inkBottom
+                        ),
+                    layout::Chat::continuationTimestampWidth, timestamp, Style::fontSizeFine, muted
+                );
               }
-              const auto& layout = *layouts[i];
               const float bodyY = y + (continuation ? 0 : 18);
               const float bodyHeight = editing ? messageEditHeight(textWidth) : layout.height;
               const float componentHeight =
@@ -4444,12 +4572,12 @@ namespace app {
                   }
                   if (box.inlineCode) {
                     rectangle(
-                        *content, 50 + box.x, bodyY + box.y, box.width, box.height, withAlpha(muted, .2F),
-                        Style::radiusSm
+                        *content, 50 + box.x, bodyY + box.y + continuationTextOffset, box.width, box.height,
+                        withAlpha(muted, .2F), Style::radiusSm
                     );
                     rectangle(
-                        *content, 51 + box.x, bodyY + box.y + Style::borderWidth, box.width - Style::spaceXxs,
-                        box.height - Style::spaceXxs, panel, Style::radiusXs
+                        *content, 51 + box.x, bodyY + box.y + continuationTextOffset + Style::borderWidth,
+                        box.width - Style::spaceXxs, box.height - Style::spaceXxs, panel, Style::radiusXs
                     );
                     continue;
                   }
@@ -4530,7 +4658,7 @@ namespace app {
                   }
                   if (run.image.empty())
                     label(
-                        *content, rx, ry, std::max(1.0F, run.width + Style::spaceXxs),
+                        *content, rx, ry + continuationTextOffset, std::max(1.0F, run.width + Style::spaceXxs),
                         messageMarkup(run.text, style, false), run.style.size,
                         run.style.historical || run.style.muted            ? muted
                             : run.style.syntax != CodeToken::Plain         ? syntaxColor(run.style.syntax)
@@ -4552,13 +4680,14 @@ namespace app {
                     );
                 }
                 drawMessageStrikes(
-                    *content, layout, layout::Chat::authorGutter, bodyY, foreground, spoilersVisible(message.id)
+                    *content, layout, layout::Chat::authorGutter, bodyY + continuationTextOffset, foreground,
+                    spoilersVisible(message.id)
                 );
                 if (layout.edited) {
                   const auto& marker = *layout.edited;
                   label(
-                      *content, 50 + marker.x, bodyY + marker.y, marker.width + Style::spaceXxs, "(edited)",
-                      marker.size, muted
+                      *content, 50 + marker.x, bodyY + marker.y + continuationTextOffset,
+                      marker.width + Style::spaceXxs, "(edited)", marker.size, muted
                   );
                 }
                 for (const auto& pic : layout.pictures) {

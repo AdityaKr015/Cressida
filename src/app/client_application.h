@@ -73,6 +73,7 @@ namespace app {
     static constexpr int composerReplyReplayFrames = 10;
     static constexpr int embedReplayFrames = 12;
     static constexpr int markdownReplayFrames = 5;
+    static constexpr int replyGroupingReplayFrames = 3;
     static constexpr int mediaGalleryReplayFrames = 13;
     static constexpr int imageMenuReplayFrames = 13;
     static constexpr int trayReplayFrames = 4;
