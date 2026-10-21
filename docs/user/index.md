@@ -35,6 +35,7 @@ main client. :::
 | I want to…                        | Read                                          |
 | --------------------------------- | --------------------------------------------- |
 | Understand replies and formatting | [Chat and Markdown](chat.md)                  |
+| Catch up or save a message        | [Inbox](inbox.md)                             |
 | See statuses and profiles in DMs  | [Direct messages](direct-messages.md)         |
 | Organize my server list           | [Servers and threads](servers-and-threads.md) |
 | View, save or send an image       | [Images and video](media.md)                  |

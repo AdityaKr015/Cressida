@@ -269,6 +269,10 @@ namespace app {
       ChannelSearch,
       SearchSuggestion,
       ClearSearchHistory,
+      Inbox,
+      InboxAction,
+      BookmarkMessage,
+      RemindMessage,
       CloseChannelPanel,
       ChannelPanelNext,
       ChannelPanelPrevious,
@@ -509,7 +513,23 @@ namespace app {
     bool searchMenuKey(const Key& key);
     void chooseSearchSuggestion(std::size_t index);
     void rememberSearch();
+
     void demoSearchStep();
+    void toggleInbox();
+    void closeInbox();
+    void clearInbox();
+    bool inboxAction(const Hit& hit);
+    bool inboxClick(float x, float y);
+    bool inboxKey(const Key& key);
+    void drawInbox(Node& root, float width, float height);
+    void drawInboxButton(Node& root, float width);
+    void inboxEvent(const api::Event& event);
+    void requestInbox(bool more = false);
+    void updateInboxPreviews();
+    void scheduleInboxReminders();
+    void demoInboxStep();
+    static constexpr int inboxReplayFrames = 20;
+
     static constexpr int searchReplayFrames = 12;
     void jumpToMessage(const std::string& channel, const std::string& message);
     void prepareChannelDemo(const std::string& view);
@@ -1147,7 +1167,37 @@ namespace app {
     bool m_searchMore = false;
     Hit m_searchBounds{};
     float m_searchScroll = 0, m_searchViewport = 0;
+
+    struct InboxTab {
+      api::InboxPage page;
+      std::optional<api::InboxQuery> pending;
+      std::string error;
+      bool loaded = false;
+      std::uint64_t revision = 0;
+    };
+    struct InboxPreview {
+      std::string latest, after, error;
+      std::vector<api::Message> messages;
+      std::optional<api::InboxQuery> pending;
+    };
+    bool m_inboxOpen = false, m_inboxFilters = false, m_inboxMuted = false, m_inboxGuild = false;
+    bool m_inboxRoles = true, m_inboxEveryone = true, m_inboxBootstrap = false;
+    int m_inboxTab = 0;
+    std::array<InboxTab, 3> m_inboxTabs;
+    std::map<std::string, InboxPreview> m_inboxPreviews;
+    std::vector<std::pair<std::string, std::string>> m_inboxUnread;
+    std::set<std::string> m_inboxVisibleUnread;
+    std::map<std::uint64_t, api::InboxQuery> m_inboxWrites;
+    std::uint64_t m_inboxSerial = 0, m_inboxRevision = 0;
+    std::set<std::string> m_inboxNotified;
+    Timer m_inboxReminderTimer;
+    std::string m_inboxStatus, m_inboxRemindTarget;
+    Hit m_inboxBounds{};
+    float m_inboxScroll = 0, m_inboxViewport = 0;
+    std::size_t m_inboxUnreadPage = 0;
+    std::optional<api::InboxQuery> m_inboxDemoWrite;
     std::optional<api::ChannelPageQuery> m_channelPageRequest, m_channelPageShown;
+
     api::ChannelPageResult m_channelPage;
     std::vector<std::string> m_pinCursors;
     float m_channelPanelScroll = 0, m_channelDialogScroll = 0;

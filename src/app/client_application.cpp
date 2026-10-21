@@ -541,6 +541,8 @@ namespace app {
           && m_demoOverlay.starts_with("image-menu")
           && m_demoInteractionStep < (m_demoOverlay.starts_with("image-menu-cycle") ? imageMenuReplayFrames : 2))
         demoImageMenuStep();
+      if (m_demo && m_demoOverlay.starts_with("inbox-cycle") && m_demoInteractionStep < inboxReplayFrames)
+        demoInboxStep();
       if (m_demo && m_demoOverlay.starts_with("search-cycle") && m_demoInteractionStep < searchReplayFrames)
         demoSearchStep();
       if (m_demo && m_demoOverlay.starts_with("outgoing-cycle") && m_demoInteractionStep < outgoingReplayFrames)
@@ -903,7 +905,15 @@ namespace app {
         }
       }
       videoMotion(x, y);
-      if ((!m_viewImage.empty() || m_videoExpanded) && (!m_contextOpen || !m_contextBounds.contains(x, y)))
+      const auto inboxBar = m_widgets.find("inbox-scrollbar");
+      const bool inboxScrollbar = inboxBar != m_widgets.end()
+          && inboxBar->second->parent()
+          && Hit{inboxBar->second->x(), inboxBar->second->y(), inboxBar->second->width(), inboxBar->second->height()}
+                 .contains(x, y);
+      const bool inboxCovered =
+          m_inboxOpen && m_inboxBounds.contains(x, y) && !m_controlInput.pointerCaptured() && !inboxScrollbar;
+      if (inboxCovered
+          || ((!m_viewImage.empty() || m_videoExpanded) && (!m_contextOpen || !m_contextBounds.contains(x, y))))
         m_controlInput.pointerLeave();
       else
         m_controlInput.pointerMotion(x, y + m_window.titlebarHeight() - layout::Window::titlebarHeight, 0);
@@ -946,7 +956,7 @@ namespace app {
       y += layout::Window::titlebarHeight - m_window.titlebarHeight();
       m_pointerX = x;
       m_pointerY = y;
-      if (sidebarResizeAt(x, y)) {
+      if (!(m_inboxOpen && m_inboxBounds.contains(x, y)) && sidebarResizeAt(x, y)) {
         m_controlInput.cancelPointerCapture();
         m_dragDraft = m_dragMessage = m_dragImage = false;
         m_scrolling.stopAll();
@@ -964,6 +974,8 @@ namespace app {
       if (overlayClick(x, y)) {
         return;
       }
+      if (inboxClick(x, y))
+        return;
       if (searchMenuClick(x, y))
         return;
       if (completionClick(x, y))
@@ -1025,6 +1037,9 @@ namespace app {
       m_pointerY = y;
       finishSidebarResize();
       m_dragDraft = m_dragMessage = false;
+      if (m_inboxOpen && m_inboxBounds.contains(x, y))
+        return;
+      closeInbox();
       openContext(x, y);
     };
     m_window.key = [this](const Key& key) { onKey(key); };
@@ -1151,6 +1166,12 @@ namespace app {
               << m_animateWheel
               << '\n';
       };
+
+      if (m_inboxOpen && m_inboxBounds.contains(m_pointerX, m_pointerY) && m_dialogKind.empty() && !settingsVisible()) {
+        scroll(m_inboxScroll, delta);
+        m_window.invalidate();
+        return;
+      }
       if (!m_searchInput.empty() && m_searchBounds.contains(m_pointerX, m_pointerY)) {
         scroll(m_searchScroll, delta);
         m_window.invalidate();
@@ -1368,7 +1389,8 @@ namespace app {
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest
-            ? (m_demo && view && std::string_view(view).starts_with("search-cycle")           ? searchReplayFrames
+            ? (m_demo && view && std::string_view(view).starts_with("inbox-cycle")            ? inboxReplayFrames
+                   : m_demo && view && std::string_view(view).starts_with("search-cycle")     ? searchReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("outgoing-cycle")   ? outgoingReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("chat-links-cycle") ? chatLinkReplayFrames
                    : m_demo && view && std::string_view(view) == "attachment-cycle"           ? attachmentReplayFrames
@@ -1515,6 +1537,8 @@ namespace app {
       throw std::runtime_error("Media gallery replay did not complete");
     if (m_demoOverlay.starts_with("image-menu-cycle") && m_demoInteractionStep != imageMenuReplayFrames)
       throw std::runtime_error("Image viewer menu replay did not complete");
+    if (m_demoOverlay.starts_with("inbox-cycle") && m_demoInteractionStep != inboxReplayFrames)
+      throw std::runtime_error("Inbox replay did not complete");
     if (m_demoOverlay.starts_with("search-cycle") && m_demoInteractionStep != searchReplayFrames)
       throw std::runtime_error("Search menu replay did not complete");
     if (m_demoOverlay.starts_with("outgoing-cycle") && m_demoInteractionStep != outgoingReplayFrames)
@@ -1579,6 +1603,14 @@ namespace app {
       m_messages.push_back(std::move(preview));
       if (const auto* option = cressida::environment("CRESSIDA_DEMO_VIEW", "DISCORD_CPP_DEMO_VIEW")) {
         const std::string view(option);
+
+        if (view.starts_with("inbox-cycle")) {
+          m_demoOverlay = view;
+          if (view.ends_with("light"))
+            m_preferences.theme = "light";
+          if (view.ends_with("narrow"))
+            m_window.setUiScale(1.5F);
+        }
         if (view.starts_with("search-cycle")) {
           m_demoOverlay = view;
           m_channelPanel = "search";
@@ -4370,6 +4402,7 @@ namespace app {
             const float hoverBottom = std::min(bottom, top + hoverRowBottom);
             const bool messageHovered = !local
                 && !editing
+                && !m_inboxOpen
                 && m_dialogKind.empty()
                 && !m_contextOpen
                 && !m_emojiMenu
@@ -5594,6 +5627,8 @@ namespace app {
     }
     drawCompletion(root, w, h);
     drawSearchMenu(root, w, h);
+    drawInboxButton(root, w);
+    drawInbox(root, w, h);
     drawDialog(root, w, h);
     drawContext(root, w, h);
     drawGuildTooltip(root, w, h);
@@ -5780,6 +5815,7 @@ namespace app {
   bool ClientApplication::readingChannel(const std::string& channel) const {
     return m_connected
         && channel == m_channelId
+        && !m_inboxOpen
         && !forumView()
         && (m_window.active() || (m_demo && m_demoOverlay == "unread-cycle"))
         && !settingsVisible()
@@ -6593,6 +6629,12 @@ namespace app {
           serverSettingsResult(event);
         continue;
       }
+
+      if (!event.unauthorized
+          && (event.operation == api::Operation::MessageCreate
+              || event.operation == api::Operation::MessageUpdate
+              || event.operation == api::Operation::MessageDelete))
+        inboxEvent(event);
       filterDeletedChannels(event);
       if (!event.unauthorized && chatPreloadEvent(event)) {
         m_window.invalidate();
@@ -6702,6 +6744,13 @@ namespace app {
               at->second.apply(guild);
           m_folders = api::arrangeGuilds(m_guilds, m_guildLayout);
           m_connected = true;
+          if (!m_inboxBootstrap) {
+            m_inboxBootstrap = true;
+            const auto tab = m_inboxTab;
+            m_inboxTab = 3;
+            requestInbox();
+            m_inboxTab = tab;
+          }
           if (!m_live)
             m_gatewayStatus = "Connecting…";
           m_loadingPrivate = m_privateChannels.empty() && (m_readyBootstrapPending || m_client.privateChannels());
@@ -6744,6 +6793,14 @@ namespace app {
       } else if (event.operation == api::Operation::Threads || event.operation == api::Operation::ThreadUpdate) {
         threadEvent(event);
         continue; // Scoped browsing errors belong to their forum/browser, never another channel.
+
+      } else if (
+          event.operation == api::Operation::InboxRead
+          || event.operation == api::Operation::InboxWrite
+          || event.operation == api::Operation::InboxUpdate
+      ) {
+        inboxEvent(event);
+        continue;
       } else if (event.operation == api::Operation::ChannelDetails || event.operation == api::Operation::ChannelPage) {
         channelFeatureEvent(event);
         continue;
@@ -7265,6 +7322,8 @@ namespace app {
     if (selectDropdownKey(key))
       return;
     if (userAccountDialogKey(key))
+      return;
+    if (inboxKey(key))
       return;
     if (searchMenuKey(key))
       return;

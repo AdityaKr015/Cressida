@@ -116,3 +116,8 @@ the formatted text. Link underlines appear when you hover the link.
 Pasted images can be uploaded from the composer. Multiple images in a message
 appear together in a gallery. Links may show compact previews with a title,
 description or image. See [Images and video](media.md).
+
+## Catch up and save for later
+
+Use the [Inbox](inbox.md) for unread conversations and mentions across your
+account. Message menus also let you bookmark a message or set a reminder.

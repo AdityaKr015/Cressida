@@ -303,6 +303,27 @@ namespace app::layout {
     static constexpr float actionStep = 35;
     static constexpr float actionsReserve = 146;
   };
+
+  struct Inbox {
+    static constexpr float width = Style::spaceSection * 16;
+    static constexpr float maximumHeight = Style::spaceSection * 18;
+    static constexpr float header = Style::spaceGroup, tabs = Style::controlHeightLg;
+    static constexpr float cardHeader = Style::controlHeightLg + Style::spaceMd;
+    static constexpr float padding = Style::spaceLg, gap = Style::spaceLg;
+    static constexpr float avatar = Style::spaceSection;
+    static constexpr float bodyLeft = padding + avatar + Style::spaceMd;
+    static constexpr float previewHeight = Style::spaceSection * 5;
+    static constexpr float footer = Style::controlHeightLg;
+    static constexpr float emptyArtWidth = Style::spaceSection * 4;
+    static constexpr float emptyArtHeight = Style::spaceSection * 3;
+    static constexpr float emptyTextWidth = Style::embedMaximumWidth;
+    static constexpr float emptyGuideWidth = Style::spaceSection * 9;
+    static constexpr float emptyGuideHeight = Style::spaceSection * 2;
+    static constexpr float emptyGap = Style::spaceXl;
+    static constexpr float top = ChannelHeader::controlTop + ChannelHeader::controlHeight + Style::spaceSm;
+    static constexpr std::size_t unreadPageSize = 25, maximumPreviews = 12, previewConcurrency = 3;
+    static constexpr std::chrono::hours reminderWakeLimit{24};
+  };
   struct SearchMenu {
     static constexpr float width = Style::spaceSection * 9;
     static constexpr float rowHeight = Style::controlHeightLg + Style::spaceSm;

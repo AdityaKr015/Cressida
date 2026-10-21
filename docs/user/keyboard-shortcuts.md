@@ -44,6 +44,19 @@ keep their usual actions, and open overlays or editors take priority.
 
 See [Search messages](chat.md#search-messages) for filters and examples.
 
+## Inbox
+
+| Shortcut            | Action                                         |
+| ------------------- | ---------------------------------------------- |
+| Ctrl+I              | Open or close the inbox.                       |
+| Left / Right        | Change inbox tabs.                             |
+| Up / Down           | Scroll the inbox.                              |
+| Page Up / Page Down | Scroll a page.                                 |
+| Escape              | Cancel reminder choices, then close the inbox. |
+
+See [Inbox](inbox.md) for unread conversations, mentions, bookmarks and
+reminders.
+
 ## Image viewer
 
 | Shortcut     | Action                  |

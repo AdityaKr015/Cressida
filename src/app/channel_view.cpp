@@ -200,7 +200,7 @@ namespace app {
               layout::ChannelHeader::searchMaximumWidth
           )
         : 32;
-    const float searchX = w - (Style::spaceLg + Style::spaceXxs) - searchWidth;
+    const float searchX = w - (Style::spaceLg + Style::spaceXxs) - searchWidth - layout::ChannelHeader::actionStep;
     if (searchWidth > 32)
       inputControl(root, searchX, 52, searchWidth, 32, "channel-search", m_channelSearchText, "Search messages…");
     else

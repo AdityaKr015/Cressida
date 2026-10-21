@@ -11,6 +11,7 @@ namespace app {
     const std::map<std::string, std::string> defaultShortcuts = {
         {"settings", "Ctrl+comma"},
         {"search", "Ctrl+f"},
+        {"inbox", "Ctrl+i"},
         {"jump_latest", "Ctrl+End"},
         {"toggle_members", "Ctrl+u"},
         {"next_channel", "Alt+Down"},
@@ -194,6 +195,8 @@ namespace app {
         return false;
       else if (name == "jump_latest")
         activate({0, 0, 0, 0, Action::JumpLatest, {}});
+      else if (name == "inbox")
+        toggleInbox();
       else if (name == "search") {
         m_channelPanel = "search";
         m_focusedInput = "channel-search-panel";

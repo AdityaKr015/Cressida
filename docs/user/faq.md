@@ -10,6 +10,7 @@ description:
 | ------------- | ------------------------------------------------------------------------ |
 | Platforms     | Linux with Wayland. No X11 window backend.                               |
 | Messaging     | Text chat, replies, DMs, threads and forum conversations.                |
+| Inbox         | Unread conversations, mentions, synced bookmarks and reminders.          |
 | Rich content  | Markdown, embeds, custom emoji, GIFs and stickers.                       |
 | Uploads       | Pasted images.                                                           |
 | Media viewing | Image galleries and native received-video playback.                      |

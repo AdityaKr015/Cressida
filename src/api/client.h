@@ -8,6 +8,7 @@
 #include "api/gifs.h"
 #include "api/guild_settings.h"
 #include "api/history.h"
+#include "api/inbox.h"
 #include "api/member_list_identity.h"
 #include "api/models.h"
 #include "api/profile.h"
@@ -88,7 +89,10 @@ namespace api {
     GuildMetadata,
     GuildSettings,
     UserSettings,
-    TypingStart
+    TypingStart,
+    InboxRead,
+    InboxWrite,
+    InboxUpdate
   };
 
   struct Event {
@@ -156,6 +160,8 @@ namespace api {
     bool userSettingsSessionEnded = false, userSettingsSensitive = false;
     std::optional<api::GuildPrivacy> guildPrivacy;
     std::optional<api::TypingStart> typing;
+    std::optional<InboxQuery> inboxQuery;
+    std::optional<InboxPage> inboxPage;
   };
 
   // An ordered account/mutation owner and three independent, bounded GET lanes.
@@ -179,6 +185,7 @@ namespace api {
     bool threads(ThreadQuery query);
     bool channelDetails(const std::string& channel);
     bool channelPage(ChannelPageQuery query);
+    bool inbox(InboxQuery query);
     bool guildSettings(GuildSettingsRequest request);
     bool userSettings(UserSettingsRequest request);
     void clearUserSettingsSecrets();
@@ -239,6 +246,7 @@ namespace api {
       std::chrono::steady_clock::time_point queuedAt = std::chrono::steady_clock::now();
       std::vector<std::string> stickers;
       std::string nonce;
+      std::optional<InboxQuery> inboxQuery;
     };
     struct PreloadRead {
       std::uint64_t session;

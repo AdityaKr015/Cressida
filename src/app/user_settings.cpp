@@ -1390,6 +1390,7 @@ namespace app {
             {"search", "Search this conversation"},
             {"jump_latest", "Jump to latest message"},
             {"toggle_members", "Toggle member list"},
+            {"inbox", "Open inbox"},
             {"next_channel", "Next channel"},
             {"previous_channel", "Previous channel"},
             {"next_server", "Next server"},

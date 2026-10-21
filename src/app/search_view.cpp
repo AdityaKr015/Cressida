@@ -159,6 +159,7 @@ namespace app {
     const auto field = m_inputs.find(m_focusedInput);
     if (!m_connected
         || settingsVisible()
+        || m_inboxOpen
         || !m_dialogKind.empty()
         || m_contextOpen
         || m_selectRequest

@@ -274,11 +274,18 @@ namespace app {
             || m_pointerY >= m_userAccount.dialogY + m_userAccount.dialogHeight)
     )
       shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
-    else if (sidebarResizeAt(m_pointerX, m_pointerY))
+    else if (
+        !(m_inboxOpen && m_inboxBounds.contains(m_pointerX, m_pointerY)) && sidebarResizeAt(m_pointerX, m_pointerY)
+    )
       shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_COL_RESIZE;
     else {
       for (auto it = m_hits.rbegin(); it != m_hits.rend(); ++it)
         if (it->contains(m_pointerX, m_pointerY)) {
+          if (m_inboxOpen
+              && m_inboxBounds.contains(m_pointerX, m_pointerY)
+              && it->action != Action::InboxAction
+              && it->action != Action::Inbox)
+            continue;
           switch (it->action) {
           case Action::None:
             break;
@@ -342,6 +349,8 @@ namespace app {
               && m_emojiBounds.contains(m_pointerX, m_pointerY);
         if (m_gifMenu)
           return id == "gif-search" && m_gifBounds.contains(m_pointerX, m_pointerY);
+        if (m_inboxOpen && m_inboxBounds.contains(m_pointerX, m_pointerY))
+          return id == "inbox-scrollbar";
         if (m_completionQuery && m_completionBounds.contains(m_pointerX, m_pointerY))
           return id == "completion-scrollbar";
         if (m_settingsOpen && m_fontPickerOpen)

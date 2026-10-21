@@ -82,17 +82,21 @@ namespace app {
       );
     avatar(root, x + (narrow ? 48 : 16), y + Style::spaceRelaxed, layout::Avatar::dm, user.avatar, name, user.id);
     label(
-        root, x + (narrow ? 86 : 56), y + (Style::spaceXl + Style::borderWidth), width - (narrow ? 132 : 102), name,
-        Style::fontSizeBody, foreground, FontWeight::SemiBold
+        root, x + (narrow ? 86 : 56), y + (Style::spaceXl + Style::borderWidth),
+        width - (narrow ? 132 : 102) - layout::ChannelHeader::actionStep, name, Style::fontSizeBody, foreground,
+        FontWeight::SemiBold
     );
     iconButton(
-        root, {x + width - 42, y + (Style::spaceLg + Style::borderWidth), 30, 30, Action::DmAction, "close-request"},
+        root,
+        {x + width - 42 - layout::ChannelHeader::actionStep, y + (Style::spaceLg + Style::borderWidth), 30, 30,
+         Action::DmAction, "close-request"},
         "x", "Close request"
     );
     if (!user.id.empty())
       m_hits.push_back(
           {x + (narrow ? 48 : 16), y + (Style::spaceLg + Style::borderWidth),
-           std::max(0.0F, width - (narrow ? 100 : 68)), 32, Action::DmAction, "profile:" + user.id}
+           std::max(0.0F, width - (narrow ? 100 : 68) - layout::ChannelHeader::actionStep), 32, Action::DmAction,
+           "profile:" + user.id}
       );
     rectangle(root, x, y + 65, width, 1, raised);
 

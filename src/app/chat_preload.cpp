@@ -31,6 +31,7 @@ namespace app {
         || (!m_demo && (!m_live || !m_window.active()))
         || (m_demo && m_demoOverlay != "chat-preload-cycle")
         || settingsVisible()
+        || m_inboxOpen
         || !m_dialogKind.empty()
         || m_contextOpen
         || m_emojiMenu

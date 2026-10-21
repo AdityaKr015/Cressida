@@ -13,6 +13,7 @@
 #include <cmath>
 #include <curl/curl.h>
 #include <expected>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <poll.h>
@@ -38,6 +39,9 @@ namespace api {
         return "channel-details";
       case Operation::ChannelPage:
         return "channel-page";
+      case Operation::InboxRead:
+      case Operation::InboxWrite:
+        return "inbox";
       case Operation::Threads:
         return "threads";
       case Operation::GuildStickers:
@@ -73,6 +77,7 @@ namespace api {
       case Operation::StickerPacks:
       case Operation::StickerDetails:
       case Operation::GifSearch:
+      case Operation::InboxRead:
         return true;
       default:
         return false;
@@ -89,6 +94,8 @@ namespace api {
       std::string message;
       bool unauthorized = false;
       Json mfa;
+      long httpStatus = 0;
+      int serviceCode = 0;
     };
     struct Transfer {
       std::string body;
@@ -301,8 +308,31 @@ namespace api {
           return std::unexpected(Failure{"Discord could not complete browser sign-in. Please try again."});
         if (status == 403)
           return std::unexpected(Failure{"You do not have permission to access this channel or perform this action."});
-        if (status < 200 || status >= 300)
-          return std::unexpected(Failure{"Discord returned an error (HTTP " + std::to_string(status) + ")."});
+
+        if (status < 200 || status >= 300) {
+          int serviceCode = 0;
+          if (!json.is_discarded() && json.is_object()) {
+            const auto code = json.find("code");
+            if (code != json.end() && code->is_number_integer()) {
+              const auto value = code->get<std::int64_t>();
+              if (value >= 0 && value <= std::numeric_limits<int>::max())
+                serviceCode = static_cast<int>(value);
+            }
+          }
+          return std::unexpected(
+              Failure{
+                  "The service returned an error (HTTP "
+                      + std::to_string(status)
+                      + ", code "
+                      + std::to_string(serviceCode)
+                      + ").",
+                  false,
+                  {},
+                  status,
+                  serviceCode
+              }
+          );
+        }
         if (json.is_discarded())
           return std::unexpected(Failure{"Discord returned an unreadable response."});
         return json;
@@ -600,6 +630,8 @@ namespace api {
     if (command.operation != Operation::Send
         && command.operation != Operation::Interaction
         && command.operation != Operation::Threads
+        && command.operation != Operation::InboxRead
+        && command.operation != Operation::InboxWrite
         && command.operation != Operation::ChannelPage
         && command.operation != Operation::GuildSettings
         && command.operation != Operation::UserSettings
@@ -623,6 +655,17 @@ namespace api {
   bool Client::channels(const std::string& id) { return enqueue({Operation::Channels, m_session, id, {}}); }
   bool Client::channelDetails(const std::string& channel) {
     return validSnowflake(channel) && enqueue({Operation::ChannelDetails, m_session, channel, {}});
+  }
+
+  bool Client::inbox(InboxQuery query) {
+    const auto route = inboxHttpRequest(query);
+    if (!route)
+      return false;
+    Command command{
+        route->method == "GET" ? Operation::InboxRead : Operation::InboxWrite, m_session, query.channel, {}
+    };
+    command.inboxQuery = std::move(query);
+    return enqueue(std::move(command));
   }
   bool Client::channelPage(ChannelPageQuery query) {
     if (channelPagePath(query).empty())
@@ -854,6 +897,28 @@ namespace api {
       }
     }};
     try {
+
+      if (type == "SAVED_MESSAGE_CREATE" || type == "SAVED_MESSAGE_DELETE" || type == "RECENT_MENTION_DELETE") {
+        Event event{.operation = Operation::InboxUpdate, .session = session};
+        InboxQuery query;
+        query.kind = type == "SAVED_MESSAGE_CREATE" ? InboxKind::Save
+            : type == "SAVED_MESSAGE_DELETE"        ? InboxKind::Remove
+                                                    : InboxKind::Dismiss;
+        query.channel = data.value("channel_id", "");
+        query.message = data.value("message_id", "");
+        if (query.kind == InboxKind::Save) {
+          // Creation is a single saved record, independently of its tab.
+          event.inboxPage = InboxPage{};
+          event.inboxPage->saved.push_back(parseSavedMessage(data));
+          query.channel = event.inboxPage->saved.front().channel;
+          query.message = event.inboxPage->saved.front().id;
+        }
+        if (!validSnowflake(query.message))
+          return;
+        event.inboxQuery = std::move(query);
+        publish(std::move(event));
+        return;
+      }
       if (type == "READY") {
         Event connected{.operation = Operation::Connect, .session = session};
         if (!data.contains("user") || !data["user"].is_object())
@@ -1437,6 +1502,7 @@ namespace api {
       event.history = command.history;
       event.threadQuery = command.threadQuery;
       event.channelQuery = command.channelQuery;
+      event.inboxQuery = command.inboxQuery;
       RestRequestScope scope{
           stop, &m_session, command.session, optional ? &m_foregroundRevision : nullptr, foregroundRevision
       };
@@ -1452,6 +1518,9 @@ namespace api {
       try {
         std::string path;
         switch (command.operation) {
+        case Operation::InboxRead:
+          path = inboxHttpRequest(*command.inboxQuery)->path;
+          break;
         case Operation::Messages:
           path = messageHistoryPath(command.resource, command.history.value_or(HistoryQuery{}));
           break;
@@ -1494,8 +1563,13 @@ namespace api {
             command.operation == Operation::GifSearch ? std::string{} : token, path, nullptr, transfer, m_rateLimits
         );
         if (!response) {
-          event.error = response.error().message;
-          event.unauthorized = response.error().unauthorized;
+          if (command.inboxQuery
+              && inboxMissingCollection(*command.inboxQuery, response.error().httpStatus, response.error().serviceCode))
+            event.inboxPage = InboxPage{};
+          else {
+            event.error = response.error().message;
+            event.unauthorized = response.error().unauthorized;
+          }
         } else {
           switch (command.operation) {
           case Operation::Messages:
@@ -1511,6 +1585,10 @@ namespace api {
             event.channels = parseChannels(Json::array({*response}));
             if (event.channels.size() != 1 || event.channels.front().id != command.resource)
               throw std::runtime_error("Unexpected channel identity");
+            break;
+          case Operation::InboxRead:
+          case Operation::InboxWrite:
+            event.inboxPage = parseInboxPage(*response, *command.inboxQuery);
             break;
           case Operation::ChannelPage:
             if (response->is_object() && response->value("code", 0) == 110000)
@@ -1763,6 +1841,7 @@ namespace api {
       event.history = command.history;
       event.threadQuery = command.threadQuery;
       event.channelQuery = command.channelQuery;
+      event.inboxQuery = command.inboxQuery;
       event.guildSettingsRequest = command.guildSettings;
       if (command.userSettings)
         event.userSettingsRequest = publicUserSettingsRequest(*command.userSettings);
@@ -2438,6 +2517,14 @@ namespace api {
         case Operation::Messages:
           path = messageHistoryPath(command.resource, command.history.value_or(HistoryQuery{}));
           break;
+
+        case Operation::InboxWrite: {
+          auto route = inboxHttpRequest(*command.inboxQuery);
+          path = route->path;
+          method = command.inboxQuery->kind == InboxKind::Save ? "PUT" : "DELETE";
+          body = std::move(route->body);
+          break;
+        }
         case Operation::Send:
           path = "/channels/" + command.resource + "/messages";
           body = messageBody(command.content, command.reply, command.stickers, command.nonce);
@@ -2457,7 +2544,8 @@ namespace api {
                   command.operation == Operation::GifSearch ? std::string{} : token, path,
                   ((interaction
                     || command.operation == Operation::GuildSettings
-                    || command.operation == Operation::UserSettings)
+                    || command.operation == Operation::UserSettings
+                    || command.operation == Operation::InboxWrite)
                        ? !body.is_null()
                        : command.operation == Operation::Send || method)
                       ? &body
@@ -2946,6 +3034,10 @@ namespace api {
             event.channels = parseChannels(Json::array({*response}));
             if (event.channels.size() != 1 || event.channels[0].id != command.resource)
               throw std::runtime_error("Unexpected channel identity");
+            break;
+          case Operation::InboxRead:
+          case Operation::InboxWrite:
+            event.inboxPage = parseInboxPage(*response, *command.inboxQuery);
             break;
           case Operation::ChannelPage:
             if (response->contains("code") && (*response)["code"] == 110000)

@@ -177,6 +177,13 @@ namespace app {
       case Action::UnpinConversation:
         entry.icon = action == Action::PinConversation ? "pin" : "pinned-off";
         break;
+
+      case Action::BookmarkMessage:
+        entry.icon = "bookmark";
+        break;
+      case Action::RemindMessage:
+        entry.icon = "bell";
+        break;
       case Action::MuteConversation:
         entry.icon = "bell-off";
         break;
@@ -223,6 +230,11 @@ namespace app {
         add(Action::CreateThread,
             message->hasThread || message->thread || m_threads.find(m_guildId, message->id) ? "Open Thread"
                                                                                             : "Create Thread");
+
+      if (!message->deleted && !(message->flags & 64)) {
+        add(Action::BookmarkMessage, "Bookmark Message");
+        add(Action::RemindMessage, "Remind Me");
+      }
       add(Action::UserProfile, "View Author Profile");
       separator();
       add(Action::CopyMessage, "Copy Text");
@@ -812,6 +824,12 @@ namespace app {
       pinDm(id, action == Action::PinConversation);
       return;
     }
+    if (action == Action::BookmarkMessage || action == Action::RemindMessage) {
+      const auto message = std::ranges::find(m_messages, m_contextMessage, &api::Message::id);
+      if (message != m_messages.end() && !message->deleted && !(message->flags & 64))
+        inboxAction({.action = action, .id = m_contextMessage});
+      return;
+    }
     closeContext();
     const auto found = std::ranges::find(m_messages, m_contextMessage, &api::Message::id);
     if (found != m_messages.end()
@@ -1079,6 +1097,7 @@ namespace app {
     m_replies.clear();
     closeSearchMenu();
     m_searchHistory.clear();
+    clearInbox();
     clearOutgoing();
     m_reactionMessage.clear();
     m_reactionChannel.clear();
@@ -1577,6 +1596,8 @@ namespace app {
     return ry + Style::space2Xl;
   }
   bool ClientApplication::interactionAction(const Hit& hit) {
+    if (inboxAction(hit))
+      return true;
     if (channelFeatureAction(hit))
       return true;
     if (threadAction(hit))
