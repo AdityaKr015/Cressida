@@ -19,6 +19,7 @@ namespace Style {
   inline constexpr float focusRingWidth = 2.0F;
   inline constexpr float disabledOutlineAlpha = 0.5F;
   inline constexpr float textHighlightAlpha = 0.3F;
+  inline constexpr float mutedChannelOpacity = 0.55F;
 
   inline constexpr float spaceXs = 4.0F;
   inline constexpr float spaceSm = 8.0F;

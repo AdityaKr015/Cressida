@@ -634,7 +634,7 @@ namespace app {
                     || m_demoOverlay == "sidebar-cycle"
                     || m_demoOverlay == "inline-edit-cycle"
                     || m_demoOverlay.starts_with("reply-cycle")
-                    || m_demoOverlay == "chat-links-cycle"
+                    || m_demoOverlay.starts_with("chat-links-cycle")
                     || m_demoOverlay.starts_with("autocomplete")
                                    : !m_savingProfile)
     );

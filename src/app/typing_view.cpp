@@ -451,6 +451,8 @@ namespace app {
         require(dm != channels->end(), "The direct-message avatar fixture is selected");
         dm->recipients = {{"7", "Maya"}};
       }
+      // Adding the recipient mounts the wider profile panel and header avatar.
+      m_demoTypingLayout.reset();
       updateDmMembers();
       m_preferences.reducedMotion = false;
       send("7", "Maya");

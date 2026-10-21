@@ -110,7 +110,7 @@ namespace app {
         demoTrayStep();
       if (m_demo && m_demoOverlay.starts_with("tray-startup-") && m_demoInteractionStep == 0)
         demoTrayStartup(true);
-      if (m_demo && m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep < chatLinkReplayFrames)
+      if (m_demo && m_demoOverlay.starts_with("chat-links-cycle") && m_demoInteractionStep < chatLinkReplayFrames)
         demoChatLinksStep();
       if (m_demo && m_demoOverlay == "attachment-cycle" && m_demoInteractionStep < attachmentReplayFrames)
         demoAttachmentsStep();
@@ -1257,8 +1257,8 @@ namespace app {
     m_window.run(
         m_client.eventFd(), [this] { tick(); },
         smokeTest
-            ? (m_demo && view && std::string_view(view) == "chat-links-cycle"       ? chatLinkReplayFrames
-                   : m_demo && view && std::string_view(view) == "attachment-cycle" ? attachmentReplayFrames
+            ? (m_demo && view && std::string_view(view).starts_with("chat-links-cycle") ? chatLinkReplayFrames
+                   : m_demo && view && std::string_view(view) == "attachment-cycle"     ? attachmentReplayFrames
                    : m_demo && view && std::string_view(view).starts_with("window-controls-cycle")
                    ? windowControlsReplayFrames
                    : m_demo && view && std::string_view(view) == "tray-cycle"              ? trayReplayFrames
@@ -1338,7 +1338,7 @@ namespace app {
       throw std::runtime_error("Tray lifecycle replay did not complete");
     if (m_demoOverlay.starts_with("tray-startup-") && m_demoInteractionStep != 1)
       throw std::runtime_error("Tray startup replay did not finish");
-    if (m_demoOverlay == "chat-links-cycle" && m_demoInteractionStep != chatLinkReplayFrames)
+    if (m_demoOverlay.starts_with("chat-links-cycle") && m_demoInteractionStep != chatLinkReplayFrames)
       throw std::runtime_error("Chat link replay did not finish");
     if (m_demoOverlay == "attachment-cycle" && m_demoInteractionStep != attachmentReplayFrames)
       throw std::runtime_error("Draft attachment replay did not finish");
@@ -3334,7 +3334,14 @@ namespace app {
         );
       if (!m_dmMode && !m_guildId.empty()) {
         glyph(root, chatLeft() - Style::space2Xl, 61, Style::baseGlyphSize, "chevron-down", muted);
-        Hit header{88, 48, sidebarWidth - Style::spaceRelaxed, 44, Action::GuildMenu, m_guildId};
+        Hit header{
+            88,
+            layout::Sidebar::headerTop,
+            sidebarWidth - Style::spaceRelaxed,
+            layout::Sidebar::headerHeight,
+            Action::GuildMenu,
+            m_guildId
+        };
         m_hits.push_back(header);
         m_contextTargets.push_back(header);
       }
@@ -3366,10 +3373,11 @@ namespace app {
       const auto dmHeadingMetrics =
           m_window.target().renderer().measureText("DIRECT MESSAGES", Style::fontSizeDetail, FontWeight::SemiBold);
       const float dmHeadingY = dmHeadingTop + (dmHeadingHeight - (dmHeadingMetrics.bottom - dmHeadingMetrics.top)) / 2;
-      label(
-          root, 98, m_dmMode ? dmHeadingY : 113, sidebarWidth - Style::spaceGroup,
-          m_dmMode ? "DIRECT MESSAGES" : "CHANNELS", Style::fontSizeDetail, muted, FontWeight::SemiBold
-      );
+      if (m_dmMode)
+        label(
+            root, 98, dmHeadingY, sidebarWidth - Style::spaceGroup, "DIRECT MESSAGES", Style::fontSizeDetail, muted,
+            FontWeight::SemiBold
+        );
       drawDirectMessagesButton(root);
       countBadge(
           root, layout::ServerRail::badgeRight,
@@ -3394,7 +3402,7 @@ namespace app {
              "create"},
             "plus", "New message"
         );
-      const float channelTop = m_dmMode ? layout::DmSidebar::channelsTop : 142;
+      const float channelTop = m_dmMode ? layout::DmSidebar::channelsTop : layout::Sidebar::channelsTop;
       const float accountTop = account.y;
       const float channelListHeight =
           visibleChannels.empty() ? 0 : visibleChannels.back().top + visibleChannels.back().advance;
@@ -3403,7 +3411,12 @@ namespace app {
       );
       if (!m_dmMode)
         m_contextTargets.push_back(
-            {78, 138, sidebarWidth, std::max(0.0F, sidebarBottom - 138), Action::ChannelListMenu, {}}
+            {layout::Sidebar::railWidth,
+             layout::Sidebar::channelsTop - Style::spaceXs,
+             sidebarWidth,
+             std::max(0.0F, sidebarBottom - layout::Sidebar::channelsTop + Style::spaceXs),
+             Action::ChannelListMenu,
+             {}}
         );
       int mentionsBelow = 0;
       std::string nextMention;
@@ -3417,19 +3430,30 @@ namespace app {
         }
         if (y < channelTop - Style::spaceXs || y + row.height > sidebarBottom)
           continue;
+        const auto rowContent = [&](bool dim) -> Node& {
+          if (!dim)
+            return root;
+          auto content = std::make_unique<Node>();
+          content->setSize(w, h);
+          content->setHitTestVisible(false);
+          content->setOpacity(Style::mutedChannelOpacity);
+          return *root.addChild(std::move(content));
+        };
         if (channel.type == 4) {
           const float categoryX = layout::Sidebar::railWidth + Style::spaceMd;
           const float categoryWidth = chatLeft() - Style::spaceSm - categoryX - Style::spaceXs;
           const float labelX = categoryX + Style::baseGlyphSize + Style::spaceXxs;
+          auto& content = rowContent(channelMuted(channel.id) && !hovered(categoryX, y, categoryWidth, row.height));
           if (hovered(categoryX, y, categoryWidth, row.height))
             rectangle(root, categoryX, y, categoryWidth, row.height, panel, Style::radiusMd);
           glyph(
-              root, categoryX, y + (row.height - Style::baseGlyphSize) / 2, Style::baseGlyphSize,
+              content, categoryX, y + (row.height - Style::baseGlyphSize) / 2, Style::baseGlyphSize,
               m_collapsedCategories.contains(channel.id) ? "chevron-right" : "chevron-down", muted
           );
           label(
-              root, labelX, y + (Style::spaceXs + Style::borderWidth), chatLeft() - labelX - layout::Sidebar::rowInset,
-              channel.name, Style::fontSizeCaption, muted, FontWeight::Bold
+              content, labelX, y + (Style::spaceXs + Style::borderWidth),
+              chatLeft() - labelX - layout::Sidebar::rowInset, channel.name, Style::fontSizeCaption, muted,
+              FontWeight::Bold
           );
           m_hits.push_back({categoryX, y, categoryWidth, row.height, Action::Category, channel.id});
           m_contextTargets.push_back({categoryX, y, categoryWidth, row.height, Action::ChannelMenu, channel.id});
@@ -3444,6 +3468,7 @@ namespace app {
         const bool over =
             hovered(rowX, y, rowWidth, row.height) && (m_dmMode || (sidebarResizeAvailable() && !m_resizingSidebar));
         const float hoverShift = !m_dmMode && over ? Style::spaceXs : 0;
+        auto& content = rowContent(!m_dmMode && channelMuted(channel.id) && !selected && !over && mentions == 0);
         constexpr float channelHoverTint = .06F;
         const auto rowSurface = m_dmMode ? (selected   ? raised
                                                 : over ? panel
@@ -3480,15 +3505,15 @@ namespace app {
           if (channel.isThread()) {
             const float branchX = x - layout::Sidebar::threadIconSize;
             rectangle(
-                root, branchX, y, layout::Sidebar::threadBranchStroke, layout::Sidebar::threadBranchHeight, muted
+                content, branchX, y, layout::Sidebar::threadBranchStroke, layout::Sidebar::threadBranchHeight, muted
             );
             rectangle(
-                root, branchX, y + layout::Sidebar::threadBranchHeight - layout::Sidebar::threadBranchStroke,
+                content, branchX, y + layout::Sidebar::threadBranchHeight - layout::Sidebar::threadBranchStroke,
                 layout::Sidebar::threadBranchWidth, layout::Sidebar::threadBranchStroke, muted
             );
           }
           channelIcon(
-              root, x + hoverShift, y + (row.height - size) / 2, size, channel, selected ? accent : muted, rowSurface
+              content, x + hoverShift, y + (row.height - size) / 2, size, channel, selected ? accent : muted, rowSurface
           );
         }
         m_hits.push_back({rowX, y, rowWidth, row.height, Action::Channel, channel.id});
@@ -3577,7 +3602,7 @@ namespace app {
           const auto metrics =
               m_window.target().renderer().measureText(channel.name, Style::fontSizeBody, weight, labelWidth, 1);
           label(
-              root, labelX, y + (row.height - (metrics.bottom - metrics.top)) / 2, labelWidth, channel.name,
+              content, labelX, y + (row.height - (metrics.bottom - metrics.top)) / 2, labelWidth, channel.name,
               Style::fontSizeBody, selected || over || unread ? foreground : muted, weight
           );
         }
@@ -5698,7 +5723,7 @@ namespace app {
          )) {
       if (row.channel->id == id) {
         const float sceneHeight = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
-        const float listTop = m_dmMode ? layout::DmSidebar::channelsTop : 142;
+        const float listTop = m_dmMode ? layout::DmSidebar::channelsTop : layout::Sidebar::channelsTop;
         const auto view =
             std::max(row.advance, layout::accountFrame(sceneHeight, chatLeft()).y - layout::Floating::gap - listTop);
         m_channelScroll = std::clamp(m_channelScroll, std::max(0.0F, row.top - view + row.advance), row.top);
@@ -7457,7 +7482,8 @@ namespace app {
           m_scrolling.stop(m_channelScroll);
           // Reveal the row above the floating badge, without selecting or ACKing it.
           const float h = m_window.height() + layout::Window::titlebarHeight - m_window.titlebarHeight();
-          m_channelScroll = std::max(0.0F, 142 + row.top - (h - 160));
+          const float listTop = m_dmMode ? layout::DmSidebar::channelsTop : layout::Sidebar::channelsTop;
+          m_channelScroll = std::max(0.0F, listTop + row.top - (h - 160));
           break;
         }
       }

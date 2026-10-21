@@ -1,5 +1,6 @@
 #include "app/client_application.h"
 #include "app/theme.h"
+#include "render/scene/text_node.h"
 
 #include <algorithm>
 #include <iostream>
@@ -184,6 +185,10 @@ namespace app {
     roles.roles = {{.id = "1", .name = "@everyone", .permissions = "1024"}};
     roles.members["7"] = {};
     m_roleDirectory.apply({true, {roles}});
+    api::UserUpdates muted;
+    muted.mutedChannels["101"] = true;
+    muted.mutedChannels["105"] = true;
+    m_userDirectory.apply(muted);
     api::Channel thread{"201", "discussion", 11};
     thread.parentId = "101";
     thread.joined = true;
@@ -287,6 +292,26 @@ namespace app {
     };
     const auto step = m_demoInteractionStep++;
     if (step == 0) {
+      bool dimmed = false, selectedReadable = false;
+      const auto inspect = [&](auto&& self, const Node& node, float opacity, float x) -> void {
+        opacity *= node.opacity();
+        x += node.x();
+        if (node.type() == NodeType::Text && x < chatLeft()) {
+          const auto& text = static_cast<const TextNode&>(node).text();
+          require(text != "CHANNELS", "Server channel lists omit the redundant heading");
+          if (text == "🌙-chat")
+            dimmed = opacity == Style::mutedChannelOpacity;
+          if (text == "general")
+            selectedReadable = opacity == 1;
+        }
+        for (const auto& child : node.children())
+          self(self, *child, opacity, x);
+      };
+      inspect(inspect, *m_scene, 1, 0);
+      require(dimmed && selectedReadable, "Muted channel content fades while a selected muted channel stays readable");
+      for (const auto& hit : m_hits)
+        if (hit.action == Action::Channel && hit.id == "101")
+          require(hit.y == layout::Sidebar::channelsTop, "Channel rows reclaim the removed heading's space");
       require(
           !channelPrivate("1", m_channels.front()) && channelPrivate("1", m_channels[1]),
           "Lock badges describe everyone access, including a private channel the current member can view"

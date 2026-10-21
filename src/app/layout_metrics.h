@@ -175,6 +175,9 @@ namespace app::layout {
     static constexpr float maximumWidth = 480;
     static constexpr float minimumConversation = 360;
     static constexpr float resizeSlop = Style::spaceXs;
+    static constexpr float headerTop = Style::windowTitlebarHeight + Style::spaceMd;
+    static constexpr float headerHeight = Style::controlHeightLg;
+    static constexpr float channelsTop = headerTop + headerHeight + Style::spaceLg;
     static constexpr float categoryHeight = 24;
     static constexpr float rowHeight = Style::spaceWide;
     static constexpr float rowGap = Style::spaceXs;
