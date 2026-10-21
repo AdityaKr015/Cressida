@@ -15,6 +15,7 @@
   shellcheck,
   weston,
   mesa,
+  shared-mime-info,
 }:
 mkShell {
   inputsFrom = [ cressida ];
@@ -38,6 +39,7 @@ mkShell {
   ];
   shellHook = ''
     export CRESSIDA_ASSETS_DIR="$PWD/assets"
+    export XDG_DATA_DIRS="${shared-mime-info}/share''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
     export CRESSIDA_EMOJI_FONT="${noto-fonts-color-emoji}/share/fonts/noto/NotoColorEmoji.ttf"
     # Used only by the private headless CI helper, never by normal GUI launches.
     export CRESSIDA_CI_EGL_VENDOR="${mesa}/share/glvnd/egl_vendor.d/50_mesa.json"

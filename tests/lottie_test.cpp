@@ -58,6 +58,39 @@ int main() {
         "Native sticker frames animate the actual shape color with correct RGBA channels"
     );
     require(first[3] == 0 && first.back() == 0, "Vector sticker background remains transparent");
+    auto moderate = document;
+    moderate["w"] = moderate["h"] = 512;
+    const auto compressed = decode(moderate);
+    require(
+        compressed
+            && compressed->width == 512
+            && compressed->height == 512
+            && compressed->frames.size() == 6
+            && compressed->duration == clip->duration
+            && compressed->frameAt(compressed->duration) == 0,
+        "Early vector compression preserves the complete native canvas and timeline"
+    );
+    require(
+        compressed->byteSize() < media::rawAnimationBudget
+            && std::ranges::all_of(
+                compressed->frames, [](const auto& frame) { return frame.rgba.empty() && !frame.packed.empty(); }
+            ),
+        "Moderate vector loops release raw canvases before reaching the hard decoded memory cap"
+    );
+    std::vector<std::uint8_t> canvas;
+    for (std::size_t index = compressed->frames.size(); index-- > 0;) {
+      const auto pixels = compressed->pixels(index, canvas);
+      require(pixels.size() == 512 * 512 * 4, "Unpack one complete native vector canvas");
+      require(pixels[3] == 0 && pixels.back() == 0, "Packed vector backgrounds retain transparent corners");
+      for (int y = 0; y < clip->height; ++y)
+        for (int x = 0; x < clip->width; ++x)
+          for (int component = 0; component < 4; ++component)
+            require(
+                pixels[(y * compressed->width + x) * 4 + component]
+                    == clip->frames[index].rgba[(y * clip->width + x) * 4 + component],
+                "Lossless vector packing preserves every shape pixel and alpha channel in every frame"
+            );
+    }
     auto translucent = document;
     translucent["layers"][0]["ks"]["o"]["k"] = 50;
     const auto alpha = decode(translucent);

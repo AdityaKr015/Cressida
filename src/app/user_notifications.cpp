@@ -74,8 +74,11 @@ namespace app {
     notice.body = "You have a new message.";
     if (m_preferences.notificationPrivacy < 2) {
       notice.avatar = message.avatar;
-      if (const auto cached = m_images.find(notice.avatar); cached != m_images.end())
-        notice.avatarBytes = cached->second.bytes;
+      if (!notice.avatar.empty()) {
+        auto& cached = m_images[notice.avatar];
+        cached.uses |= imageUseMask(ImageUse::Content);
+        notice.avatarBytes = cached.bytes;
+      }
       std::string conversation, serverName;
       if (!guild.empty()) {
         const auto server = std::ranges::find(m_guilds, guild, &api::Guild::id);
@@ -117,8 +120,8 @@ namespace app {
     const auto avatar = notice.avatar;
     const bool needsAvatar = !avatar.empty() && notice.avatarBytes.empty();
     m_desktopNotifications.show(std::move(notice));
-    if (needsAvatar)
-      (void)m_assets.request(avatar);
+    if (needsAvatar && m_assets.request(avatar))
+      m_pendingImages[avatar] |= imageUseMask(ImageUse::Content);
   }
   void ClientApplication::drainDesktopNotifications() {
     while (auto action = m_desktopNotifications.poll())

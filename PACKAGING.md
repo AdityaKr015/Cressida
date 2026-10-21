@@ -242,7 +242,7 @@ existing uninstall manifest.
 | CA certificate store | Required for TLS certificate validation |
 | Default web browser and `xdg-open` | Browser sign-in and external links; make `xdg-open` available at build time as its resolved path is recorded |
 | Session D-Bus | Desktop service integration |
-| shared-mime-info database | File-type detection for uploads; also expose it in clean test environments |
+| shared-mime-info database | File-type detection for uploads and image copy/save; expose its share directory through XDG_DATA_DIRS at runtime and in clean tests |
 | Secret Service provider | Recommended for remembering sign-in; libsecret alone does not provide a keyring |
 | XDG desktop portal with Settings / FileChooser backends | System color mode and native file selection where supported |
 | Desktop notification service | Native notification delivery |

@@ -1,9 +1,11 @@
 #include "app/client_application.h"
 #include "app/theme.h"
+#include "render/core/image_encoder.h"
 #include "render/core/texture_manager.h"
 #include "render/scene/image_node.h"
 #include "render/scene/rect_node.h"
 
+#include <GLES2/gl2.h>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -23,6 +25,61 @@ namespace app {
         {"profile_banners", &Preferences::showProfileBanners},
         {"profile_themes", &Preferences::showProfileThemes}
     };
+    std::vector<std::pair<std::string, ImageUse>> cosmeticsArtwork(const std::string& banner) {
+      return {
+          {std::string(decorationPath), ImageUse::AvatarDecoration},
+          {api::collectibleAsset("33", {}, true), ImageUse::AvatarDecoration},
+          {std::string(effectPath), ImageUse::ProfileEffect},
+          {std::string(stillPath), ImageUse::ProfileEffect},
+          {api::collectibleAsset("22"), ImageUse::Nameplate},
+          {api::collectibleAsset("22", {}, true), ImageUse::Nameplate},
+          {api::collectibleAsset("44", "top"), ImageUse::ProfileFrame},
+          {api::collectibleAsset("44", "bottom"), ImageUse::ProfileFrame},
+          {api::collectibleAsset("44", "sides"), ImageUse::ProfileFrame},
+          {banner, ImageUse::ProfileBanner}
+      };
+    }
+    void loadCosmeticsDemoArtwork(ImageCache& images, TextureManager& textures, const std::string& banner) {
+      const int size = static_cast<int>(Style::space2Xl * 4);
+      for (const auto& [path, use] : cosmeticsArtwork(banner)) {
+        if (const auto found = images.find(path); found != images.end() && found->second.texture.valid())
+          continue;
+        std::vector<std::uint8_t> pixels(size * size * 4);
+        for (int y = 0; y < size; ++y)
+          for (int x = 0; x < size; ++x) {
+            const float radius = size / 2.0F;
+            const float distance = std::hypot(x - radius, y - radius);
+            const bool edge =
+                x < Style::spaceXs || x >= size - Style::spaceXs || y < Style::spaceXs || y >= size - Style::spaceXs;
+            const bool visible = path == decorationPath ? distance < radius && distance > radius - Style::spaceXs
+                : path.contains("/collectibles-shop/22/") || path == banner ? true
+                                                                            : edge;
+            const auto at = (y * size + x) * 4;
+            pixels[at] = 153;
+            pixels[at + 1] = 117;
+            pixels[at + 2] = 221;
+            pixels[at + 3] = visible ? 160 : 0;
+          }
+        auto& cached = images[path];
+        cached = {};
+        cached.texture = textures.loadFromRgba(pixels.data(), size, size);
+        cached.bytes = encodePng(pixels.data(), size, size);
+        if (path.ends_with("/animated")) {
+          auto animation = std::make_shared<media::Animation>();
+          animation->width = animation->height = size;
+          animation->duration = std::chrono::milliseconds(Style::animNormal);
+          for (int i = 0; i < 2; ++i) {
+            media::Frame frame;
+            frame.rgba = pixels;
+            frame.duration = animation->duration / 2;
+            for (std::size_t pixel = 0; pixel < pixels.size(); pixel += 4)
+              frame.rgba[pixel] = i ? 221 : 153;
+            animation->frames.push_back(std::move(frame));
+          }
+          cached.animation = std::move(animation);
+        }
+      }
+    }
   } // namespace
   void ClientApplication::prepareCosmeticsDemo(const std::string& view) {
     using Json = nlohmann::json;
@@ -70,45 +127,7 @@ namespace app {
         "USER_UPDATE",
         Json{{"id", m_account.id}, {"collectibles", {{"nameplate", {{"sku_id", "22"}, {"palette", "violet"}}}}}}
     );
-    const int size = static_cast<int>(Style::space2Xl * 4);
-    for (const auto& path :
-         {std::string(decorationPath), api::collectibleAsset("33", {}, true), std::string(effectPath),
-          std::string(stillPath), api::collectibleAsset("22"), api::collectibleAsset("22", {}, true),
-          api::collectibleAsset("44", "top"), api::collectibleAsset("44", "bottom"),
-          api::collectibleAsset("44", "sides")}) {
-      std::vector<std::uint8_t> pixels(size * size * 4);
-      for (int y = 0; y < size; ++y)
-        for (int x = 0; x < size; ++x) {
-          const float radius = size / 2.0F;
-          const float distance = std::hypot(x - radius, y - radius);
-          const bool edge =
-              x < Style::spaceXs || x >= size - Style::spaceXs || y < Style::spaceXs || y >= size - Style::spaceXs;
-          const bool visible = path == decorationPath   ? distance < radius && distance > radius - Style::spaceXs
-              : path.contains("/collectibles-shop/22/") ? true
-                                                        : edge;
-          const auto at = (y * size + x) * 4;
-          pixels[at] = 153;
-          pixels[at + 1] = 117;
-          pixels[at + 2] = 221;
-          pixels[at + 3] = visible ? 160 : 0;
-        }
-      auto& cached = m_images[path];
-      cached.texture = m_window.context().textureManager().loadFromRgba(pixels.data(), size, size);
-      if (path.ends_with("/animated")) {
-        auto animation = std::make_shared<media::Animation>();
-        animation->width = animation->height = size;
-        animation->duration = std::chrono::milliseconds(Style::animNormal);
-        for (int i = 0; i < 2; ++i) {
-          media::Frame frame;
-          frame.rgba = pixels;
-          frame.duration = animation->duration / 2;
-          for (std::size_t pixel = 0; pixel < pixels.size(); pixel += 4)
-            frame.rgba[pixel] = i ? 221 : 153;
-          animation->frames.push_back(std::move(frame));
-        }
-        cached.animation = std::move(animation);
-      }
-    }
+    loadCosmeticsDemoArtwork(m_images, m_window.context().textureManager(), profile.banner);
     m_pointerX = m_pointerY = -1000;
     if (view.contains("-hover"))
       m_preferences.showProfileEffects = false;
@@ -122,13 +141,66 @@ namespace app {
       if (!condition)
         throw std::runtime_error(message);
     };
+    static std::map<std::string, TextureId> artworkTextures;
+    const auto rememberArtwork = [&] {
+      for (const auto& [path, use] : cosmeticsArtwork(m_dmProfile.data->banner))
+        if (const auto found = m_images.find(path); found != m_images.end())
+          artworkTextures[path] = found->second.texture.id;
+    };
+    if (m_demoInteractionStep == 0) {
+      artworkTextures.clear();
+      rememberArtwork();
+      for (const auto& [path, use] : cosmeticsArtwork(m_dmProfile.data->banner))
+        m_images.at(path).uses |= imageUseMask(use);
+      m_images.at(std::string(decorationPath)).uses |= imageUseMask(ImageUse::Content);
+    }
+    const auto disableArtwork = [&](const std::string& preference, ImageUse use) {
+      std::map<std::string, TextureId> removed;
+      for (const auto& [path, category] : cosmeticsArtwork(m_dmProfile.data->banner))
+        if (category == use)
+          removed.emplace(path, m_images.at(path).texture.id);
+      const auto category = imageUseMask(use);
+      const auto pendingPath = api::collectibleAsset("77", "pending" + std::to_string(category), true);
+      const auto sharedPendingPath = api::collectibleAsset("88", "pending" + std::to_string(category), true);
+      m_pendingImages[pendingPath] = category;
+      m_pendingImages[sharedPendingPath] = category | imageUseMask(ImageUse::Content);
+      require(
+          !m_images.contains(pendingPath) && !m_images.contains(sharedPendingPath),
+          "Pending ownership remains available when its cache record has already been evicted"
+      );
+      extendedPreference(preference);
+      require(
+          !m_pendingImages.contains(pendingPath)
+              && m_pendingImages.contains(sharedPendingPath)
+              && m_pendingImages.at(sharedPendingPath) == imageUseMask(ImageUse::Content),
+          "Disabling a cosmetic cancels category-only pending work while preserving shared content requests"
+      );
+      m_pendingImages.erase(sharedPendingPath);
+      for (const auto& [path, texture] : removed) {
+        if (path == decorationPath) {
+          const auto found = m_images.find(path);
+          require(
+              found != m_images.end()
+                  && found->second.uses == imageUseMask(ImageUse::Content)
+                  && found->second.texture.id == texture
+                  && glIsTexture(texture.value()),
+              "Disabling a cosmetic preserves shared content and clears only that category's ownership"
+          );
+        } else
+          require(
+              !m_images.contains(path) && !glIsTexture(texture.value()),
+              "Disabling a cosmetic immediately releases its encoded bytes, animation and native texture"
+          );
+      }
+    };
     const auto images = [&](const std::string& path) {
       std::size_t count = 0;
-      const auto at = m_images.find(path);
-      if (at == m_images.end())
+      const auto remembered = artworkTextures.find(path);
+      if (remembered == artworkTextures.end())
         return count;
+      const auto texture = remembered->second;
       const auto inspect = [&](auto&& self, const Node& node) -> void {
-        if (node.type() == NodeType::Image && static_cast<const ImageNode&>(node).textureId() == at->second.texture.id)
+        if (node.type() == NodeType::Image && static_cast<const ImageNode&>(node).textureId() == texture)
           ++count;
         for (const auto& child : node.children())
           self(self, *child);
@@ -238,21 +310,21 @@ namespace app {
           images(std::string(decorationPath)) >= 3 && nameplate() && images(std::string(effectPath)) && framed(),
           "Equipped cosmetics render in messages, conversation rows and the DM profile"
       );
-      extendedPreference("avatar_decorations");
+      disableArtwork("avatar_decorations", ImageUse::AvatarDecoration);
     } else if (step == 1) {
       require(
           !images(std::string(decorationPath)) && nameplate() && framed(), "Avatar decorations toggle independently"
       );
-      extendedPreference("nameplates");
+      disableArtwork("nameplates", ImageUse::Nameplate);
     } else if (step == 2) {
       require(!nameplate() && images(std::string(effectPath)) && framed(), "Nameplates toggle independently");
-      extendedPreference("profile_effects");
+      disableArtwork("profile_effects", ImageUse::ProfileEffect);
     } else if (step == 3) {
       require(!images(std::string(effectPath)) && framed(), "Profile effects toggle independently");
-      extendedPreference("profile_frames");
+      disableArtwork("profile_frames", ImageUse::ProfileFrame);
     } else if (step == 4) {
       require(!framed() && images(m_dmProfile.data->banner), "Profile frames preserve banners and profile content");
-      extendedPreference("profile_banners");
+      disableArtwork("profile_banners", ImageUse::ProfileBanner);
     } else if (step == 5) {
       require(!images(m_dmProfile.data->banner), "Profile banners toggle independently");
       extendedPreference("profile_themes");
@@ -273,11 +345,18 @@ namespace app {
         m_window.released();
         require(m_preferences.*field, "The actual native cosmetic toggle changes its matching preference");
       }
+      loadCosmeticsDemoArtwork(m_images, m_window.context().textureManager(), m_dmProfile.data->banner);
+      rememberArtwork();
       activate({.action = Action::CloseSettings});
     } else if (step == 8) {
       require(
           images(std::string(decorationPath)) && nameplate() && images(std::string(effectPath)) && framed(),
           "Cosmetics restore immediately after changing settings"
+      );
+      require(
+          (m_images.at(std::string(decorationPath)).uses & imageUseMask(ImageUse::AvatarDecoration))
+              && (m_images.at(std::string(decorationPath)).uses & imageUseMask(ImageUse::Content)),
+          "Reenabling a cosmetic reuses shared content and restores its cosmetic ownership"
       );
       showProfile("11");
     } else if (step == 9) {
@@ -321,7 +400,8 @@ namespace app {
         throw std::runtime_error(reason);
     };
     const auto playing = [&](const std::string& sku) {
-      return m_images.at(api::collectibleAsset(sku, {}, true)).playingDraw == m_animationDraw;
+      const auto found = m_images.find(api::collectibleAsset(sku, {}, true));
+      return found != m_images.end() && found->second.playingDraw == m_animationDraw;
     };
     const auto stillDecorations = [&] {
       std::size_t count = 0;
@@ -377,10 +457,13 @@ namespace app {
     } else if (step == 6) {
       require(!playing("22") && !playing("33"), "Animate avatars also controls hovered cosmetic motion");
       m_preferences.animateAvatars = true;
-      m_preferences.showAvatarDecorations = m_preferences.showNameplates = false;
+      extendedPreference("avatar_decorations");
+      extendedPreference("nameplates");
     } else if (step == 7) {
       require(!playing("22") && !playing("33"), "Hidden cosmetic categories do not animate");
-      m_preferences.showAvatarDecorations = m_preferences.showNameplates = true;
+      extendedPreference("avatar_decorations");
+      extendedPreference("nameplates");
+      loadCosmeticsDemoArtwork(m_images, m_window.context().textureManager(), m_dmProfile.data->banner);
       openSettings();
     } else if (step == 8) {
       require(!playing("22") && !playing("33"), "Settings block animation of covered rows");

@@ -24,6 +24,7 @@
   tomlplusplus,
   curl,
   autoAddDriverRunpath,
+  makeWrapper,
   xdg-utils,
   noto-fonts-color-emoji,
   python3,
@@ -65,6 +66,7 @@ stdenv.mkDerivation {
     pkg-config
     wayland-scanner
     autoAddDriverRunpath
+    makeWrapper
     xdg-utils
     python3
     dbus
@@ -101,6 +103,10 @@ stdenv.mkDerivation {
     export XDG_DATA_DIRS="${shared-mime-info}/share''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
   '';
   mesonFlags = [ "-Demoji_font=${noto-fonts-color-emoji}/share/fonts/noto/NotoColorEmoji.ttf" ];
+  postFixup = ''
+    wrapProgram "$out/bin/cressida" \
+      --prefix XDG_DATA_DIRS : "${shared-mime-info}/share"
+  '';
 
   meta = {
     description = "Cressida — native C++ Discord desktop client";

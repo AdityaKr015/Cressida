@@ -13,6 +13,7 @@
 #include "app/emoji_catalog.h"
 #include "app/file_picker.h"
 #include "app/folder_motion.h"
+#include "app/image_cache.h"
 #include "app/layout_metrics.h"
 #include "app/message_history.h"
 #include "app/message_layout.h"
@@ -554,6 +555,7 @@ namespace app {
         Node& parent, const layout::Frame& frame, const api::UserProfile& profile, bool foreground,
         float radius = Style::radiusXl
     );
+    void releaseDisabledCosmetics();
     bool cosmeticHovered(const Node& parent, const layout::Frame& region) const;
     void drawAvatarDecoration(
         Node& parent, float x, float y, float size, const std::string& path, const layout::Frame& hoverRegion
@@ -567,7 +569,7 @@ namespace app {
     bool picture(
         Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
         bool placeholder = false, bool videoPoster = false, ImageFitMode fit = ImageFitMode::Cover,
-        std::optional<std::chrono::milliseconds> animationTime = {}
+        std::optional<std::chrono::milliseconds> animationTime = {}, ImageUse use = ImageUse::Content
     );
     void glyph(Node& parent, float x, float y, float size, const std::string& name, Color color);
     void iconButton(Node& parent, Hit hit, const std::string& icon, const std::string& tooltip, bool selected = false);
@@ -1214,19 +1216,12 @@ namespace app {
     int m_memberCount = 0;
     int m_memberPage = 0;
     std::map<std::string, std::optional<api::Message>> m_liveChanges;
-    struct CachedImage {
-      TextureHandle texture;
-      std::vector<unsigned char> bytes;
-      std::uint64_t touched = 0;
-      std::chrono::steady_clock::time_point retry{};
-      std::shared_ptr<const media::Animation> animation;
-      std::chrono::steady_clock::time_point animationStart{};
-      std::size_t animationFrame = 0;
-      std::uint64_t visibleFrame = 0, playingDraw = 0;
-    };
-    std::map<std::string, CachedImage> m_images;
+    void discardImage(const std::string& path);
+    void discardImagesWithPrefix(std::string_view prefix);
+    ImageCache m_images;
+    std::vector<TextureHandle> m_retiredImages;
     std::vector<std::uint8_t> m_animationPixels;
-    std::set<std::string> m_pendingImages;
+    std::map<std::string, ImageUses> m_pendingImages;
     std::uint64_t m_imageSerial = 0;
     std::uint64_t m_animationDraw = 0;
     std::chrono::milliseconds m_animationDelay = std::chrono::milliseconds::max();

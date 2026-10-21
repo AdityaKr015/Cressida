@@ -185,6 +185,7 @@ namespace app {
     selectSettingsPage(m_settingsPage);
   }
   void ClientApplication::savePreferences() {
+    releaseDisabledCosmetics();
     m_window.setDesktopDecorations(m_preferences.desktopDecorations);
     m_window.setWindowControls(m_preferences.windowControls);
     m_messageLayouts.clear();

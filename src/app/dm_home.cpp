@@ -55,7 +55,9 @@ namespace app {
         std::max(1, static_cast<int>(std::ceil(layout::ServerRail::logoSize * m_window.target().contentScale())));
     const auto colors = logoGradientColors(theme::accent, theme::foreground, theme::background, theme::lightTheme);
     auto& logo = m_images["builtin:cressida-logo:" + std::to_string(pixels) + logoGradientKey(colors)];
+    logo.uses |= imageUseMask(ImageUse::Content);
     logo.touched = ++m_imageSerial;
+    logo.visibleDraw = m_animationDraw;
     if (!logo.texture.valid()) {
       static const auto source = [] {
         std::ifstream file(paths::assetPath("cressida-logo.svg"), std::ios::binary);

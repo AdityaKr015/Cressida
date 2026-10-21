@@ -57,7 +57,7 @@ namespace app {
       return;
     }
     if (state.imageCrop)
-      m_images.erase(state.imageCrop->texture);
+      discardImage(state.imageCrop->texture);
     ServerImageCrop crop;
     crop.field = field;
     crop.mime = mime;
@@ -67,8 +67,10 @@ namespace app {
     crop.width = raster.width;
     crop.height = raster.height;
     crop.texture = "server-crop:" + state.guild + ':' + std::to_string(++state.serial);
-    m_images[crop.texture].texture =
-        m_window.context().textureManager().loadFromRgba(crop.pixels.data(), crop.width, crop.height);
+    replaceCachedImageTexture(
+        m_images[crop.texture], m_window.context().textureManager(),
+        m_window.context().textureManager().loadFromRgba(crop.pixels.data(), crop.width, crop.height)
+    );
     state.imageCrop = std::move(crop);
     state.error.clear();
     m_scrolling.stop(state.scroll);
@@ -82,7 +84,7 @@ namespace app {
     if (!state.imageCrop || state.saving || state.mfaRequest)
       return true;
     if (action == "crop-cancel") {
-      m_images.erase(state.imageCrop->texture);
+      discardImage(state.imageCrop->texture);
       state.imageCrop.reset();
       m_window.invalidate();
       return true;
@@ -128,10 +130,12 @@ namespace app {
       const auto kind = crop.field == "icon"                        ? "icons"
           : crop.field == "custom_banner" || crop.field == "banner" ? "banners"
                                                                     : crop.field;
-      m_images["server-upload:" + state.guild + ':' + kind].texture =
-          m_window.context().textureManager().loadFromRgba(pixels.data(), width, height);
+      replaceCachedImageTexture(
+          m_images["server-upload:" + state.guild + ':' + kind], m_window.context().textureManager(),
+          m_window.context().textureManager().loadFromRgba(pixels.data(), width, height)
+      );
     }
-    m_images.erase(crop.texture);
+    discardImage(crop.texture);
     m_window.invalidate();
     return true;
   }

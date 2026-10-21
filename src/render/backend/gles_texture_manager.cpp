@@ -42,6 +42,20 @@ namespace {
     return filter == TextureFilter::Nearest ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_LINEAR;
   }
 
+  [[nodiscard]] std::size_t textureAllocationBytes(int width, int height, TextureDataFormat format, bool mipmap) {
+    const std::size_t channels = format == TextureDataFormat::Alpha ? 1
+        : format == TextureDataFormat::LuminanceAlpha               ? 2
+                                                                    : 4;
+    std::size_t bytes = 0;
+    for (;;) {
+      bytes += static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * channels;
+      if (!mipmap || (width == 1 && height == 1))
+        return bytes;
+      width = width > 1 ? width / 2 : 1;
+      height = height > 1 ? height / 2 : 1;
+    }
+  }
+
   // Drops errors raised before the call we are about to check. Bounded because a robust context that
   // has been lost keeps reporting GL_CONTEXT_LOST, which would hang an unbounded drain.
   void clearGlErrors() {
@@ -58,6 +72,16 @@ namespace {
     glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(format), width, height, 0, format, GL_UNSIGNED_BYTE, data);
     if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
       kLog.warn("glTexImage2D failed for {}x{} {} texture (format=0x{:x}): 0x{:x}", width, height, what, format, err);
+      return false;
+    }
+    return true;
+  }
+
+  [[nodiscard]] bool generateMipmapsChecked(int width, int height) {
+    clearGlErrors();
+    glGenerateMipmap(GL_TEXTURE_2D);
+    if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
+      kLog.warn("glGenerateMipmap failed for {}x{} texture: 0x{:x}", width, height, err);
       return false;
     }
     return true;
@@ -308,12 +332,8 @@ TextureHandle GlesTextureManager::uploadBgra(const std::uint8_t* data, int width
   }
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  if (mipmap) {
-    glGenerateMipmap(GL_TEXTURE_2D);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-  } else {
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  }
+  mipmap = mipmap && generateMipmapsChecked(width, height);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mipmap ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
   m_textures.emplace_back(tex);
@@ -324,6 +344,7 @@ TextureHandle GlesTextureManager::uploadBgra(const std::uint8_t* data, int width
       .sourceWidth = width,
       .sourceHeight = height,
       .generation = m_generation,
+      .allocationBytes = textureAllocationBytes(width, height, TextureDataFormat::Rgba, mipmap),
   };
 }
 
@@ -351,12 +372,8 @@ TextureHandle GlesTextureManager::uploadPixels(
   }
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  if (mipmap) {
-    glGenerateMipmap(GL_TEXTURE_2D);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, toGlesMipmapFilter(filter));
-  } else {
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, toGlesFilter(filter));
-  }
+  mipmap = mipmap && generateMipmapsChecked(width, height);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mipmap ? toGlesMipmapFilter(filter) : toGlesFilter(filter));
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, toGlesFilter(filter));
 
   m_textures.emplace_back(tex);
@@ -367,5 +384,6 @@ TextureHandle GlesTextureManager::uploadPixels(
       .sourceWidth = width,
       .sourceHeight = height,
       .generation = m_generation,
+      .allocationBytes = textureAllocationBytes(width, height, format, mipmap),
   };
 }

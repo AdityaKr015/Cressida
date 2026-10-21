@@ -100,7 +100,7 @@ namespace app {
       return true;
     }
     if (state.crop)
-      m_images.erase(state.crop->texture);
+      discardImage(state.crop->texture);
     UserProfileCrop crop;
     crop.field = state.uploadField;
     crop.mime = result.mime;
@@ -110,8 +110,10 @@ namespace app {
     crop.height = result.raster->height;
     crop.animated = animated;
     crop.texture = "user-profile-upload:crop:" + std::to_string(++state.serial);
-    m_images[crop.texture].texture =
-        m_window.context().textureManager().loadFromRgba(crop.pixels.data(), crop.width, crop.height);
+    replaceCachedImageTexture(
+        m_images[crop.texture], m_window.context().textureManager(),
+        m_window.context().textureManager().loadFromRgba(crop.pixels.data(), crop.width, crop.height)
+    );
     state.crop = std::move(crop);
     state.error.clear();
     m_window.invalidate();
@@ -122,7 +124,7 @@ namespace app {
     if (!action.starts_with("crop-") || !state.crop || state.busy)
       return false;
     if (action == "crop-cancel") {
-      m_images.erase(state.crop->texture);
+      discardImage(state.crop->texture);
       state.crop.reset();
       m_window.invalidate();
       return true;
@@ -163,9 +165,11 @@ namespace app {
       return true;
     }
     state.draft[crop.field] = "data:" + mime + ";base64," + base64(bytes);
-    m_images["user-profile-upload:" + crop.field].texture =
-        m_window.context().textureManager().loadFromRgba(pixels.data(), width, height);
-    m_images.erase(crop.texture);
+    replaceCachedImageTexture(
+        m_images["user-profile-upload:" + crop.field], m_window.context().textureManager(),
+        m_window.context().textureManager().loadFromRgba(pixels.data(), width, height)
+    );
+    discardImage(crop.texture);
     state.crop.reset();
     m_profileDirty = true;
     state.error.clear();

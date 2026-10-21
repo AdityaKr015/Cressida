@@ -7,6 +7,39 @@
 #include <cmath>
 
 namespace app {
+  void ClientApplication::releaseDisabledCosmetics() {
+    ImageUses removed = 0;
+    const auto disable = [&](bool enabled, ImageUse use) {
+      if (!enabled)
+        removed |= imageUseMask(use);
+    };
+    disable(m_preferences.showAvatarDecorations, ImageUse::AvatarDecoration);
+    disable(m_preferences.showNameplates, ImageUse::Nameplate);
+    disable(m_preferences.showProfileEffects, ImageUse::ProfileEffect);
+    disable(m_preferences.showProfileFrames, ImageUse::ProfileFrame);
+    disable(m_preferences.showProfileBanners, ImageUse::ProfileBanner);
+    if (!removed)
+      return;
+    for (auto pending = m_pendingImages.begin(); pending != m_pendingImages.end();) {
+      if (const auto cached = m_images.find(pending->first); cached != m_images.end())
+        pending->second |= cached->second.uses;
+      pending->second &= ~removed;
+      if (pending->second) {
+        ++pending;
+      } else {
+        m_assets.cancel(pending->first);
+        pending = m_pendingImages.erase(pending);
+      }
+    }
+    for (const auto& path : releaseImageUses(m_images, removed))
+      discardImage(path);
+    if (!m_preferences.showProfileEffects)
+      m_cosmeticClocks.clear();
+    // The shared unpack buffer can be rebuilt by any artwork still enabled.
+    std::vector<std::uint8_t>{}.swap(m_animationPixels);
+    m_window.invalidate();
+  }
+
   bool ClientApplication::cosmeticHovered(const Node& parent, const layout::Frame& region) const {
     if ((!m_demo && !m_window.active())
         || !m_viewImage.empty()
@@ -64,10 +97,13 @@ namespace app {
     const auto still = api::cosmeticAssetVariant(path, false), moving = api::cosmeticAssetVariant(path, true);
     if (!picture(
             *art, frame.x, frame.y, frame.width, frame.height, play ? moving : still, 0, false, false,
-            ImageFitMode::Contain
+            ImageFitMode::Contain, {}, ImageUse::AvatarDecoration
         )
         && play)
-      picture(*art, frame.x, frame.y, frame.width, frame.height, still, 0, false, false, ImageFitMode::Contain);
+      picture(
+          *art, frame.x, frame.y, frame.width, frame.height, still, 0, false, false, ImageFitMode::Contain, {},
+          ImageUse::AvatarDecoration
+      );
   }
   void ClientApplication::drawNameplate(
       Node& parent, const layout::Frame& frame, const std::string& user, const std::string& guild,
@@ -114,10 +150,16 @@ namespace app {
     auto node = std::make_unique<Node>();
     node->setHitTestVisible(false);
     auto* art = parent.addChild(std::move(node));
-    if (!picture(*art, frame.x, frame.y, frame.width, frame.height, path, Style::surfaceRadius, false)) {
+    if (!picture(
+            *art, frame.x, frame.y, frame.width, frame.height, path, Style::surfaceRadius, false, false,
+            ImageFitMode::Cover, {}, ImageUse::Nameplate
+        )) {
       const auto still = m_userDirectory.cosmetics(user, guild).nameplate.value_or("");
       if (path != still)
-        picture(*art, frame.x, frame.y, frame.width, frame.height, still, Style::surfaceRadius, false);
+        picture(
+            *art, frame.x, frame.y, frame.width, frame.height, still, Style::surfaceRadius, false, false,
+            ImageFitMode::Cover, {}, ImageUse::Nameplate
+        );
     }
   }
   void ClientApplication::drawProfileCosmetics(
@@ -162,19 +204,25 @@ namespace app {
                    tile < maximumBorderTiles && imageHeight > 0 && tile * imageHeight < body.height; ++tile)
                 picture(
                     *sides, 0, tile * imageHeight, width, imageHeight, layer.source, 0, false, false,
-                    ImageFitMode::Stretch
+                    ImageFitMode::Stretch, {}, ImageUse::ProfileFrame
                 );
             } else {
               const float y = layer.anchor == "bottom" ? body.height - imageHeight
                   : layer.anchor == "center"           ? (body.height - imageHeight) / 2
                                                        : 0;
-              picture(*sides, 0, y, width, imageHeight, layer.source, 0, false, false, ImageFitMode::Stretch);
+              picture(
+                  *sides, 0, y, width, imageHeight, layer.source, 0, false, false, ImageFitMode::Stretch, {},
+                  ImageUse::ProfileFrame
+              );
             }
           } else {
             const float y = layer.anchor == "bottom" ? height - imageHeight
                 : layer.anchor == "center"           ? (height - imageHeight) / 2
                                                      : 0;
-            picture(*art, 0, y, width, imageHeight, layer.source, 0, false, false, ImageFitMode::Stretch);
+            picture(
+                *art, 0, y, width, imageHeight, layer.source, 0, false, false, ImageFitMode::Stretch, {},
+                ImageUse::ProfileFrame
+            );
           }
         }
       }
@@ -196,7 +244,11 @@ namespace app {
       );
     };
     if (m_preferences.reducedMotion || !m_preferences.animateAvatars || (!m_demo && !m_window.active())) {
-      if (!effect.still.empty() && picture(*art, 0, 0, bounds.width, bounds.height, effect.still, 0, false))
+      if (!effect.still.empty()
+          && picture(
+              *art, 0, 0, bounds.width, bounds.height, effect.still, 0, false, false, ImageFitMode::Cover, {},
+              ImageUse::ProfileEffect
+          ))
         maskImage();
       return;
     }
@@ -223,7 +275,7 @@ namespace app {
           : bounds.height;
       if (picture(
               *art, layer.x * scale, layer.y * scale, bounds.width, height, layer.source, 0, false, false,
-              ImageFitMode::Stretch, sample.elapsed
+              ImageFitMode::Stretch, sample.elapsed, ImageUse::ProfileEffect
           ))
         maskImage();
     }

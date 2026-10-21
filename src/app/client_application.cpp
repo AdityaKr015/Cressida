@@ -3126,6 +3126,32 @@ namespace app {
     m_hits.push_back(std::move(hit));
   }
 
+  void ClientApplication::discardImage(const std::string& path) {
+    const auto at = m_images.find(path);
+    if (at == m_images.end())
+      return;
+    auto texture = at->second.texture;
+    m_images.erase(at);
+    if (!texture.valid())
+      return;
+    if (m_window.context().makeCurrent(m_window.target()))
+      m_window.context().textureManager().unload(texture);
+    else
+      m_retiredImages.push_back(texture);
+  }
+
+  void ClientApplication::discardImagesWithPrefix(std::string_view prefix) {
+    for (auto image = m_images.begin(); image != m_images.end();) {
+      if (!image->first.starts_with(prefix)) {
+        ++image;
+        continue;
+      }
+      const auto key = image->first;
+      ++image;
+      discardImage(key);
+    }
+  }
+
   bool ClientApplication::image(Node& parent, float x, float y, float size, const std::string& path, float radius) {
     auto asset = path;
     if (asset.find("/avatars/") != std::string::npos || asset.find("/icons/") != std::string::npos) {
@@ -3142,7 +3168,8 @@ namespace app {
 
   bool ClientApplication::picture(
       Node& parent, float x, float y, float width, float height, const std::string& path, float radius,
-      bool placeholder, bool videoPoster, ImageFitMode fit, std::optional<std::chrono::milliseconds> animationTime
+      bool placeholder, bool videoPoster, ImageFitMode fit, std::optional<std::chrono::milliseconds> animationTime,
+      ImageUse use
   ) {
     if (path.empty() || (m_demo && !m_images.contains(path)))
       return false;
@@ -3185,19 +3212,27 @@ namespace app {
         // A separate still URL keeps duplicate icons (for example in a folder)
         // independent of the shared animated texture, and avoids idle GIF loads.
         if (!play)
-          return picture(parent, x, y, width, height, stillIcon, radius, placeholder, videoPoster, fit);
+          return picture(
+              parent, x, y, width, height, stillIcon, radius, placeholder, videoPoster, fit, animationTime, use
+          );
       }
     }
     auto& cached = m_images[path];
+    cached.uses |= imageUseMask(use);
+    if (auto pending = m_pendingImages.find(path); pending != m_pendingImages.end())
+      pending->second |= cached.uses;
     cached.touched = ++m_imageSerial;
+    cached.visibleDraw = m_animationDraw;
     if (!cached.texture.valid()) {
       if (!m_demo
           && !m_pendingImages.contains(path)
           && std::chrono::steady_clock::now() >= cached.retry
           && m_assets.request(path, videoPoster))
-        m_pendingImages.insert(path);
+        m_pendingImages[path] = cached.uses;
       if (!stillIcon.empty())
-        return picture(parent, x, y, width, height, stillIcon, radius, placeholder, videoPoster, fit);
+        return picture(
+            parent, x, y, width, height, stillIcon, radius, placeholder, videoPoster, fit, animationTime, use
+        );
       if (placeholder) {
         const bool failed = cached.retry != std::chrono::steady_clock::time_point{} && !m_pendingImages.contains(path);
         rectangle(parent, x, y, width, height, lerpColor(background, muted, 0.13F), radius);
@@ -6381,24 +6416,30 @@ namespace app {
     TimerManager::instance().tick();
     drainWindowIcons();
     bool imagesChanged = false;
+    if (!m_retiredImages.empty() && m_window.context().makeCurrent(m_window.target())) {
+      for (auto& texture : m_retiredImages)
+        m_window.context().textureManager().unload(texture);
+      m_retiredImages.clear();
+    }
     for (auto& asset : m_assets.drain()) {
       m_desktopNotifications.avatarLoaded(asset.path, asset.bytes);
-      m_pendingImages.erase(asset.path);
+      const auto pending = m_pendingImages.extract(asset.path);
       auto& cached = m_images[asset.path];
+      cached.uses |= pending.empty() ? imageUseMask(ImageUse::Content) : pending.mapped();
       if (!asset.bytes.empty() && m_window.context().makeCurrent(m_window.target())) {
-        cached.animation = std::move(asset.animation);
-        cached.animationFrame = 0;
-        cached.animationStart = {};
+        auto animation = std::move(asset.animation);
         const bool mipmap = asset.path.starts_with("/media/v1/collectibles-shop/")
             && asset.path.ends_with("/static")
-            && (!cached.animation || cached.animation->frames.size() == 1);
-        const auto pixels =
-            cached.animation ? cached.animation->pixels(0, m_animationPixels) : std::span<const std::uint8_t>{};
-        cached.texture = !pixels.empty()
-            ? m_window.context().textureManager().loadFromRgba(
-                  pixels.data(), cached.animation->width, cached.animation->height, mipmap
-              )
-            : m_window.context().textureManager().loadFromEncodedBytes(asset.bytes.data(), asset.bytes.size(), mipmap);
+            && (!animation || animation->frames.size() == 1);
+        const auto pixels = animation ? animation->pixels(0, m_animationPixels) : std::span<const std::uint8_t>{};
+        auto& textures = m_window.context().textureManager();
+        auto next = !pixels.empty() ? textures.loadFromRgba(pixels.data(), animation->width, animation->height, mipmap)
+                                    : textures.loadFromEncodedBytes(asset.bytes.data(), asset.bytes.size(), mipmap);
+        if (replaceCachedImageTexture(cached, textures, next)) {
+          cached.animation = std::move(animation);
+          cached.animationFrame = 0;
+          cached.animationStart = {};
+        }
       }
       cached.bytes = std::move(asset.bytes);
       cached.retry = std::chrono::steady_clock::now() + std::chrono::seconds(60);
@@ -6413,41 +6454,17 @@ namespace app {
       }
       imagesChanged = true;
     }
-    std::size_t animationBytes = 0;
-    std::vector<std::pair<std::uint64_t, std::string>> animationAge;
-    for (const auto& [path, cached] : m_images)
-      if (cached.animation) {
-        animationBytes += cached.animation->byteSize();
-        animationAge.emplace_back(cached.touched, path);
-      }
-    std::ranges::sort(animationAge);
-    for (const auto& [_, path] : animationAge) {
-      if (animationBytes <= 192 * 1024 * 1024)
-        break;
-      animationBytes -= m_images[path].animation->byteSize();
-      m_images[path].animation.reset();
-    }
-    std::size_t encodedBytes = 0;
-    for (const auto& [_, cached] : m_images)
-      encodedBytes += cached.bytes.size();
-    if (encodedBytes > 64 * 1024 * 1024) {
-      std::vector<std::pair<std::uint64_t, std::string>> byAge;
-      for (const auto& [path, cached] : m_images)
-        if (!cached.bytes.empty())
-          byAge.emplace_back(cached.touched, path);
-      std::ranges::sort(byAge);
-      for (const auto& [_, path] : byAge) {
-        encodedBytes -= m_images[path].bytes.size();
-        m_images[path].bytes.clear();
-        if (encodedBytes <= 64 * 1024 * 1024)
-          break;
-      }
-    }
-    while (m_images.size() > 384) {
-      auto oldest = std::ranges::min_element(m_images, {}, [](const auto& item) { return item.second.touched; });
-      if (oldest->second.texture.valid() && m_window.context().makeCurrent(m_window.target()))
-        m_window.context().textureManager().unload(oldest->second.texture);
-      m_images.erase(oldest);
+    for (auto& [path, cached] : m_images)
+      cached.reloadable = !api::mediaUrl(path).empty() || path.starts_with("builtin:");
+    const auto usage = imageCacheUsage(m_images);
+    if (usage.animationBytes > imageAnimationBudget
+        || usage.encodedBytes > imageEncodedBudget
+        || usage.textureBytes > imageTextureBudget
+        || usage.entries > imageEntryBudget) {
+      auto* textures =
+          m_window.context().makeCurrent(m_window.target()) ? &m_window.context().textureManager() : nullptr;
+      const auto& original = m_imageActionSource.empty() ? m_viewImage : m_imageActionSource;
+      imagesChanged |= trimImageCache(m_images, textures, m_window.visible() ? m_animationDraw : 0, {}, original);
     }
     if (imagesChanged)
       m_window.invalidate();
@@ -6571,6 +6588,7 @@ namespace app {
           m_savingProfile = m_loadingProfile = false;
           m_desiredPresence.clear();
           m_preferences = m_sessionStore.preferences(m_account.id);
+          releaseDisabledCosmetics();
           m_sessionStore.saveAppearance(m_preferences);
           m_frequentReactions = m_sessionStore.frequentReactions(m_account.id);
           m_recentEmojis = m_sessionStore.frequentEmojis(m_account.id);

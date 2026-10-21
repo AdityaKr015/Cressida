@@ -36,19 +36,23 @@ namespace app {
         label = ":" + std::string(token.name) + ":";
         const auto path = api::emojiPath(id);
         auto& cached = m_images[path];
+        cached.uses |= imageUseMask(ImageUse::Content);
         cached.touched = ++m_imageSerial;
+        cached.visibleDraw = m_animationDraw;
         texture = cached.texture;
         if (!texture.valid())
           if (const auto animated = m_images.find(api::emojiPath(id, true)); animated != m_images.end()) {
             texture = animated->second.texture;
+            animated->second.uses |= imageUseMask(ImageUse::Content);
             animated->second.touched = ++m_imageSerial;
+            animated->second.visibleDraw = m_animationDraw;
           }
         if (!texture.valid()
             && !m_demo
             && !m_pendingImages.contains(path)
             && std::chrono::steady_clock::now() >= cached.retry
             && m_assets.request(path))
-          m_pendingImages.insert(path);
+          m_pendingImages[path] |= imageUseMask(ImageUse::Content);
         if (texture.valid())
           label = "\u2060\u2003\u2060";
       } else if (token.kind == ComposerToken::Channel) {

@@ -35,6 +35,13 @@ Right-click an enlarged image for **Copy Image**, **Save Image**, **Copy Media
 Link** and **Open Media Link**. Saving uses your desktop's file selection
 service where available. Opening a media link uses your external browser.
 
+## Memory use
+
+Cressida stores larger animation frames with lossless compression, preserving
+their resolution, colors and playback timing. Older media is released as the
+image caches fill. Revisiting it may download it again. Visible images and local
+upload previews stay available.
+
 ## Play video
 
 Received video attachments can play in the native player. Use its controls to

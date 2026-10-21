@@ -66,8 +66,11 @@ namespace app {
         stageServerEmojiUploads(std::move(result->files));
       else if (m_serverSettings.page == "guide" && result->raster) {
         const auto& raster = *result->raster;
-        m_images["server-guide-upload:" + m_serverSettings.guild + ":" + m_serverUploadField].texture =
-            m_window.context().textureManager().loadFromRgba(raster.pixels.data(), raster.width, raster.height);
+        replaceCachedImageTexture(
+            m_images["server-guide-upload:" + m_serverSettings.guild + ":" + m_serverUploadField],
+            m_window.context().textureManager(),
+            m_window.context().textureManager().loadFromRgba(raster.pixels.data(), raster.width, raster.height)
+        );
         serverSettingsUpload(m_serverUploadField, result->mime, std::move(result->bytes));
       } else if (
           result->raster

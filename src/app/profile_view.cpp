@@ -123,7 +123,8 @@ namespace app {
     // Clip the banner in its own rounded frame; the avatar remains outside it.
     picture(
         root, x + Style::borderWidth, y + Style::borderWidth, width - Style::spaceXxs, bannerHeight + Style::spaceMd,
-        m_preferences.showProfileBanners ? profile.banner : "", 14
+        m_preferences.showProfileBanners ? profile.banner : "", 14, false, false, ImageFitMode::Cover, {},
+        ImageUse::ProfileBanner
     );
     if (!m_preferences.showProfileBanners
         || profile.banner.empty()

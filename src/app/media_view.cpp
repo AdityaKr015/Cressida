@@ -160,10 +160,11 @@ namespace app {
         name = draft->upload.filename;
       } else {
         const auto source = link.empty() ? m_viewImage : link;
-        const auto found = m_images.find(source);
-        if (found == m_images.end() || found->second.bytes.empty()) {
+        auto& cached = m_images[source];
+        cached.uses |= imageUseMask(ImageUse::Content);
+        if (cached.bytes.empty()) {
           if (!m_demo && (m_pendingImages.contains(source) || m_assets.request(source))) {
-            m_pendingImages.insert(source);
+            m_pendingImages[source] |= imageUseMask(ImageUse::Content);
             m_imageActionSource = source;
             m_imageActionViewer = m_viewImage;
             m_pendingImageAction = action;
@@ -173,7 +174,7 @@ namespace app {
           m_window.invalidate();
           return;
         }
-        bytes = found->second.bytes;
+        bytes = cached.bytes;
         mime = imageMime(bytes);
         name = imageFilename(source, mime);
       }

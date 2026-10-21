@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -8,11 +9,12 @@
 #include <vector>
 
 namespace media {
+  inline constexpr std::size_t rawAnimationBudget = 4 * 1024 * 1024;
   struct Frame {
     std::vector<std::uint8_t> rgba;
     std::chrono::milliseconds duration{100};
     std::vector<std::uint8_t> packed;
-    // Lossless storage for loops whose raw canvases exceed the cache budget.
+    // Lossless storage for loops whose raw canvases exceed rawAnimationBudget.
     void pack();
     std::size_t byteSize() const;
   };

@@ -221,7 +221,10 @@ namespace app {
     };
     const auto bannerColor = profile.accent ? rgbHex(*profile.accent) : theme::accent;
     if (!m_preferences.showProfileBanners
-        || !picture(*body, 0, 0, frame.width, P::bannerHeight, profile.banner, 0, false))
+        || !picture(
+            *body, 0, 0, frame.width, P::bannerHeight, profile.banner, 0, false, false, ImageFitMode::Cover, {},
+            ImageUse::ProfileBanner
+        ))
       rectangle(*body, 0, 0, frame.width, P::bannerHeight, bannerColor);
     rectangle(
         *body, P::inset - P::gap / 2, P::avatarTop - P::gap / 2, P::avatarSize + P::gap, P::avatarSize + P::gap,

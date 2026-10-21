@@ -302,6 +302,7 @@ namespace media {
       const auto pixels = static_cast<std::size_t>(result->width) * result->height;
       if (pixels * 4 > maxStorage / frames)
         return {};
+      const bool packed = frames > rawAnimationBudget / (pixels * 4);
       std::vector<std::uint32_t> argb(pixels);
       result->frames.reserve(frames);
       for (std::size_t index = 0; index < frames; ++index) {
@@ -334,6 +335,8 @@ namespace media {
                    end = std::llround(std::min(double(index + 1), last - first) * 1000.0 / rate);
         frame.duration = std::chrono::milliseconds(std::max<std::int64_t>(1, end - start));
         result->duration += frame.duration;
+        if (packed)
+          frame.pack();
         result->frames.push_back(std::move(frame));
       }
       if (limits.cancelled() && result->frames.size() > 1) {

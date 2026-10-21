@@ -57,6 +57,10 @@ Each switch defaults on and is saved separately for your account. These are
 local display preferences; changing them does not change anyone's equipped
 cosmetics. Missing or unavailable artwork leaves the ordinary profile visible.
 
+Turning off a category releases its cached images and animations and cancels
+pending artwork loads. Images still used elsewhere stay available. Turning the
+category back on loads its artwork again as needed.
+
 Avatar decorations and nameplates animate while you hover over that user's row,
 message or profile. A profile popup's avatar decoration keeps animating while
 the popup is open, even when the pointer moves away. Other copies stay still.

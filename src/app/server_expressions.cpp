@@ -108,8 +108,10 @@ namespace app {
       );
       if (file.raster) {
         const auto& raster = *file.raster;
-        m_images["server-emoji-upload:" + id].texture =
-            m_window.context().textureManager().loadFromRgba(raster.pixels.data(), raster.width, raster.height);
+        replaceCachedImageTexture(
+            m_images["server-emoji-upload:" + id], m_window.context().textureManager(),
+            m_window.context().textureManager().loadFromRgba(raster.pixels.data(), raster.width, raster.height)
+        );
       }
     }
     state.creating = false;

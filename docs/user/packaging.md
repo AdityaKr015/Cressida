@@ -45,6 +45,11 @@ into a development package.
 
 ## Desktop runtime
 
+Image uploads and image copying or saving need the shared-mime-info database at
+runtime. If it is installed outside the usual system data directories, include
+its `share` directory in `XDG_DATA_DIRS`. The Nix package and development shell
+configure this automatically while preserving your existing data directories.
+
 Provide a Wayland compositor, EGL/GLES drivers, usable Fontconfig fonts
 including color emoji, CA certificates, session D-Bus and the shared-mime-info
 database. The default browser and `xdg-open` handle sign-in and external links.

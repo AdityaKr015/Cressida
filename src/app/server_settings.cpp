@@ -19,6 +19,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
+#include <utility>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace app {
@@ -474,7 +475,10 @@ namespace app {
     resetServerAudit();
     resetServerCommands();
     if (m_serverSettings.imageCrop)
-      m_images.erase(m_serverSettings.imageCrop->texture);
+      discardImage(m_serverSettings.imageCrop->texture);
+    discardImagesWithPrefix("server-emoji-upload:");
+    discardImagesWithPrefix("server-upload:");
+    discardImagesWithPrefix("server-guide-upload:");
     const auto serial = m_serverSettings.serial;
     const auto generation = m_serverSettings.generation + 1;
     m_serverSettings = {};
@@ -545,13 +549,15 @@ namespace app {
     state.open = false;
     state.pending.clear();
     if (state.imageCrop)
-      m_images.erase(state.imageCrop->texture);
+      discardImage(state.imageCrop->texture);
     state.imageCrop.reset();
     state.expressionDrafts.clear();
     state.emojiUploads.clear();
     state.emojiUploading.clear();
     state.emojiUploadSaving = false;
-    std::erase_if(m_images, [](const auto& image) { return image.first.starts_with("server-emoji-upload:"); });
+    discardImagesWithPrefix("server-emoji-upload:");
+    discardImagesWithPrefix("server-upload:");
+    discardImagesWithPrefix("server-guide-upload:");
     state.guideIconDrafts.clear();
     state.expressionSaving = false;
     state.draft.clear();
@@ -701,13 +707,15 @@ namespace app {
     state.record = Json::object();
     state.draft = Json::object();
     if (state.imageCrop)
-      m_images.erase(state.imageCrop->texture);
+      discardImage(state.imageCrop->texture);
     state.imageCrop.reset();
     state.expressionDrafts.clear();
     state.emojiUploads.clear();
     state.emojiUploading.clear();
     state.emojiUploadSaving = false;
-    std::erase_if(m_images, [](const auto& image) { return image.first.starts_with("server-emoji-upload:"); });
+    discardImagesWithPrefix("server-emoji-upload:");
+    discardImagesWithPrefix("server-upload:");
+    discardImagesWithPrefix("server-guide-upload:");
     state.guideIconDrafts.clear();
     state.expressionSaving = false;
     state.creating = false;
@@ -950,9 +958,11 @@ namespace app {
           const auto texture = "server-emoji-upload:" + state.emojiUploading;
           if (const auto at = m_images.find(texture); at != m_images.end()) {
             if (const auto image = api::guildExpressionAsset(Section::Emoji, record);
-                !image.empty() && !record.value("animated", false))
-              m_images[image].texture = at->second.texture;
-            m_images.erase(texture);
+                !image.empty() && !record.value("animated", false)) {
+              const auto next = std::exchange(at->second.texture, TextureHandle{});
+              replaceCachedImageTexture(m_images[image], m_window.context().textureManager(), next);
+            }
+            discardImage(texture);
           }
           state.emojiUploads.erase(found);
         }
@@ -1208,13 +1218,15 @@ namespace app {
     } else if (id == "discard") {
       state.draft.clear();
       if (state.imageCrop)
-        m_images.erase(state.imageCrop->texture);
+        discardImage(state.imageCrop->texture);
       state.imageCrop.reset();
       state.expressionDrafts.clear();
       state.emojiUploads.clear();
       state.emojiUploading.clear();
       state.emojiUploadSaving = false;
-      std::erase_if(m_images, [](const auto& image) { return image.first.starts_with("server-emoji-upload:"); });
+      discardImagesWithPrefix("server-emoji-upload:");
+      discardImagesWithPrefix("server-upload:");
+      discardImagesWithPrefix("server-guide-upload:");
       state.guideIconDrafts.clear();
       state.expressionSaving = false;
       state.confirmDiscard = false;
@@ -1241,13 +1253,15 @@ namespace app {
       m_filePicker.cancel();
       state.draft.clear();
       if (state.imageCrop)
-        m_images.erase(state.imageCrop->texture);
+        discardImage(state.imageCrop->texture);
       state.imageCrop.reset();
       state.expressionDrafts.clear();
       state.emojiUploads.clear();
       state.emojiUploading.clear();
       state.emojiUploadSaving = false;
-      std::erase_if(m_images, [](const auto& image) { return image.first.starts_with("server-emoji-upload:"); });
+      discardImagesWithPrefix("server-emoji-upload:");
+      discardImagesWithPrefix("server-upload:");
+      discardImagesWithPrefix("server-guide-upload:");
       state.guideIconDrafts.clear();
       state.expressionSaving = false;
       state.error.clear();
@@ -1267,7 +1281,7 @@ namespace app {
     else if (id.starts_with("emoji-upload-remove:")) {
       const auto key = id.substr(20);
       eraseJson(state.emojiUploads, [&](const auto& file) { return string(file, "id") == key; });
-      m_images.erase("server-emoji-upload:" + key);
+      discardImage("server-emoji-upload:" + key);
     } else if (id.starts_with("clear-upload:"))
       setServerSettingsValue(id.substr(13), nullptr);
     else if (id == "back") {

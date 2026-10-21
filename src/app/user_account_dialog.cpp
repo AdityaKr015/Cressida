@@ -249,9 +249,11 @@ namespace app {
       state.profileSaves.clear();
       m_profileDirty = false;
       if (state.crop) {
-        m_images.erase(state.crop->texture);
+        discardImage(state.crop->texture);
         state.crop.reset();
       }
+      discardImage("user-profile-upload:avatar");
+      discardImage("user-profile-upload:banner");
       closeUserAccountDialog();
       if (next == "close") {
         m_settingsOpen = false;
@@ -263,15 +265,18 @@ namespace app {
       state.profileSaves.clear();
       m_profileDirty = false;
       if (state.crop) {
-        m_images.erase(state.crop->texture);
+        discardImage(state.crop->texture);
         state.crop.reset();
       }
+      discardImage("user-profile-upload:avatar");
+      discardImage("user-profile-upload:banner");
     } else if (action.starts_with("upload-"))
       beginUserProfileUpload(action.substr(7));
     else if (action == "remove-avatar" || action == "remove-banner") {
       if (!userAccountProfileReady(state))
         return true;
       state.draft[action.substr(7)] = nullptr;
+      discardImage("user-profile-upload:" + action.substr(7));
       m_profileDirty = true;
     } else if (action.starts_with("crop-"))
       userProfileCropAction(action);

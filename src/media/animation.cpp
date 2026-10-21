@@ -70,7 +70,7 @@ namespace media {
       }
     };
     bool retainFrame(Animation& animation, Frame frame, std::size_t& resident, bool& packed) {
-      if (!packed && frame.byteSize() > maxBytes - resident) {
+      if (!packed && frame.byteSize() > rawAnimationBudget - resident) {
         packed = true;
         resident = 0;
         for (auto& previous : animation.frames) {

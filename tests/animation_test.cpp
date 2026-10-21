@@ -32,13 +32,22 @@ int main(int argc, char** argv) {
       const bool longClip = std::string_view(name).starts_with("detail-long.");
       require(animation->frames.size() == (longClip ? 120 : 6), "Retain every frame, including under memory pressure");
       require(animation->byteSize() <= 64 * 1024 * 1024, "Lossless frames stay inside the animation cache budget");
-      if (longClip) {
-        require(
-            std::ranges::any_of(animation->frames, [](const auto& frame) { return !frame.packed.empty(); }),
-            "The long portrait exercises compressed frame storage"
-        );
-        require(animation->duration == std::chrono::seconds(12), "Compression preserves the complete loop timing");
-      }
+      require(
+          std::ranges::all_of(
+              animation->frames, [](const auto& frame) { return frame.rgba.empty() && !frame.packed.empty(); }
+          ),
+          "Moderate and long portraits release raw canvases without waiting for the hard memory cap"
+      );
+      require(
+          animation->byteSize() < media::rawAnimationBudget,
+          "Lossless compression keeps the repetitive fixture below the raw storage threshold"
+      );
+      require(
+          animation->duration == std::chrono::milliseconds(longClip ? 12000 : 600)
+              && animation->frameAt(animation->duration) == 0
+              && animation->frameAt(animation->frames.front().duration) == 1,
+          "Early compression preserves every frame, loop timing and playback boundaries"
+      );
       std::vector<std::uint8_t> canvas;
       // Read in reverse order too: seeking/looping must not depend on prior frames.
       for (std::size_t index = animation->frames.size(); index-- > 0;) {
@@ -160,6 +169,21 @@ int main(int argc, char** argv) {
          {std::vector<std::uint8_t>{}, std::vector<std::uint8_t>(128, 0),
           std::vector<std::uint8_t>{'G', 'I', 'F', '8', '9', 'a', 0, 0, 0, 0, 0, 0}})
       require(!media::decodeAnimation(bytes), "Reject malformed/unsupported media safely");
+    media::Frame noise;
+    noise.rgba.resize(128 * 1024);
+    std::uint32_t state = 0x9e3779b9;
+    for (auto& pixel : noise.rgba) {
+      state ^= state << 13;
+      state ^= state >> 17;
+      state ^= state << 5;
+      pixel = static_cast<std::uint8_t>(state);
+    }
+    const auto originalNoise = noise.rgba;
+    noise.pack();
+    require(
+        noise.rgba == originalNoise && noise.packed.empty() && noise.byteSize() == originalNoise.size(),
+        "Incompressible frames retain their exact raw pixels without expanding the accounted storage"
+    );
     media::Animation empty;
     std::vector<std::uint8_t> canvas;
     require(empty.pixels(0, canvas).empty(), "Missing canvases never reach the texture uploader");

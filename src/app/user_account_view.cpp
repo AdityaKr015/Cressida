@@ -124,8 +124,8 @@ namespace app {
     if (state.uploadRequest)
       m_filePicker.cancel();
     if (state.crop)
-      m_images.erase(state.crop->texture);
-    std::erase_if(m_images, [](const auto& entry) { return entry.first.starts_with("user-profile-upload:"); });
+      discardImage(state.crop->texture);
+    discardImagesWithPrefix("user-profile-upload:");
     state = {};
     state.serial = serial;
     state.generation = generation;

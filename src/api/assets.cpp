@@ -11,6 +11,7 @@
 
 namespace api {
   namespace {
+    constexpr std::size_t maximumPendingBytes = 128 * 1024 * 1024;
     struct Download {
       std::vector<unsigned char> bytes;
       std::stop_token stop;
@@ -18,7 +19,7 @@ namespace api {
     size_t receive(char* bytes, size_t size, size_t count, void* context) noexcept {
       auto& download = *static_cast<Download*>(context);
       const auto length = size * count;
-      if (length > maxUploadBytes - download.bytes.size())
+      if (download.stop.stop_requested() || length > maxUploadBytes - download.bytes.size())
         return 0;
       try {
         download.bytes.insert(download.bytes.end(), bytes, bytes + length);
@@ -30,14 +31,52 @@ namespace api {
     int progress(void* context, curl_off_t, curl_off_t, curl_off_t, curl_off_t) noexcept {
       return static_cast<Download*>(context)->stop.stop_requested();
     }
+    Asset load(CURL* curl, const std::string& path, bool videoPoster, std::stop_token stop) {
+      Download data{{}, stop};
+      if (curl && !stop.stop_requested()) {
+        curl_easy_reset(curl);
+        const std::string url = mediaUrl(path);
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 3000L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 8000L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, receive);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &data);
+        const auto status = curl_easy_perform(curl);
+        network_profile::transferred("asset", curl, status);
+        long code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        if (status != CURLE_OK || code != 200)
+          std::vector<unsigned char>{}.swap(data.bytes);
+      }
+      auto animation =
+          videoPoster ? media::decodeVideoPoster(data.bytes, stop) : media::decodeAnimation(data.bytes, stop);
+      return {path, std::move(data.bytes), std::move(animation)};
+    }
   } // namespace
-  Assets::Assets() {
+  Assets::Assets() : Assets(Loader{}) {}
+  Assets::Assets(Loader loader) : m_loader(std::move(loader)) {
     for (int i = 0; i < 2; ++i)
       m_workers.emplace_back([this](std::stop_token stop) { run(stop); });
   }
   Assets::~Assets() {
     for (auto& worker : m_workers)
       worker.request_stop();
+    std::vector<std::shared_ptr<std::stop_source>> pending;
+    {
+      std::lock_guard lock(m_mutex);
+      for (const auto& [_, cancellation] : m_pending)
+        pending.push_back(cancellation);
+    }
+    for (const auto& cancellation : pending)
+      cancellation->request_stop();
     m_ready.notify_all();
     m_workers.clear();
   }
@@ -49,7 +88,8 @@ namespace api {
       return true;
     if (m_queue.size() >= 128 || m_results.size() >= 128)
       return false;
-    m_pending.insert(path);
+    auto cancellation = std::make_shared<std::stop_source>();
+    m_pending.emplace(path, cancellation);
     auto priority = [](const std::string& resource) {
       return resource.contains("/avatars/") ? 3
           : resource.contains("/emojis/")   ? 2
@@ -58,10 +98,24 @@ namespace api {
     };
     m_queue.insert(
         std::ranges::find_if(m_queue, [&](const auto& pending) { return priority(pending.path) < priority(path); }),
-        {path, videoPoster}
+        {path, videoPoster, std::move(cancellation)}
     );
     m_ready.notify_one();
     return true;
+  }
+  void Assets::cancel(const std::string& path) {
+    std::shared_ptr<std::stop_source> cancellation;
+    {
+      std::lock_guard lock(m_mutex);
+      if (const auto pending = m_pending.find(path); pending != m_pending.end()) {
+        cancellation = std::move(pending->second);
+        m_pending.erase(pending);
+      }
+      std::erase_if(m_queue, [&](const auto& request) { return request.path == path; });
+      std::erase_if(m_results, [&](const auto& result) { return result.path == path; });
+    }
+    if (cancellation)
+      cancellation->request_stop();
   }
   std::vector<Asset> Assets::drain() {
     m_wake.drain();
@@ -71,60 +125,43 @@ namespace api {
     return std::exchange(m_results, {});
   }
   void Assets::run(std::stop_token stop) {
-    std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
+    std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(m_loader ? nullptr : curl_easy_init(), curl_easy_cleanup);
     while (!stop.stop_requested()) {
-      std::string path;
-      bool videoPoster = false;
+      Request request;
       {
         std::unique_lock lock(m_mutex);
         if (!m_ready.wait(lock, stop, [&] { return !m_queue.empty(); }))
           return;
-        path = std::move(m_queue.front().path);
-        videoPoster = m_queue.front().videoPoster;
+        request = std::move(m_queue.front());
         m_queue.pop_front();
       }
-      Download data{{}, stop};
-      if (curl) {
-        curl_easy_reset(curl.get());
-        const std::string url = mediaUrl(path);
-        curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl.get(), CURLOPT_PROTOCOLS_STR, "https");
-        curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 0L);
-        curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYHOST, 2L);
-        curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 3000L);
-        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 8000L);
-        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, receive);
-        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &data);
-        curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &data);
-        const auto status = curl_easy_perform(curl.get());
-        network_profile::transferred("asset", curl.get(), status);
-        long code = 0;
-        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &code);
-        if (status != CURLE_OK || code != 200)
-          data.bytes.clear();
-      }
-      auto animation =
-          videoPoster ? media::decodeVideoPoster(data.bytes, stop) : media::decodeAnimation(data.bytes, stop);
-      if (!stop.stop_requested()) {
-        std::lock_guard lock(m_mutex);
-        std::size_t resident = 0;
-        for (const auto& result : m_results)
-          resident += result.bytes.size() + (result.animation ? result.animation->byteSize() : 0);
-        if (resident + data.bytes.size() > 128 * 1024 * 1024)
-          data.bytes.clear();
-        if (data.bytes.empty()
-            || resident + data.bytes.size() + (animation ? animation->byteSize() : 0) > 128 * 1024 * 1024)
-          animation.reset();
-        if (m_results.size() < 128)
-          m_results.push_back({std::move(path), std::move(data.bytes), std::move(animation)});
-        else
-          m_pending.erase(path);
-        (void)m_wake.signal();
-      }
+      std::stop_callback workerStopped(stop, [&] { request.cancellation->request_stop(); });
+      const auto requestStop = request.cancellation->get_token();
+      if (requestStop.stop_requested())
+        continue;
+      auto result = m_loader ? m_loader(request.path, request.videoPoster, requestStop)
+                             : load(curl.get(), request.path, request.videoPoster, requestStop);
+      if (requestStop.stop_requested())
+        continue;
+      result.path = request.path;
+      std::lock_guard lock(m_mutex);
+      const auto pending = m_pending.find(request.path);
+      if (requestStop.stop_requested() || pending == m_pending.end() || pending->second != request.cancellation)
+        continue;
+      std::size_t resident = 0;
+      for (const auto& completed : m_results)
+        resident += completed.bytes.capacity() + (completed.animation ? completed.animation->byteSize() : 0);
+      if (resident + result.bytes.capacity() > maximumPendingBytes)
+        std::vector<unsigned char>{}.swap(result.bytes);
+      if (result.bytes.empty()
+          || resident + result.bytes.capacity() + (result.animation ? result.animation->byteSize() : 0)
+              > maximumPendingBytes)
+        result.animation.reset();
+      if (m_results.size() < 128)
+        m_results.push_back(std::move(result));
+      else
+        m_pending.erase(pending);
+      (void)m_wake.signal();
     }
   }
 } // namespace api

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 class TextureId {
@@ -26,6 +27,7 @@ struct TextureHandle {
   int sourceWidth = 0;
   int sourceHeight = 0;
   std::uint64_t generation = 0;
+  std::size_t allocationBytes = 0;
 
   [[nodiscard]] constexpr bool valid() const noexcept { return id.valid(); }
 };

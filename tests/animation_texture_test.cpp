@@ -10,6 +10,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 namespace {
   struct Graphics {
@@ -49,6 +50,81 @@ namespace {
     if (!value)
       throw std::runtime_error(message);
   }
+  void testTextureAccounting() {
+    GlesTextureManager textures;
+    textures.probeExtensions();
+    const bool originalMipmaps = TextureManager::globalMipmapsEnabled();
+    TextureManager::setGlobalMipmapsEnabled(true);
+    std::array<std::uint8_t, 8 * 4 * 4> pixels{};
+    const std::array<std::pair<TextureDataFormat, std::size_t>, 3> formats{
+        {{TextureDataFormat::Alpha, 1}, {TextureDataFormat::LuminanceAlpha, 2}, {TextureDataFormat::Rgba, 4}}
+    };
+    for (const auto& [format, channels] : formats) {
+      auto plain = textures.loadFromPixels(pixels.data(), 8, 4, format);
+      require(plain.valid() && plain.allocationBytes == 32 * channels, "Count base storage for every pixel format");
+      auto mipmapped = textures.loadFromPixels(pixels.data(), 8, 4, format, TextureFilter::Linear, true);
+      require(
+          mipmapped.valid() && mipmapped.allocationBytes == 43 * channels,
+          "Count every mip level of a rectangular texture through its final one-pixel image"
+      );
+      auto empty = textures.createEmpty(4, 2, format);
+      require(empty.valid() && empty.allocationBytes == 8 * channels, "Count render target storage without pixels");
+      const GLuint plainId = plain.id.value(), mipmappedId = mipmapped.id.value(), emptyId = empty.id.value();
+      textures.unload(plain);
+      textures.unload(mipmapped);
+      textures.unload(empty);
+      require(
+          !plain.valid()
+              && plain.allocationBytes == 0
+              && !mipmapped.valid()
+              && mipmapped.allocationBytes == 0
+              && !empty.valid()
+              && empty.allocationBytes == 0
+              && !glIsTexture(plainId)
+              && !glIsTexture(mipmappedId)
+              && !glIsTexture(emptyId),
+          "Unload deletes native textures and clears their accounted storage"
+      );
+    }
+    auto bgra = textures.loadFromRaw(pixels.data(), pixels.size(), 8, 4, 8 * 4, PixmapFormat::BGRA, true);
+    require(bgra.valid() && bgra.allocationBytes == 43 * 4, "BGRA uploads account for every mip level");
+    textures.unload(bgra);
+    TextureManager::setGlobalMipmapsEnabled(false);
+    auto replacement = textures.loadFromRgba(pixels.data(), 8, 4, true);
+    require(
+        replacement.valid() && replacement.allocationBytes == pixels.size(),
+        "Globally disabled mipmaps do not count unallocated levels"
+    );
+    const auto originalId = replacement.id;
+    require(
+        !textures.replace(replacement, nullptr, 4, 2, TextureDataFormat::LuminanceAlpha)
+            && replacement.id == originalId
+            && replacement.allocationBytes == pixels.size()
+            && glIsTexture(originalId.value()),
+        "An unsuccessful replacement retains the original allocation and texture"
+    );
+    require(
+        textures.replace(replacement, pixels.data(), 4, 2, TextureDataFormat::LuminanceAlpha)
+            && replacement.allocationBytes == 4 * 2 * 2
+            && replacement.id != originalId
+            && !glIsTexture(originalId.value())
+            && glIsTexture(replacement.id.value()),
+        "A successful replacement deletes the old object and accounts for the new format"
+    );
+    const GLuint replacementId = replacement.id.value();
+    textures.unload(replacement);
+    require(
+        !replacement.valid() && replacement.allocationBytes == 0 && !glIsTexture(replacementId),
+        "Unloading a replacement frees its native object and resets its allocation"
+    );
+    require(
+        textures.loadFromRgba(nullptr, 8, 4).allocationBytes == 0
+            && textures.createEmpty(0, 4, TextureDataFormat::Rgba).allocationBytes == 0,
+        "Failed allocations report no resident texture storage"
+    );
+    require(glGetError() == GL_NO_ERROR, "Texture accounting and lifecycle checks leave no graphics errors");
+    TextureManager::setGlobalMipmapsEnabled(originalMipmaps);
+  }
 } // namespace
 
 int main() {
@@ -58,6 +134,7 @@ int main() {
     return 77;
   }
   try {
+    testTextureAccounting();
     media::Animation animation;
     animation.width = 337;
     animation.height = 600;
