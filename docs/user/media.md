@@ -42,6 +42,9 @@ their resolution, colors and playback timing. Older media is released as the
 image caches fill. Revisiting it may download it again. Visible images and local
 upload previews stay available.
 
+If many images load at once, some may appear a little later to keep memory use
+bounded. Their animation data stays intact while they wait.
+
 ## Play video
 
 Received video attachments can play in the native player. Use its controls to

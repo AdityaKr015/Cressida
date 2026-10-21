@@ -9,10 +9,15 @@
 #include <poll.h>
 #include <stdexcept>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace {
   constexpr auto timeout = std::chrono::seconds(5);
+  constexpr auto unpublishedWindow = std::chrono::milliseconds(50);
+  constexpr std::size_t mebibyte = 1024 * 1024;
+  constexpr std::size_t pendingByteLimit = 128 * mebibyte;
+  constexpr std::size_t pendingResultLimit = 128;
 
   void require(bool condition, const char* message) {
     if (!condition)
@@ -32,7 +37,10 @@ namespace {
 
   class LoaderFixture {
   public:
-    explicit LoaderFixture(bool ignoreCancellation = false) : m_ignoreCancellation(ignoreCancellation) {}
+    explicit LoaderFixture(
+        bool ignoreCancellation = false, std::size_t encodedBytes = 1, std::size_t animationBytes = 64
+    )
+        : m_ignoreCancellation(ignoreCancellation), m_encodedBytes(encodedBytes), m_animationBytes(animationBytes) {}
 
     api::Asset load(const std::string& path, bool videoPoster, std::stop_token stop) {
       auto call = std::make_shared<Call>();
@@ -52,9 +60,12 @@ namespace {
       });
       auto animation = std::make_shared<media::Animation>();
       animation->frames.resize(2);
-      animation->frames.front().rgba.resize(64);
+      animation->frames.front().rgba.resize(m_animationBytes / 2);
+      animation->frames.back().rgba.resize(m_animationBytes - m_animationBytes / 2);
       call->animation = animation;
-      return {path, {call->value}, std::move(animation)};
+      std::vector<unsigned char> bytes(m_encodedBytes, call->value);
+      m_ready.notify_all();
+      return {path, std::move(bytes), std::move(animation)};
     }
 
     std::shared_ptr<Call> wait(const std::string& path, std::size_t occurrence = 1) {
@@ -68,6 +79,22 @@ namespace {
       };
       require(m_ready.wait_for(lock, timeout, [&] { return bool(find()); }), "The requested worker call starts");
       return find();
+    }
+
+    void waitPrepared(const std::shared_ptr<Call>& call) {
+      std::unique_lock lock(m_mutex);
+      require(
+          m_ready.wait_for(lock, timeout, [&] { return !call->animation.expired(); }),
+          "The loader prepares its complete decoded result"
+      );
+    }
+
+    void waitTotal(std::size_t count) {
+      std::unique_lock lock(m_mutex);
+      require(
+          m_ready.wait_for(lock, timeout, [&] { return m_calls.size() >= count; }),
+          "The workers reach the expected number of loaded requests"
+      );
     }
 
     std::size_t count(const std::string& path) {
@@ -86,6 +113,12 @@ namespace {
       m_ready.notify_all();
     }
 
+    void payload(std::size_t encodedBytes, std::size_t animationBytes) {
+      std::lock_guard lock(m_mutex);
+      m_encodedBytes = encodedBytes;
+      m_animationBytes = animationBytes;
+    }
+
     void releaseAll() {
       std::lock_guard lock(m_mutex);
       m_releaseAll = true;
@@ -97,6 +130,7 @@ namespace {
     std::condition_variable m_ready;
     std::vector<std::shared_ptr<Call>> m_calls;
     bool m_ignoreCancellation = false, m_releaseAll = false;
+    std::size_t m_encodedBytes = 1, m_animationBytes = 64;
   };
 
   struct ReleaseOnExit {
@@ -109,6 +143,185 @@ namespace {
     require(
         poll(&ready, 1, std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count()) == 1,
         "A worker publishes its completed result"
+    );
+  }
+
+  void consumeSignal(api::Assets& assets) {
+    waitResult(assets);
+    unsigned char signal = 0;
+    require(
+        read(assets.eventFd(), &signal, sizeof(signal)) == sizeof(signal),
+        "Consume a completion signal without draining its queued result"
+    );
+  }
+
+  bool hasSignal(api::Assets& assets) {
+    pollfd ready{assets.eventFd(), POLLIN, 0};
+    return poll(&ready, 1, unpublishedWindow.count()) == 1;
+  }
+
+  std::size_t resultBytes(const std::vector<api::Asset>& results) {
+    std::size_t bytes = 0;
+    for (const auto& result : results)
+      bytes += result.bytes.capacity() + (result.animation ? result.animation->byteSize() : 0);
+    return bytes;
+  }
+
+  std::shared_ptr<Call> complete(api::Assets& assets, LoaderFixture& fixture, const std::string& resource) {
+    require(assets.request(resource), "Request a queue pressure fixture");
+    const auto call = fixture.wait(resource);
+    fixture.release(call);
+    consumeSignal(assets);
+    return call;
+  }
+
+  void testBytePressurePreservesAnimation() {
+    LoaderFixture fixture(false, 2 * mebibyte, 63 * mebibyte);
+    api::Assets assets([&](const auto& path, bool poster, auto stop) { return fixture.load(path, poster, stop); });
+    ReleaseOnExit release{fixture};
+    complete(assets, fixture, path(1));
+    require(assets.request(path(2)), "Load a second animation while the first result occupies the queue");
+    const auto waiting = fixture.wait(path(2));
+    fixture.release(waiting);
+    fixture.waitPrepared(waiting);
+    require(
+        !hasSignal(assets) && fixture.animationAlive(waiting),
+        "A complete animation waits for byte capacity instead of publishing an encoded-only still image"
+    );
+    auto results = assets.drain();
+    require(
+        results.size() == 1 && resultBytes(results) <= pendingByteLimit,
+        "Queued results remain within the byte limit while a worker waits"
+    );
+    consumeSignal(assets);
+    results = assets.drain();
+    require(
+        results.size() == 1
+            && results.front().animation
+            && results.front().animation->frames.size() == 2
+            && resultBytes(results) <= pendingByteLimit,
+        "Draining room publishes the waiting animation with all frames intact"
+    );
+  }
+
+  void testCancelWaitingResultAndReenable() {
+    LoaderFixture fixture(false, 2 * mebibyte, 63 * mebibyte);
+    api::Assets assets([&](const auto& path, bool poster, auto stop) { return fixture.load(path, poster, stop); });
+    ReleaseOnExit release{fixture};
+    complete(assets, fixture, path(1));
+    require(assets.request(path(2)), "Create a decoded result waiting on byte capacity");
+    const auto old = fixture.wait(path(2));
+    fixture.release(old);
+    fixture.waitPrepared(old);
+    require(!hasSignal(assets), "The second result is held by backpressure");
+    require(assets.request(path(3)), "Occupy the other worker with a separate loader barrier");
+    fixture.wait(path(3));
+    assets.cancel(path(2));
+    require(old->stop.stop_requested() && assets.request(path(2)), "Cancel a capacity wait and reenable immediately");
+    const auto replacement = fixture.wait(path(2), 2);
+    require(
+        !fixture.animationAlive(old) && !replacement->stop.stop_requested(),
+        "Cancel wakes the blocked producer, releases old frames and starts a fresh same-path generation"
+    );
+    assets.cancel(path(1));
+    fixture.release(replacement);
+    consumeSignal(assets);
+    const auto results = assets.drain();
+    require(
+        results.size() == 1
+            && results.front().path == path(2)
+            && results.front().animation
+            && results.front().animation->frames.size() == 2,
+        "Canceling a completed result frees capacity for the healthy replacement animation"
+    );
+  }
+
+  void testShutdownWhileWaitingForBytes() {
+    LoaderFixture fixture(false, 2 * mebibyte, 63 * mebibyte);
+    std::shared_ptr<Call> first, waiting;
+    {
+      api::Assets assets([&](const auto& path, bool poster, auto stop) { return fixture.load(path, poster, stop); });
+      ReleaseOnExit release{fixture};
+      first = complete(assets, fixture, path(1));
+      require(assets.request(path(2)), "Start the shutdown byte-pressure fixture");
+      waiting = fixture.wait(path(2));
+      fixture.release(waiting);
+      fixture.waitPrepared(waiting);
+      require(!hasSignal(assets), "The shutdown fixture has a producer blocked on byte capacity");
+    }
+    require(
+        waiting->stop.stop_requested() && !fixture.animationAlive(first) && !fixture.animationAlive(waiting),
+        "Shutdown interrupts a capacity wait and releases completed and waiting decoded storage"
+    );
+  }
+
+  void fillResultCapacity(api::Assets& assets, LoaderFixture& fixture) {
+    require(assets.request(path(1)) && assets.request(path(2)), "Occupy both workers before filling result capacity");
+    fixture.wait(path(1));
+    fixture.wait(path(2));
+    for (std::size_t index = 0; index < pendingResultLimit; ++index)
+      require(assets.request(path(1000 + index)), "Queue work for the bounded completed-result fixture");
+    fixture.releaseAll();
+    fixture.waitTotal(pendingResultLimit + 2);
+    for (std::size_t index = 0; index < pendingResultLimit; ++index)
+      consumeSignal(assets);
+    require(!hasSignal(assets), "Result count backpressure holds both remaining workers without overfilling");
+  }
+
+  void testResultCountPressure() {
+    LoaderFixture fixture;
+    api::Assets assets([&](const auto& path, bool poster, auto stop) { return fixture.load(path, poster, stop); });
+    ReleaseOnExit release{fixture};
+    fillResultCapacity(assets, fixture);
+    require(!assets.request(path(5000)), "A full completed-result queue retains its existing admission limit");
+    auto results = assets.drain();
+    require(
+        results.size() == pendingResultLimit && resultBytes(results) < pendingByteLimit,
+        "The result count limit applies independently of the byte budget"
+    );
+    consumeSignal(assets);
+    consumeSignal(assets);
+    results = assets.drain();
+    require(
+        results.size() == 2 && results.front().animation && results.back().animation,
+        "Both count-blocked producers publish complete animations after drain releases slots"
+    );
+  }
+
+  void testShutdownWhileBothProducersWait() {
+    LoaderFixture fixture;
+    std::shared_ptr<Call> last;
+    {
+      api::Assets assets([&](const auto& path, bool poster, auto stop) { return fixture.load(path, poster, stop); });
+      ReleaseOnExit release{fixture};
+      fillResultCapacity(assets, fixture);
+      last = fixture.wait(path(1000 + pendingResultLimit - 1));
+    }
+    require(
+        last->stop.stop_requested() && !fixture.animationAlive(last),
+        "Shutdown cancels and joins both workers even when neither can publish into the full result queue"
+    );
+  }
+
+  void testOversizedResultFailsWithoutBlocking() {
+    LoaderFixture fixture(false, pendingByteLimit + 1, 64);
+    api::Assets assets([&](const auto& path, bool poster, auto stop) { return fixture.load(path, poster, stop); });
+    ReleaseOnExit release{fixture};
+    const auto oversized = complete(assets, fixture, path(1));
+    const auto results = assets.drain();
+    require(
+        results.size() == 1
+            && results.front().bytes.capacity() == 0
+            && !results.front().animation
+            && !fixture.animationAlive(oversized),
+        "A single impossible-to-admit custom result returns a bounded failure without partial success or deadlock"
+    );
+    fixture.payload(1, 64);
+    complete(assets, fixture, path(2));
+    const auto healthy = assets.drain();
+    require(
+        healthy.size() == 1 && healthy.front().animation && healthy.front().animation->frames.size() == 2,
+        "An oversized failure leaves workers and capacity usable for the next healthy animation"
     );
   }
 
@@ -246,6 +459,12 @@ int main() {
     testInFlightGenerationRace();
     testQueueLimits();
     testShutdownCancellation();
+    testBytePressurePreservesAnimation();
+    testCancelWaitingResultAndReenable();
+    testShutdownWhileWaitingForBytes();
+    testResultCountPressure();
+    testShutdownWhileBothProducersWait();
+    testOversizedResultFailsWithoutBlocking();
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';
     return 1;

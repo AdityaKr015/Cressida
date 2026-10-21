@@ -6,6 +6,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <stop_token>
 #include <string>
@@ -34,7 +35,7 @@ namespace api {
     void run(std::stop_token stop);
     process::WakeEvent m_wake;
     std::mutex m_mutex;
-    std::condition_variable_any m_ready;
+    std::condition_variable_any m_ready, m_capacity;
     struct Request {
       std::string path;
       bool videoPoster = false;

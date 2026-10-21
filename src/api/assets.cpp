@@ -12,6 +12,7 @@
 namespace api {
   namespace {
     constexpr std::size_t maximumPendingBytes = 128 * 1024 * 1024;
+    constexpr std::size_t maximumPendingResults = 128;
     struct Download {
       std::vector<unsigned char> bytes;
       std::stop_token stop;
@@ -78,6 +79,7 @@ namespace api {
     for (const auto& cancellation : pending)
       cancellation->request_stop();
     m_ready.notify_all();
+    m_capacity.notify_all();
     m_workers.clear();
   }
   bool Assets::request(const std::string& path, bool videoPoster) {
@@ -86,7 +88,7 @@ namespace api {
     std::lock_guard lock(m_mutex);
     if (m_pending.contains(path))
       return true;
-    if (m_queue.size() >= 128 || m_results.size() >= 128)
+    if (m_queue.size() >= maximumPendingResults || m_results.size() >= maximumPendingResults)
       return false;
     auto cancellation = std::make_shared<std::stop_source>();
     m_pending.emplace(path, cancellation);
@@ -116,13 +118,19 @@ namespace api {
     }
     if (cancellation)
       cancellation->request_stop();
+    m_capacity.notify_all();
   }
   std::vector<Asset> Assets::drain() {
     m_wake.drain();
-    std::lock_guard lock(m_mutex);
-    for (const auto& result : m_results)
-      m_pending.erase(result.path);
-    return std::exchange(m_results, {});
+    std::vector<Asset> results;
+    {
+      std::lock_guard lock(m_mutex);
+      for (const auto& result : m_results)
+        m_pending.erase(result.path);
+      results = std::exchange(m_results, {});
+    }
+    m_capacity.notify_all();
+    return results;
   }
   void Assets::run(std::stop_token stop) {
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(m_loader ? nullptr : curl_easy_init(), curl_easy_cleanup);
@@ -144,23 +152,36 @@ namespace api {
       if (requestStop.stop_requested())
         continue;
       result.path = request.path;
-      std::lock_guard lock(m_mutex);
-      const auto pending = m_pending.find(request.path);
-      if (requestStop.stop_requested() || pending == m_pending.end() || pending->second != request.cancellation)
-        continue;
-      std::size_t resident = 0;
-      for (const auto& completed : m_results)
-        resident += completed.bytes.capacity() + (completed.animation ? completed.animation->byteSize() : 0);
-      if (resident + result.bytes.capacity() > maximumPendingBytes)
+      const auto animationBytes = result.animation ? result.animation->byteSize() : 0;
+      if (result.bytes.capacity() > maximumPendingBytes
+          || animationBytes > maximumPendingBytes - result.bytes.capacity()) {
         std::vector<unsigned char>{}.swap(result.bytes);
-      if (result.bytes.empty()
-          || resident + result.bytes.capacity() + (result.animation ? result.animation->byteSize() : 0)
-              > maximumPendingBytes)
         result.animation.reset();
-      if (m_results.size() < 128)
-        m_results.push_back(std::move(result));
-      else
-        m_pending.erase(pending);
+      } else if (result.bytes.empty()) {
+        result.animation.reset();
+      }
+      const auto resultBytes = result.bytes.capacity() + (result.animation ? result.animation->byteSize() : 0);
+      std::unique_lock lock(m_mutex);
+      const auto current = [&] {
+        const auto pending = m_pending.find(request.path);
+        return pending != m_pending.end() && pending->second == request.cancellation;
+      };
+      const auto room = [&] {
+        if (!current())
+          return true;
+        if (m_results.size() >= maximumPendingResults)
+          return false;
+        std::size_t resident = 0;
+        for (const auto& completed : m_results)
+          resident += completed.bytes.capacity() + (completed.animation ? completed.animation->byteSize() : 0);
+        return resultBytes <= maximumPendingBytes - resident;
+      };
+      // Keep the complete decoded result on its bounded worker until the event
+      // loop drains room. Publishing only its encoded bytes would cache a still
+      // image permanently in place of an animation.
+      if (!m_capacity.wait(lock, requestStop, room) || requestStop.stop_requested() || !current())
+        continue;
+      m_results.push_back(std::move(result));
       (void)m_wake.signal();
     }
   }
