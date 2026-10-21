@@ -163,7 +163,11 @@ namespace app {
   void ClientApplication::windowFocusChanged(bool focused) {
     if (!focused)
       finishRailDrag(true);
-    if (!focused
+    if (focused)
+      focusChatComposer();
+  }
+  void ClientApplication::focusChatComposer() {
+    if (m_railDrag
         || !m_connected
         || m_channelId.empty()
         || settingsVisible()
@@ -278,6 +282,35 @@ namespace app {
       require(m_drafts.at(m_channelId) == "Reply drafta", "Typing works immediately after window activation");
       onKey({XKB_KEY_z, {}, true});
       require(m_drafts.at(m_channelId) == "Reply draft", "Activation preserves native composer undo");
+      m_controlInput.setFocus(nullptr);
+      for (const std::uint32_t symbol :
+           {XKB_KEY_Control_L, XKB_KEY_Shift_L, XKB_KEY_Alt_L, XKB_KEY_Super_L, XKB_KEY_Caps_Lock,
+            XKB_KEY_ISO_Level3_Shift}) {
+        onKey({symbol});
+        require(!m_controlInput.focusedArea(), "Modifier presses do not steal focus before their chord arrives");
+      }
+      onKey({XKB_KEY_x, "x", false, false, true});
+      onKey({XKB_KEY_x, "x", false, false, false, true});
+      require(!m_controlInput.focusedArea(), "Alt and Super chords do not focus the composer");
+      onKey({XKB_KEY_c, {}, true});
+      require(!m_controlInput.focusedArea(), "Copying chat text does not focus the composer");
+      onKey({XKB_KEY_Escape});
+      require(!m_controlInput.focusedArea(), "Escape without a reply does not focus the composer");
+      onKey({XKB_KEY_exclam, "!", false, true});
+      focusedComposer();
+      require(m_drafts.at(m_channelId) == "Reply draft!", "Typing focuses the composer and retains the first key");
+      onKey({XKB_KEY_z, {}, true});
+      require(m_drafts.at(m_channelId) == "Reply draft", "Typing to focus preserves native undo");
+      m_controlInput.setFocus(nullptr);
+      onKey({XKB_KEY_BackSpace});
+      focusedComposer();
+      require(m_drafts.at(m_channelId) == "Reply draf", "Editing keys focus the composer and edit the draft");
+      onKey({XKB_KEY_z, {}, true});
+      m_controlInput.setFocus(nullptr);
+      onKey({XKB_KEY_eacute, "é"});
+      focusedComposer();
+      require(m_drafts.at(m_channelId) == "Reply drafté", "Typing to focus preserves Unicode input");
+      onKey({XKB_KEY_z, {}, true});
     } else if (step == 3) {
       openSettings();
     } else if (step == 4) {
@@ -285,12 +318,29 @@ namespace app {
       const auto* area = m_controlInput.focusedArea();
       m_window.focusChanged(true);
       require(area && m_controlInput.focusedArea() == area, "Activation preserves an active settings input");
+      onKey({XKB_KEY_x, "x"});
+      require(
+          m_controlInput.focusedArea() == area && m_drafts.at(m_channelId) == "Reply draft",
+          "Typing in settings preserves the active field and chat draft"
+      );
+      m_controlInput.setFocus(nullptr);
+      onKey({XKB_KEY_x, "x"});
+      require(
+          !m_controlInput.focusedArea() && m_drafts.at(m_channelId) == "Reply draft",
+          "Typing over unfocused settings never selects the hidden composer"
+      );
       activate({.action = Action::CloseSettings});
     } else if (step == 5) {
       reply();
       activate({.action = Action::ToggleEmoji});
     } else if (step == 6) {
       require(m_emojiMenu && m_replies.contains(m_channelId), "The picker covers an existing reply");
+      m_controlInput.setFocus(nullptr);
+      onKey({XKB_KEY_x, "x"});
+      require(
+          !m_controlInput.focusedArea() && m_drafts.at(m_channelId) == "Reply draft",
+          "Typing over an unfocused picker never selects the covered composer"
+      );
       m_window.focusChanged(true);
       onKey({XKB_KEY_Escape});
       require(!m_emojiMenu && m_replies.contains(m_channelId), "Escape closes the picker before cancelling a reply");
@@ -300,6 +350,18 @@ namespace app {
       const auto* area = m_controlInput.focusedArea();
       m_window.focusChanged(true);
       require(area && m_controlInput.focusedArea() == area, "Activation preserves an inline message editor");
+      onKey({XKB_KEY_x, "x"});
+      require(
+          m_controlInput.focusedArea() == area && m_drafts.at(m_channelId) == "Reply draft",
+          "Typing in an inline editor never selects the composer"
+      );
+      m_controlInput.setFocus(nullptr);
+      onKey({XKB_KEY_x, "x"});
+      require(
+          !m_controlInput.focusedArea() && m_drafts.at(m_channelId) == "Reply draft",
+          "An unfocused inline editor prevents automatic composer focus"
+      );
+      focusControl("message-edit");
       onKey({XKB_KEY_Escape});
       require(!m_messageEdit && m_replies.contains(m_channelId), "Escape closes the editor before the reply");
       onKey({XKB_KEY_Escape});

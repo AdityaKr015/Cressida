@@ -303,6 +303,7 @@ namespace app {
     void demoMessageEditStep();
     void demoComposerReplyStep();
     void windowFocusChanged(bool focused);
+    void focusChatComposer();
     void closeVideo();
     void openVideo(const std::string& source);
     void drawVideo(

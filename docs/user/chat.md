@@ -8,8 +8,10 @@ description:
 
 Choose a channel or DM, type in the composer and press **Enter** to send. Use
 **Shift+Enter** for a new line. When an ordinary chat window regains focus, the
-composer is focused so you can type right away. Open dialogs and editors keep
-their own focus.
+composer is focused so you can type right away. If you click away from the
+composer and no control has focus, pressing a key focuses it and applies that
+key to your draft. Shortcuts, Tab navigation and Escape keep their usual
+actions. Open dialogs, pickers, settings and editors keep their own focus.
 
 ## Reply to someone
 

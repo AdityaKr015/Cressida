@@ -9,6 +9,10 @@ priority over the chat behind it.
 
 ## Composer
 
+When no control has focus in a chat, pressing a key focuses the composer. Your
+first character is included in the draft. Shortcuts, Tab navigation and Escape
+keep their usual actions, and open overlays or editors take priority.
+
 | Shortcut        | Action                                             |
 | --------------- | -------------------------------------------------- |
 | Enter           | Send the message.                                  |

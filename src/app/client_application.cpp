@@ -16,6 +16,7 @@
 #include "core/environment.h"
 #include "core/files/resource_paths.h"
 #include "core/input/key_modifiers.h"
+#include "core/input/key_symbols.h"
 #include "core/timer_manager.h"
 #include "render/core/texture_manager.h"
 #include "render/gl_shared_context.h"
@@ -7217,13 +7218,20 @@ namespace app {
     }
     if (key.symbol != XKB_KEY_Escape && completionKey(key))
       return;
-    if (key.symbol == XKB_KEY_Tab && m_viewImage.empty()) {
+    if (KeySymbol::isTab(key.symbol) && m_viewImage.empty()) {
       (void)m_controlInput.cycleTabFocus(key.shift);
       m_window.invalidate();
       return;
     }
     if (messageEditKey(key))
       return;
+    if (!m_controlInput.focusedArea()
+        && !key.control
+        && !key.alt
+        && !key.super
+        && !KeySymbol::isModifier(key.symbol)
+        && key.symbol != XKB_KEY_Escape)
+      focusChatComposer();
     if (key.symbol != XKB_KEY_Escape && m_controlInput.focusedArea()) {
       const auto unicode = key.text.empty() ? 0U : static_cast<std::uint32_t>(g_utf8_get_char(key.text.c_str()));
       m_controlInput.keyEvent(
