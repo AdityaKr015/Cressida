@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="assets/cressida-logo.svg" alt="Cressida logo" width="180">
+  <a href="https://cressida.lysec.dev">
+    <img src="assets/cressida-logo.svg" alt="Cressida logo" width="180">
+  </a>
 </p>
 
 > [!WARNING]
@@ -20,9 +22,17 @@ A few highlights:
 - Built-in image/video viewing, GIFs, custom emoji and stickers.
 - Custom themes with automatic dark and light switching.
 
+## Documentation
+
+Visit [cressida.lysec.dev](https://cressida.lysec.dev) for the website and
+[user documentation](https://cressida.lysec.dev/docs/) covering installation,
+everyday use, themes and troubleshooting.
+
 ## Run
+
 A Wayland desktop and working graphics drivers are required.
-For builds without Nix or Guix and distribution packages, see [PACKAGING.md](PACKAGING.md).
+See the [installation guide](https://cressida.lysec.dev/docs/installation/)
+and [packaging notes](PACKAGING.md) for build requirements and installation options.
 With the build dependencies installed, `just install` builds and installs a
 release under `/usr/local`. Use `just install release "$HOME/.local"` for a user-local install.
 
@@ -32,27 +42,6 @@ Run `cressida --start-minimized` for a hidden tray startup. If no tray host appe
 within five seconds, the window opens normally.
 Launching `cressida` or its application-menu entry again opens or focuses the
 running client. Use `cressida --new-instance` (or `cressida -n`) for a separate client.
-
-### Nix
-With Nix installed, run from this checkout:
-
-```sh
-nix run path:.
-```
-
-### Guix
-Add the following to your list of channels:
-
-``` scheme
-(channel
-    (name 'cressida)
-    (url "https://github.com/Ly-sec/Cressida")
-    (branch "main"))
-```
-
-After you perform `guix pull` (or `guix pull --select=cressida`), the `cressida-git`
-package will be available under the module `(cressida)`. Whenever you want to update,
-run `guix pull` again to get latest commit.
 
 ## Sign in
 
@@ -67,10 +56,8 @@ Image uploads are supported. Some Discord controls and settings remain incomplet
 
 ## Contributing
 
-Read the [user documentation](docs/user/index.md) for installation, everyday use,
-themes and troubleshooting. Documentation lives under `docs/` on `main`; the
-website imports it during its build. See [the authoring guide](docs/README.md)
-to update or preview a page.
+Documentation lives under `docs/` on `main`; the website imports it during its
+build. See [the authoring guide](docs/README.md) to update or preview a page.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance.
 

@@ -67,6 +67,10 @@ Explain the problem, the resulting behavior and the checks you ran. For visual
 changes, include representative screenshots with sample data. Keep known
 limitations visible rather than making an unfinished control appear supported.
 
+Complete the documentation checklist before marking a PR ready for review:
+update the relevant guides in `docs/user/` and navigation in `docs/sidebar.json`
+where needed, or explain why the change needs no documentation update.
+
 ## Website changes
 
 Documentation pages live in `docs/user/` on `main`, with navigation in

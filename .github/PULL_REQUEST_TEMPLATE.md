@@ -38,7 +38,7 @@
 - [ ] I ran `just lint`, or explained why it was not run.
 - [ ] I ran the relevant build and tests, or explained why they were not run.
 - [ ] I self-reviewed the changes and checked for new warnings or errors.
-- [ ] I updated the relevant documentation, or no documentation changes are needed.
+- [ ] I updated `docs/user/` and `docs/sidebar.json` where needed, or explained why no documentation changes are needed.
 - [ ] I kept credentials and private account data out of code, logs and fixtures.
 
 ## Additional Notes
